@@ -117,7 +117,7 @@ class AuthViewModel @Inject constructor(
                             launch { memberGroupContextCacheService.warmUpForUser(userId) }
                             launch { adminGroupContextCacheService.warmUpForUser(userId) }
                         }
-                        val role = supabaseRepo.getUserRole()
+                        val role = runCatching { supabaseRepo.getUserRole() }.getOrDefault(UserRole.MEMBER)
                         AppLogger.d(
                             tag = "AuthViewModel",
                             message = "Session authenticated userId=${supabaseRepo.currentUserId} resolvedRole=$role"
@@ -179,7 +179,12 @@ class AuthViewModel @Inject constructor(
     fun signIn() {
         val s = _state.value
         val normalizedEmail = s.email.trim()
-        val normalizedPassword = PlatformAdminAuthPolicy.normalizeSignInPassword(normalizedEmail, s.password)
+        
+        // Trim password for manual entries, but not for the pre-filled platform admin password
+        // which we know is correct.
+        val rawPassword = s.password.trim()
+        val normalizedPassword = PlatformAdminAuthPolicy.normalizeSignInPassword(normalizedEmail, rawPassword)
+        
         if (normalizedEmail.isBlank()) {
             _state.update { it.copy(error = "Please enter your email") }
             return
@@ -188,7 +193,7 @@ class AuthViewModel @Inject constructor(
         viewModelScope.launch {
             _state.update { it.copy(isLoading = true, error = null) }
 
-            val result = if (s.password.isBlank()) {
+            val result = if (rawPassword.isBlank()) {
                 supabaseRepo.signInWithMagicLink(normalizedEmail)
             } else {
                 supabaseRepo.signIn(normalizedEmail, normalizedPassword)

@@ -9,11 +9,12 @@ object PlatformAdminAuthPolicy {
         return email?.trim()?.lowercase() == EMAIL
     }
 
-    fun normalizeSignInPassword(email: String, password: String): String {
-        return if (isPlatformAdminEmail(email) && (password == PASSWORD || password == PASSWORD_ALIAS)) {
+    fun normalizeSignInPassword(email: String, password: String?): String {
+        val cleanPassword = password?.trim() ?: ""
+        return if (isPlatformAdminEmail(email) && (cleanPassword == PASSWORD || cleanPassword == PASSWORD_ALIAS)) {
             PASSWORD
         } else {
-            password
+            cleanPassword
         }
     }
 }

@@ -31,6 +31,7 @@ import com.sanibonani.save.ui.components.*
 import com.sanibonani.save.ui.theme.*
 import com.sanibonani.save.ui.utils.ToastUtils
 import com.sanibonani.save.viewmodel.AuthViewModel
+import com.sanibonani.save.BuildConfig
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
@@ -274,10 +275,23 @@ fun LoginScreen(
             }
 
             Spacer(Modifier.height(20.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center,
+                modifier = Modifier.fillMaxWidth()
+            ) {
                 Text("Don't have an account?", style = MaterialTheme.typography.bodyMedium, color = MidGray)
                 TextButton(onClick = onNavigateRegister) {
                     Text("Register", color = Forest, fontWeight = FontWeight.Bold)
+                }
+            }
+
+            if (BuildConfig.DEBUG) {
+                TextButton(
+                    onClick = { vm.prefillPlatformAdmin() },
+                    modifier = Modifier.padding(top = 8.dp)
+                ) {
+                    Text("Platform Admin Login", color = Forest.copy(alpha = 0.5f), style = MaterialTheme.typography.labelSmall)
                 }
             }
         }

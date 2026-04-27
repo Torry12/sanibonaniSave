@@ -48,6 +48,7 @@ class MultiGroupTest {
     private val paymentRepo = mockk<PaymentRepository>(relaxed = true)
     private val payoutRepo = mockk<PayoutRepository>(relaxed = true)
     private val exportRepo = mockk<ExportRepository>(relaxed = true)
+    private val loanRepo = mockk<LoanRepository>(relaxed = true)
 
     private val getManagedGroupsUseCase = mockk<GetManagedGroupsUseCase>(relaxed = true)
     private val getAdminDashboardUseCase = mockk<GetAdminDashboardUseCase>(relaxed = true)
@@ -137,7 +138,7 @@ class MultiGroupTest {
         
         val adminViewModel = AdminViewModel(
             supabaseRepo, groupRepo, memberRepo, beneficiaryRepo, memberDocumentRepo,
-            actuarialRepo, notifRepo, paymentRepo, payoutRepo, exportRepo,
+            actuarialRepo, notifRepo, paymentRepo, payoutRepo, exportRepo, loanRepo,
             adminContextCacheService,
             getManagedGroupsUseCase, calculateViabilityUseCase,
             updateMemberStatusUseCase, sendNotificationUseCase, requestPayoutUseCase

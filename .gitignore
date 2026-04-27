@@ -19,6 +19,13 @@ local.properties
 *.vsix
 *.archimate
 
+# Binaries
+*.exe
+*.msi
+*.apk
+*.aar
+*.jar
+
 # Android Studio / IntelliJ
 .idea/
 *.iws

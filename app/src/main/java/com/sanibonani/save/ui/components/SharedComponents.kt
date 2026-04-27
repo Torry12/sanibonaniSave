@@ -36,6 +36,8 @@ import org.osmdroid.tileprovider.tilesource.TileSourceFactory
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Marker
+import org.osmdroid.config.Configuration
+import android.preference.PreferenceManager
 
 import java.util.Locale
 import java.text.NumberFormat
@@ -402,7 +404,13 @@ fun SanibonaniButton(
                 strokeWidth = 2.dp
             )
         } else {
-            Text(text, style = textStyle, fontWeight = FontWeight.Bold)
+            Text(
+                text = text,
+                style = textStyle,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                softWrap = false
+            )
         }
     }
 }
@@ -1158,6 +1166,13 @@ fun SaOsmMap(
     modifier : Modifier = Modifier
 ) {
     val context = LocalContext.current
+    
+    // Initialize OSMDroid configuration
+    LaunchedEffect(Unit) {
+        Configuration.getInstance().load(context, PreferenceManager.getDefaultSharedPreferences(context))
+        Configuration.getInstance().userAgentValue = context.packageName
+    }
+
     val mapView = remember {
         MapView(context).apply {
             setTileSource(TileSourceFactory.MAPNIK)

@@ -1,0 +1,33 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# local.properties.template
+# COPY to local.properties and fill in real values.
+# local.properties is in .gitignore — NEVER commit it to version control.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Android SDK — set automatically by Android Studio
+sdk.dir=/Users/YOUR_USERNAME/Library/Android/sdk
+
+# ── Supabase ──────────────────────────────────────────────────────────────────
+# Dashboard → Project Settings → API
+SUPABASE_URL=https://uqqrrszthrvkpxxidewm.supabase.co
+SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVxcXJyc3p0aHJ2a3B4eGlkZXdtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Mzg0ODg4OTgsImV4cCI6MjA1NDA0ODg5OH0.7z6p_U9_U9_U9_U9_U9_U9_U9_U9_U9_U9_U9_U9_U9_U
+SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVxcXJyc3p0aHJ2a3B4eGlkZXdtIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTczODQ4ODg5OCwiZXhwIjoyMDU0MDQ4ODk4fQ.7z6p_U9_U9_U9_U9_U9_U9_U9_U9_U9_U9_U9_U9_U9_U
+
+# ── YoCo Payment Gateway ──────────────────────────────────────────────────────
+# dashboard.yoco.com → Settings → API Keys
+YOCO_PUBLIC_KEY=pk_test_placeholder
+YOCO_WEBHOOK_SECRET=whsec_placeholder
+
+# ── WhatsApp Business API (Meta) ──────────────────────────────────────────────
+# developers.facebook.com → WhatsApp Business API
+WHATSAPP_TOKEN=EAAG_placeholder
+WHATSAPP_PHONE_NUMBER_ID=123456789
+
+# ── Geoapify (Address Autocomplete) ──
+GEOAPIFY_API_KEY=dc6708382d514e71919342710f73b7c4
+
+# ── Release Keystore ─────────────────────────────────────────────────────────
+KEYSTORE_PATH=keystore/sanibonani-release.jks
+KEYSTORE_PASSWORD=your_keystore_password
+KEY_ALIAS=sanibonani
+KEY_PASSWORD=your_key_password

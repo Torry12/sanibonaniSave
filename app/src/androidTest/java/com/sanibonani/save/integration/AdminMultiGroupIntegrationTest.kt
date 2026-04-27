@@ -9,6 +9,7 @@ import com.sanibonani.save.domain.repository.ActuarialRepository
 import com.sanibonani.save.domain.repository.BeneficiaryRepository
 import com.sanibonani.save.domain.repository.ExportRepository
 import com.sanibonani.save.domain.repository.GroupRepository
+import com.sanibonani.save.domain.repository.LoanRepository
 import com.sanibonani.save.domain.repository.MemberDocumentRepository
 import com.sanibonani.save.domain.repository.MemberRepository
 import com.sanibonani.save.domain.repository.NotificationRepository
@@ -77,6 +78,9 @@ class AdminMultiGroupIntegrationTest {
     lateinit var exportRepo: ExportRepository
 
     @Inject
+    lateinit var loanRepo: LoanRepository
+
+    @Inject
     lateinit var getManagedGroupsUseCase: GetManagedGroupsUseCase
 
     @Inject
@@ -109,6 +113,7 @@ class AdminMultiGroupIntegrationTest {
         viewModel = AdminViewModel(
             supabaseRepo, groupRepository, memberRepo, beneficiaryRepo, memberDocumentRepo,
             actuarialRepo, notifRepo, paymentRepo, payoutRepo, exportRepo,
+            loanRepo,
             adminContextCacheService,
             getManagedGroupsUseCase, calculateViabilityUseCase,
             updateMemberStatusUseCase, sendNotificationUseCase, requestPayoutUseCase

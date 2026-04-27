@@ -245,6 +245,9 @@ fun SanibonaniNavGraph(
                 onNavigateRegisterGroup = {
                     navController.navigateProtected(Screen.RegisterGroup.route, authState.isLoggedIn)
                 },
+                onNavigateBrowseGroups = {
+                    navController.navigate(Screen.BrowseGroups.route)
+                },
                 onNavigateDashboard = {
                     val dest = destinationForUserRole(authState.userRole)
                     navController.navigate(dest)

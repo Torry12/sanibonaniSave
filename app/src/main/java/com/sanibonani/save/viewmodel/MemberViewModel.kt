@@ -21,6 +21,7 @@ import com.sanibonani.save.data.validation.ValidationResult
 import com.sanibonani.save.data.validation.ValidationUtils
 import com.sanibonani.save.domain.model.*
 import com.sanibonani.save.domain.repository.*
+import com.sanibonani.save.domain.usecase.ValidateLoanEligibilityUseCase
 import com.sanibonani.save.domain.usecase.RegisterMemberUseCase
 import com.sanibonani.save.domain.usecase.SendNotificationUseCase
 import com.sanibonani.save.service.MemberGroupContextCacheService
@@ -60,6 +61,7 @@ class MemberViewModel @Inject constructor(
     private val loanRepo: LoanRepository,
     private val registerMemberUseCase: RegisterMemberUseCase,
     private val sendNotificationUseCase: SendNotificationUseCase,
+    private val validateLoanEligibilityUseCase: ValidateLoanEligibilityUseCase,
     private val geoapifyService: GeoapifyService,
     private val contextCacheService: MemberGroupContextCacheService
 ) : ViewModel() {
@@ -1188,8 +1190,9 @@ class MemberViewModel @Inject constructor(
             _uiState.update { it.copy(isLoading = true, error = null) }
 
             // Validate eligibility
-            if (member.status != MemberStatus.ACTIVE) {
-                _uiState.update { it.copy(isLoading = false, error = "Only active members can request loans.") }
+            val eligibility = validateLoanEligibilityUseCase(member, group)
+            if (eligibility is ValidateLoanEligibilityUseCase.EligibilityResult.Ineligible) {
+                _uiState.update { it.copy(isLoading = false, error = eligibility.reason) }
                 return@launch
             }
 

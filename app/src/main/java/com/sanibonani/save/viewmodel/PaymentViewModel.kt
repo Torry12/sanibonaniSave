@@ -24,6 +24,11 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
+/**
+ * UI state for the Payment screen.
+ * Holds all payment context, calculation, and error state for the current member and group.
+ * Updated reactively via StateFlow.
+ */
 data class PaymentUiState(
     val isProcessing: Boolean = false,
     val isSuccess: Boolean = false,
@@ -91,6 +96,11 @@ internal fun calculateRealtimePaymentPreview(
     )
 }
 
+/**
+ * ViewModel for handling payment logic, including contributions, joining fees, and platform fees.
+ * Uses StateFlow for UI state, Hilt for DI, and enforces error handling and validation patterns.
+ * All business logic is kept out of Composables.
+ */
 @HiltViewModel
 class PaymentViewModel @Inject constructor(
     private val supabaseRepo: SupabaseRepository,
@@ -240,6 +250,9 @@ class PaymentViewModel @Inject constructor(
     }
 }
 
+/**
+ * Extension to update PaymentUiState with loaded payment context and preview.
+ */
 private fun PaymentUiState.withLoadedPaymentContext(
     member: Member,
     group: Group,
@@ -261,6 +274,9 @@ private fun PaymentUiState.withLoadedPaymentContext(
     )
 }
 
+/**
+ * Extension to update PaymentUiState with new realtime payment preview.
+ */
 private fun PaymentUiState.withRealtimePreview(preview: RealtimePaymentPreview): PaymentUiState {
     return copy(
         realtimeShortfall = preview.shortfall,
@@ -268,4 +284,3 @@ private fun PaymentUiState.withRealtimePreview(preview: RealtimePaymentPreview):
         nextDueDate = preview.nextDueDate
     )
 }
-

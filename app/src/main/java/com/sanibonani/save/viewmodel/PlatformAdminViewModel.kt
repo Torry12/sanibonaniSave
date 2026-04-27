@@ -11,6 +11,11 @@ import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
+/**
+ * UI state for the Platform Admin portal.
+ * Tracks analytics, group management, payouts, and global settings.
+ * Updated via StateFlow for reactive UI.
+ */
 data class PlatformAdminUiState(
     val analytics: PlatformAnalytics = PlatformAnalytics(),
     val groups: List<Group> = emptyList(),
@@ -21,20 +26,22 @@ data class PlatformAdminUiState(
     val error: String? = null,
     val selectedTab: Int = 0,
     val searchQuery: String = "",
-    
     // Global Settings
     val memberCharge: String = "10.0",
     val registrationFee: String = "700.0",
-    
     // Group Management
     val selectedGroupMetrics: com.sanibonani.save.domain.model.ActuarialMetrics? = null,
     val isSuspending: Boolean = false,
-    
     // Payouts
     val payouts: List<PayoutRequest> = emptyList(),
     val isProcessingPayout: Boolean = false
 )
 
+/**
+ * ViewModel for the Platform Admin portal.
+ * Handles platform-wide analytics, group management, payout processing, and global fee settings.
+ * Uses StateFlow for state, Hilt for DI, and robust error handling.
+ */
 @HiltViewModel
 class PlatformAdminViewModel @Inject constructor(
     private val platformRepo: PlatformRepository,

@@ -622,7 +622,7 @@ interface LoanDao {
     suspend fun deleteLoansByMemberId(memberId: String)
 
     @Query("DELETE FROM loans")
-    suspend fun clearAll()
+    suspend fun clearAllLoans()
 
     @Transaction
     suspend fun syncGroupLoans(groupId: String, loans: List<LoanEntity>) {
@@ -643,7 +643,7 @@ interface LoanDao {
     suspend fun deleteRepaymentsByLoanId(loanId: String)
 
     @Query("DELETE FROM loan_repayments")
-    suspend fun clearAll()
+    suspend fun clearAllRepayments()
 }
 
 @Dao
@@ -709,6 +709,7 @@ abstract class SanibonaniDatabase : RoomDatabase() {
         notificationDao().clearAll()
         payoutDao().clearAll()
         memberDocumentDao().clearAll()
-        loanDao().clearAll()
+        loanDao().clearAllLoans()
+        loanDao().clearAllRepayments()
     }
 }

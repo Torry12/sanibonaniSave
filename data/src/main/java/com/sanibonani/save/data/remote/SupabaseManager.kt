@@ -169,12 +169,39 @@ class SupabaseManager @Inject constructor(
             this.email    = email
             this.password = password
         }
+        updateLoginAuditFields()
     }
 
     override suspend fun signInWithMagicLink(email: String): Result<Unit> = runCatching {
         client.auth.signInWith(OTP) {
             this.email = email
             createUser = false
+        }
+        updateLoginAuditFields()
+    }
+
+    /**
+     * Updates the last_login_at and resets login_attempts for the current user.
+     * This uses the admin client because the auth.users table is not directly writable by users.
+     */
+    private suspend fun updateLoginAuditFields() {
+        val userId = currentUserId ?: return
+        try {
+            adminClient.auth.admin.updateUserById(userId) {
+                userMetadata = buildJsonObject {
+                    // We can't directly update 'last_login_at' column in auth.users via admin.updateUserById
+                    // usually, as it only updates metadata.
+                    // However, we can store it in user_metadata or call an RPC if we want it in the column.
+                    // For now, let's update it in user_metadata and assume a trigger or RPC handles the audit column.
+                    
+                    val existingMeta = currentSession?.user?.userMetadata ?: buildJsonObject {}
+                    existingMeta.forEach { (k, v) -> put(k, v) }
+                    put("last_login_at", JsonPrimitive(kotlinx.datetime.Clock.System.now().toString()))
+                    put("login_attempts", JsonPrimitive(0))
+                }
+            }
+        } catch (e: Exception) {
+            AppLogger.e("SupabaseManager", "Failed to update login audit fields", e)
         }
     }
 
@@ -208,25 +235,29 @@ class SupabaseManager @Inject constructor(
     }
 
     override suspend fun getUserRole(): UserRole {
-        val userId = currentSession?.user?.id ?: return UserRole.MEMBER
-        val sessionEmail = currentSession?.user?.email?.trim()?.lowercase()
+        val user = currentSession?.user ?: return UserRole.MEMBER
+        val userId = user.id
+        val sessionEmail = user.email?.trim()?.lowercase()
 
-        val user = currentSession?.user
+        // 1. Priority check: Hardcoded platform admin email policy
+        if (PlatformAdminAuthPolicy.isPlatformAdminEmail(sessionEmail)) {
+            AppLogger.d("SupabaseManager", "Role resolved to PLATFORM_ADMIN via email policy: $sessionEmail")
+            return UserRole.PLATFORM_ADMIN
+        }
+
+        // 2. Check metadata role (set during signup/migration)
         val metadataRole = user
-            ?.userMetadata
+            .userMetadata
             ?.get("role")
             ?.jsonPrimitive
             ?.contentOrNull
             ?.let(UserRoleMapper::fromRaw)
 
-        // Some Supabase setups store custom claims in app metadata instead of user metadata.
-        val appMetadataRole = user
-            ?.appMetadata
-            ?.get("role")
-            ?.jsonPrimitive
-            ?.contentOrNull
-            ?.let(UserRoleMapper::fromRaw)
+        if (metadataRole == UserRole.PLATFORM_ADMIN) {
+            return UserRole.PLATFORM_ADMIN
+        }
 
+        // 3. Check profile table (authoritative DB-side role)
         val profileRole = runCatching {
             client.postgrest["profiles"].select {
                 filter { eq("id", userId) }
@@ -234,15 +265,20 @@ class SupabaseManager @Inject constructor(
         }.onFailure { e ->
             AppLogger.w(
                 tag = "SupabaseManager",
-                message = "Role resolution via profile failed for userId=$userId.",
+                message = "Role resolution via profile failed for userId=$userId. Falling back to metadata.",
                 throwable = e
             )
         }.getOrNull()
 
-        val resolved = when {
-            PlatformAdminAuthPolicy.isPlatformAdminEmail(sessionEmail) -> UserRole.PLATFORM_ADMIN
-            else -> profileRole ?: metadataRole ?: appMetadataRole ?: UserRole.MEMBER
-        }
+        // 4. Check app metadata (alternative claim storage)
+        val appMetadataRole = user
+            ?.appMetadata
+            ?.get("role")
+            ?.jsonPrimitive
+            ?.contentOrNull
+            ?.let(UserRoleMapper::fromRaw)
+
+        val resolved = profileRole ?: metadataRole ?: appMetadataRole ?: UserRole.MEMBER
 
         AppLogger.d(
             tag = "SupabaseManager",

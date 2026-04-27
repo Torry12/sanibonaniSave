@@ -50,7 +50,7 @@ class LoanRepositoryImpl @Inject constructor(
         cacheSync = { list -> 
             // We don't have a syncMemberLoans yet, but we can clear and insert for now
             // Or just use upsertLoans if we don't care about deletions for now
-            db.loanDao().upsertLoans(list.map { it.toEntity() })
+            db.loanDao().upsertLoans(list)
         }
     )
 
@@ -63,7 +63,7 @@ class LoanRepositoryImpl @Inject constructor(
                 filter { eq("group_id", groupId) }
             }.decodeList<Loan>()
         },
-        cacheSync = { list -> db.loanDao().syncGroupLoans(groupId, list.map { it.toEntity() }) }
+        cacheSync = { list -> db.loanDao().syncGroupLoans(groupId, list) }
     )
 
     override suspend fun approveLoan(loanId: String): Result<Unit> = runCatching {
@@ -115,7 +115,7 @@ class LoanRepositoryImpl @Inject constructor(
         },
         cacheSync = { list -> 
             db.loanDao().deleteRepaymentsByLoanId(loanId)
-            db.loanDao().upsertRepayments(list.map { it.toEntity() })
+            db.loanDao().upsertRepayments(list)
         }
     )
 }

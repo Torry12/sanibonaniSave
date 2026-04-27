@@ -14,12 +14,21 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
+/**
+ * UI state for creating a new Platform Admin user.
+ * Tracks loading, success, and error state for the registration flow.
+ */
 data class CreatePlatformAdminState(
     val isLoading: Boolean = false,
     val success: Boolean = false,
     val error: String? = null
 )
 
+/**
+ * ViewModel for creating a new Platform Admin user.
+ * Handles validation, registration, and error handling for the admin creation flow.
+ * Uses StateFlow for state and Hilt for DI.
+ */
 @HiltViewModel
 class CreatePlatformAdminViewModel @Inject constructor(
     private val supabaseRepo: SupabaseRepository

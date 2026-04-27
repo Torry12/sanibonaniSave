@@ -1,0 +1,209 @@
+l# SanibonaniSave AI Agent Rules
+
+## Project Overview
+South African Savings Groups Administration Platform for burial societies, stokvels, ROSCAs, and community savings groups.
+
+---
+
+## Technology Stack
+- **Language**: Kotlin 2.1.0
+- **UI**: Jetpack Compose (Material 3)
+- **Architecture**: MVVM + Clean Architecture (SOLID)
+- **DI**: Hilt
+- **Local DB**: Room (version 32)
+- **Backend**: Supabase (PostgREST, Realtime, Storage, Auth)
+- **Async**: Coroutines + Flow
+- **Build**: Gradle 8.11.1, AGP 8.7.3, KSP 2.1.0-1.0.29
+
+---
+
+## STRICT RULES
+
+### 1. State Management
+- **NEVER use LiveData** — Use `StateFlow` and `SharedFlow` only
+- ViewModels expose `StateFlow<UiState>` for UI state
+- Use `combine` to aggregate multiple flows
+- Always use `viewModelScope` for coroutines in ViewModels
+
+### 2. Dependency Injection
+- **ALL DI via Hilt** — No manual instantiation of repositories/use cases
+- Use `@Inject constructor` for classes
+- Use `@HiltViewModel` for ViewModels
+- Repository bindings in `@Module` classes with `@Binds`
+
+### 3. ViewModel Rules
+- **ViewModels must NOT reference Android Context**
+- Use repository interfaces, not implementations
+- State updates via `_state.update { it.copy(...) }`
+- Clear transient state when switching contexts (groups/members)
+
+### 4. Repository Pattern
+- All data access through Repository interfaces
+- Repositories implement offline-first with `observeAndSync` pattern
+- Use `Result<T>` for all suspend functions
+- Network errors must have exponential backoff retry logic
+
+### 5. Composables
+- **NO business logic in Composables**
+- Pass ViewModel or state down, not Context
+- Use `remember` for local state only
+- Collect flows with `collectAsState()`
+
+### 6. Database Migrations
+- Add new migrations to `Migrations.kt`
+- Use `safeExec()` wrapper for ALTER TABLE statements
+- Always add migration to `ALL_MIGRATIONS` array
+- Bump database version in `SanibonaniDatabase.kt`
+
+### 7. Supabase Operations
+- Use `upsert` with `onConflict` for inserts that may duplicate
+- Cast UUID to TEXT in RLS policies: `m.id::text = ...`
+- Include proper columns in select queries
+- Use `@SerialName` for snake_case mapping
+
+### 8. Error Handling
+- Two-layer reporting: Blocking (full-screen retry) + Transient (inline)
+- Use `toUserMessage()` extension for user-friendly errors
+- Never expose raw exception messages to UI
+
+### 9. File Organization
+```
+data/
+  ├── local/          # Room entities, DAOs, migrations
+  ├── remote/         # Supabase manager, API services
+  ├── repository/     # Repository implementations
+  └── utils/          # PaymentCalculator, extensions
+domain/
+  ├── model/          # Data classes with @Serializable, @Parcelize
+  ├── repository/     # Repository interfaces
+  └── usecase/        # Business logic orchestration
+app/
+  ├── ui/screens/     # Composable screens
+  ├── ui/components/  # Reusable UI components
+  ├── ui/theme/       # Colors, typography
+  └── viewmodel/      # ViewModels with UiState
+```
+
+---
+
+## Code Patterns
+
+### Creating a New Feature
+1. Define domain model in `Models.kt` with `@Serializable` + `@Parcelize`
+2. Add Room entity + DAO if local caching needed
+3. Define repository interface in `domain/repository/`
+4. Implement repository in `data/repository/`
+5. Create UseCase if orchestrating multiple repositories
+6. Add ViewModel with `@HiltViewModel`
+7. Create Composable screen
+
+### ViewModel State Pattern
+```kotlin
+data class FeatureUiState(
+    val data: List<Item> = emptyList(),
+    val isLoading: Boolean = false,
+    val error: String? = null,
+    val successMessage: String? = null
+)
+
+@HiltViewModel
+class FeatureViewModel @Inject constructor(
+    private val repository: FeatureRepository
+) : ViewModel() {
+    private val _state = MutableStateFlow(FeatureUiState())
+    val state: StateFlow<FeatureUiState> = _state.asStateFlow()
+
+    fun loadData() {
+        viewModelScope.launch {
+            _state.update { it.copy(isLoading = true, error = null) }
+            repository.getData()
+                .onSuccess { data ->
+                    _state.update { it.copy(data = data, isLoading = false) }
+                }
+                .onFailure { e ->
+                    _state.update { it.copy(error = e.toUserMessage(), isLoading = false) }
+                }
+        }
+    }
+}
+```
+
+### Repository Pattern
+```kotlin
+// Interface in domain/
+interface FeatureRepository {
+    fun observeItems(id: String): Flow<Result<List<Item>>>
+    suspend fun addItem(item: Item): Result<Item>
+}
+
+// Implementation in data/
+class FeatureRepositoryImpl @Inject constructor(
+    private val supabase: SupabaseClient,
+    private val db: SanibonaniDatabase
+) : FeatureRepository {
+
+    override fun observeItems(id: String) = observeAndSync(
+        dbFlow = db.itemDao().observeItems(id),
+        mapper = { it.toModel() },
+        toEntity = { it.toEntity() },
+        networkFetch = { supabase.postgrest["items"].select { ... } },
+        cacheSync = { list -> db.itemDao().syncItems(id, list) }
+    )
+
+    override suspend fun addItem(item: Item): Result<Item> = runCatching {
+        supabase.postgrest["items"].upsert(item) {
+            onConflict = "unique_column"
+            select()
+        }.decodeSingle<Item>()
+    }
+}
+```
+
+---
+
+## Naming Conventions
+- **Entities**: `ItemEntity` (Room)
+- **Models**: `Item` (Domain)
+- **ViewModels**: `ItemViewModel`
+- **Screens**: `ItemScreen`, `ItemListScreen`
+- **Repositories**: `ItemRepository` (interface), `ItemRepositoryImpl` (impl)
+- **UseCases**: `GetItemsUseCase`, `CreateItemUseCase`
+- **Composables**: PascalCase functions
+
+---
+
+## Common Pitfalls to Avoid
+1. ❌ Using `insert()` when `upsert()` is needed (unique constraint violations)
+2. ❌ Comparing UUID with TEXT without casting in SQL
+3. ❌ Launching async operations in `submitGroup()` without awaiting
+4. ❌ Silent returns on null checks without user feedback
+5. ❌ Forgetting to add migrations to `ALL_MIGRATIONS`
+6. ❌ Using `LiveData` instead of `Flow`
+7. ❌ Referencing Context in ViewModel
+
+---
+
+## Testing Accounts
+| Role | Email | Password |
+|------|-------|----------|
+| Platform Admin | torryymsimango@gmail.com | torry123M |
+| Group Admin 1 | admin1@test.com | password123 |
+| Member 1 | member1@test.com | password123 |
+
+---
+
+## Build Configuration
+- Secrets in `local.properties`: `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `YOCO_PUBLIC_KEY`, `GEOAPIFY_API_KEY`
+- Injected via `BuildConfig`
+- Never commit secrets to repository
+
+---
+
+## Key Files Reference
+- `Models.kt` — All domain models
+- `Migrations.kt` — Room database migrations
+- `SanibonaniDatabase.kt` — Room DB definition
+- `Mappers.kt` — Entity ↔ Model conversions
+- `PaymentCalculator.kt` — Financial calculations
+- `BaseRepository.kt` — observeAndSync pattern
+
