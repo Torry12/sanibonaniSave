@@ -1,0 +1,43 @@
+name: Android CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: set up JDK 17
+      uses: actions/setup-java@v4
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+        cache: gradle
+
+    - name: Create local.properties
+      run: |
+        echo "SUPABASE_URL=${{ secrets.SUPABASE_URL }}" >> local.properties
+        echo "SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }}" >> local.properties
+        echo "SUPABASE_SERVICE_ROLE_KEY=${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" >> local.properties
+        echo "YOCO_PUBLIC_KEY=${{ secrets.YOCO_PUBLIC_KEY }}" >> local.properties
+        echo "GEOAPIFY_API_KEY=${{ secrets.GEOAPIFY_API_KEY }}" >> local.properties
+        echo "WHATSAPP_TOKEN=${{ secrets.WHATSAPP_TOKEN }}" >> local.properties
+        echo "WHATSAPP_PHONE_NUMBER_ID=${{ secrets.WHATSAPP_PHONE_NUMBER_ID }}" >> local.properties
+
+    - name: Grant execute permission for gradlew
+      run: chmod +x gradlew
+
+    - name: Build with Gradle
+      run: ./gradlew assembleDebug
+
+    - name: Run Unit Tests
+      run: ./gradlew test
+
+    - name: Run Lint
+      run: ./gradlew lintDebug
