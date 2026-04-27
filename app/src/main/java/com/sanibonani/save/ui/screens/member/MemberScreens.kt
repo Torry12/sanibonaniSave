@@ -292,6 +292,7 @@ fun MemberDashboardScreen(
                     profileImageHeaders = state.member?.profilePhotoUrl
                         ?.let { vm.getDownloadParams(it) }
                         ?: emptyMap(),
+                    profileImageVersion = state.profileImageVersion,
                     onLogoutClick = onLogout,
                     onSwitchPortal = onNavigateAdmin,
                     isPortalSwitchable = true

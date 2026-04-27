@@ -128,7 +128,6 @@ class MemberViewModel @Inject constructor(
     /**
      * Loads all memberships for the current user.
      * Automatically switches to the most recent membership if available.
-     * Uses distinctUntilChanged to prevent unnecessary recompositions.
      */
     private fun loadUserMemberships() {
         val userId = supabaseRepo.currentUserId ?: return
@@ -136,8 +135,8 @@ class MemberViewModel @Inject constructor(
 
         membershipObservationJob?.cancel()
         membershipObservationJob = viewModelScope.launch {
-            // Only set loading if we don't have data yet
-            if (_uiState.value.member == null) {
+            // Only set loading if we don't have memberships yet
+            if (_uiState.value.memberships.isEmpty()) {
                 _uiState.update { it.copy(isLoading = true, error = null) }
             }
 

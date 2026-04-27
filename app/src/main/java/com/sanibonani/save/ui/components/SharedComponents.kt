@@ -409,7 +409,8 @@ fun SanibonaniButton(
                 style = textStyle,
                 fontWeight = FontWeight.Bold,
                 maxLines = 1,
-                softWrap = false
+                softWrap = false,
+                overflow = TextOverflow.Ellipsis
             )
         }
     }
@@ -800,6 +801,7 @@ fun DashboardHeaderWithNotif(
     onNotifClick: () -> Unit,
     profileImageUrl: String? = null,
     profileImageHeaders: Map<String, String> = emptyMap(),
+    profileImageVersion: Long = 0L,
     onLogoutClick: (() -> Unit)? = null,
     onSwitchPortal: (() -> Unit)? = null,
     isPortalSwitchable: Boolean = false
@@ -807,12 +809,13 @@ fun DashboardHeaderWithNotif(
     var showMenu by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val authHeaderKey = profileImageHeaders["Authorization"].orEmpty()
-    // Build a stable ImageRequest - only rebuild when the URL or auth token actually changes.
-    val profileImageRequest = remember(profileImageUrl, authHeaderKey) {
+    // Build a stable ImageRequest - only rebuild when the URL, auth token, or version actually changes.
+    val profileImageRequest = remember(profileImageUrl, authHeaderKey, profileImageVersion) {
         if (profileImageUrl.isNullOrBlank()) null
         else ImageRequest.Builder(context)
             .data(profileImageUrl)
             .apply { profileImageHeaders.forEach { (k, v) -> addHeader(k, v) } }
+            .memoryCacheKey("$profileImageUrl-$profileImageVersion")
             .memoryCachePolicy(CachePolicy.ENABLED)
             .diskCachePolicy(CachePolicy.ENABLED)
             .networkCachePolicy(CachePolicy.ENABLED)

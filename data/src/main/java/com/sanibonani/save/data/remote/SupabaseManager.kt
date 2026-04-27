@@ -57,92 +57,63 @@ class SupabaseManager @Inject constructor(
         (status as? SessionStatus.Authenticated)?.session
     }
 
-    /**
-     * Attempts to sign up a new user. If the email is already registered, throws a user-friendly error.
-     * If a server error occurs, throws a user-friendly error. Attempts fallback sign-in if needed.
-     */
     override suspend fun signUp(
         email: String, 
         password: String, 
         metadata: Map<String, String>
     ): Result<String> = runCatching {
-        var userId: String? = null
+        val trimmedEmail = email.trim()
+        val trimmedPassword = password.trim()
+        
         try {
             val response = client.auth.signUpWith(Email) {
-                this.email    = email
-                this.password = password
+                this.email = trimmedEmail
+                this.password = trimmedPassword
                 if (metadata.isNotEmpty()) {
                     data = buildJsonObject {
                         metadata.forEach { (k, v) -> put(k, JsonPrimitive(v)) }
                     }
                 }
             }
-            userId = response?.id ?: client.auth.currentUserOrNull()?.id
+            response?.id ?: client.auth.currentUserOrNull()?.id ?: throw IllegalStateException("Signup succeeded but user ID is missing.")
         } catch (e: Exception) {
-            val msg = e.message ?: ""
-            // Some Supabase auth failures return opaque "Unknown Error URL ... /auth/v1/signup" payloads.
-            // Treat these as possible duplicate-account cases and attempt sign-in with provided credentials.
-            val looksLikeExistingAccount =
-                msg.contains("already registered", ignoreCase = true) ||
-                    msg.contains("user already", ignoreCase = true) ||
-                    msg.contains("already been registered", ignoreCase = true) ||
-                    msg.contains("email exists", ignoreCase = true) ||
-                    (msg.contains("unknown error", ignoreCase = true) && msg.contains("/auth/v1/signup", ignoreCase = true)) ||
-                    (msg.contains("unprocessable", ignoreCase = true) && msg.contains("/auth/v1/signup", ignoreCase = true))
-            val looksLikeServerError =
-                msg.contains("500", ignoreCase = true) ||
-                    msg.contains("Internal Server Error", ignoreCase = true)
+            val msg = e.message.orEmpty()
+            val isUserExists = msg.contains("already registered", ignoreCase = true) || 
+                             msg.contains("email exists", ignoreCase = true) ||
+                             msg.contains("user already", ignoreCase = true) ||
+                             msg.contains("400", ignoreCase = true) // 400 is common for "user already exists"
 
-            if (looksLikeExistingAccount || looksLikeServerError) {
-                // Try to sign in to see if the user actually exists
+            if (isUserExists) {
+                // If user exists, attempt to sign in to confirm ownership and get the ID
                 try {
                     client.auth.signInWith(Email) {
-                        this.email = email
-                        this.password = password
+                        this.email = trimmedEmail
+                        this.password = trimmedPassword
                     }
-                    userId = client.auth.currentUserOrNull()?.id
+                    client.auth.currentUserOrNull()?.id ?: throw IllegalStateException("Sign-in succeeded but user ID is missing.")
                 } catch (signInError: Exception) {
-                    val signInMsg = signInError.message.orEmpty()
-                    if (looksLikeExistingAccount || signInMsg.contains("invalid login credentials", ignoreCase = true)) {
-                        throw IllegalStateException("This email is already registered. Please sign in or reset your password.")
+                    val siMsg = signInError.message.orEmpty()
+                    if (siMsg.contains("invalid login credentials", ignoreCase = true)) {
+                        throw IllegalStateException("This email is already registered with a different password.")
                     }
-                    // If sign in fails and this looked like a backend issue, keep message user-friendly.
-                    if (looksLikeServerError) {
-                        throw IllegalStateException("Server error while creating account. Please try again.")
+                    // If it's a server error or network error, provide a friendly message
+                    val friendly = when {
+                        siMsg.contains("500") -> "Server error. Please try again."
+                        siMsg.contains("network", ignoreCase = true) -> "Network error. Please check your connection."
+                        else -> siMsg.ifBlank { "Account registration failed. This email might already be in use." }
                     }
-                    throw e
+                    throw Exception(friendly)
                 }
             } else {
-                throw e
+                // Not an "already exists" error, just rethrow with user-friendly message if possible
+                val userFriendlyMsg = when {
+                    msg.contains("500") || msg.contains("Internal Server Error") -> "Server error while creating account. Please try again."
+                    msg.contains("network", ignoreCase = true) -> "Network error. Please check your connection."
+                    else -> msg
+                }
+                throw Exception(userFriendlyMsg)
             }
         }
-
-        // Fallback logic: try to resolve userId if not set
-        if (userId == null) {
-            userId = client.auth.currentSessionOrNull()?.user?.id ?: client.auth.currentUserOrNull()?.id
-        }
-
-        if (userId == null) {
-            try {
-                client.auth.signInWith(Email) {
-                    this.email = email
-                    this.password = password
-                }
-                repeat(3) {
-                    delay(400)
-                    userId = client.auth.currentSessionOrNull()?.user?.id ?: client.auth.currentUserOrNull()?.id
-                    if (userId != null) return@repeat
-                }
-            } catch (signInError: Exception) {
-                val msg = signInError.message ?: ""
-                if (msg.contains("invalid login credentials", ignoreCase = true)) {
-                    throw IllegalStateException("Email already registered with different password.")
-                }
-                throw signInError
-            }
-        }
-
-        userId ?: throw IllegalStateException("Failed to obtain user ID.")
     }
 
     override suspend fun adminSignUp(
