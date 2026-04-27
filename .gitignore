@@ -1,0 +1,59 @@
+*.iml
+.gradle
+/local.properties
+/.idea/caches
+/.idea/libraries
+/.idea/modules.xml
+/.idea/workspace.xml
+/.idea/navEditor.xml
+/.idea/assetWizardSettings.xml
+.DS_Store
+/build
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+.idea/shelf
+*.log
+*.txt
+*.vsix
+*.archimate
+
+# Android Studio / IntelliJ
+.idea/
+*.iws
+*.iml
+*.ipr
+
+# Gradle
+.gradle/
+build/
+
+# Build artifacts
+**/build/
+
+# KSP generated files
+**/build/generated/ksp/
+
+# Local properties
+local.properties
+
+# Logs
+*.log
+build_error.txt
+build_log.txt
+build_output.txt
+test_output.txt
+test_results.txt
+debug_log.txt
+ksp_error.txt
+ksp_log.txt
+
+# Temporary files
+.tmp/
+.kotlin/
+daemon/
+caches/
+native/
+wrapper/
+kotlin-profile/

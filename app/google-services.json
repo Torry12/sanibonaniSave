@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "10602883253",
+    "project_id": "comsanibonanisave",
+    "storage_bucket": "comsanibonanisave.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:10602883253:android:088d48cd314b30b33ab6fc",
+        "android_client_info": {
+          "package_name": "com.sanibonani.save"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBnZXZmxWTKlI1AHPNNfZioI6AEX5e5pyQ"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

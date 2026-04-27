@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+  <title>SanibonaniSave — Group Map</title>
+
+  <!-- Leaflet (CDN)
+       IMPORTANT: Do NOT use SRI/integrity attributes inside a file:// WebView.
+       Some Android WebView builds fail the integrity/CORS checks which causes Leaflet to
+       never load, leaving a blank white map.
+  -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+  <style>
+    html, body { height: 100%; width: 100%; margin: 0; padding: 0; }
+    #map { height: 100%; width: 100%; }
+
+    #error {
+      position: absolute;
+      inset: 0;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      box-sizing: border-box;
+      font-family: sans-serif;
+      color: #1b1b1b;
+      background: #faf7f2;
+      text-align: center;
+    }
+
+    /* Reduce tap delay + prevent text selection */
+    body { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+
+    /* Make the default attribution less visually heavy in-app */
+    .leaflet-control-attribution { font-size: 10px; }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+  <div id="error"></div>
+
+  <script>
+    // Default: South Africa
+    const DEFAULT_CENTER = [-29.0, 25.0];
+    const DEFAULT_ZOOM = 6;
+
+    function safeString(value) {
+      if (value === undefined || value === null) return '';
+      return String(value);
+    }
+
+    function notifyMarkerClick(groupId) {
+      try {
+        if (window.Android && typeof window.Android.onMarkerClick === 'function') {
+          window.Android.onMarkerClick(safeString(groupId));
+        }
+      } catch (e) {
+        // Ignore — bridge might not be available (preview / tests)
+      }
+    }
+
+    function showError(message) {
+      const el = document.getElementById('error');
+      if (!el) return;
+      el.style.display = 'flex';
+      el.innerHTML = `
+        <div>
+          <div style="font-size: 18px; font-weight: 800; margin-bottom: 6px;">Map couldn’t load</div>
+          <div style="opacity: 0.8; font-size: 14px; line-height: 20px;">
+            ${safeString(message) || 'Please check your internet connection and try again.'}
+          </div>
+        </div>
+      `;
+    }
+
+    // If Leaflet fails to load from the primary CDN (unpkg), we attempt a secondary CDN
+    // (jsDelivr). This prevents a blank white screen on networks/devices that block unpkg.
+    let __initialized = false;
+
+    function initLeafletIfReady() {
+      if (__initialized) return true;
+      if (typeof L === 'undefined') return false;
+
+      const map = L.map('map', {
+        zoomControl: true,
+        attributionControl: true
+      }).setView(DEFAULT_CENTER, DEFAULT_ZOOM);
+
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '&copy; OpenStreetMap contributors'
+      }).addTo(map);
+
+      const markersLayer = L.layerGroup().addTo(map);
+
+      // Called from Android via evaluateJavascript
+      window.setGroups = function(groups) {
+        try {
+          markersLayer.clearLayers();
+
+          if (!groups || !Array.isArray(groups) || groups.length === 0) {
+            map.setView(DEFAULT_CENTER, DEFAULT_ZOOM);
+            return;
+          }
+
+          const bounds = [];
+
+          groups.forEach(g => {
+            const lat = Number(g.lat);
+            const lon = Number(g.lon);
+            if (!isFinite(lat) || !isFinite(lon)) return;
+
+            bounds.push([lat, lon]);
+
+            const title = safeString(g.name);
+            const subtitle = safeString(g.subtitle);
+
+            const marker = L.marker([lat, lon]);
+            marker.on('click', () => notifyMarkerClick(g.id));
+
+            // Keep popup simple for WebView performance
+            const popupHtml = `<div style="font-family: sans-serif;">
+                <div style="font-weight:700; margin-bottom:2px;">${title}</div>
+                ${subtitle ? `<div style=\"opacity:0.8; font-size:12px;\">${subtitle}</div>` : ''}
+              </div>`;
+
+            marker.bindPopup(popupHtml);
+            marker.addTo(markersLayer);
+          });
+
+          if (bounds.length === 1) {
+            map.setView(bounds[0], 14);
+          } else if (bounds.length > 1) {
+            map.fitBounds(bounds, { padding: [24, 24] });
+          }
+        } catch (e) {
+          map.setView(DEFAULT_CENTER, DEFAULT_ZOOM);
+        }
+      };
+
+      // Signal readiness (optional)
+      window.__leafletReady = true;
+      __initialized = true;
+      return true;
+    }
+
+    function injectLeafletFallbackCdn() {
+      if (document.getElementById('leaflet-fallback-js')) return;
+
+      const css = document.createElement('link');
+      css.id = 'leaflet-fallback-css';
+      css.rel = 'stylesheet';
+      css.href = 'https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css';
+      document.head.appendChild(css);
+
+      const js = document.createElement('script');
+      js.id = 'leaflet-fallback-js';
+      js.src = 'https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js';
+      js.onload = function() { initLeafletIfReady(); };
+      document.head.appendChild(js);
+    }
+
+    // Try primary load first; if not present, inject fallback and poll briefly.
+    if (!initLeafletIfReady()) {
+      injectLeafletFallbackCdn();
+
+      let attempts = 0;
+      const timer = setInterval(function() {
+        attempts += 1;
+        if (initLeafletIfReady()) {
+          clearInterval(timer);
+        } else if (attempts >= 20) {
+          clearInterval(timer);
+          window.setGroups = function(_) {};
+          window.__leafletReady = true;
+          showError('Leaflet library failed to load.');
+        }
+      }, 250);
+    }
+  </script>
+</body>
+</html>
+

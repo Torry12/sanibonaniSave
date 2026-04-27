@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="database" path="sanibonani.db"/>
+        <exclude domain="sharedpref" path="supabase_auth.xml"/>
+    </cloud-backup>
+</data-extraction-rules>
