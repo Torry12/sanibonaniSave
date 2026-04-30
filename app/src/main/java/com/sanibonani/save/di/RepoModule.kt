@@ -112,4 +112,10 @@ abstract class RepoModule {
     abstract fun bindLoanRepository(
         loanRepositoryImpl: LoanRepositoryImpl
     ): LoanRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindAgentRepository(
+        agentRepositoryImpl: AgentRepositoryImpl
+    ): AgentRepository
 }

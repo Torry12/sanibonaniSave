@@ -114,7 +114,7 @@ class PlatformRepositoryImpl @Inject constructor(
     override suspend fun updateGlobalFees(memberCharge: Double, registrationFee: Double): Result<Unit> = retryWithExponentialBackoff {
         runCatching {
             // Upsert monthly_per_member fee
-            supabase.postgrest["platform_fees"].upsert(buildJsonObject {
+            supabase.postgrest["platform_settings"].upsert(buildJsonObject {
                 put("key", "monthly_per_member")
                 put("value", memberCharge)
             }) {
@@ -122,7 +122,7 @@ class PlatformRepositoryImpl @Inject constructor(
                 select()
             }
             // Upsert registration_fee
-            supabase.postgrest["platform_fees"].upsert(buildJsonObject {
+            supabase.postgrest["platform_settings"].upsert(buildJsonObject {
                 put("key", "registration_fee")
                 put("value", registrationFee)
             }) {
@@ -136,9 +136,9 @@ class PlatformRepositoryImpl @Inject constructor(
     override suspend fun getPlatformSettings(): Result<Map<String, Double>> = retryWithExponentialBackoff {
         runCatching {
             val settings = try {
-                supabase.postgrest["platform_fees"].select().decodeList<PlatformSetting>()
+                supabase.postgrest["platform_settings"].select().decodeList<PlatformSetting>()
             } catch (e: Exception) {
-                AppLogger.w(tag, "Failed to fetch platform_fees: ${e.message}")
+                AppLogger.w(tag, "Failed to fetch platform_settings: ${e.message}")
                 emptyList<PlatformSetting>()
             }
             val settingsMap = settings.associate { it.key to it.value }.toMutableMap()
@@ -195,6 +195,13 @@ class PlatformRepositoryImpl @Inject constructor(
 
     override suspend fun getGroupMetrics(groupId: String): Result<ActuarialMetrics> = retryWithExponentialBackoff {
         actuarialRepo.computeMetrics(groupId)
+    }
+
+    override suspend fun logAuditEvent(auditLog: AuditLog): Result<Unit> = retryWithExponentialBackoff {
+        runCatching {
+            supabase.postgrest["audit_logs"].insert(auditLog) { select() }
+            Unit
+        }
     }
 }
 

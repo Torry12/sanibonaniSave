@@ -41,10 +41,14 @@ class RegistrationLifecycleTest {
         every { Log.i(any(), any()) } returns 0
         every { Log.w(any(), any(), any()) } returns 0
         every { Log.e(any(), any(), any()) } returns 0
-        
+
         mockkStatic(FirebaseCrashlytics::class)
         val mockCrashlytics = mockk<FirebaseCrashlytics>(relaxed = true)
         every { FirebaseCrashlytics.getInstance() } returns mockCrashlytics
+
+        // Mock Looper.getMainLooper for JVM test environment
+        mockkStatic(android.os.Looper::class)
+        every { android.os.Looper.getMainLooper() } returns mockk(relaxed = true)
 
         Dispatchers.setMain(testDispatcher)
         viewModel = GroupViewModel(groupRepo, createGroupUseCase, getPublicGroupsUseCase, geoapifyService)

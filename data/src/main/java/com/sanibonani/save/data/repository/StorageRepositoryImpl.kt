@@ -69,12 +69,10 @@ class StorageRepositoryImpl @Inject constructor(
     }
 
     override suspend fun getPublicUrl(bucketName: String, path: String): String {
-        // Both `documents` and `avatars` are private buckets in this project.
-        // A `publicUrl()` points to `/object/public/...` which fails for private buckets
-        // even when an Authorization header is attached, because Supabase's storage gateway
-        // rejects authenticated-only objects on the public endpoint regardless of headers.
-        // Use the authenticated endpoint for all app-managed buckets so Coil + auth headers work.
-        return if (bucketName == "documents" || bucketName == "avatars") {
+        // Only `documents` remains a private bucket requiring authenticated access.
+        // `avatars` is now public to ensure fast, reliable profile photo display
+        // without complex auth-header management in every UI component.
+        return if (bucketName == "documents") {
             val base = supabase.supabaseUrl.trimEnd('/')
             "$base/storage/v1/object/authenticated/$bucketName/$path"
         } else {

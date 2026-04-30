@@ -70,6 +70,7 @@ ALTER TABLE IF EXISTS public.beneficiaries ENABLE ROW LEVEL SECURITY;
 ALTER TABLE IF EXISTS public.contributions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE IF EXISTS public.payments ENABLE ROW LEVEL SECURITY;
 ALTER TABLE IF EXISTS public.policies ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS public.platform_settings ENABLE ROW LEVEL SECURITY;
 
 -- 4. HELPER FUNCTIONS
 CREATE OR REPLACE FUNCTION public.policy_exists(p_name TEXT, p_table TEXT)
@@ -264,6 +265,24 @@ DO $$ BEGIN
 
     IF NOT public.policy_exists('Service Role Document Access', 'member_documents') THEN
         CREATE POLICY "Service Role Document Access" ON public.member_documents FOR ALL TO service_role USING (true);
+    END IF;
+END $$;
+
+-- ADDITIONAL POLICY FOR PLATFORM ADMINS
+DO $$ BEGIN
+    IF NOT public.policy_exists('Platform Admin Document Access', 'member_documents') THEN
+        CREATE POLICY "Platform Admin Document Access" ON public.member_documents
+        FOR SELECT, UPDATE TO authenticated
+        USING (EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'platform_admin'));
+    END IF;
+END $$;
+
+-- Platform Admin DELETE access for member_documents
+DO $$ BEGIN
+    IF NOT public.policy_exists('Platform Admin Document Delete', 'member_documents') THEN
+        CREATE POLICY "Platform Admin Document Delete" ON public.member_documents
+        FOR DELETE TO authenticated
+        USING (EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'platform_admin'));
     END IF;
 END $$;
 
@@ -497,3 +516,26 @@ DO $$ BEGIN
         CREATE POLICY "Service Role Platform Fee Access" ON public.platform_fees FOR ALL TO service_role USING (true);
     END IF;
 END $$;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- 16. PLATFORM SETTINGS POLICIES
+-- ─────────────────────────────────────────────────────────────────────────────
+DO $$ BEGIN
+    IF NOT public.policy_exists('Allow All View Settings', 'platform_settings') THEN
+        CREATE POLICY "Allow All View Settings" ON public.platform_settings
+        FOR SELECT TO anon, authenticated USING (true);
+    END IF;
+
+    IF NOT public.policy_exists('Platform Admin Settings Write', 'platform_settings') THEN
+        CREATE POLICY "Platform Admin Settings Write" ON public.platform_settings
+        FOR ALL TO authenticated
+        USING (EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'platform_admin'));
+    END IF;
+
+    IF NOT public.policy_exists('Service Role Settings Access', 'platform_settings') THEN
+        CREATE POLICY "Service Role Settings Access" ON public.platform_settings FOR ALL TO service_role USING (true);
+    END IF;
+END $$;
+
+-- 17. REFRESH PostgREST CACHE
+NOTIFY pgrst, 'reload schema';

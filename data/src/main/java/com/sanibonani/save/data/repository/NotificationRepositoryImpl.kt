@@ -15,6 +15,7 @@ import com.sanibonani.save.data.BuildConfig
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.postgrest.query.Columns
+import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -72,27 +73,48 @@ override fun observeNotifications(groupId: String): Flow<Result<List<AppNotifica
             val memberId = notification.memberId
             if (notification.triggerEvent == NotifEvent.MEMBER_MESSAGE) {
                 // Member inquiry: Send WhatsApp to group administrator
-                val group = supabase.postgrest["groups"].select(columns = Columns.raw(GROUP_COLUMNS_SAFE)) { filter { eq("id", notification.groupId) } }.decodeSingle<Group>()
+                val group = supabase.postgrest["groups"].select(columns = Columns.list("admin_user_id")) { 
+                    filter { eq("id", notification.groupId) } 
+                }.decodeSingle<Group>()
+                
                 val adminUserId = group.adminUserId
                 if (!adminUserId.isNullOrBlank()) {
-                    val admin = supabase.postgrest["members"].select { 
+                    val admin = supabase.postgrest["members"].select(columns = Columns.list("phone")) { 
                         filter { 
                             eq("group_id", notification.groupId)
                             eq("user_id", adminUserId)
                         } 
-                    }.decodeSingle<Member>()
-                    if (!admin.phone.isNullOrBlank()) sendWhatsAppDirect(admin.phone!!, notification.message)
+                    }.decodeSingleOrNull<Member>()
+                    
+                    admin?.phone?.let { if (it.isNotBlank()) sendWhatsAppDirect(it, notification.message) }
                 }
             } else if (memberId != null) {
                 // Direct notification to a specific member
-                val member = supabase.postgrest["members"].select { filter { eq("id", memberId) } }.decodeSingle<Member>()
-                if (!member.phone.isNullOrBlank()) sendWhatsAppDirect(member.phone!!, notification.message)
+                val member = supabase.postgrest["members"].select(columns = Columns.list("phone")) { 
+                    filter { eq("id", memberId) } 
+                }.decodeSingleOrNull<Member>()
+                
+                member?.phone?.let { if (it.isNotBlank()) sendWhatsAppDirect(it, notification.message) }
             } else {
-                // Broadcast to all members in the group
-                val members = supabase.postgrest["members"].select { filter { eq("group_id", notification.groupId) } }.decodeList<Member>()
-                members.forEach { m ->
-                    if (!m.phone.isNullOrBlank() && (m.notificationPref == NotificationPref.WHATSAPP || m.notificationPref == NotificationPref.BOTH)) {
-                        try { sendWhatsAppDirect(m.phone!!, notification.message) } catch (e: Exception) {}
+                // Broadcast to all members in the group (Mass Messaging Optimization)
+                // 1. Fetch only required columns to speed up DB query
+                val members = supabase.postgrest["members"].select(columns = Columns.list("phone", "notification_pref")) { 
+                    filter { eq("group_id", notification.groupId) } 
+                }.decodeList<Member>()
+                
+                // 2. Parallel sending with supervisorScope to prevent one failure from cancelling others
+                supervisorScope {
+                    members.filter { 
+                        !it.phone.isNullOrBlank() && 
+                        (it.notificationPref == NotificationPref.WHATSAPP || it.notificationPref == NotificationPref.BOTH)
+                    }.forEach { m ->
+                        launch(Dispatchers.IO) {
+                            try {
+                                sendWhatsAppDirect(m.phone!!, notification.message)
+                            } catch (e: Exception) {
+                                AppLogger.e("NotificationRepo", "Failed broadcast to ${m.phone}: ${e.message}")
+                            }
+                        }
                     }
                 }
             }
@@ -169,22 +191,26 @@ override fun observeNotifications(groupId: String): Flow<Result<List<AppNotifica
     }
 
     override suspend fun sendPasswordResetWhatsApp(phone: String): Result<Unit> = runCatching {
-        // This should call a Supabase Edge Function or WhatsApp API to send a reset link
-        // For now, we use a generic notification with a reset message
-        val message = "Password reset requested. Please contact your group admin or check your email for reset instructions."
-        // You may want to implement a more secure flow in production
-        // Here, we just send a WhatsApp notification
-        // Use NotifEvent.CUSTOM for this context
-        val notification = AppNotification(
-            groupId = "platform",
-            memberId = null,
-            message = message,
-            channel = NotifChannel.WHATSAPP,
-            triggerEvent = NotifEvent.CUSTOM
+        val formattedPhone = phone.filter { it.isDigit() }.let { 
+            if (it.startsWith("0")) "27${it.drop(1)}" 
+            else if (!it.startsWith("27")) "27$it"
+            else it 
+        }
+
+        val request = WhatsAppMessageRequest(
+            to = formattedPhone,
+            template = WhatsAppTemplate(
+                name = "password_reset", // Ensure this template exists in your Meta Business Suite
+                language = WhatsAppLanguage(code = "en_US"),
+                components = null // Template might not need parameters if it's just a generic link/info
+            )
         )
-        // Send to the phone number provided
-        // You may want to look up the member by phone and send a direct WhatsApp message
-        // For now, we assume the NotificationRepository can handle this
-        sendNotification(notification)
+        
+        whatsappApi.sendTemplateMessage(
+            BuildConfig.WHATSAPP_PHONE_NUMBER_ID, 
+            "Bearer ${BuildConfig.WHATSAPP_TOKEN}", 
+            request
+        )
+        Unit
     }
 }

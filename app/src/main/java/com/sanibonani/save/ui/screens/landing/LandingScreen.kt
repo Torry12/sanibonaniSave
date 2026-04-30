@@ -34,12 +34,12 @@ fun LandingScreen(
     onNavigateBrowseGroups: () -> Unit,
     onNavigateDashboard: () -> Unit,
     onNavigateMemberPortal: () -> Unit,
-    onNavigatePlatformAdmin: () -> Unit,
     viewModel: LandingViewModel = viewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val isLoggedIn = uiState.isLoggedIn
     val userRole = uiState.userRole
+    val isQualifyingPlatformAdmin = uiState.isQualifyingPlatformAdmin
 
     LaunchedEffect(Unit) {
         viewModel.refreshData()
@@ -55,16 +55,16 @@ fun LandingScreen(
                 .verticalScroll(rememberScrollState())
         ) {
             // ── Hero Section ──────────────────────────────────────────────────
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(
-                        Brush.verticalGradient(
-                            listOf(Forest, ForestMid)
-                        )
-                    )
-                    .padding(vertical = 48.dp, horizontal = 24.dp)
-            ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(
+                                Brush.verticalGradient(
+                                    listOf(Forest, ForestMid)
+                                )
+                            )
+                            .padding(vertical = 48.dp, horizontal = 24.dp)
+                    ) {
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center,
@@ -113,16 +113,15 @@ fun LandingScreen(
                     ) {
                         if (isLoggedIn) {
                             val primaryLabel = when {
-                                userRole == UserRole.PLATFORM_ADMIN || uiState.isQualifyingPlatformAdmin -> "Platform Portal"
+                                userRole == UserRole.PLATFORM_ADMIN || isQualifyingPlatformAdmin -> "Platform Portal"
                                 userRole == UserRole.GROUP_ADMIN -> "Admin Dashboard"
                                 else -> "Member Portal"
                             }
                             val primaryAction = when {
-                                userRole == UserRole.PLATFORM_ADMIN || uiState.isQualifyingPlatformAdmin -> onNavigatePlatformAdmin
+                                userRole == UserRole.PLATFORM_ADMIN || isQualifyingPlatformAdmin -> onNavigateMemberPortal
                                 userRole == UserRole.GROUP_ADMIN -> onNavigateDashboard
                                 else -> onNavigateMemberPortal
                             }
-
                             SanibonaniButton(
                                 text = primaryLabel,
                                 onClick = primaryAction,
@@ -176,7 +175,8 @@ fun LandingScreen(
                             }
                         }
                     }
-                    
+                    // ...existing code...
+
                     if (isLoggedIn) {
                         Spacer(Modifier.height(16.dp))
                         TextButton(onClick = onNavigateRegisterGroup) {

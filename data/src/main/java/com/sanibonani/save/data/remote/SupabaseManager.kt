@@ -20,6 +20,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.json.*
+import java.io.IOException
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -108,7 +109,7 @@ class SupabaseManager @Inject constructor(
                 // Not an "already exists" error, just rethrow with user-friendly message if possible
                 val userFriendlyMsg = when {
                     msg.contains("500") || msg.contains("Internal Server Error") -> "Server error while creating account. Please try again."
-                    msg.contains("network", ignoreCase = true) -> "Network error. Please check your connection."
+                    msg.contains("network", ignoreCase = true) || e is IOException -> "Network error. Please check your connection."
                     else -> msg
                 }
                 throw Exception(userFriendlyMsg)
@@ -122,17 +123,39 @@ class SupabaseManager @Inject constructor(
         metadata: Map<String, String>,
         confirm: Boolean
     ): Result<String> = runCatching {
-        val response = adminClient.auth.admin.createUserWithEmail {
-            this.email = email
-            this.password = password
-            autoConfirm = confirm
-            if (metadata.isNotEmpty()) {
-                userMetadata = buildJsonObject {
-                    metadata.forEach { (k, v) -> put(k, JsonPrimitive(v)) }
+        val trimmedEmail = email.trim()
+        val trimmedPassword = password.trim()
+        
+        try {
+            val response = adminClient.auth.admin.createUserWithEmail {
+                this.email = trimmedEmail
+                this.password = trimmedPassword
+                autoConfirm = confirm
+                if (metadata.isNotEmpty()) {
+                    userMetadata = buildJsonObject {
+                        metadata.forEach { (k, v) -> put(k, JsonPrimitive(v)) }
+                    }
                 }
             }
+            response.id
+        } catch (e: Exception) {
+            val msg = e.message.orEmpty()
+            val isUserExists = msg.contains("already registered", ignoreCase = true) || 
+                             msg.contains("email exists", ignoreCase = true) ||
+                             msg.contains("user already", ignoreCase = true) ||
+                             msg.contains("400", ignoreCase = true)
+
+            if (isUserExists) {
+                throw Exception("This email is already registered. Please use a different email or update the existing user.")
+            } else {
+                val userFriendlyMsg = when {
+                    msg.contains("500") || msg.contains("Internal Server Error") -> "Server error while creating admin. Please try again."
+                    msg.contains("network", ignoreCase = true) || msg.contains("connect", ignoreCase = true) || e is IOException -> "Network error. Please check your connection."
+                    else -> msg
+                }
+                throw Exception(userFriendlyMsg)
+            }
         }
-        response.id
     }
 
     override suspend fun signIn(email: String, password: String): Result<Unit> = runCatching {
@@ -183,7 +206,7 @@ class SupabaseManager @Inject constructor(
     override suspend fun sendPasswordResetEmail(email: String): Result<Unit> = runCatching {
         client.auth.resetPasswordForEmail(
             email = email,
-            redirectUrl = "sanibonani://reset-password"
+            redirectUrl = "${client.supabaseUrl}/auth/v1/verify?type=recovery"
         )
     }
 

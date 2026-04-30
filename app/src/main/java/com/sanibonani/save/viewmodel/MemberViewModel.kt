@@ -560,15 +560,9 @@ class MemberViewModel @Inject constructor(
     }
 
     private fun hasActiveObservationFor(groupId: String): Boolean {
-        val state = _uiState.value
         return activeObservedGroupId == groupId &&
-            memberDataObservationJob?.isActive == true &&
-            notificationObservationJob?.isActive == true &&
-            beneficiaryObservationJob?.isActive == true &&
-            loanObservationJob?.isActive == true &&
-            state.member != null &&
-            state.group != null &&
-            !state.isLoading
+            groupObservationJob?.isActive == true &&
+            observationVersion > 0
     }
 
     private fun isStaleObservation(groupId: String, requestVersion: Long): Boolean {

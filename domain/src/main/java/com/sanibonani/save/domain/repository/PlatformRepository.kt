@@ -4,6 +4,7 @@ import com.sanibonani.save.domain.model.Group
 import com.sanibonani.save.domain.model.Payment
 import com.sanibonani.save.domain.model.ActuarialMetrics
 import com.sanibonani.save.domain.model.PlatformAnalytics
+import com.sanibonani.save.domain.model.AuditLog
 
 interface PlatformRepository {
     suspend fun getPlatformAnalytics(): Result<PlatformAnalytics>
@@ -14,4 +15,5 @@ interface PlatformRepository {
     suspend fun suspendGroup(groupId: String, reason: String): Result<Unit>
     suspend fun getPlatformPayments(): Result<List<Payment>>
     suspend fun getGroupMetrics(groupId: String): Result<ActuarialMetrics>
+    suspend fun logAuditEvent(auditLog: AuditLog): Result<Unit>
 }

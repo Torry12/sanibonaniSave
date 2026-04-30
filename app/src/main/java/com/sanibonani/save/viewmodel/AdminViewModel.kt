@@ -178,8 +178,9 @@ class AdminViewModel @Inject constructor(
     }
 
     fun selectGroup(groupId: String) {
-        // Only return early if we are already observing and NOT in an error state
-        if (currentObservedGroupId == groupId && _state.value.error == null && _state.value.group != null) return
+        // Only return early if we are already observing this group.
+        // We check if currentObservedGroupId matches AND if the observation job is still alive.
+        if (currentObservedGroupId == groupId && groupObservationJob?.isActive == true && _state.value.error == null) return
         
         val selectedGroupName = _state.value.managedGroups
             .firstOrNull { it.id == groupId }

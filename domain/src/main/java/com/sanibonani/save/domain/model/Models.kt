@@ -5,6 +5,7 @@ package com.sanibonani.save.domain.model
 import android.os.Parcelable
 import kotlinx.parcelize.IgnoredOnParcel
 import kotlinx.parcelize.Parcelize
+import kotlinx.parcelize.RawValue
 import kotlinx.serialization.*
 import kotlinx.serialization.descriptors.PrimitiveKind
 import kotlinx.serialization.descriptors.PrimitiveSerialDescriptor
@@ -71,7 +72,10 @@ data class Group(
     // Loan settings
     @SerialName("loan_interest_rate")     val loanInterestRate: Double? = null,
     @SerialName("loan_max_amount")        val loanMaxAmount: Double? = null,
-    @SerialName("loan_max_months")        val loanMaxMonths: Int? = null
+    @SerialName("loan_max_months")        val loanMaxMonths: Int? = null,
+
+    // Transient data (not stored in 'groups' table)
+    @Transient val members: List<Member>? = null
 ) : Parcelable {
     val platformFeeAmount: Double get() = currentMembers * PlatformFees.MONTHLY_PER_MEMBER
     val registrationFee: Double   get() = PlatformFees.REGISTRATION
@@ -602,6 +606,20 @@ data class LoanRepayment(
     @SerialName("transaction_id") val transactionId: String? = null,
     @EncodeDefault(EncodeDefault.Mode.NEVER)
     @SerialName("created_at")     val createdAt: String? = null
+) : Parcelable
+
+@Serializable
+@Parcelize
+data class AuditLog(
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val id: String? = null,
+    @SerialName("actor_id") val actorId: String = "",
+    @SerialName("target_member_id") val targetMemberId: String? = null,
+    @SerialName("target_group_id") val targetGroupId: String? = null,
+    val action: String = "",
+    val details: Map<String, @RawValue @Contextual Any>? = null,
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    @SerialName("created_at") val createdAt: String? = null
 ) : Parcelable
 
 val SA_PROVINCES = listOf("Gauteng", "Western Cape", "KwaZulu-Natal", "Eastern Cape", "Limpopo", "Mpumalanga", "North West", "Free State", "Northern Cape")

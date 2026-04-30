@@ -95,13 +95,30 @@ object AppModule {
     @AdminClient
     @OptIn(SupabaseInternal::class)
     fun provideAdminSupabaseClient(json: Json, okHttpClient: OkHttpClient): SupabaseClient {
-        val url = BuildConfig.SUPABASE_URL.trim()
-        val serviceKey = BuildConfig.SUPABASE_SERVICE_ROLE_KEY.trim()
+        val url = BuildConfig.SUPABASE_URL.trim().takeIf { it.isNotBlank() }
+            ?: throw IllegalStateException("SUPABASE_URL is empty. Check local.properties.")
+        val serviceKey = BuildConfig.SUPABASE_SERVICE_ROLE_KEY.trim().takeIf { it.isNotBlank() }
+            ?: throw IllegalStateException("SUPABASE_SERVICE_ROLE_KEY is empty. Check local.properties.")
 
         return createSupabaseClient(
             supabaseUrl = url,
             supabaseKey = serviceKey
         ) {
+            httpConfig {
+                install(HttpTimeout) {
+                    requestTimeoutMillis = 30.seconds.inWholeMilliseconds
+                    connectTimeoutMillis = 30.seconds.inWholeMilliseconds
+                    socketTimeoutMillis = 30.seconds.inWholeMilliseconds
+                }
+                install(Logging) {
+                    level = LogLevel.HEADERS
+                    logger = object : Logger {
+                        override fun log(message: String) {
+                            android.util.Log.d("SupabaseAdmin", message)
+                        }
+                    }
+                }
+            }
             httpEngine = OkHttp.create {
                 preconfigured = okHttpClient
             }

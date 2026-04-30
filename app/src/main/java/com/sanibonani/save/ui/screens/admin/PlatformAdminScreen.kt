@@ -20,6 +20,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.sanibonani.save.domain.model.Group
+import com.sanibonani.save.domain.model.Member
 import com.sanibonani.save.ui.components.*
 import com.sanibonani.save.ui.theme.*
 import com.sanibonani.save.viewmodel.PlatformAdminUiState
@@ -29,6 +30,8 @@ import com.sanibonani.save.viewmodel.PlatformAdminViewModel
 fun PlatformAdminScreen(
     onNavigateToCreateAdmin: () -> Unit,
     onLogout: () -> Unit,
+    onImpersonateGroupAdmin: (groupId: String) -> Unit,
+    onImpersonateMember: (memberId: String, groupId: String) -> Unit,
     vm: PlatformAdminViewModel = hiltViewModel()
 ) {
     val state by vm.state.collectAsState()
@@ -40,7 +43,7 @@ fun PlatformAdminScreen(
                 title = "Platform Administration",
                 actions = {
                     IconButton(onClick = onLogout) {
-                        Icon(Icons.AutoMirrored.Filled.ExitToApp, "Logout", tint = Color.White)
+                        Icon(Icons.AutoMirrored.Filled.ExitToApp, "Logout", tint = Forest)
                     }
                 }
             )
@@ -97,7 +100,7 @@ fun PlatformAdminScreen(
                 1 -> AllGroupsTab(state.groups, vm, state)
                 2 -> FeeManagementTab(state, vm)
                 3 -> DisbursementsTab(state.payouts, state.groups, vm)
-                4 -> MaintenanceTab(vm, onNavigateToCreateAdmin)
+                4 -> MaintenanceTab(vm, onNavigateToCreateAdmin, onLogout, onImpersonateGroupAdmin, onImpersonateMember)
                 else -> CenterPlaceholder("Unknown Tab")
             }
         }
@@ -108,7 +111,10 @@ fun PlatformAdminScreen(
 @Composable
 private fun MaintenanceTab(
     vm: PlatformAdminViewModel,
-    onNavigateToCreateAdmin: () -> Unit
+    onNavigateToCreateAdmin: () -> Unit,
+    onLogout: () -> Unit,
+    onImpersonateGroupAdmin: (groupId: String) -> Unit,
+    onImpersonateMember: (memberId: String, groupId: String) -> Unit
 ) {
     Column(
         Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState()),
@@ -136,6 +142,74 @@ private fun MaintenanceTab(
                     colors = ButtonDefaults.buttonColors(containerColor = Forest)
                 ) {
                     Text("CREATE NEW PLATFORM ADMIN")
+                }
+            }
+        }
+
+        // Impersonation Controls
+        Card(
+            shape = RoundedCornerShape(12.dp),
+            colors = CardDefaults.cardColors(containerColor = Color.White),
+            border = BorderStroke(1.dp, InfoBlue.copy(alpha = 0.3f))
+        ) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("🕵️ Impersonate Group or Member", style = MaterialTheme.typography.titleSmall, color = InfoBlue, fontWeight = FontWeight.Bold)
+                Text(
+                    "Access any group or member portal for maintenance or support. All actions will be logged for audit compliance.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MidGray
+                )
+
+                // List all groups
+                val state by vm.state.collectAsState()
+                Text("Groups:", fontWeight = FontWeight.Bold)
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    state.groups.forEach { group ->
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(group.name, modifier = Modifier.weight(1f))
+                            Button(
+                                onClick = {
+                                    vm.logAudit(
+                                        action = "IMPERSONATE_GROUP_ADMIN",
+                                        targetGroupId = group.id,
+                                        details = mapOf("groupName" to group.name)
+                                    )
+                                    onImpersonateGroupAdmin(group.id ?: "")
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = InfoBlue),
+                                modifier = Modifier.padding(start = 8.dp)
+                            ) {
+                                Text("Enter as Admin")
+                            }
+                        }
+                    }
+                }
+
+                Spacer(Modifier.height(12.dp))
+                Text("Members:", fontWeight = FontWeight.Bold)
+                // For demo: show all members of all groups (in real app, may need paging)
+                val allMembers = remember(state.groups) { state.groups.flatMap { it.members ?: emptyList<Member>() } }
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    allMembers.forEach { member ->
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(member.fullName, modifier = Modifier.weight(1f))
+                            Button(
+                                onClick = {
+                                    vm.logAudit(
+                                        action = "IMPERSONATE_MEMBER",
+                                        targetMemberId = member.id,
+                                        targetGroupId = member.groupId,
+                                        details = mapOf("memberName" to member.fullName)
+                                    )
+                                    onImpersonateMember(member.id ?: "", member.groupId ?: "")
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = InfoBlue),
+                                modifier = Modifier.padding(start = 8.dp)
+                            ) {
+                                Text("Enter as Member")
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -187,6 +261,16 @@ private fun MaintenanceTab(
                 }
             }
         }
+
+        Spacer(Modifier.height(16.dp))
+
+        SanibonaniButton(
+            text = "LOGOUT",
+            onClick = onLogout,
+            modifier = Modifier.fillMaxWidth(),
+            containerColor = Color.Transparent,
+            contentColor = ErrorRed
+        )
         
         Spacer(Modifier.height(32.dp))
     }

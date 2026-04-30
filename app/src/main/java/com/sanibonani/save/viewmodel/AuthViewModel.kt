@@ -17,6 +17,10 @@ import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
+/**
+ * UI state for authentication flows.
+ * errorType: null, "network", "invalid_credentials", "generic" for granular UI feedback.
+ */
 data class AuthState(
     val email: String = "",
     val fullName: String = "",
@@ -26,6 +30,7 @@ data class AuthState(
     val isLoggedIn: Boolean = false,
     val userRole: UserRole = UserRole.MEMBER,
     val error: String? = null,
+    val errorType: String? = null,
     val navigateTo: String? = null,
     val rememberMe: Boolean = false,
     val isNewRegistration: Boolean = false,
@@ -91,7 +96,10 @@ class AuthViewModel @Inject constructor(
         _state.update {
             it.copy(
                 biometricEnabled = false,
-                hasSavedCredentials = false
+                hasSavedCredentials = false,
+                password = "",
+                error = null,
+                errorType = null
             )
         }
     }
@@ -107,6 +115,11 @@ class AuthViewModel @Inject constructor(
         _state.update { it.copy(biometricEnabled = enabled) }
     }
 
+    /**
+     * Observes Supabase session status and orchestrates state/caches accordingly.
+     * On login: warms up group/member context caches, resolves user role.
+     * On logout: clears all caches and resets state.
+     */
     private fun observeSession() {
         viewModelScope.launch {
             supabaseRepo.sessionStatus.collect { status ->
@@ -126,14 +139,19 @@ class AuthViewModel @Inject constructor(
                             isLoggedIn = true,
                             userRole = role,
                             isLoading = false,
-                            error = null
+                            error = null,
+                            errorType = null
                         ) }
                     }
                     is SessionStatus.NotAuthenticated -> {
                         AppLogger.d(tag = "AuthViewModel", message = "Session not authenticated. Clearing caches and auth state.")
                         adminGroupContextCacheService.clearForSignOut()
                         memberGroupContextCacheService.clearForSignOut()
-                        _state.update { it.copy(isLoggedIn = false, userRole = UserRole.MEMBER, isLoading = false) }
+                        // Full state reset for security and clean UI
+                        _state.update { AuthState(
+                            biometricEnabled = credentialsRepo.isBiometricEnabled(),
+                            hasSavedCredentials = credentialsRepo.hasSavedCredentials()
+                        ) }
                     }
                     else -> {}
                 }
@@ -176,33 +194,31 @@ class AuthViewModel @Inject constructor(
         _state.update { it.copy(error = msg) }
     }
 
+    /**
+     * Orchestrates login logic: normalizes credentials, calls Supabase, handles all error/success states.
+     * Sets errorType for granular UI feedback.
+     */
     fun signIn() {
         val s = _state.value
         val normalizedEmail = s.email.trim()
-        
         // Trim password for manual entries, but not for the pre-filled platform admin password
-        // which we know is correct.
         val rawPassword = s.password.trim()
         val normalizedPassword = PlatformAdminAuthPolicy.normalizeSignInPassword(normalizedEmail, rawPassword)
-        
         if (normalizedEmail.isBlank()) {
-            _state.update { it.copy(error = "Please enter your email") }
+            _state.update { it.copy(error = "Please enter your email", errorType = "generic") }
             return
         }
-
         viewModelScope.launch {
-            _state.update { it.copy(isLoading = true, error = null) }
-
+            _state.update { it.copy(isLoading = true, error = null, errorType = null) }
             val result = if (rawPassword.isBlank()) {
                 supabaseRepo.signInWithMagicLink(normalizedEmail)
             } else {
                 supabaseRepo.signIn(normalizedEmail, normalizedPassword)
             }
-
             result.onSuccess {
                 if (s.password.isNotBlank()) {
-					// Only persist credentials when the user opted in.
-					if (s.rememberMe) {
+                    // Only persist credentials when the user opted in.
+                    if (s.rememberMe) {
                         credentialsRepo.saveCredentials(normalizedEmail, s.password, true)
                         _state.update {
                             it.copy(
@@ -215,15 +231,19 @@ class AuthViewModel @Inject constructor(
                         clearSavedLoginData()
                     }
                 }
-
                 if (s.password.isBlank()) {
-                    _state.update { it.copy(isLoading = false, error = "Magic link sent to your email!") }
+                    _state.update { it.copy(isLoading = false, error = "Magic link sent to your email!", errorType = null) }
                 } else {
-                    _state.update { it.copy(isLoading = false, email = normalizedEmail) }
+                    _state.update { it.copy(isLoading = false, email = normalizedEmail, errorType = null) }
                 }
-            }
-            .onFailure { e ->
-				_state.update { it.copy(isLoading = false, error = e.toUserMessage()) }
+            }.onFailure { e ->
+                val msg = e.toUserMessage()
+                val errorType = when {
+                    msg.contains("network", ignoreCase = true) -> "network"
+                    msg.contains("credentials", ignoreCase = true) || msg.contains("password", ignoreCase = true) -> "invalid_credentials"
+                    else -> "generic"
+                }
+                _state.update { it.copy(isLoading = false, error = msg, errorType = errorType) }
             }
         }
     }
@@ -267,17 +287,21 @@ class AuthViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Signs out the user, clears all caches, and resets UI state for security.
+     */
     fun signOut() {
         viewModelScope.launch {
             adminGroupContextCacheService.clearForSignOut()
             memberGroupContextCacheService.clearForSignOut()
             supabaseRepo.signOut()
-			_state.update {
-				AuthState(
-					biometricEnabled = credentialsRepo.isBiometricEnabled(),
-					hasSavedCredentials = credentialsRepo.hasSavedCredentials()
-				)
-			}
+            // Full state reset for security and clean UI
+            _state.update {
+                AuthState(
+                    biometricEnabled = credentialsRepo.isBiometricEnabled(),
+                    hasSavedCredentials = credentialsRepo.hasSavedCredentials()
+                )
+            }
         }
     }
 

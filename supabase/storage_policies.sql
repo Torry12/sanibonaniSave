@@ -6,7 +6,7 @@
 -- 1. Create the storage buckets if they don't exist
 INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 VALUES
-    ('avatars', 'avatars', false, 3145728, '{image/*}'),
+    ('avatars', 'avatars', true, 3145728, '{image/*}'),
     ('documents', 'documents', false, 3145728, '{image/*,application/pdf}'),
     ('constitutions', 'constitutions', true, 5242880, '{application/pdf}')
 ON CONFLICT (id) DO UPDATE SET

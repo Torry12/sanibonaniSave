@@ -7,8 +7,10 @@ import com.sanibonani.save.domain.model.*
 import com.sanibonani.save.domain.repository.*
 import com.sanibonani.save.domain.usecase.ProcessPayoutUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import java.util.Locale
 import javax.inject.Inject
 
 /**
@@ -62,10 +64,16 @@ class PlatformAdminViewModel @Inject constructor(
         viewModelScope.launch {
             _state.update { it.copy(isLoading = true, error = null) }
             
-            val analyticsResult = platformRepo.getPlatformAnalytics()
-            val groupsResult = platformRepo.getAllGroups()
-            val paymentsResult = platformRepo.getPlatformPayments()
-            val payoutsResult = payoutRepo.getPendingPayouts()
+            // Run independent fetches in parallel for efficiency
+            val analyticsDeferred = async { platformRepo.getPlatformAnalytics() }
+            val groupsDeferred = async { platformRepo.getAllGroups() }
+            val paymentsDeferred = async { platformRepo.getPlatformPayments() }
+            val payoutsDeferred = async { payoutRepo.getPendingPayouts() }
+
+            val analyticsResult = analyticsDeferred.await()
+            val groupsResult = groupsDeferred.await()
+            val paymentsResult = paymentsDeferred.await()
+            val payoutsResult = payoutsDeferred.await()
 
             if (analyticsResult.isSuccess && groupsResult.isSuccess) {
                 _state.update { it.copy(
@@ -95,8 +103,8 @@ class PlatformAdminViewModel @Inject constructor(
                 com.sanibonani.save.domain.model.PlatformFees.REGISTRATION = rFee
 
                 _state.update { it.copy(
-                    memberCharge = mCharge.toString(),
-                    registrationFee = rFee.toString()
+                    memberCharge = String.format(Locale.US, "%.2f", mCharge),
+                    registrationFee = String.format(Locale.US, "%.2f", rFee)
                 ) }
             }
         }
@@ -229,6 +237,20 @@ class PlatformAdminViewModel @Inject constructor(
                 .onFailure { e ->
                     _state.update { it.copy(isProcessingPayout = false, error = e.toUserMessage()) }
                 }
+        }
+    }
+
+    fun logAudit(action: String, targetMemberId: String? = null, targetGroupId: String? = null, details: Map<String, Any>? = null) {
+        viewModelScope.launch {
+            val actorId = supabaseRepo.currentUserId ?: "SYSTEM"
+            val auditLog = AuditLog(
+                actorId = actorId,
+                targetMemberId = targetMemberId,
+                targetGroupId = targetGroupId,
+                action = action,
+                details = details
+            )
+            platformRepo.logAuditEvent(auditLog)
         }
     }
 }

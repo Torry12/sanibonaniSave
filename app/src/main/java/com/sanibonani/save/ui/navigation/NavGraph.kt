@@ -183,14 +183,14 @@ fun SanibonaniNavGraph(
 
          AppLogger.d(
              tag = "NavGraph",
-             message = "sessionRouteCheck isLoggedIn=${authState.isLoggedIn}, role=${authState.userRole}, currentRoute=$currentRoute"
+             message = "[Session] User logged in: ${authState.isLoggedIn}, Role: ${authState.userRole}, Current route: $currentRoute"
          )
 
          if (shouldRedirectForRoleMismatch(authState.isLoggedIn, authState.userRole, currentRoute)) {
              val fallback = destinationForUserRole(authState.userRole)
              AppLogger.d(
                  tag = "NavGraph",
-                 message = "Role mismatch redirect role=${authState.userRole} from=$currentRoute to=$fallback"
+                 message = "[Redirect] Role mismatch: ${authState.userRole}. Navigating from $currentRoute to $fallback."
              )
              navController.navigate(fallback) {
                  popUpTo(0) { inclusive = true }
@@ -199,7 +199,7 @@ fun SanibonaniNavGraph(
          }
 
           if (shouldForcePlatformAdminRedirect(authState.isLoggedIn, authState.userRole, currentRoute)) {
-              AppLogger.d(tag = "NavGraph", message = "Redirecting platform admin to ${Screen.PlatformAdmin.route} from $currentRoute")
+              AppLogger.d(tag = "NavGraph", message = "[Redirect] Platform admin detected. Navigating to portal from $currentRoute.")
               navController.navigate(Screen.PlatformAdmin.route) {
                   popUpTo(0) { inclusive = true }
               }
@@ -209,7 +209,7 @@ fun SanibonaniNavGraph(
           if (authState.isLoggedIn) {
               if (shouldRedirectAuthenticatedFromEntry(currentRoute, authState.navigateTo, authState.isNewRegistration, authState.userRole)) {
                   val dest = destinationForUserRole(authState.userRole)
-                  AppLogger.d(tag = "NavGraph", message = "Redirecting authenticated user to $dest")
+                  AppLogger.d(tag = "NavGraph", message = "[Redirect] Authenticated user. Navigating to $dest.")
                   navController.navigate(dest) {
                       popUpTo(0) { inclusive = true }
                   }
@@ -235,12 +235,8 @@ fun SanibonaniNavGraph(
         composable(Screen.Landing.route) {
             val landingViewModel: com.sanibonani.save.ui.screens.landing.LandingViewModel = hiltViewModel()
             LandingScreen(
-                onNavigateLogin = { redirect ->
-                    if (redirect != null) {
-                        navController.navigateProtected(redirect, authState.isLoggedIn)
-                    } else {
-                        navController.navigate(Screen.Login.route)
-                    }
+                onNavigateLogin = {
+                    navController.navigate(Screen.Login.route)
                 },
                 onNavigateRegisterGroup = {
                     navController.navigateProtected(Screen.RegisterGroup.route, authState.isLoggedIn)
@@ -255,9 +251,7 @@ fun SanibonaniNavGraph(
                 onNavigateMemberPortal = {
                     navController.navigate(Screen.MemberDashboard.withTab(0, null))
                 },
-                onNavigatePlatformAdmin = {
-                    navController.navigate(Screen.PlatformAdmin.route)
-                },
+                // onNavigatePlatformAdmin removed; platform admin login is handled after credential verification
                 viewModel = landingViewModel
             )
         }
@@ -278,14 +272,14 @@ fun SanibonaniNavGraph(
                  onLoginSuccess = { role ->
                      // Route immediately on successful login so role-based destinations are deterministic
                      // in both production and instrumentation flows.
-                     if (decodedRedirect != null) {
-                         AppLogger.d(tag = "NavGraph", message = "Applying protected redirect to $decodedRedirect")
+                     if (decodedRedirect != null && decodedRedirect != "platform_admin") {
+                         AppLogger.d(tag = "NavGraph", message = "[Login] Applying protected redirect to $decodedRedirect.")
                          navController.navigate(decodedRedirect) {
                              popUpTo(Screen.Login.route) { inclusive = true }
                          }
                      } else {
-                          val destination = destinationForUserRole(role)
-                         AppLogger.d(tag = "NavGraph", message = "Login callback routing to $destination for role=$role")
+                         val destination = destinationForUserRole(role)
+                         AppLogger.d(tag = "NavGraph", message = "[Login] Successful login. Routing to $destination for role $role.")
                          navController.navigate(destination) {
                              popUpTo(0) { inclusive = true }
                              launchSingleTop = true
@@ -294,7 +288,8 @@ fun SanibonaniNavGraph(
                  },
                  onNavigateRegister = { navController.navigate(Screen.Register.route) },
                  onForgotPassword = { navController.navigate(Screen.PasswordRecovery.route) },
-                 onBack = { navController.popBackStack() }
+                 onBack = { navController.popBackStack() },
+                 redirect = redirectRoute
              )
          }
          composable(Screen.PasswordRecovery.route) {
@@ -401,7 +396,10 @@ fun SanibonaniNavGraph(
                 onNavigatePayment = { type, amount, gid ->
                     navController.navigate(Screen.Payment.build(type, amount, gid))
                 },
-                onNavigateAdmin = { navController.navigate(Screen.AdminDashboard.withId(null)) },
+                onNavigateAdmin = {
+                    val gid = memberViewModel.uiState.value.currentGroupId
+                    navController.navigate(Screen.AdminDashboard.withId(gid))
+                },
                 onLogout = {
                     authViewModel.signOut()
                     navController.navigate(Screen.Landing.route) { popUpTo(0) }
@@ -449,6 +447,12 @@ fun SanibonaniNavGraph(
                 onLogout = {
                     authViewModel.signOut()
                     navController.navigate(Screen.Landing.route) { popUpTo(0) }
+                },
+                onImpersonateGroupAdmin = { groupId ->
+                    navController.navigate(Screen.AdminDashboard.withId(groupId))
+                },
+                onImpersonateMember = { _, groupId ->
+                    navController.navigate(Screen.MemberDashboard.withTab(0, groupId))
                 }
             )
         }

@@ -63,6 +63,20 @@ CREATE TABLE IF NOT EXISTS public.platform_fees (
     updated_at        TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Create platform_settings table if it doesn't exist
+CREATE TABLE IF NOT EXISTS public.platform_settings (
+    key TEXT PRIMARY KEY,
+    value NUMERIC NOT NULL,
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Seed platform settings if empty
+INSERT INTO public.platform_settings (key, value)
+VALUES
+    ('monthly_per_member', 10.0),
+    ('registration_fee', 700.0)
+ON CONFLICT (key) DO NOTHING;
+
 -- Create index for platform_fees if not exists
 CREATE INDEX IF NOT EXISTS idx_platform_fees_group_id ON public.platform_fees(group_id);
 CREATE INDEX IF NOT EXISTS idx_platform_fees_status ON public.platform_fees(status);
@@ -1004,6 +1018,9 @@ UNION ALL
 SELECT 'Payouts', COUNT(*) FROM public.payouts
 UNION ALL
 SELECT 'Platform Fees', COUNT(*) FROM public.platform_fees;
+
+-- 19. REFRESH PostgREST CACHE
+NOTIFY pgrst, 'reload schema';
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- DONE! Your database is now reset with mock data.

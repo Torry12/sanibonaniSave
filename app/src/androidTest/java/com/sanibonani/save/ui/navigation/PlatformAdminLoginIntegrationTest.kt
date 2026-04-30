@@ -133,10 +133,10 @@ class PlatformAdminLoginIntegrationTest {
     private fun goToLogin() {
         composeTestRule.waitUntil(timeoutMillis = 20_000) {
             runCatching {
-                composeTestRule.onAllNodesWithText("Already a member? Log in →").fetchSemanticsNodes().isNotEmpty()
+                composeTestRule.onAllNodesWithText("Already have an account? Log In →").fetchSemanticsNodes().isNotEmpty()
             }.getOrDefault(false)
         }
-        composeTestRule.onNodeWithText("Already a member? Log in →").performClick()
+        composeTestRule.onNodeWithText("Already have an account? Log In →").performClick()
         composeTestRule.onNodeWithText("Welcome Back").assertIsDisplayed()
     }
 }

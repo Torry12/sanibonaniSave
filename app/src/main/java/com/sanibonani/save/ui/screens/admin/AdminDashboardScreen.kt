@@ -32,6 +32,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import coil.compose.AsyncImage
+import coil.request.CachePolicy
+import coil.request.ImageRequest
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.foundation.border
 import com.sanibonani.save.domain.model.*
 import com.sanibonani.save.data.utils.PaymentCalculation
 import com.sanibonani.save.ui.components.*
@@ -824,7 +829,36 @@ fun MemberDetailDialog(
         ) {
             Column(Modifier.fillMaxSize()) {
                 TopAppBar(
-                    title = { Text(member.fullName) },
+                    title = {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            val profileUrl = member.profilePhotoUrl
+                            val profileRequest = remember(profileUrl) {
+                                if (profileUrl.isNullOrBlank()) null
+                                else ImageRequest.Builder(context)
+                                    .data(profileUrl)
+                                    .memoryCachePolicy(CachePolicy.ENABLED)
+                                    .diskCachePolicy(CachePolicy.ENABLED)
+                                    .crossfade(true)
+                                    .build()
+                            }
+                            val personPainter = androidx.compose.ui.graphics.vector.rememberVectorPainter(Icons.Default.Person)
+
+                            AsyncImage(
+                                model = profileRequest,
+                                contentDescription = null,
+                                modifier = Modifier
+                                    .size(32.dp)
+                                    .clip(CircleShape)
+                                    .border(1.dp, Forest.copy(alpha = 0.2f), CircleShape),
+                                contentScale = ContentScale.Crop,
+                                placeholder = personPainter,
+                                error = personPainter,
+                                fallback = personPainter
+                            )
+                            Spacer(Modifier.width(12.dp))
+                            Text(member.fullName, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        }
+                    },
                     navigationIcon = {
                         IconButton(onClick = onDismiss) { Icon(Icons.Default.Close, null) }
                     },

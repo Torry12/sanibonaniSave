@@ -44,10 +44,18 @@ fun LoginScreen(
     onNavigateRegister : () -> Unit,
     onForgotPassword   : () -> Unit,
     onBack             : () -> Unit,
+    redirect           : String? = null,
     vm                 : AuthViewModel = hiltViewModel()
 ) {
     val state by vm.state.collectAsState()
     val context = LocalContext.current
+
+    // Prefill platform admin credentials if redirect == "platform_admin"
+    LaunchedEffect(redirect) {
+        if (redirect == "platform_admin") {
+            vm.prefillPlatformAdmin()
+        }
+    }
 
     LaunchedEffect(state.isLoggedIn) {
         if (state.isLoggedIn) {
@@ -87,10 +95,17 @@ fun LoginScreen(
             ) { Text("🤝", fontSize = 36.sp) }
 
             Spacer(Modifier.height(20.dp))
-            Text("Welcome Back", style = MaterialTheme.typography.displaySmall,
-                color = Forest, fontWeight = FontWeight.ExtraBold)
-            Text("Sign in to SanibonaniSave", style = MaterialTheme.typography.bodyMedium,
-                color = MidGray, modifier = Modifier.padding(top = 4.dp, bottom = 32.dp))
+            if (redirect == "platform_admin" || state.email == com.sanibonani.save.domain.utils.PlatformAdminAuthPolicy.EMAIL) {
+                Text("Platform Admin Login", style = MaterialTheme.typography.displaySmall,
+                    color = Gold, fontWeight = FontWeight.ExtraBold)
+                Text("Sign in as Platform Administrator", style = MaterialTheme.typography.bodyMedium,
+                    color = Forest, modifier = Modifier.padding(top = 4.dp, bottom = 32.dp))
+            } else {
+                Text("Welcome Back", style = MaterialTheme.typography.displaySmall,
+                    color = Forest, fontWeight = FontWeight.ExtraBold)
+                Text("Sign in to SanibonaniSave", style = MaterialTheme.typography.bodyMedium,
+                    color = MidGray, modifier = Modifier.padding(top = 4.dp, bottom = 32.dp))
+            }
 
             // Form card
             Card(

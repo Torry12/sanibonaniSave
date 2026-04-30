@@ -289,9 +289,6 @@ fun MemberDashboardScreen(
                     onProfileClick = { vm.selectTab(7) }, // Index 7 is Profile
                     onNotifClick = { vm.selectTab(6) }, // Index 6 is Notifications
                     profileImageUrl = state.member?.profilePhotoUrl,
-                    profileImageHeaders = state.member?.profilePhotoUrl
-                        ?.let { vm.getDownloadParams(it) }
-                        ?: emptyMap(),
                     profileImageVersion = state.profileImageVersion,
                     onLogoutClick = onLogout,
                     onSwitchPortal = onNavigateAdmin,
@@ -566,6 +563,7 @@ fun MemberDashboardScreen(
                         userRole = state.userRole,
                         contributions = state.contributions,
                         calculation = calculation,
+                        profileImageVersion = state.profileImageVersion,
                         onPay = onNavigatePayment,
                         onNavigateAdmin = onNavigateAdmin,
                         vm = vm
@@ -586,25 +584,16 @@ fun MemberDashboardScreen(
                 }
             }
 
-            // Overlay for state processing
-            if (state.isLoading && state.selectedTab == 0) {
+            // Overlay for initial data loading when no cache exists
+            if (state.isLoading && state.member == null) {
                 Box(
-                    Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.3f)),
+                    Modifier.fillMaxSize().background(Color.White.copy(alpha = 0.6f)),
                     contentAlignment = Alignment.Center
                 ) {
-                    Card(
-                        shape = RoundedCornerShape(12.dp),
-                        colors = CardDefaults.cardColors(containerColor = Color.White),
-                        elevation = CardDefaults.cardElevation(8.dp)
-                    ) {
-                        Column(
-                            Modifier.padding(32.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            CircularProgressIndicator(color = com.sanibonani.save.ui.theme.Forest)
-                            Spacer(Modifier.height(16.dp))
-                            Text("Processing payment...", color = com.sanibonani.save.ui.theme.Forest, fontWeight = FontWeight.Bold)
-                        }
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        CircularProgressIndicator(color = com.sanibonani.save.ui.theme.Forest)
+                        Spacer(Modifier.height(16.dp))
+                        Text("Loading portal data...", color = com.sanibonani.save.ui.theme.Forest, fontWeight = FontWeight.Medium)
                     }
                 }
             }
@@ -619,6 +608,7 @@ fun MemberOverviewTab(
     userRole: UserRole,
     contributions: List<Contribution>,
     calculation: PaymentCalculation?,
+    profileImageVersion: Long = 0L,
     onPay: (String, String, String) -> Unit,
     onNavigateAdmin: () -> Unit,
     vm: MemberViewModel
@@ -706,16 +696,11 @@ fun MemberOverviewTab(
                             contentAlignment = Alignment.BottomEnd
                         ) {
                             val profileUrl = member?.profilePhotoUrl
-                            // Recompute headers on recomposition so refreshed auth tokens are picked up.
-                            val headers = if (profileUrl.isNullOrBlank()) emptyMap() else vm.getDownloadParams(profileUrl)
-                            val headerFingerprint = headers.entries
-                                .sortedBy { it.key }
-                                .joinToString("|") { "${it.key}=${it.value}" }
-                            val profileRequest = remember(profileUrl, headerFingerprint) {
+                            val profileRequest = remember(profileUrl, profileImageVersion) {
                                 if (profileUrl.isNullOrBlank()) null
                                 else ImageRequest.Builder(context)
                                     .data(profileUrl)
-                                    .apply { headers.forEach { (k, v) -> addHeader(k, v) } }
+                                    .memoryCacheKey("$profileUrl-$profileImageVersion")
                                     .memoryCachePolicy(CachePolicy.ENABLED)
                                     .diskCachePolicy(CachePolicy.ENABLED)
                                     .networkCachePolicy(CachePolicy.ENABLED)
@@ -1364,20 +1349,14 @@ fun MemberProfileTab(member: Member?, group: Group?, vm: MemberViewModel, profil
             ) {
             if (!member?.profilePhotoUrl.isNullOrBlank()) {
                     val profileUrl = member?.profilePhotoUrl.orEmpty()
-                    // Recompute headers on recomposition so refreshed auth tokens are picked up.
-                    val headers = vm.getDownloadParams(profileUrl)
-                    val headerFingerprint = headers.entries
-                        .sortedBy { it.key }
-                        .joinToString("|") { "${it.key}=${it.value}" }
                     // Include profileImageVersion so a fresh upload invalidates the in-memory
                     // cache even if Coil would otherwise reuse the previous entry.
-                    val request = remember(profileUrl, headerFingerprint, profileImageVersion) {
+                    val request = remember(profileUrl, profileImageVersion) {
                         ImageRequest.Builder(context)
                             .data(profileUrl)
-                            .apply { headers.forEach { (k, v) -> addHeader(k, v) } }
                             .memoryCacheKey("$profileUrl-$profileImageVersion")
                             .memoryCachePolicy(CachePolicy.ENABLED)
-                            .diskCachePolicy(CachePolicy.DISABLED)
+                            .diskCachePolicy(CachePolicy.ENABLED)
                             .networkCachePolicy(CachePolicy.ENABLED)
                             .crossfade(true)
                             .build()
