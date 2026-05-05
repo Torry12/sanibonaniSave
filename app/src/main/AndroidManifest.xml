@@ -63,8 +63,7 @@
             </intent-filter>
 
             <!-- Deep links: sanibonani://group/{id} | sanibonani://pay/{type}/{amount} -->
-            <!-- Temporarily disabled to investigate BankZero redirection
-            <intent-filter android:autoVerify="true">
+            <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
@@ -74,7 +73,6 @@
                 <data android:scheme="sanibonani" android:host="reset-password" />
                 <data android:scheme="sanibonani" android:host="login" />
             </intent-filter>
-            -->
 
             <!-- HTTPS deep links for universal links -->
             <!-- Temporarily disabled to investigate BankZero redirection

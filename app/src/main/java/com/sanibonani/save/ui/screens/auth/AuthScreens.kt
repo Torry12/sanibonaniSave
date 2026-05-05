@@ -30,6 +30,7 @@ import com.sanibonani.save.domain.model.UserRole
 import com.sanibonani.save.ui.components.*
 import com.sanibonani.save.ui.theme.*
 import com.sanibonani.save.ui.utils.ToastUtils
+import com.sanibonani.save.ui.utils.KeyboardAwareScrollColumn
 import com.sanibonani.save.viewmodel.AuthViewModel
 import com.sanibonani.save.BuildConfig
 import androidx.compose.material.icons.Icons
@@ -50,7 +51,7 @@ fun LoginScreen(
     val state by vm.state.collectAsState()
     val context = LocalContext.current
 
-    // Prefill platform admin credentials if redirect == "platform_admin"
+    // Prefill the canonical platform admin email if redirect == "platform_admin"
     LaunchedEffect(redirect) {
         if (redirect == "platform_admin") {
             vm.prefillPlatformAdmin()
@@ -306,7 +307,7 @@ fun LoginScreen(
                     onClick = { vm.prefillPlatformAdmin() },
                     modifier = Modifier.padding(top = 8.dp)
                 ) {
-                    Text("Platform Admin Login", color = Forest.copy(alpha = 0.5f), style = MaterialTheme.typography.labelSmall)
+                    Text("Use Platform Admin Email", color = Forest.copy(alpha = 0.5f), style = MaterialTheme.typography.labelSmall)
                 }
             }
         }
@@ -344,16 +345,14 @@ fun RegisterScreen(
      // Always allow back navigation
      val onBackAction = onBack
 
-     Scaffold(topBar = { SanibonaniTopBar("Create Account", onBack = onBackAction) }) { padding ->
-         Column(
-             modifier            = Modifier
-                 .fillMaxSize()
-                 .background(Cream)
-                 .padding(padding)
-                 .padding(24.dp)
-                 .verticalScroll(rememberScrollState()),
-             verticalArrangement = Arrangement.spacedBy(14.dp)
-         ) {
+      Scaffold(topBar = { SanibonaniTopBar("Create Account", onBack = onBackAction) }) { padding ->
+          KeyboardAwareScrollColumn(
+              modifier            = Modifier
+                  .fillMaxSize()
+                  .background(Cream)
+                  .padding(padding)
+                  .padding(24.dp),
+          ) {
              if (!allFieldsFilled) {
                  InfoBox(
                      "⚠️ Please fill in all required fields before leaving this form",
@@ -508,16 +507,14 @@ fun UpdatePasswordScreen(
         state.error?.let { ToastUtils.showError(context, it) }
     }
 
-    Scaffold(topBar = { SanibonaniTopBar("Reset Password", onBack = onBack) }) { padding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Cream)
-                .padding(padding)
-                .padding(horizontal = 24.dp)
-                .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
+      Scaffold(topBar = { SanibonaniTopBar("Reset Password", onBack = onBack) }) { padding ->
+         KeyboardAwareScrollColumn(
+             modifier = Modifier
+                 .fillMaxSize()
+                 .background(Cream)
+                 .padding(padding)
+                 .padding(horizontal = 24.dp),
+         ) {
             Spacer(Modifier.height(8.dp))
             Text("Create New Password", style = MaterialTheme.typography.headlineMedium, color = Forest)
             Text("Enter a strong new password for your account.", color = MidGray)
@@ -618,7 +615,7 @@ fun UpdatePasswordScreen(
                 text = if (state.isLoading) "Updating..." else "Update Password",
                 onClick = { vm.updatePassword() },
                 modifier = Modifier.fillMaxWidth(),
-                enabled = !state.isLoading && state.password.isNotBlank() && state.password == state.confirmPw
+                enabled = state.isLoggedIn && !state.isLoading && state.password.isNotBlank() && state.password == state.confirmPw
             )
         }
     }

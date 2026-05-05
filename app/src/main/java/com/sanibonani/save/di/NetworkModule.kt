@@ -3,7 +3,6 @@ package com.sanibonani.save.di
 import com.jakewharton.retrofit2.converter.kotlinx.serialization.asConverterFactory
 import com.sanibonani.save.BuildConfig
 import com.sanibonani.save.data.remote.GeoapifyService
-import com.sanibonani.save.data.remote.WhatsAppApiService
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -55,18 +54,5 @@ object NetworkModule {
             .addConverterFactory(json.asConverterFactory(contentType))
             .build()
             .create(GeoapifyService::class.java)
-    }
-
-
-    @Provides
-    @Singleton
-    fun provideWhatsAppApiService(okHttpClient: OkHttpClient, json: Json): WhatsAppApiService {
-        val contentType = "application/json".toMediaType()
-        return Retrofit.Builder()
-            .baseUrl("https://graph.facebook.com/v21.0/") // Latest Meta API version
-            .client(okHttpClient)
-            .addConverterFactory(json.asConverterFactory(contentType))
-            .build()
-            .create(WhatsAppApiService::class.java)
     }
 }

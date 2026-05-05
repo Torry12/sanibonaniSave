@@ -3,7 +3,6 @@ package com.sanibonani.save.di
 import android.content.Context
 import androidx.room.Room
 import com.sanibonani.save.data.local.SanibonaniDatabase
-import com.sanibonani.save.domain.utils.AdminClient
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -26,7 +25,6 @@ import io.ktor.http.content.TextContent
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.add
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -50,6 +48,16 @@ object TestAppModule {
     private val mockBeneficiaries = mutableMapOf<String, JsonObject>()
     private val mockMemberDocuments = mutableMapOf<String, JsonObject>()
     private val mockPayouts = mutableMapOf<String, JsonObject>()
+
+    @Suppress("unused")
+    fun resetMockState() {
+        mockGroups.clear()
+        mockMembers.clear()
+        mockContributions.clear()
+        mockBeneficiaries.clear()
+        mockMemberDocuments.clear()
+        mockPayouts.clear()
+    }
 
     @Provides
     @Singleton
@@ -205,7 +213,7 @@ object TestAppModule {
                         val bodyString = (request.body as? TextContent)?.text ?: ""
                         val bodyJson = try {
                             Json.parseToJsonElement(bodyString)
-                        } catch (e: Exception) {
+                        } catch (_: Exception) {
                             buildJsonObject { }
                         }
                         
@@ -226,7 +234,7 @@ object TestAppModule {
                                     val probMonthsValue = obj["probation_months"] ?: obj["probationMonths"]
                                     val probMonths = try {
                                         probMonthsValue?.jsonPrimitive?.int ?: 0
-                                    } catch(e: Exception) {
+                                    } catch(_: Exception) {
                                         0
                                     }
                                     put("probation_months", probMonths)
@@ -239,8 +247,10 @@ object TestAppModule {
                                         put("adminUserId", adminUserId)
                                     }
                                     
-                                    // Ensure balance and members are initialized
-                                    if (!obj.containsKey("balance")) put("balance", 10000.0) // Give a generous starting balance for tests
+                                     // Ensure balance and members are initialized.
+                                    // Start at 0 so that balance assertions after contribution RPCs
+                                    // observe the exact accumulated amounts (not an artificial seed value).
+                                    if (!obj.containsKey("balance")) put("balance", 0.0)
                                     if (!obj.containsKey("current_members")) put("current_members", 0)
                                 }
 
@@ -296,7 +306,7 @@ object TestAppModule {
                                                     val memberId = member["id"]?.jsonPrimitive?.content ?: return@forEach
                                                     mockMembers[memberId] = buildJsonObject {
                                                         member.forEach { (k, v) -> put(k, v) }
-                                                        put("status", if (probMonths > 0) "PROBATION" else "ACTIVE")
+                                                        put("status", if (probMonths > 0) "probation" else "active")
                                                     }
                                                 }
                                         }
@@ -350,26 +360,6 @@ object TestAppModule {
             install(Auth)
             install(Postgrest)
             install(Storage)
-            install(Realtime)
-        }
-    }
-
-    @Provides
-    @Singleton
-    @AdminClient
-    @OptIn(SupabaseInternal::class)
-    fun provideTestAdminSupabaseClient(
-        json: Json,
-        mockEngine: MockEngine
-    ): SupabaseClient {
-        return createSupabaseClient(
-            supabaseUrl = "https://127.0.0.1",
-            supabaseKey = "mock-key"
-        ) {
-            httpEngine = mockEngine
-            defaultSerializer = KotlinXSerializer(json)
-            install(Auth)
-            install(Postgrest)
             install(Realtime)
         }
     }

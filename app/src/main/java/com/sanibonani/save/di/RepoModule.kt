@@ -118,4 +118,10 @@ abstract class RepoModule {
     abstract fun bindAgentRepository(
         agentRepositoryImpl: AgentRepositoryImpl
     ): AgentRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindHealthScoreRepository(
+        healthScoreRepositoryImpl: HealthScoreRepositoryImpl
+    ): HealthScoreRepository
 }

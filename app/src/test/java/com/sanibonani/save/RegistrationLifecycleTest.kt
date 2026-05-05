@@ -10,6 +10,7 @@ import com.sanibonani.save.viewmodel.RegisterGroupState
 import io.mockk.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.*
 import org.junit.Rule
 import androidx.arch.core.executor.testing.InstantTaskExecutorRule
@@ -49,6 +50,9 @@ class RegistrationLifecycleTest {
         // Mock Looper.getMainLooper for JVM test environment
         mockkStatic(android.os.Looper::class)
         every { android.os.Looper.getMainLooper() } returns mockk(relaxed = true)
+
+        // Basic stubs for GroupViewModel initialization if it observes something
+        coEvery { getPublicGroupsUseCase() } returns flowOf(Result.success(emptyList()))
 
         Dispatchers.setMain(testDispatcher)
         viewModel = GroupViewModel(groupRepo, createGroupUseCase, getPublicGroupsUseCase, geoapifyService)

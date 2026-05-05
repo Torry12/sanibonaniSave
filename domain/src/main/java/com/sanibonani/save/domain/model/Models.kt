@@ -86,7 +86,13 @@ data class Group(
  * Moved from :data to :domain to break circular dependency.
  */
 object PlatformFees {
-    var MONTHLY_PER_MEMBER = 10.0  // R10/member/month (Dynamic)
+    // Member-level monthly platform fee configured by platform admin.
+    var MONTHLY_PER_MEMBER = 0.0   // Backward-compatible alias (set from platform settings)
+    var MONTHLY_MEMBER_FEE: Double
+        get() = MONTHLY_PER_MEMBER
+        set(value) {
+            MONTHLY_PER_MEMBER = value
+        }
     var REGISTRATION = 700.0       // One-time R700 registration fee (Dynamic)
 }
 

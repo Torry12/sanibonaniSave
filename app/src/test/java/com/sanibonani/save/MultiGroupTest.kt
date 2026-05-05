@@ -56,6 +56,7 @@ class MultiGroupTest {
     private val updateMemberStatusUseCase = mockk<UpdateMemberStatusUseCase>(relaxed = true)
     private val sendNotificationUseCase = mockk<SendNotificationUseCase>(relaxed = true)
     private val requestPayoutUseCase = mockk<RequestPayoutUseCase>(relaxed = true)
+    private val validateLoanEligibilityUseCase = mockk<ValidateLoanEligibilityUseCase>(relaxed = true)
 
     private val adminContextCacheService by lazy {
         AdminGroupContextCacheService(
@@ -141,7 +142,8 @@ class MultiGroupTest {
             actuarialRepo, notifRepo, paymentRepo, payoutRepo, exportRepo, loanRepo,
             adminContextCacheService,
             getManagedGroupsUseCase, calculateViabilityUseCase,
-            updateMemberStatusUseCase, sendNotificationUseCase, requestPayoutUseCase
+            updateMemberStatusUseCase, sendNotificationUseCase, requestPayoutUseCase,
+            validateLoanEligibilityUseCase
         )
         
         advanceUntilIdle()

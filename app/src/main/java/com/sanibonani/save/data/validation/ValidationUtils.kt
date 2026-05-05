@@ -9,7 +9,11 @@ import java.util.Calendar
  * Centralized validation logic to avoid redundant checks across screens/ViewModels
  */
 object ValidationUtils {
-    
+
+    private val strictSaPhoneRegex = "^0(6|7)[0-9]{8}$".toRegex()
+    private val bankAccountRegex = "^[0-9]{7,13}$".toRegex()
+    private val branchCodeRegex = "^[0-9]{6}$".toRegex()
+
     // ──────────────────────────────────────────────────────────────────────────
     // EMAIL VALIDATION
     // ──────────────────────────────────────────────────────────────────────────
@@ -33,14 +37,22 @@ object ValidationUtils {
     // ──────────────────────────────────────────────────────────────────────────
     fun isValidPassword(password: String): Boolean {
         if (password.isBlank()) return false
-        if (password.length < 8) return false
+        if (password.length < 10) return false
+        if (!password.any { it.isUpperCase() }) return false
+        if (!password.any { it.isLowerCase() }) return false
+        if (!password.any { it.isDigit() }) return false
+        if (!password.any { !it.isLetterOrDigit() }) return false
         return true
     }
 
     fun validatePasswordField(password: String): ValidationResult {
         return when {
             password.isBlank() -> ValidationResult.Error("Password is required")
-            password.length < 8 -> ValidationResult.Error("Password must be at least 8 characters")
+            password.length < 10 -> ValidationResult.Error("Password must be at least 10 characters")
+            !password.any { it.isUpperCase() } -> ValidationResult.Error("Password must include at least one uppercase letter")
+            !password.any { it.isLowerCase() } -> ValidationResult.Error("Password must include at least one lowercase letter")
+            !password.any { it.isDigit() } -> ValidationResult.Error("Password must include at least one number")
+            !password.any { !it.isLetterOrDigit() } -> ValidationResult.Error("Password must include at least one special character")
             else -> ValidationResult.Valid
         }
     }
@@ -105,6 +117,38 @@ object ValidationUtils {
         }
         val checkDigit = (10 - (sum % 10)) % 10
         return checkDigit == (cleanId[12] - '0')
+    }
+
+    // Compatibility helpers used by legacy and test validation callsites.
+    fun isValidSAIdNumber(idNumber: String): Boolean = isValidSAID(idNumber)
+
+    fun isValidPhoneNumber(phoneNumber: String): Boolean {
+        val cleaned = phoneNumber.trim()
+        return cleaned.matches(strictSaPhoneRegex)
+    }
+
+    fun isValidBankAccount(accountNumber: String): Boolean = accountNumber.matches(bankAccountRegex)
+
+    fun isValidBranchCode(branchCode: String): Boolean = branchCode.matches(branchCodeRegex)
+
+    fun isValidName(name: String): Boolean = InputValidator.isValidName(name)
+
+    fun isValidAmount(amount: Double): Boolean = amount > 0.0
+
+    fun isValidBankingDetails(accountNumber: String, branchCode: String): Boolean {
+        return isValidBankAccount(accountNumber) && isValidBranchCode(branchCode)
+    }
+
+    fun isValidPersonalDetails(
+        firstName: String,
+        lastName: String,
+        idNumber: String,
+        phoneNumber: String
+    ): Boolean {
+        return isValidName(firstName) &&
+            isValidName(lastName) &&
+            isValidSAIdNumber(idNumber) &&
+            isValidPhoneNumber(phoneNumber)
     }
 
     // ──────────────────────────────────────────────────────────────────────────

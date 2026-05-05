@@ -8,18 +8,18 @@ import com.sanibonani.save.domain.repository.SupabaseRepository
 import dagger.hilt.android.testing.HiltAndroidRule
 import dagger.hilt.android.testing.HiltAndroidTest
 import io.github.jan.supabase.SupabaseClient
-import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.postgrest.postgrest
-import io.github.jan.supabase.postgrest.query.Columns
 import io.github.jan.supabase.postgrest.rpc
 import kotlinx.coroutines.runBlocking
 import org.junit.Before
+import org.junit.Ignore
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import javax.inject.Inject
 import kotlin.random.Random
 
+@Ignore("Manual live seeding utility; excluded from automated instrumentation runs.")
 @HiltAndroidTest
 @RunWith(AndroidJUnit4::class)
 class LiveSeeder {

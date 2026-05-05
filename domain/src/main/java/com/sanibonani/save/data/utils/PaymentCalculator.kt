@@ -34,10 +34,12 @@ object DateProvider {
 object PaymentCalculator {
 
     fun calculateMonthlyContribution(group: Group, member: Member): Double {
-        if (group.type != GroupType.BURIAL_SOCIETY) return group.monthlyContribution
-        
+        if (group.type != GroupType.BURIAL_SOCIETY) {
+            return group.monthlyContribution.roundToTwoDecimals()
+        }
+
         // Use override if available (manually set by admin)
-        member.monthlyContributionOverride?.let { return it }
+        member.monthlyContributionOverride?.let { return it.roundToTwoDecimals() }
 
         val baseContribution = group.monthlyContribution
         val over65Count = member.beneficiaryOver65Count ?: 0

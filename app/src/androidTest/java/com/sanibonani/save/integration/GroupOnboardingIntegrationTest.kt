@@ -10,6 +10,7 @@ import dagger.hilt.android.testing.HiltAndroidRule
 import dagger.hilt.android.testing.HiltAndroidTest
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Rule
@@ -110,12 +111,22 @@ class GroupOnboardingIntegrationTest {
 
         // 8. Verify admin member is now PROBATION (since probationMonths > 0)
         // Note: activateGroup handles auto-crediting and status update for admin
-        val updatedMembers = memberRepository.getGroupMembers(groupId).first().getOrThrow()
+        val updatedMembers = withTimeout(10_000) {
+            memberRepository.getGroupMembers(groupId).first { result ->
+                result.getOrNull()?.any { member ->
+                    member.userId == adminUserId && member.status == MemberStatus.PROBATION
+                } == true
+            }
+        }.getOrThrow()
         val updatedAdmin = updatedMembers.find { it.userId == adminUserId }!!
         assertEquals(MemberStatus.PROBATION, updatedAdmin.status)
         
         // 9. Verify admin joining fee was auto-credited
-        val contributions = memberRepository.getMemberContributions(updatedAdmin.id!!, groupId).first().getOrThrow()
+        val contributions = withTimeout(10_000) {
+            memberRepository.getMemberContributions(updatedAdmin.id!!, groupId).first { result ->
+                result.getOrNull()?.any { it.type == "joining_fee" && it.amount == 200.0 } == true
+            }
+        }.getOrThrow()
         assertTrue("Admin joining fee should be auto-credited", contributions.any { it.amount == 200.0 })
         
         // 10. Verify group balance reflects the credited contribution (joiningFee + monthlyContribution)
@@ -125,7 +136,13 @@ class GroupOnboardingIntegrationTest {
         assertEquals(expectedBalance, activatedGroup.balance, 0.01)
 
         // 11. Verify admin has both joining fee and first contribution credited
-        val finalContributions = memberRepository.getMemberContributions(updatedAdmin.id!!, groupId).first().getOrThrow()
+        val finalContributions = withTimeout(10_000) {
+            memberRepository.getMemberContributions(updatedAdmin.id!!, groupId).first { result ->
+                val list = result.getOrNull() ?: return@first false
+                list.any { it.type == "joining_fee" && it.amount == group.joiningFee } &&
+                    list.any { it.type == "contribution" && it.amount == group.monthlyContribution }
+            }
+        }.getOrThrow()
         assertTrue("Admin joining fee should be auto-credited", finalContributions.any { it.type == "joining_fee" && it.amount == group.joiningFee })
         assertTrue("Admin first monthly contribution should be auto-credited", finalContributions.any { it.type == "contribution" && it.amount == group.monthlyContribution })
     }

@@ -28,6 +28,7 @@ data class PayoutRequest(
 @Serializable
 enum class PayoutStatus {
     @SerialName("pending")   PENDING,
+    @SerialName("group_approved") GROUP_APPROVED,
     @SerialName("processing") PROCESSING,
     @SerialName("completed") COMPLETED,
     @SerialName("failed")    FAILED,

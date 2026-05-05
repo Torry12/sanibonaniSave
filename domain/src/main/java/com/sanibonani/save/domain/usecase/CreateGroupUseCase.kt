@@ -46,7 +46,8 @@ class CreateGroupUseCase @Inject constructor(
                 AppLogger.d(tag, "📝 Creating new admin account: $adminEmail")
                 userId = supabaseRepository.signUp(adminEmail, adminPassword, mapOf(
                     "full_name" to (adminFullName ?: "Group Admin"),
-                    "role" to "group_admin"
+                    // A user only becomes group admin after successful group creation.
+                    "role" to "member"
                 )).getOrThrow()
                 AppLogger.d(tag, "✅ Admin account created: $userId")
             } else {
@@ -55,10 +56,6 @@ class CreateGroupUseCase @Inject constructor(
                 if (userId != null) {
                     val currentRole = supabaseRepository.getUserRole()
                     AppLogger.d(tag, "👤 Current user role: $currentRole")
-                    if (currentRole == UserRole.MEMBER) {
-                        AppLogger.d(tag, "🔄 Updating user role to GROUP_ADMIN")
-                        supabaseRepository.updateUserRole(userId, UserRole.GROUP_ADMIN)
-                    }
                 }
             }
 

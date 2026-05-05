@@ -27,7 +27,7 @@ import org.junit.Test
  * Run this test to:
  * 1. Clear all Supabase data (all tables)
  * 2. Create Platform Admin user with credentials:
- *    - Email: torryymsimango@gmail.com
+ *    - Email: torrymsimango@gmail.com
  *    - Password: torry123M
  *    - Role: platform_admin
  *
@@ -50,7 +50,7 @@ class DatabaseResetUtility {
             val anonKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InByb3NiYmtudXBvZXhnemp3cndyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM1NDE4MDUsImV4cCI6MjA4OTExNzgwNX0.CJs8oWt0Q3quK8FkyaldwyOg-sXiU25rFaBCh5Mi2tE"
             val serviceRoleKey = "eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InByb3NiYmtudXBvZXhnemp3cndyIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MzU0MTgwNSwiZXhwIjoyMDg5MTE3ODA1fQ.EDVweeVevFlnIo-9xfwc80zZ93KM3tY-GTmWsUmPCLA"
 
-            val adminEmail = "torryymsimango@gmail.com"
+            val adminEmail = "torrymsimango@gmail.com"
             val adminPassword = "torry123M"
 
             // ─── Create Supabase clients ────────────────────────────────────────────
@@ -259,7 +259,7 @@ class DatabaseResetUtility {
             val supabaseUrl = "https://prosbbknupoexgzjwrwr.supabase.co"
             val serviceRoleKey = "eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InByb3NiYmtudXBvZXhnemp3cndyIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MzU0MTgwNSwiZXhwIjoyMDg5MTE3ODA1fQ.EDVweeVevFlnIo-9xfwc80zZ93KM3tY-GTmWsUmPCLA"
 
-            val adminEmail = "torryymsimango@gmail.com"
+            val adminEmail = "torrymsimango@gmail.com"
             val adminPassword = "torry123M"
 
             val adminClient = createSupabaseClient(supabaseUrl, serviceRoleKey) {
@@ -394,7 +394,7 @@ class DatabaseResetUtility {
             val anonKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InByb3NiYmtudXBvZXhnemp3cndyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM1NDE4MDUsImV4cCI6MjA4OTExNzgwNX0.CJs8oWt0Q3quK8FkyaldwyOg-sXiU25rFaBCh5Mi2tE"
             val serviceRoleKey = "eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InByb3NiYmtudXBvZXhnemp3cndyIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MzU0MTgwNSwiZXhwIjoyMDg5MTE3ODA1fQ.EDVweeVevFlnIo-9xfwc80zZ93KM3tY-GTmWsUmPCLA"
 
-            val adminEmail = "torryymsimango@gmail.com"
+            val adminEmail = "torrymsimango@gmail.com"
             val adminPassword = "torry123M"
 
             println("\n[1/4] Initializing Supabase clients...")

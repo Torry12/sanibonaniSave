@@ -2,6 +2,7 @@ package com.sanibonani.save.data.utils
 
 import com.sanibonani.save.domain.model.*
 import org.junit.Assert.*
+import org.junit.Before
 import org.junit.Test
 import java.time.LocalDate
 
@@ -10,6 +11,11 @@ import java.time.LocalDate
  * Tests shortfall, overpayment, late fees, beneficiary adjustments, and edge cases.
  */
 class PaymentCalculatorTest {
+
+    @Before
+    fun resetPlatformFee() {
+        PlatformFees.MONTHLY_MEMBER_FEE = 0.0
+    }
 
     // ══════════════════════════════════════════════════════════════════════════
     // TEST FIXTURES

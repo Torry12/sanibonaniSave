@@ -52,19 +52,14 @@ src/main/java/com/sanibonani/save/
 ### 0. **Database Reset & Mock Data**
 - **Reset Script**: `supabase/reset_with_mock_data.sql` — Full database reset with platform admin and test data
 - **RLS Policies**: `supabase/rls_policies.sql` — Row Level Security policies for all tables
-- **Storage Policies** 🆕: `supabase/storage_policies.sql` — RLS policies for document uploads/downloads
-- **Schema**: `supabase/schema.sql` — Complete database schema with triggers
-
-#### Test Accounts (After Reset)
-| Role | Email | Password |
-|------|-------|----------|
-| Platform Admin | torryymsimango@gmail.com | torry123M |
-| Group Admin 1 | admin1@test.com | password123 |
+- **S- **Schema**: | Platform Admin | torrymsimango@gmail.com | torry123M |
 | Group Admin 2 | admin2@test.com | password123 |
-| Member 1 | member1@test.com | password123 |
-| Member 2 | member2@test.com | password123 |
-| Member 3 | member3@test.com | password123 |
-| Member 4 | member4@test.com | password123 |
+| Member 1 — Active (8 mo, multi-group, verified docs, good standing) | member1@test.com | password123 |
+| Member 2 — Probation (4 mo, 2 groups, PoR pending) | member2@test.com | password123 |
+| Member 3 — Active Senior (22 mo, loan holder, 3 beneficiaries, multi-group) | member3@test.com | password123 |
+| Member 4 — Probation New (2 mo, paid joining fee, 2 contributions, PoR pending) | member4@test.com | password123 |
+| Member 5 — Suspended (9 paid, 3 overdue, late fee outstanding, 2 groups) | member5@test.com | password123 |
+| Member 6 — Pending Payment (brand new, no contributions, joining fee due) | member6@test.com | password123 |
 
 ### 1. **Gradle & AGP Compatibility**
 - **Gradle Version**: **8.11.1**.
@@ -178,7 +173,7 @@ src/main/java/com/sanibonani/save/
 
 ### 1. Platform Admin Credentials
 - **Email**: `torryymsimango@gmail.com`
-- **Password**: `torry123M`
+- **Email**: `torrymsimango@gmail.com`
 - **Role**: Superuser / Platform Owner
 
 ---

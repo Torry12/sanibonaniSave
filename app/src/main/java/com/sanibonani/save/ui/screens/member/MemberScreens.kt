@@ -582,6 +582,29 @@ fun MemberDashboardScreen(
                     7 -> MemberProfileTab(member, group, vm, state.profileImageVersion)
                     else -> CenterPlaceholder("Unknown Tab")
                 }
+
+                if (state.group?.isPlatformSuspended == true && state.selectedTab != 7) {
+                    Box(
+                        modifier = Modifier.fillMaxSize().background(Color.White.copy(0.7f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Card(
+                            modifier = Modifier.padding(32.dp),
+                            colors = CardDefaults.cardColors(containerColor = Color.White),
+                            elevation = CardDefaults.cardElevation(8.dp)
+                        ) {
+                            Column(Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                                Icon(Icons.Default.Close, null, modifier = Modifier.size(48.dp), tint = ErrorRed)
+                                Text("Group Suspended", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                                Text(
+                                    "This group has been suspended by the platform administration. Please contact your group administrator for more information.",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                                )
+                            }
+                        }
+                    }
+                }
             }
 
             // Overlay for initial data loading when no cache exists
@@ -1441,6 +1464,7 @@ fun MemberLoansTab(
 ) {
     var showRequestDialog by remember { mutableStateOf(false) }
     val activeLoan = loans.find { it.status == LoanStatus.ACTIVE || it.status == LoanStatus.PARTIALLY_PAID }
+    val uiState by vm.uiState.collectAsState()
 
     Column(Modifier.fillMaxSize()) {
         Surface(
@@ -1453,12 +1477,13 @@ fun MemberLoansTab(
                     Text("Smart Loans", fontWeight = FontWeight.Bold, color = com.sanibonani.save.ui.theme.Forest)
                     Text(
                         if (activeLoan != null) "You have an active loan of ${formatZAR(activeLoan.amount)}"
+                        else if (uiState.isEligibleForLoan) "You are eligible to request a loan."
                         else "Need a boost? Request a loan from your group.",
                         style = MaterialTheme.typography.bodySmall
                     )
                 }
 
-                if (activeLoan == null) {
+                if (activeLoan == null && uiState.isEligibleForLoan) {
                     Button(
                         onClick = { showRequestDialog = true },
                         colors = ButtonDefaults.buttonColors(containerColor = com.sanibonani.save.ui.theme.Forest),
@@ -1476,6 +1501,15 @@ fun MemberLoansTab(
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
+            if (!uiState.isEligibleForLoan && activeLoan == null) {
+                item {
+                    InfoBox(
+                        message = uiState.loanIneligibilityReason ?: "You do not currently qualify for a loan from this group.",
+                        type = InfoType.WARNING
+                    )
+                }
+            }
+
             if (loans.isEmpty()) {
                 item {
                     EmptyState(

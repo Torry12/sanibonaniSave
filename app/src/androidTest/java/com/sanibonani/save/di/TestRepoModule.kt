@@ -18,6 +18,8 @@ import javax.inject.Singleton
 import java.util.UUID
 
 object TestAuthSessionController {
+    private const val TEST_PLATFORM_ADMIN_PASSWORD = "torry123M"
+
     private val _sessionStatus = MutableStateFlow<SessionStatus>(SessionStatus.NotAuthenticated(false))
     private val _sessionFlow = MutableStateFlow<UserSession?>(null)
 
@@ -78,7 +80,7 @@ object TestAuthSessionController {
 
     fun isValidCredentials(email: String, password: String): Boolean {
         return if (PlatformAdminAuthPolicy.isPlatformAdminEmail(email)) {
-            PlatformAdminAuthPolicy.normalizeSignInPassword(email, password) == PlatformAdminAuthPolicy.PASSWORD
+            password == TEST_PLATFORM_ADMIN_PASSWORD
         } else {
             // Non-admin test users stay permissive for existing integration tests.
             true
@@ -87,7 +89,7 @@ object TestAuthSessionController {
 
     fun roleForCredentials(email: String, password: String, fallback: UserRole): UserRole {
         val isPlatformAdminLogin = PlatformAdminAuthPolicy.isPlatformAdminEmail(email) &&
-            PlatformAdminAuthPolicy.normalizeSignInPassword(email, password) == PlatformAdminAuthPolicy.PASSWORD
+            password == TEST_PLATFORM_ADMIN_PASSWORD
         return if (isPlatformAdminLogin) {
             UserRole.PLATFORM_ADMIN
         } else {

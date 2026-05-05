@@ -365,20 +365,39 @@ data class LoanRepaymentEntity(
     @ColumnInfo(name = "updated_at") val updatedAt: Long = System.currentTimeMillis()
 )
 
+@Entity(
+    tableName = "group_health_scores",
+    indices = [
+        Index("group_id", unique = true),
+        Index("generated_at")
+    ]
+)
+data class GroupHealthScoreEntity(
+    @PrimaryKey val id: String,
+    @ColumnInfo(name = "group_id") val groupId: String,
+    @ColumnInfo(name = "overall_score") val overallScore: Int,
+    val zone: String,
+    @ColumnInfo(name = "components_json") val componentsJson: String,
+    @ColumnInfo(name = "recommendations_json") val recommendationsJson: String,
+    @ColumnInfo(name = "generated_at") val generatedAt: String,
+    @ColumnInfo(name = "expires_at") val expiresAt: String?,
+    @ColumnInfo(name = "updated_at") val updatedAt: Long = System.currentTimeMillis()
+)
+
 // ── DAOs ──────────────────────────────────────────────────────────────────────
 
 @Dao
 interface GroupDao {
-    @Query("SELECT * FROM groups WHERE is_public = 1 AND registration_paid = 1 ORDER BY name ASC")
+    @Query("SELECT * FROM `groups` WHERE is_public = 1 AND registration_paid = 1 ORDER BY name ASC")
     fun observePublicGroups(): Flow<List<GroupEntity>>
 
-    @Query("SELECT * FROM groups WHERE id = :id")
+    @Query("SELECT * FROM `groups` WHERE id = :id")
     suspend fun getGroupById(id: String): GroupEntity?
 
-    @Query("SELECT * FROM groups WHERE id = :id")
+    @Query("SELECT * FROM `groups` WHERE id = :id")
     fun observeGroupById(id: String): Flow<GroupEntity?>
     
-    @Query("SELECT * FROM groups WHERE admin_user_id = :adminId ORDER BY name ASC")
+    @Query("SELECT * FROM `groups` WHERE admin_user_id = :adminId ORDER BY name ASC")
     fun observeGroupsByAdmin(adminId: String): Flow<List<GroupEntity>>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
@@ -387,13 +406,13 @@ interface GroupDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertGroup(group: GroupEntity): Long
 
-    @Query("DELETE FROM groups")
+    @Query("DELETE FROM `groups`")
     suspend fun clearAll()
 
-    @Query("DELETE FROM groups WHERE id = :id")
+    @Query("DELETE FROM `groups` WHERE id = :id")
     suspend fun deleteGroup(id: String)
 
-    @Query("SELECT * FROM groups")
+    @Query("SELECT * FROM `groups`")
     fun getAllGroups(): List<GroupEntity>
 
     @Transaction
@@ -670,6 +689,24 @@ interface MemberDocumentDao {
     }
 }
 
+@Dao
+interface GroupHealthScoreDao {
+    @Query("SELECT * FROM group_health_scores WHERE group_id = :groupId LIMIT 1")
+    fun observeByGroupId(groupId: String): Flow<GroupHealthScoreEntity?>
+
+    @Query("SELECT * FROM group_health_scores WHERE group_id = :groupId LIMIT 1")
+    suspend fun getByGroupId(groupId: String): GroupHealthScoreEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(score: GroupHealthScoreEntity): Long
+
+    @Query("DELETE FROM group_health_scores WHERE group_id = :groupId")
+    suspend fun deleteByGroupId(groupId: String)
+
+    @Query("DELETE FROM group_health_scores")
+    suspend fun clearAll()
+}
+
 // ── Database ──────────────────────────────────────────────────────────────────
 
 @Database(
@@ -683,9 +720,10 @@ interface MemberDocumentDao {
         PayoutEntity::class, 
         MemberDocumentEntity::class,
         LoanEntity::class,
-        LoanRepaymentEntity::class
+        LoanRepaymentEntity::class,
+        GroupHealthScoreEntity::class
     ],
-    version  = 34,
+    version  = 35,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -699,6 +737,7 @@ abstract class SanibonaniDatabase : RoomDatabase() {
     abstract fun payoutDao(): PayoutDao
     abstract fun memberDocumentDao(): MemberDocumentDao
     abstract fun loanDao(): LoanDao
+    abstract fun groupHealthScoreDao(): GroupHealthScoreDao
 
     suspend fun clearAllData() {
         groupDao().clearAll()
@@ -711,5 +750,6 @@ abstract class SanibonaniDatabase : RoomDatabase() {
         memberDocumentDao().clearAll()
         loanDao().clearAllLoans()
         loanDao().clearAllRepayments()
+        groupHealthScoreDao().clearAll()
     }
 }

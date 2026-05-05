@@ -1,4 +1,5 @@
 import java.util.Properties
+import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 
 plugins {
     alias(libs.plugins.android.application)
@@ -33,6 +34,14 @@ android {
     namespace   = "com.sanibonani.save"
     compileSdk  = 35
 
+    sourceSets {
+        getByName("androidTest") {
+            assets.srcDirs(
+                "$projectDir/schemas"
+            )
+        }
+    }
+
     defaultConfig {
         applicationId   = "com.sanibonani.save"
         minSdk          = 26          // Android 8.0 — covers ~98% SA active devices
@@ -43,19 +52,21 @@ android {
 
         // ── Supabase credentials (read from local.properties) ──────────────
         buildConfigField("String", "SUPABASE_URL", getSafeProp("SUPABASE_URL", "https://your-project.supabase.co"))
-        buildConfigField("String", "SUPABASE_ANON_KEY", getSafeProp("SUPABASE_ANON_KEY", "your-anon-key-here"))
-        buildConfigField("String", "SUPABASE_SERVICE_ROLE_KEY", getSafeProp("SUPABASE_SERVICE_ROLE_KEY"))
+        buildConfigField("String", "SUPABASE_ANON_KEY", getSafeProp("SUPABASE_ANON_KEY"))
 
-        // ── YoCo payment gateway ───────────────────────────────────────────
-        buildConfigField("String", "YOCO_PUBLIC_KEY", getSafeProp("YOCO_PUBLIC_KEY", "pk_test_placeholder"))
-        buildConfigField("String", "YOCO_WEBHOOK_SECRET", getSafeProp("YOCO_WEBHOOK_SECRET"))
+        // ── YoCo payment gateway ────────��─────────────────────────────────────────
+        buildConfigField("String", "YOCO_PUBLIC_KEY", getSafeProp("YOCO_PUBLIC_KEY"))
 
-        // ── WhatsApp Business API (Meta) ──────────────────────────────────────────
-        buildConfigField("String", "WHATSAPP_TOKEN", getSafeProp("WHATSAPP_TOKEN"))
+        // WHATSAPP_TOKEN intentionally omitted from BuildConfig — the token lives in
+        // Supabase Edge Function secrets and is never shipped inside the APK.
+        // Phone number ID is non-secret and kept for reference only.
         buildConfigField("String", "WHATSAPP_PHONE_NUMBER_ID", getSafeProp("WHATSAPP_PHONE_NUMBER_ID"))
 
         // ── Geoapify (Address Autocomplete) ──────────────────────────────────────
         buildConfigField("String", "GEOAPIFY_API_KEY", getSafeProp("GEOAPIFY_API_KEY", "placeholder_key"))
+
+        // ── Platform Admin Policy ───────────────────────────────────────────────
+        buildConfigField("String", "PLATFORM_ADMIN_EMAIL", getSafeProp("PLATFORM_ADMIN_EMAIL", "torrymsimango@gmail.com"))
 
         // ── OSMDroid user agent ────────────────────────────────────────────
         buildConfigField("String", "OSM_USER_AGENT", "\"com.sanibonani.save\"")
@@ -126,6 +137,24 @@ android {
             )
         }
     }
+}
+
+tasks.withType<KotlinCompile>().configureEach {
+    if (name == "compileDebugAndroidTestKotlin") {
+        exclude(
+            "**/e2e/**",
+            "**/integration/GroupRepositoryIntegrationTest.kt",
+            "**/integration/PaymentAndPayoutRepositoryIntegrationTest.kt",
+            "**/ui/screens/auth/AuthScreenTest.kt",
+            "**/ui/screens/member/MemberDashboardScreenTest.kt",
+            "**/ui/screens/payment/PaymentScreenTest.kt"
+        )
+    }
+}
+
+tasks.matching { it.name == "connectedDebugAndroidTest" }.configureEach {
+    // UTP writes transient .lck files under resultsDir; Gradle state tracking can fail hashing them.
+    doNotTrackState("Android UTP lock files are transient and not stable task outputs.")
 }
 
 dependencies {

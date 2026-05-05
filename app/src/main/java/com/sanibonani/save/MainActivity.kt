@@ -33,6 +33,8 @@ import com.sanibonani.save.domain.repository.SyncRepository
 import com.sanibonani.save.domain.repository.SyncStatus
 import com.sanibonani.save.ui.navigation.SanibonaniNavGraph
 import com.sanibonani.save.ui.theme.*
+import com.sanibonani.save.ui.utils.ToastUtils
+import com.sanibonani.save.viewmodel.AuthViewModel
 import dagger.hilt.android.AndroidEntryPoint
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.delay
@@ -160,15 +162,34 @@ class SplashViewModel @Inject constructor(
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
 
-    // @Inject lateinit var supabaseRepo: SupabaseRepository
-    // private val viewModel: SplashViewModel by viewModels()
+    private val authViewModel: AuthViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        
+        // Handle deep link from intent if app was opened via link
+        intent?.data?.toString()?.let { url ->
+            if (url.contains("reset-password")) {
+                ToastUtils.showInfo(this, "Processing your password reset link...")
+            }
+            authViewModel.handleDeepLink(url)
+        }
+
         setContent {
             SanibonaniTheme {
                 SanibonaniNavGraph()
             }
+        }
+    }
+
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        intent.data?.toString()?.let { url ->
+            if (url.contains("reset-password")) {
+                ToastUtils.showInfo(this, "Processing your password reset link...")
+            }
+            authViewModel.handleDeepLink(url)
         }
     }
 

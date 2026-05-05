@@ -5,7 +5,6 @@ import androidx.room.Room
 import com.sanibonani.save.BuildConfig
 import com.sanibonani.save.data.local.ALL_MIGRATIONS
 import com.sanibonani.save.data.local.SanibonaniDatabase
-import com.sanibonani.save.domain.utils.AdminClient
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -90,58 +89,26 @@ object AppModule {
         }
     }
 
-    @Provides
-    @Singleton
-    @AdminClient
-    @OptIn(SupabaseInternal::class)
-    fun provideAdminSupabaseClient(json: Json, okHttpClient: OkHttpClient): SupabaseClient {
-        val url = BuildConfig.SUPABASE_URL.trim().takeIf { it.isNotBlank() }
-            ?: throw IllegalStateException("SUPABASE_URL is empty. Check local.properties.")
-        val serviceKey = BuildConfig.SUPABASE_SERVICE_ROLE_KEY.trim().takeIf { it.isNotBlank() }
-            ?: throw IllegalStateException("SUPABASE_SERVICE_ROLE_KEY is empty. Check local.properties.")
-
-        return createSupabaseClient(
-            supabaseUrl = url,
-            supabaseKey = serviceKey
-        ) {
-            httpConfig {
-                install(HttpTimeout) {
-                    requestTimeoutMillis = 30.seconds.inWholeMilliseconds
-                    connectTimeoutMillis = 30.seconds.inWholeMilliseconds
-                    socketTimeoutMillis = 30.seconds.inWholeMilliseconds
-                }
-                install(Logging) {
-                    level = LogLevel.HEADERS
-                    logger = object : Logger {
-                        override fun log(message: String) {
-                            android.util.Log.d("SupabaseAdmin", message)
-                        }
-                    }
-                }
-            }
-            httpEngine = OkHttp.create {
-                preconfigured = okHttpClient
-            }
-            defaultSerializer = KotlinXSerializer(json)
-            install(Auth)
-            install(Postgrest)
-        }
-    }
-
-
 
     // ── Room Database (offline cache) ──────────────────────────────────────────
+    // NOTE: fallbackToDestructiveMigration is intentionally restricted to DEBUG builds.
+    // Release builds will throw a MissingMigrationException if a migration path is missing,
+    // preventing silent user-data loss. Always add a proper migration when bumping the DB version.
     @Provides
     @Singleton
-    fun provideDatabase(@ApplicationContext context: Context): SanibonaniDatabase =
-        Room.databaseBuilder(
+    fun provideDatabase(@ApplicationContext context: Context): SanibonaniDatabase {
+        val builder = Room.databaseBuilder(
             context,
             SanibonaniDatabase::class.java,
             "sanibonani.db"
-        )
-        .addMigrations(*ALL_MIGRATIONS)
-        .fallbackToDestructiveMigration()
-        .build()
+        ).addMigrations(*ALL_MIGRATIONS)
+
+        if (BuildConfig.DEBUG) {
+            builder.fallbackToDestructiveMigration()
+        }
+
+        return builder.build()
+    }
 
     // ── Data Repositories ─────────────────────────────────────────────────────
     // Note: Most repositories are now provided via RepoModule using @Binds

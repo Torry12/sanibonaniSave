@@ -56,6 +56,8 @@ data class AdminUiState(
     val selectedMemberBeneficiaries: List<Beneficiary> = emptyList(),
     val selectedMemberDocuments: List<MemberDocument> = emptyList(),
     val selectedMemberCalculation: PaymentCalculation? = null,
+    val isEligibleForLoan: Boolean = false,
+    val loanIneligibilityReason: String? = null,
     val memberCalculations: Map<String, PaymentCalculation> = emptyMap(),
     
     // Beneficiary Edit
@@ -100,7 +102,8 @@ class AdminViewModel @Inject constructor(
     private val calculateViabilityUseCase: CalculateViabilityUseCase,
     private val updateMemberStatusUseCase: UpdateMemberStatusUseCase,
     private val sendNotificationUseCase: SendNotificationUseCase,
-    private val requestPayoutUseCase: RequestPayoutUseCase
+    private val requestPayoutUseCase: RequestPayoutUseCase,
+    private val validateLoanEligibilityUseCase: ValidateLoanEligibilityUseCase
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(AdminUiState())
@@ -853,6 +856,8 @@ class AdminViewModel @Inject constructor(
             selectedMemberBeneficiaries = emptyList(),
             selectedMemberDocuments = emptyList(),
             selectedMemberCalculation = null,
+            isEligibleForLoan = false,
+            loanIneligibilityReason = null,
             messageText = "",
             messageSentSuccess = false,
             isSendingWhatsAppTest = false,
@@ -897,6 +902,18 @@ class AdminViewModel @Inject constructor(
         val groupId = group.id ?: return
         memberCalculationsJob?.cancel()
         memberCalculationsJob = viewModelScope.launch {
+            // Check Loan Eligibility in parallel with calculation
+            launch {
+                validateLoanEligibilityUseCase(member, group).let { result ->
+                    _state.update {
+                        it.copy(
+                            isEligibleForLoan = result is ValidateLoanEligibilityUseCase.EligibilityResult.Eligible,
+                            loanIneligibilityReason = (result as? ValidateLoanEligibilityUseCase.EligibilityResult.Ineligible)?.reason
+                        )
+                    }
+                }
+            }
+
             memberRepo.getMemberContributions(memberId, groupId).collect { res ->
                 val contribs = res.getOrNull() ?: emptyList()
                 val calc = PaymentCalculator.calculateStatus(group, member, contribs)
@@ -1041,6 +1058,26 @@ class AdminViewModel @Inject constructor(
         }
     }
 
+    fun approveAndEscalatePayoutRequest(payoutId: String) {
+        val groupId = state.value.group?.id ?: return
+        viewModelScope.launch {
+            _state.update { it.copy(isRequestingPayout = true, error = null) }
+            payoutRepo.updatePayoutStatus(payoutId, PayoutStatus.GROUP_APPROVED)
+                .onSuccess {
+                    _state.update {
+                        it.copy(
+                            isRequestingPayout = false,
+                            successMessage = "Request validated and escalated to platform admin"
+                        )
+                    }
+                    refreshPayouts()
+                }
+                .onFailure { e ->
+                    _state.update { it.copy(isRequestingPayout = false, error = e.toUserMessage()) }
+                }
+        }
+    }
+
     private fun isValidAccount(acc: String) = acc.length in 7..13 && acc.all { it.isDigit() }
     private fun isValidBranch(branch: String) = branch.length == 6 && branch.all { it.isDigit() }
 
@@ -1087,7 +1124,7 @@ class AdminViewModel @Inject constructor(
                         isRequestingPayout = false, 
                         payoutRequestSuccess = true,
                         payoutAmount = "",
-                        successMessage = "Payout request submitted successfully"
+                        successMessage = "Request submitted for admin validation"
                     ) }
                 }
                 .onFailure { e ->

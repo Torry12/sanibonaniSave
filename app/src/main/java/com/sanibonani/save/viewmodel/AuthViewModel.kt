@@ -2,6 +2,8 @@ package com.sanibonani.save.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.sanibonani.save.analytics.AnalyticsTaxonomy
+import com.sanibonani.save.analytics.AppAnalytics
 import com.sanibonani.save.data.logging.AppLogger
 import com.sanibonani.save.data.utils.toUserMessage
 import com.sanibonani.save.domain.model.UserRole
@@ -11,6 +13,7 @@ import com.sanibonani.save.domain.utils.PlatformAdminAuthPolicy
 import com.sanibonani.save.domain.utils.UserRoleMapper
 import com.sanibonani.save.service.AdminGroupContextCacheService
 import com.sanibonani.save.service.MemberGroupContextCacheService
+import com.sanibonani.save.service.UserProfileCacheService
 import dagger.hilt.android.lifecycle.HiltViewModel
 import io.github.jan.supabase.auth.status.SessionStatus
 import kotlinx.coroutines.flow.*
@@ -34,6 +37,7 @@ data class AuthState(
     val navigateTo: String? = null,
     val rememberMe: Boolean = false,
     val isNewRegistration: Boolean = false,
+    val isResettingPassword: Boolean = false,
     val biometricEnabled: Boolean = false,
     val hasSavedCredentials: Boolean = false
 )
@@ -43,7 +47,8 @@ class AuthViewModel @Inject constructor(
     private val supabaseRepo: SupabaseRepository,
     private val credentialsRepo: CredentialsRepository,
     private val adminGroupContextCacheService: AdminGroupContextCacheService,
-    private val memberGroupContextCacheService: MemberGroupContextCacheService
+    private val memberGroupContextCacheService: MemberGroupContextCacheService,
+    private val userProfileCacheService: UserProfileCacheService
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(AuthState())
@@ -130,6 +135,17 @@ class AuthViewModel @Inject constructor(
                             launch { memberGroupContextCacheService.warmUpForUser(userId) }
                             launch { adminGroupContextCacheService.warmUpForUser(userId) }
                         }
+                        // Cache basic profile for downstream form pre-fill
+                        val sessionUser = supabaseRepo.currentSession?.user
+                        val cachedEmail   = sessionUser?.email ?: ""
+                        val cachedName    = sessionUser?.userMetadata
+                            ?.get("full_name")
+                            ?.let { runCatching { (it as? kotlinx.serialization.json.JsonPrimitive)?.content }.getOrNull() }
+                            ?: ""
+                        if (cachedEmail.isNotBlank() || cachedName.isNotBlank()) {
+                            userProfileCacheService.save(cachedName, cachedEmail)
+                        }
+
                         val role = runCatching { supabaseRepo.getUserRole() }.getOrDefault(UserRole.MEMBER)
                         AppLogger.d(
                             tag = "AuthViewModel",
@@ -147,6 +163,7 @@ class AuthViewModel @Inject constructor(
                         AppLogger.d(tag = "AuthViewModel", message = "Session not authenticated. Clearing caches and auth state.")
                         adminGroupContextCacheService.clearForSignOut()
                         memberGroupContextCacheService.clearForSignOut()
+                        userProfileCacheService.clear()
                         // Full state reset for security and clean UI
                         _state.update { AuthState(
                             biometricEnabled = credentialsRepo.isBiometricEnabled(),
@@ -201,9 +218,15 @@ class AuthViewModel @Inject constructor(
     fun signIn() {
         val s = _state.value
         val normalizedEmail = s.email.trim()
-        // Trim password for manual entries, but not for the pre-filled platform admin password
         val rawPassword = s.password.trim()
-        val normalizedPassword = PlatformAdminAuthPolicy.normalizeSignInPassword(normalizedEmail, rawPassword)
+        AppAnalytics.track(
+            AnalyticsTaxonomy.Events.AUTH_SIGN_IN_ATTEMPT,
+            mapOf(
+                AnalyticsTaxonomy.Params.ENTRY_POINT to if (rawPassword.isBlank()) "magic_link" else "password"
+            )
+        )
+        AppLogger.d("AuthViewModel", "Sign-in attempt for $normalizedEmail")
+
         if (normalizedEmail.isBlank()) {
             _state.update { it.copy(error = "Please enter your email", errorType = "generic") }
             return
@@ -211,9 +234,10 @@ class AuthViewModel @Inject constructor(
         viewModelScope.launch {
             _state.update { it.copy(isLoading = true, error = null, errorType = null) }
             val result = if (rawPassword.isBlank()) {
+                AppAnalytics.track(AnalyticsTaxonomy.Events.AUTH_MAGIC_LINK_REQUESTED)
                 supabaseRepo.signInWithMagicLink(normalizedEmail)
             } else {
-                supabaseRepo.signIn(normalizedEmail, normalizedPassword)
+                supabaseRepo.signIn(normalizedEmail, rawPassword)
             }
             result.onSuccess {
                 if (s.password.isNotBlank()) {
@@ -236,6 +260,10 @@ class AuthViewModel @Inject constructor(
                 } else {
                     _state.update { it.copy(isLoading = false, email = normalizedEmail, errorType = null) }
                 }
+                AppAnalytics.track(
+                    AnalyticsTaxonomy.Events.AUTH_SIGN_IN_SUCCESS,
+                    mapOf(AnalyticsTaxonomy.Params.ENTRY_POINT to if (s.password.isBlank()) "magic_link" else "password")
+                )
             }.onFailure { e ->
                 val msg = e.toUserMessage()
                 val errorType = when {
@@ -244,14 +272,22 @@ class AuthViewModel @Inject constructor(
                     else -> "generic"
                 }
                 _state.update { it.copy(isLoading = false, error = msg, errorType = errorType) }
+                AppAnalytics.track(
+                    AnalyticsTaxonomy.Events.AUTH_SIGN_IN_FAILURE,
+                    mapOf(AnalyticsTaxonomy.Params.ERROR_TYPE to errorType)
+                )
             }
         }
     }
 
 
-    fun signUp(role: UserRole = UserRole.MEMBER) {
+    fun signUp(role: UserRole = UserRole.PLATFORM_ADMIN) {
         val s = _state.value
         val normalizedEmail = s.email.trim()
+        AppAnalytics.track(
+            AnalyticsTaxonomy.Events.AUTH_SIGN_UP_ATTEMPT,
+            mapOf(AnalyticsTaxonomy.Params.ROLE to role.name.lowercase())
+        )
         if (normalizedEmail.isBlank() || s.fullName.isBlank() || s.password.isBlank() || s.confirmPw.isBlank()) {
             _state.update { it.copy(error = "Please fill in all fields") }
             return
@@ -279,10 +315,30 @@ class AuthViewModel @Inject constructor(
                 )
             )
                 .onSuccess {
-                    _state.update { it.copy(isLoading = false, isNewRegistration = true, email = normalizedEmail) }
+                    // Cache basic profile immediately so downstream forms can pre-fill
+                    userProfileCacheService.save(
+                        fullName = s.fullName.trim(),
+                        email    = normalizedEmail
+                    )
+                    _state.update {
+                        it.copy(
+                            isLoading = false,
+                            isNewRegistration = true,
+                            email = normalizedEmail,
+                            userRole = role
+                        )
+                    }
+                    AppAnalytics.track(
+                        AnalyticsTaxonomy.Events.AUTH_SIGN_UP_SUCCESS,
+                        mapOf(AnalyticsTaxonomy.Params.ROLE to role.name.lowercase())
+                    )
                 }
                 .onFailure { e ->
 					_state.update { it.copy(isLoading = false, error = e.toUserMessage()) }
+                    AppAnalytics.track(
+                        AnalyticsTaxonomy.Events.AUTH_SIGN_UP_FAILURE,
+                        mapOf(AnalyticsTaxonomy.Params.ROLE to role.name.lowercase())
+                    )
                 }
         }
     }
@@ -294,6 +350,7 @@ class AuthViewModel @Inject constructor(
         viewModelScope.launch {
             adminGroupContextCacheService.clearForSignOut()
             memberGroupContextCacheService.clearForSignOut()
+            userProfileCacheService.clear()
             supabaseRepo.signOut()
             // Full state reset for security and clean UI
             _state.update {
@@ -320,20 +377,25 @@ class AuthViewModel @Inject constructor(
         viewModelScope.launch {
             _state.update { it.copy(isLoading = true, error = null) }
             
+            // Check if we have an active session. If not, wait briefly for the deep link processing to finish.
             if (!supabaseRepo.isLoggedIn) {
-                kotlinx.coroutines.delay(1000)
-                if (!supabaseRepo.isLoggedIn) {
-                    _state.update { it.copy(
-                        isLoading = false, 
-                        error = "No active session found. Your reset link may have expired or is invalid. Please try requesting a new reset link."
-                    ) }
-                    return@launch
-                }
+                AppLogger.d("AuthViewModel", "No active session in updatePassword, waiting 2s for deep link import...")
+                kotlinx.coroutines.delay(2000)
             }
 
+            if (!supabaseRepo.isLoggedIn) {
+                AppLogger.e("AuthViewModel", "Update password failed: No session after wait.")
+                _state.update { it.copy(
+                    isLoading = false, 
+                    error = "No active session found. Your reset link may have expired or is invalid. Please try requesting a new reset link."
+                ) }
+                return@launch
+            }
+
+            AppLogger.d("AuthViewModel", "Updating password for userId=${supabaseRepo.currentUserId}")
             supabaseRepo.updatePassword(s.password)
                 .onSuccess {
-                    _state.update { it.copy(isLoading = false, navigateTo = "login") }
+                    _state.update { it.copy(isLoading = false, navigateTo = "login", isResettingPassword = false) }
                 }
                 .onFailure { e ->
                     val errorMsg = e.message ?: "Failed to update password"
@@ -351,7 +413,7 @@ class AuthViewModel @Inject constructor(
         _state.update {
             it.copy(
                 email = PlatformAdminAuthPolicy.EMAIL,
-                password = PlatformAdminAuthPolicy.PASSWORD,
+                password = "",
                 error = null
             )
         }
@@ -379,5 +441,19 @@ class AuthViewModel @Inject constructor(
 		// Ensure signIn() runs with the credentials we just resolved.
 		_state.update { it.copy(email = email, password = password, error = null) }
 		signIn()
+    }
+
+    fun handleDeepLink(url: String) {
+        viewModelScope.launch {
+            AppLogger.d("AuthViewModel", "Handling deep link: $url")
+            if (url.contains("reset-password")) {
+                _state.update { it.copy(isResettingPassword = true) }
+            }
+            supabaseRepo.handleDeepLink(url)
+                .onFailure { e ->
+                    AppLogger.e("AuthViewModel", "Failed to handle deep link", e)
+                    _state.update { it.copy(error = "Invalid or expired reset link. Please request a new one.", isResettingPassword = false) }
+                }
+        }
     }
 }

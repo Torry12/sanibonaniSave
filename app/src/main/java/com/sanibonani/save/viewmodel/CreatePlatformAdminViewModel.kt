@@ -51,13 +51,14 @@ class CreatePlatformAdminViewModel @Inject constructor(
         viewModelScope.launch {
             _state.update { it.copy(isLoading = true, error = null, success = false) }
             
-            // Note: adminSignUp uses service_role client to bypass RLS and triggers for profile creation
+            // Note: Per security requirements, portal-created admins default to GROUP_ADMIN 
+            // and cannot create subsequent PLATFORM_ADMIN users.
             supabaseRepo.adminSignUp(
                 email = email.trim(),
                 password = password,
                 metadata = mapOf(
-                    "role" to UserRoleMapper.toStorageValue(UserRole.PLATFORM_ADMIN),
-                    "full_name" to "Platform Admin"
+                    "role" to UserRoleMapper.toStorageValue(UserRole.GROUP_ADMIN),
+                    "full_name" to "Administrative User"
                 ),
                 confirm = true
             ).onSuccess {

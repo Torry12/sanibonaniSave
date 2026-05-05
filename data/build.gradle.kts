@@ -16,8 +16,8 @@ android {
         minSdk = 26
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         
-        buildConfigField("String", "WHATSAPP_TOKEN", "\"\"")
-        buildConfigField("String", "WHATSAPP_PHONE_NUMBER_ID", "\"\"")
+        // WHATSAPP_TOKEN intentionally removed — token is stored as a Supabase secret
+        // and accessed server-side via the send-whatsapp Edge Function.
     }
 
     buildFeatures {

@@ -3,6 +3,162 @@ package com.sanibonani.save.data.local
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
+private fun SupportSQLiteDatabase.safeExec(sql: String) {
+    try {
+        execSQL(sql)
+    } catch (_: Exception) {
+    }
+}
+
+private fun SupportSQLiteDatabase.tableExists(tableName: String): Boolean {
+    query("SELECT name FROM sqlite_master WHERE type='table' AND name='$tableName'").use { cursor ->
+        return cursor.moveToFirst()
+    }
+}
+
+private fun SupportSQLiteDatabase.tableColumns(tableName: String): Set<String> {
+    if (!tableExists(tableName)) return emptySet()
+    query("PRAGMA table_info(`$tableName`)").use { cursor ->
+        val result = linkedSetOf<String>()
+        val nameIndex = cursor.getColumnIndex("name")
+        while (cursor.moveToNext()) {
+            if (nameIndex >= 0) {
+                result += cursor.getString(nameIndex)
+            }
+        }
+        return result
+    }
+}
+
+private fun SupportSQLiteDatabase.memberSelectExpr(
+    columns: Set<String>,
+    columnName: String,
+    defaultSql: String,
+    coalesceWhenPresent: Boolean = false,
+): String {
+    return when {
+        columnName !in columns -> "$defaultSql AS `$columnName`"
+        coalesceWhenPresent -> "COALESCE(`$columnName`, $defaultSql)"
+        else -> "`$columnName`"
+    }
+}
+
+private fun SupportSQLiteDatabase.recreateMembersTablePreservingData() {
+    val sourceColumns = tableColumns("members")
+
+    execSQL("DROP TABLE IF EXISTS `members_new`")
+    execSQL(
+        """
+        CREATE TABLE IF NOT EXISTS `members_new` (
+            `id` TEXT NOT NULL,
+            `group_id` TEXT NOT NULL,
+            `user_id` TEXT,
+            `member_key` TEXT,
+            `full_name` TEXT NOT NULL,
+            `id_number` TEXT NOT NULL,
+            `phone` TEXT NOT NULL,
+            `email` TEXT NOT NULL,
+            `status` TEXT NOT NULL,
+            `joined_at` TEXT NOT NULL,
+            `probation_end_at` TEXT NOT NULL,
+            `profile_photo_url` TEXT,
+            `document_1_url` TEXT,
+            `document_1_type` TEXT,
+            `document_1_status` TEXT NOT NULL,
+            `document_2_url` TEXT,
+            `document_2_type` TEXT,
+            `document_2_status` TEXT NOT NULL,
+            `document_3_url` TEXT,
+            `document_3_type` TEXT,
+            `document_3_status` TEXT NOT NULL,
+            `document_4_url` TEXT,
+            `document_4_type` TEXT,
+            `document_4_status` TEXT NOT NULL,
+            `document_5_url` TEXT,
+            `document_5_type` TEXT,
+            `document_5_status` TEXT NOT NULL,
+            `beneficiary_count` INTEGER,
+            `beneficiary_over_65_count` INTEGER,
+            `monthly_contribution_override` REAL,
+            `total_contributions` INTEGER,
+            `total_paid` REAL NOT NULL DEFAULT 0.0,
+            `fcm_token` TEXT,
+            `notification_pref` TEXT NOT NULL,
+            `created_at` TEXT,
+            `updated_at` INTEGER NOT NULL,
+            PRIMARY KEY(`id`)
+        )
+        """.trimIndent()
+    )
+
+    if (sourceColumns.isNotEmpty()) {
+        val selectSql = listOf(
+            memberSelectExpr(sourceColumns, "id", "''"),
+            memberSelectExpr(sourceColumns, "group_id", "''"),
+            memberSelectExpr(sourceColumns, "user_id", "NULL"),
+            memberSelectExpr(sourceColumns, "member_key", "NULL"),
+            memberSelectExpr(sourceColumns, "full_name", "''"),
+            memberSelectExpr(sourceColumns, "id_number", "''"),
+            memberSelectExpr(sourceColumns, "phone", "''"),
+            memberSelectExpr(sourceColumns, "email", "''"),
+            memberSelectExpr(sourceColumns, "status", "'PROBATION'", coalesceWhenPresent = true),
+            memberSelectExpr(sourceColumns, "joined_at", "''"),
+            memberSelectExpr(sourceColumns, "probation_end_at", "''"),
+            memberSelectExpr(sourceColumns, "profile_photo_url", "NULL"),
+            memberSelectExpr(sourceColumns, "document_1_url", "NULL"),
+            memberSelectExpr(sourceColumns, "document_1_type", "NULL"),
+            memberSelectExpr(sourceColumns, "document_1_status", "'PENDING'", coalesceWhenPresent = true),
+            memberSelectExpr(sourceColumns, "document_2_url", "NULL"),
+            memberSelectExpr(sourceColumns, "document_2_type", "NULL"),
+            memberSelectExpr(sourceColumns, "document_2_status", "'PENDING'", coalesceWhenPresent = true),
+            memberSelectExpr(sourceColumns, "document_3_url", "NULL"),
+            memberSelectExpr(sourceColumns, "document_3_type", "NULL"),
+            memberSelectExpr(sourceColumns, "document_3_status", "'PENDING'", coalesceWhenPresent = true),
+            memberSelectExpr(sourceColumns, "document_4_url", "NULL"),
+            memberSelectExpr(sourceColumns, "document_4_type", "NULL"),
+            memberSelectExpr(sourceColumns, "document_4_status", "'PENDING'", coalesceWhenPresent = true),
+            memberSelectExpr(sourceColumns, "document_5_url", "NULL"),
+            memberSelectExpr(sourceColumns, "document_5_type", "NULL"),
+            memberSelectExpr(sourceColumns, "document_5_status", "'PENDING'", coalesceWhenPresent = true),
+            memberSelectExpr(sourceColumns, "beneficiary_count", "NULL"),
+            memberSelectExpr(sourceColumns, "beneficiary_over_65_count", "NULL"),
+            memberSelectExpr(sourceColumns, "monthly_contribution_override", "NULL"),
+            memberSelectExpr(sourceColumns, "total_contributions", "NULL"),
+            memberSelectExpr(sourceColumns, "total_paid", "0.0", coalesceWhenPresent = true),
+            memberSelectExpr(sourceColumns, "fcm_token", "NULL"),
+            memberSelectExpr(sourceColumns, "notification_pref", "'BOTH'", coalesceWhenPresent = true),
+            memberSelectExpr(sourceColumns, "created_at", "NULL"),
+            memberSelectExpr(sourceColumns, "updated_at", "0", coalesceWhenPresent = true),
+        ).joinToString(",\n                ")
+
+        execSQL(
+            """
+            INSERT INTO `members_new` (
+                `id`, `group_id`, `user_id`, `member_key`, `full_name`, `id_number`, `phone`, `email`,
+                `status`, `joined_at`, `probation_end_at`, `profile_photo_url`,
+                `document_1_url`, `document_1_type`, `document_1_status`,
+                `document_2_url`, `document_2_type`, `document_2_status`,
+                `document_3_url`, `document_3_type`, `document_3_status`,
+                `document_4_url`, `document_4_type`, `document_4_status`,
+                `document_5_url`, `document_5_type`, `document_5_status`,
+                `beneficiary_count`, `beneficiary_over_65_count`, `monthly_contribution_override`,
+                `total_contributions`, `total_paid`, `fcm_token`, `notification_pref`, `created_at`, `updated_at`
+            )
+            SELECT
+                $selectSql
+            FROM `members`
+            """.trimIndent()
+        )
+    }
+
+    execSQL("DROP TABLE IF EXISTS `members`")
+    execSQL("ALTER TABLE `members_new` RENAME TO `members`")
+    execSQL("CREATE INDEX IF NOT EXISTS `index_members_group_id` ON `members` (`group_id`)")
+    execSQL("CREATE INDEX IF NOT EXISTS `index_members_user_id` ON `members` (`user_id`)")
+    execSQL("CREATE INDEX IF NOT EXISTS `index_members_status` ON `members` (`status`)")
+    execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_members_member_key` ON `members` (`member_key`)")
+}
+
 val MIGRATION_1_2 = object : Migration(1, 2) { override fun migrate(db: SupportSQLiteDatabase) {} }
 val MIGRATION_2_3 = object : Migration(2, 3) { override fun migrate(db: SupportSQLiteDatabase) {} }
 val MIGRATION_3_4 = object : Migration(3, 4) { override fun migrate(db: SupportSQLiteDatabase) {} }
@@ -45,24 +201,20 @@ val MIGRATION_17_18 = object : Migration(17, 18) { override fun migrate(db: Supp
 
 val MIGRATION_18_19 = object : Migration(18, 19) {
     override fun migrate(db: SupportSQLiteDatabase) {
-        fun safeExec(sql: String) {
-            try { db.execSQL(sql) } catch (e: Exception) {}
-        }
-
         // Groups table updates
-        safeExec("ALTER TABLE groups ADD COLUMN beneficiary_increase_pct REAL NOT NULL")
-        safeExec("ALTER TABLE groups ADD COLUMN max_beneficiaries INTEGER NOT NULL")
+        db.safeExec("ALTER TABLE groups ADD COLUMN beneficiary_increase_pct REAL NOT NULL DEFAULT 0.0")
+        db.safeExec("ALTER TABLE groups ADD COLUMN max_beneficiaries INTEGER NOT NULL DEFAULT 0")
 
         // Members table updates
-        safeExec("ALTER TABLE members ADD COLUMN document_3_url TEXT")
-        safeExec("ALTER TABLE members ADD COLUMN document_3_type TEXT")
-        safeExec("ALTER TABLE members ADD COLUMN document_3_status TEXT NOT NULL")
-        safeExec("ALTER TABLE members ADD COLUMN beneficiary_count INTEGER NOT NULL")
-        safeExec("ALTER TABLE members ADD COLUMN beneficiary_over_65_count INTEGER NOT NULL")
-        safeExec("ALTER TABLE members ADD COLUMN monthly_contribution_override REAL")
+        db.safeExec("ALTER TABLE members ADD COLUMN document_3_url TEXT")
+        db.safeExec("ALTER TABLE members ADD COLUMN document_3_type TEXT")
+        db.safeExec("ALTER TABLE members ADD COLUMN document_3_status TEXT NOT NULL DEFAULT 'PENDING'")
+        db.safeExec("ALTER TABLE members ADD COLUMN beneficiary_count INTEGER NOT NULL DEFAULT 0")
+        db.safeExec("ALTER TABLE members ADD COLUMN beneficiary_over_65_count INTEGER NOT NULL DEFAULT 0")
+        db.safeExec("ALTER TABLE members ADD COLUMN monthly_contribution_override REAL")
 
         // Create missing tables (handling previous migration gaps)
-        safeExec("""
+        db.safeExec("""
             CREATE TABLE IF NOT EXISTS `beneficiaries` (
                 `id` TEXT NOT NULL, 
                 `group_id` TEXT NOT NULL, 
@@ -78,10 +230,10 @@ val MIGRATION_18_19 = object : Migration(18, 19) {
             )
         """)
         
-        safeExec("CREATE INDEX IF NOT EXISTS `index_beneficiaries_group_id` ON `beneficiaries` (`group_id`)")
-        safeExec("CREATE INDEX IF NOT EXISTS `index_beneficiaries_member_id` ON `beneficiaries` (`member_id`)")
+        db.safeExec("CREATE INDEX IF NOT EXISTS `index_beneficiaries_group_id` ON `beneficiaries` (`group_id`)")
+        db.safeExec("CREATE INDEX IF NOT EXISTS `index_beneficiaries_member_id` ON `beneficiaries` (`member_id`)")
 
-        safeExec("""
+        db.safeExec("""
             CREATE TABLE IF NOT EXISTS `contributions` (
                 `id` TEXT NOT NULL, 
                 `member_id` TEXT NOT NULL, 
@@ -99,12 +251,12 @@ val MIGRATION_18_19 = object : Migration(18, 19) {
             )
         """)
         
-        safeExec("CREATE INDEX IF NOT EXISTS `index_contributions_member_id` ON `contributions` (`member_id`)")
-        safeExec("CREATE INDEX IF NOT EXISTS `index_contributions_group_id` ON `contributions` (`group_id`)")
-        safeExec("CREATE INDEX IF NOT EXISTS `index_contributions_status` ON `contributions` (`status`)")
-        safeExec("CREATE INDEX IF NOT EXISTS `index_contributions_due_date` ON `contributions` (`due_date`)")
+        db.safeExec("CREATE INDEX IF NOT EXISTS `index_contributions_member_id` ON `contributions` (`member_id`)")
+        db.safeExec("CREATE INDEX IF NOT EXISTS `index_contributions_group_id` ON `contributions` (`group_id`)")
+        db.safeExec("CREATE INDEX IF NOT EXISTS `index_contributions_status` ON `contributions` (`status`)")
+        db.safeExec("CREATE INDEX IF NOT EXISTS `index_contributions_due_date` ON `contributions` (`due_date`)")
 
-        safeExec("""
+        db.safeExec("""
             CREATE TABLE IF NOT EXISTS `payments` (
                 `id` TEXT NOT NULL, 
                 `member_id` TEXT NOT NULL, 
@@ -121,14 +273,14 @@ val MIGRATION_18_19 = object : Migration(18, 19) {
             )
         """)
 
-        safeExec("CREATE INDEX IF NOT EXISTS `index_payments_member_id` ON `payments` (`member_id`)")
-        safeExec("CREATE INDEX IF NOT EXISTS `index_payments_group_id` ON `payments` (`group_id`)")
-        safeExec("CREATE INDEX IF NOT EXISTS `index_payments_status` ON `payments` (`status`)")
-        safeExec("CREATE INDEX IF NOT EXISTS `index_payments_payment_type` ON `payments` (`payment_type`)")
-        safeExec("CREATE INDEX IF NOT EXISTS `index_payments_created_at` ON `payments` (`created_at`)")
+        db.safeExec("CREATE INDEX IF NOT EXISTS `index_payments_member_id` ON `payments` (`member_id`)")
+        db.safeExec("CREATE INDEX IF NOT EXISTS `index_payments_group_id` ON `payments` (`group_id`)")
+        db.safeExec("CREATE INDEX IF NOT EXISTS `index_payments_status` ON `payments` (`status`)")
+        db.safeExec("CREATE INDEX IF NOT EXISTS `index_payments_payment_type` ON `payments` (`payment_type`)")
+        db.safeExec("CREATE INDEX IF NOT EXISTS `index_payments_created_at` ON `payments` (`created_at`)")
 
         // Create notifications table
-        safeExec("""
+        db.safeExec("""
             CREATE TABLE IF NOT EXISTS `notifications` (
                 `id` TEXT NOT NULL, 
                 `group_id` TEXT NOT NULL, 
@@ -142,10 +294,10 @@ val MIGRATION_18_19 = object : Migration(18, 19) {
             )
         """)
         
-        safeExec("CREATE INDEX IF NOT EXISTS `index_notifications_group_id` ON `notifications` (`group_id`)")
-        safeExec("CREATE INDEX IF NOT EXISTS `index_notifications_member_id` ON `notifications` (`member_id`)")
-        safeExec("CREATE INDEX IF NOT EXISTS `index_notifications_trigger_event` ON `notifications` (`trigger_event`)")
-        safeExec("CREATE INDEX IF NOT EXISTS `index_notifications_created_at` ON `notifications` (`created_at`)")
+        db.safeExec("CREATE INDEX IF NOT EXISTS `index_notifications_group_id` ON `notifications` (`group_id`)")
+        db.safeExec("CREATE INDEX IF NOT EXISTS `index_notifications_member_id` ON `notifications` (`member_id`)")
+        db.safeExec("CREATE INDEX IF NOT EXISTS `index_notifications_trigger_event` ON `notifications` (`trigger_event`)")
+        db.safeExec("CREATE INDEX IF NOT EXISTS `index_notifications_created_at` ON `notifications` (`created_at`)")
     }
 }
 
@@ -154,60 +306,52 @@ val MIGRATION_19_20 = object : Migration(19, 20) { override fun migrate(db: Supp
 
 val MIGRATION_20_21 = object : Migration(20, 21) {
     override fun migrate(db: SupportSQLiteDatabase) {
-        fun safeExec(sql: String) {
-            try {
-                db.execSQL(sql)
-            } catch (e: Exception) {
-                // Ignore errors (e.g., column already exists)
-            }
-        }
-
         // --- Members Table Healing ---
         // Document slots (ensuring 3, 4, and 5 exist)
-        safeExec("ALTER TABLE members ADD COLUMN document_3_url TEXT")
-        safeExec("ALTER TABLE members ADD COLUMN document_3_type TEXT")
-        safeExec("ALTER TABLE members ADD COLUMN document_3_status TEXT NOT NULL")
+        db.safeExec("ALTER TABLE members ADD COLUMN document_3_url TEXT")
+        db.safeExec("ALTER TABLE members ADD COLUMN document_3_type TEXT")
+        db.safeExec("ALTER TABLE members ADD COLUMN document_3_status TEXT NOT NULL DEFAULT 'PENDING'")
         
-        safeExec("ALTER TABLE members ADD COLUMN document_4_url TEXT")
-        safeExec("ALTER TABLE members ADD COLUMN document_4_type TEXT")
-        safeExec("ALTER TABLE members ADD COLUMN document_4_status TEXT NOT NULL")
+        db.safeExec("ALTER TABLE members ADD COLUMN document_4_url TEXT")
+        db.safeExec("ALTER TABLE members ADD COLUMN document_4_type TEXT")
+        db.safeExec("ALTER TABLE members ADD COLUMN document_4_status TEXT NOT NULL DEFAULT 'PENDING'")
         
-        safeExec("ALTER TABLE members ADD COLUMN document_5_url TEXT")
-        safeExec("ALTER TABLE members ADD COLUMN document_5_type TEXT")
-        safeExec("ALTER TABLE members ADD COLUMN document_5_status TEXT NOT NULL")
+        db.safeExec("ALTER TABLE members ADD COLUMN document_5_url TEXT")
+        db.safeExec("ALTER TABLE members ADD COLUMN document_5_type TEXT")
+        db.safeExec("ALTER TABLE members ADD COLUMN document_5_status TEXT NOT NULL DEFAULT 'PENDING'")
         
         // Burial society specific fields (healing from 18-19)
-        safeExec("ALTER TABLE members ADD COLUMN beneficiary_count INTEGER NOT NULL")
-        safeExec("ALTER TABLE members ADD COLUMN beneficiary_over_65_count INTEGER NOT NULL")
-        safeExec("ALTER TABLE members ADD COLUMN monthly_contribution_override REAL")
+        db.safeExec("ALTER TABLE members ADD COLUMN beneficiary_count INTEGER NOT NULL DEFAULT 0")
+        db.safeExec("ALTER TABLE members ADD COLUMN beneficiary_over_65_count INTEGER NOT NULL DEFAULT 0")
+        db.safeExec("ALTER TABLE members ADD COLUMN monthly_contribution_override REAL")
         
         // Legacy/Missing fields
-        safeExec("ALTER TABLE members ADD COLUMN updated_at INTEGER NOT NULL")
+        db.safeExec("ALTER TABLE members ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0")
 
         // --- Groups Table Healing ---
         // Burial society fields (healing from 18-19)
-        safeExec("ALTER TABLE groups ADD COLUMN beneficiary_increase_pct REAL NOT NULL")
-        safeExec("ALTER TABLE groups ADD COLUMN max_beneficiaries INTEGER NOT NULL")
+        db.safeExec("ALTER TABLE groups ADD COLUMN beneficiary_increase_pct REAL NOT NULL DEFAULT 0.0")
+        db.safeExec("ALTER TABLE groups ADD COLUMN max_beneficiaries INTEGER NOT NULL DEFAULT 0")
         
         // Version 20-21 fields
-        safeExec("ALTER TABLE groups ADD COLUMN registration_paid INTEGER NOT NULL")
-        safeExec("ALTER TABLE groups ADD COLUMN is_platform_suspended INTEGER NOT NULL")
-        safeExec("ALTER TABLE groups ADD COLUMN goal_amount REAL NOT NULL")
-        safeExec("ALTER TABLE groups ADD COLUMN period_months INTEGER NOT NULL")
+        db.safeExec("ALTER TABLE groups ADD COLUMN registration_paid INTEGER NOT NULL DEFAULT 0")
+        db.safeExec("ALTER TABLE groups ADD COLUMN is_platform_suspended INTEGER NOT NULL DEFAULT 0")
+        db.safeExec("ALTER TABLE groups ADD COLUMN goal_amount REAL NOT NULL DEFAULT 0.0")
+        db.safeExec("ALTER TABLE groups ADD COLUMN period_months INTEGER NOT NULL DEFAULT 12")
         
         // Legacy/Missing fields
-        safeExec("ALTER TABLE groups ADD COLUMN yoco_public_key TEXT")
-        safeExec("ALTER TABLE groups ADD COLUMN updated_at INTEGER NOT NULL")
+        db.safeExec("ALTER TABLE groups ADD COLUMN yoco_public_key TEXT")
+        db.safeExec("ALTER TABLE groups ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0")
 
         // --- Indices Healing ---
-        safeExec("CREATE INDEX IF NOT EXISTS `index_members_user_id` ON `members` (`user_id`)")
-        safeExec("CREATE INDEX IF NOT EXISTS `index_members_status` ON `members` (`status`)")
-        safeExec("CREATE INDEX IF NOT EXISTS `index_groups_is_public` ON `groups` (`is_public`)")
-        safeExec("CREATE INDEX IF NOT EXISTS `index_groups_admin_user_id` ON `groups` (`admin_user_id`)")
-        safeExec("CREATE INDEX IF NOT EXISTS `index_groups_fee_status` ON `groups` (`fee_status`)")
+        db.safeExec("CREATE INDEX IF NOT EXISTS `index_members_user_id` ON `members` (`user_id`)")
+        db.safeExec("CREATE INDEX IF NOT EXISTS `index_members_status` ON `members` (`status`)")
+        db.safeExec("CREATE INDEX IF NOT EXISTS `index_groups_is_public` ON `groups` (`is_public`)")
+        db.safeExec("CREATE INDEX IF NOT EXISTS `index_groups_admin_user_id` ON `groups` (`admin_user_id`)")
+        db.safeExec("CREATE INDEX IF NOT EXISTS `index_groups_fee_status` ON `groups` (`fee_status`)")
 
         // --- Ensure essential tables exist (healing for gaps) ---
-        safeExec("""
+        db.safeExec("""
             CREATE TABLE IF NOT EXISTS `beneficiaries` (
                 `id` TEXT NOT NULL, 
                 `group_id` TEXT NOT NULL, 
@@ -223,7 +367,7 @@ val MIGRATION_20_21 = object : Migration(20, 21) {
             )
         """.trimIndent())
 
-        safeExec("""
+        db.safeExec("""
             CREATE TABLE IF NOT EXISTS `contributions` (
                 `id` TEXT NOT NULL, 
                 `member_id` TEXT NOT NULL, 
@@ -241,7 +385,7 @@ val MIGRATION_20_21 = object : Migration(20, 21) {
             )
         """.trimIndent())
 
-        safeExec("""
+        db.safeExec("""
             CREATE TABLE IF NOT EXISTS `payments` (
                 `id` TEXT NOT NULL, 
                 `member_id` TEXT NOT NULL, 
@@ -259,7 +403,7 @@ val MIGRATION_20_21 = object : Migration(20, 21) {
         """.trimIndent())
 
         // --- Notifications Table Healing ---
-        safeExec("""
+        db.safeExec("""
             CREATE TABLE IF NOT EXISTS `notifications` (
                 `id` TEXT NOT NULL, 
                 `group_id` TEXT NOT NULL, 
@@ -272,31 +416,27 @@ val MIGRATION_20_21 = object : Migration(20, 21) {
                 PRIMARY KEY(`id`)
             )
         """.trimIndent())
-        safeExec("CREATE INDEX IF NOT EXISTS `index_notifications_group_id` ON `notifications` (`group_id`)")
-        safeExec("CREATE INDEX IF NOT EXISTS `index_notifications_member_id` ON `notifications` (`member_id`)")
-        safeExec("CREATE INDEX IF NOT EXISTS `index_notifications_trigger_event` ON `notifications` (`trigger_event`)")
-        safeExec("CREATE INDEX IF NOT EXISTS `index_notifications_created_at` ON `notifications` (`created_at`)")
+        db.safeExec("CREATE INDEX IF NOT EXISTS `index_notifications_group_id` ON `notifications` (`group_id`)")
+        db.safeExec("CREATE INDEX IF NOT EXISTS `index_notifications_member_id` ON `notifications` (`member_id`)")
+        db.safeExec("CREATE INDEX IF NOT EXISTS `index_notifications_trigger_event` ON `notifications` (`trigger_event`)")
+        db.safeExec("CREATE INDEX IF NOT EXISTS `index_notifications_created_at` ON `notifications` (`created_at`)")
     }
 }
 
 val MIGRATION_21_22 = object : Migration(21, 22) {
     override fun migrate(db: SupportSQLiteDatabase) {
-        fun safeExec(sql: String) {
-            try { db.execSQL(sql) } catch (e: Exception) {}
-        }
-
         // --- Members Table Updates ---
-        safeExec("ALTER TABLE members ADD COLUMN member_key TEXT NOT NULL")
-        safeExec("CREATE UNIQUE INDEX IF NOT EXISTS `index_members_member_key` ON `members` (`member_key`)")
+        db.safeExec("ALTER TABLE members ADD COLUMN member_key TEXT")
+        db.safeExec("CREATE UNIQUE INDEX IF NOT EXISTS `index_members_member_key` ON `members` (`member_key`)")
 
         // --- Groups Table Updates ---
-        safeExec("ALTER TABLE groups ADD COLUMN latitude REAL")
-        safeExec("ALTER TABLE groups ADD COLUMN longitude REAL")
+        db.safeExec("ALTER TABLE groups ADD COLUMN latitude REAL")
+        db.safeExec("ALTER TABLE groups ADD COLUMN longitude REAL")
 
         // --- Notifications Table Healing (ensure it exists for v22) ---
         // If it exists but is corrupted (0 columns), we try to heal it.
         // Room sometimes reports 0 columns if the table creation was interrupted.
-        safeExec("""
+        db.safeExec("""
             CREATE TABLE IF NOT EXISTS `notifications` (
                 `id` TEXT NOT NULL, 
                 `group_id` TEXT NOT NULL, 
@@ -309,10 +449,10 @@ val MIGRATION_21_22 = object : Migration(21, 22) {
                 PRIMARY KEY(`id`)
             )
         """.trimIndent())
-        safeExec("CREATE INDEX IF NOT EXISTS `index_notifications_group_id` ON `notifications` (`group_id`)")
-        safeExec("CREATE INDEX IF NOT EXISTS `index_notifications_member_id` ON `notifications` (`member_id`)")
-        safeExec("CREATE INDEX IF NOT EXISTS `index_notifications_trigger_event` ON `notifications` (`trigger_event`)")
-        safeExec("CREATE INDEX IF NOT EXISTS `index_notifications_created_at` ON `notifications` (`created_at`)")
+        db.safeExec("CREATE INDEX IF NOT EXISTS `index_notifications_group_id` ON `notifications` (`group_id`)")
+        db.safeExec("CREATE INDEX IF NOT EXISTS `index_notifications_member_id` ON `notifications` (`member_id`)")
+        db.safeExec("CREATE INDEX IF NOT EXISTS `index_notifications_trigger_event` ON `notifications` (`trigger_event`)")
+        db.safeExec("CREATE INDEX IF NOT EXISTS `index_notifications_created_at` ON `notifications` (`created_at`)")
     }
 }
 
@@ -323,110 +463,13 @@ val MIGRATION_23_24 = object : Migration(23, 24) { override fun migrate(db: Supp
 
 val MIGRATION_24_25 = object : Migration(24, 25) {
     override fun migrate(db: SupportSQLiteDatabase) {
-        // This is a "fix-it" migration. 
-        // We drop and recreate the members table to ensure schema matches MemberEntity exactly.
-        // NOTE: In a production app, we would copy data. For this dev fix, we prioritize schema alignment.
-        
-        db.execSQL("DROP TABLE IF EXISTS members")
-        db.execSQL("""
-            CREATE TABLE IF NOT EXISTS `members` (
-                `id` TEXT NOT NULL, 
-                `group_id` TEXT NOT NULL, 
-                `user_id` TEXT, 
-                `member_key` TEXT, 
-                `full_name` TEXT NOT NULL, 
-                `id_number` TEXT NOT NULL, 
-                `phone` TEXT NOT NULL, 
-                `email` TEXT NOT NULL, 
-                `status` TEXT NOT NULL, 
-                `joined_at` TEXT NOT NULL, 
-                `probation_end_at` TEXT NOT NULL, 
-                `profile_photo_url` TEXT, 
-                `document_1_url` TEXT, 
-                `document_1_type` TEXT, 
-                `document_1_status` TEXT NOT NULL, 
-                `document_2_url` TEXT, 
-                `document_2_type` TEXT, 
-                `document_2_status` TEXT NOT NULL, 
-                `document_3_url` TEXT, 
-                `document_3_type` TEXT, 
-                `document_3_status` TEXT NOT NULL, 
-                `document_4_url` TEXT, 
-                `document_4_type` TEXT, 
-                `document_4_status` TEXT NOT NULL, 
-                `document_5_url` TEXT, 
-                `document_5_type` TEXT, 
-                `document_5_status` TEXT NOT NULL, 
-                `beneficiary_count` INTEGER, 
-                `beneficiary_over_65_count` INTEGER, 
-                `monthly_contribution_override` REAL, 
-                `total_contributions` INTEGER, 
-                `total_paid` REAL NOT NULL DEFAULT 0.0,
-                `fcm_token` TEXT, 
-                `notification_pref` TEXT NOT NULL, 
-                `created_at` TEXT, 
-                `updated_at` INTEGER NOT NULL, 
-                PRIMARY KEY(`id`)
-            )
-        """.trimIndent())
-        
-        db.execSQL("CREATE INDEX IF NOT EXISTS `index_members_group_id` ON `members` (`group_id`)")
-        db.execSQL("CREATE INDEX IF NOT EXISTS `index_members_user_id` ON `members` (`user_id`)")
-        db.execSQL("CREATE INDEX IF NOT EXISTS `index_members_status` ON `members` (`status`)")
-        db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_members_member_key` ON `members` (`member_key`)")
+        db.recreateMembersTablePreservingData()
     }
 }
 
 val MIGRATION_25_26 = object : Migration(25, 26) {
     override fun migrate(db: SupportSQLiteDatabase) {
-        // Fix members table schema to match MemberEntity (handling nullability)
-        db.execSQL("DROP TABLE IF EXISTS members")
-        db.execSQL("""
-            CREATE TABLE IF NOT EXISTS `members` (
-                `id` TEXT NOT NULL, 
-                `group_id` TEXT NOT NULL, 
-                `user_id` TEXT, 
-                `member_key` TEXT, 
-                `full_name` TEXT NOT NULL, 
-                `id_number` TEXT NOT NULL, 
-                `phone` TEXT NOT NULL, 
-                `email` TEXT NOT NULL, 
-                `status` TEXT NOT NULL, 
-                `joined_at` TEXT NOT NULL, 
-                `probation_end_at` TEXT NOT NULL, 
-                `profile_photo_url` TEXT, 
-                `document_1_url` TEXT, 
-                `document_1_type` TEXT, 
-                `document_1_status` TEXT NOT NULL, 
-                `document_2_url` TEXT, 
-                `document_2_type` TEXT, 
-                `document_2_status` TEXT NOT NULL, 
-                `document_3_url` TEXT, 
-                `document_3_type` TEXT, 
-                `document_3_status` TEXT NOT NULL, 
-                `document_4_url` TEXT, 
-                `document_4_type` TEXT, 
-                `document_4_status` TEXT NOT NULL, 
-                `document_5_url` TEXT, 
-                `document_5_type` TEXT, 
-                `document_5_status` TEXT NOT NULL, 
-                `beneficiary_count` INTEGER, 
-                `beneficiary_over_65_count` INTEGER, 
-                `monthly_contribution_override` REAL, 
-                `total_contributions` INTEGER, 
-                `total_paid` REAL NOT NULL DEFAULT 0.0,
-                `fcm_token` TEXT, 
-                `notification_pref` TEXT NOT NULL, 
-                `created_at` TEXT, 
-                `updated_at` INTEGER NOT NULL, 
-                PRIMARY KEY(`id`)
-            )
-        """.trimIndent())
-        
-        db.execSQL("CREATE INDEX IF NOT EXISTS `index_members_group_id` ON `members` (`group_id`)")
-        db.execSQL("CREATE INDEX IF NOT EXISTS `index_members_user_id` ON `members` (`user_id`)")
-        db.execSQL("CREATE INDEX IF NOT EXISTS `index_members_status` ON `members` (`status`)")
-        db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_members_member_key` ON `members` (`member_key`)")
+        db.recreateMembersTablePreservingData()
 
         // Ensure notifications table exists
         db.execSQL("""
@@ -543,6 +586,86 @@ val MIGRATION_32_33 = object : Migration(32, 33) {
     }
 }
 
+// ⚠️ DEV-ERA DESTRUCTIVE MIGRATIONS (v24→25, v25→26):
+// These dropped + recreated the members table to fix schema drift.
+// They are IRREVERSIBLE. DO NOT replicate this pattern for any future version bump.
+// Production apps MUST always copy data: CREATE TABLE members_new … INSERT INTO … DROP … RENAME.
+
+val MIGRATION_33_34 = object : Migration(33, 34) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        fun safeExec(sql: String) {
+            try { db.execSQL(sql) } catch (e: Exception) {}
+        }
+        // Add loans table (introduced for Smart Loan feature)
+        safeExec("""
+            CREATE TABLE IF NOT EXISTS `loans` (
+                `id` TEXT NOT NULL,
+                `member_id` TEXT NOT NULL,
+                `group_id` TEXT NOT NULL,
+                `amount` REAL NOT NULL,
+                `interest_rate` REAL NOT NULL,
+                `total_to_repay` REAL NOT NULL,
+                `total_repaid` REAL NOT NULL,
+                `monthly_repayment` REAL NOT NULL,
+                `start_date` TEXT NOT NULL,
+                `end_date` TEXT NOT NULL,
+                `next_payment_date` TEXT,
+                `status` TEXT NOT NULL,
+                `purpose` TEXT,
+                `created_at` TEXT,
+                `updated_at` INTEGER NOT NULL,
+                PRIMARY KEY(`id`)
+            )
+        """.trimIndent())
+        safeExec("CREATE INDEX IF NOT EXISTS `index_loans_member_id` ON `loans` (`member_id`)")
+        safeExec("CREATE INDEX IF NOT EXISTS `index_loans_group_id` ON `loans` (`group_id`)")
+        safeExec("CREATE INDEX IF NOT EXISTS `index_loans_status` ON `loans` (`status`)")
+
+        // Add loan_repayments table
+        safeExec("""
+            CREATE TABLE IF NOT EXISTS `loan_repayments` (
+                `id` TEXT NOT NULL,
+                `loan_id` TEXT NOT NULL,
+                `member_id` TEXT NOT NULL,
+                `group_id` TEXT NOT NULL,
+                `amount` REAL NOT NULL,
+                `paid_at` TEXT,
+                `payment_method` TEXT NOT NULL,
+                `transaction_id` TEXT,
+                `created_at` TEXT,
+                `updated_at` INTEGER NOT NULL,
+                PRIMARY KEY(`id`)
+            )
+        """.trimIndent())
+        safeExec("CREATE INDEX IF NOT EXISTS `index_loan_repayments_loan_id` ON `loan_repayments` (`loan_id`)")
+        safeExec("CREATE INDEX IF NOT EXISTS `index_loan_repayments_member_id` ON `loan_repayments` (`member_id`)")
+        safeExec("CREATE INDEX IF NOT EXISTS `index_loan_repayments_group_id` ON `loan_repayments` (`group_id`)")
+    }
+}
+
+val MIGRATION_34_35 = object : Migration(34, 35) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.safeExec(
+            """
+            CREATE TABLE IF NOT EXISTS `group_health_scores` (
+                `id` TEXT NOT NULL,
+                `group_id` TEXT NOT NULL,
+                `overall_score` INTEGER NOT NULL,
+                `zone` TEXT NOT NULL,
+                `components_json` TEXT NOT NULL,
+                `recommendations_json` TEXT NOT NULL,
+                `generated_at` TEXT NOT NULL,
+                `expires_at` TEXT,
+                `updated_at` INTEGER NOT NULL,
+                PRIMARY KEY(`id`)
+            )
+            """.trimIndent()
+        )
+        db.safeExec("CREATE UNIQUE INDEX IF NOT EXISTS `index_group_health_scores_group_id` ON `group_health_scores` (`group_id`)")
+        db.safeExec("CREATE INDEX IF NOT EXISTS `index_group_health_scores_generated_at` ON `group_health_scores` (`generated_at`)")
+    }
+}
+
 val ALL_MIGRATIONS = arrayOf(
     MIGRATION_1_2,
     MIGRATION_2_3,
@@ -575,6 +698,8 @@ val ALL_MIGRATIONS = arrayOf(
     MIGRATION_29_30,
     MIGRATION_30_31,
     MIGRATION_31_32,
-    MIGRATION_32_33
+    MIGRATION_32_33,
+    MIGRATION_33_34,
+    MIGRATION_34_35
 )
 

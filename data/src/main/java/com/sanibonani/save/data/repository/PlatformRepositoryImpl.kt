@@ -113,7 +113,15 @@ class PlatformRepositoryImpl @Inject constructor(
 
     override suspend fun updateGlobalFees(memberCharge: Double, registrationFee: Double): Result<Unit> = retryWithExponentialBackoff {
         runCatching {
-            // Upsert monthly_per_member fee
+            // Upsert monthly member fee (new canonical key)
+            supabase.postgrest["platform_settings"].upsert(buildJsonObject {
+                put("key", "monthly_member_fee")
+                put("value", memberCharge)
+            }) {
+                onConflict = "key"
+                select()
+            }
+            // Keep legacy key in sync for backward compatibility.
             supabase.postgrest["platform_settings"].upsert(buildJsonObject {
                 put("key", "monthly_per_member")
                 put("value", memberCharge)
@@ -144,7 +152,11 @@ class PlatformRepositoryImpl @Inject constructor(
             val settingsMap = settings.associate { it.key to it.value }.toMutableMap()
             // Provide defaults if table is empty or missing keys
             if (!settingsMap.containsKey("registration_fee")) settingsMap["registration_fee"] = 700.0
-            if (!settingsMap.containsKey("monthly_per_member")) settingsMap["monthly_per_member"] = 10.0
+            val monthlyMemberFee = settingsMap["monthly_member_fee"]
+                ?: settingsMap["monthly_per_member"]
+                ?: 10.0
+            settingsMap["monthly_member_fee"] = monthlyMemberFee
+            settingsMap["monthly_per_member"] = monthlyMemberFee
             settingsMap
         }
     }

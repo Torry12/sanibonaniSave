@@ -33,7 +33,7 @@ fun CreatePlatformAdminScreen(
     Scaffold(
         topBar = {
             SanibonaniTopBar(
-                title = "Create Platform Admin",
+                title = "Create Admin Account",
                 onBack = onBack
             )
         }
@@ -48,7 +48,7 @@ fun CreatePlatformAdminScreen(
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             InfoBox(
-                message = "This will create a new account with full administrative access to the entire platform. Use with caution.",
+                message = "This will create a new account with group administrative access. For security, subsequent platform admin creation is restricted to the canonical owner.",
                 type = InfoType.WARNING
             )
 
@@ -106,7 +106,7 @@ fun CreatePlatformAdminScreen(
 
             if (state.success) {
                 Spacer(Modifier.height(16.dp))
-                InfoBox("Platform administrator created successfully!", InfoType.SUCCESS)
+                InfoBox("Administrative account created successfully!", InfoType.SUCCESS)
                 
                 LaunchedEffect(Unit) {
                     kotlinx.coroutines.delay(2000)

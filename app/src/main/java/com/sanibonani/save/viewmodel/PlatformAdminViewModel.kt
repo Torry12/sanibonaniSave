@@ -2,6 +2,8 @@ package com.sanibonani.save.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.sanibonani.save.analytics.AnalyticsTaxonomy
+import com.sanibonani.save.analytics.AppAnalytics
 import com.sanibonani.save.data.utils.toUserMessage
 import com.sanibonani.save.domain.model.*
 import com.sanibonani.save.domain.repository.*
@@ -62,6 +64,7 @@ class PlatformAdminViewModel @Inject constructor(
 
     fun loadData() {
         viewModelScope.launch {
+            AppAnalytics.track(AnalyticsTaxonomy.Events.PLATFORM_DASHBOARD_LOAD_STARTED)
             _state.update { it.copy(isLoading = true, error = null) }
             
             // Run independent fetches in parallel for efficiency
@@ -83,43 +86,88 @@ class PlatformAdminViewModel @Inject constructor(
                     payouts = payoutsResult.getOrDefault(emptyList()),
                     isLoading = false
                 ) }
+                AppAnalytics.track(AnalyticsTaxonomy.Events.PLATFORM_DASHBOARD_LOAD_SUCCESS)
             } else {
                 val error = (analyticsResult.exceptionOrNull() ?: groupsResult.exceptionOrNull())
                     ?.toUserMessage()
                     ?: "Unable to load platform data. Please try again."
                 _state.update { it.copy(isLoading = false, error = error) }
+                AppAnalytics.track(
+                    AnalyticsTaxonomy.Events.PLATFORM_DASHBOARD_LOAD_FAILURE,
+                    mapOf(AnalyticsTaxonomy.Params.ERROR_TYPE to "load_failed")
+                )
             }
         }
     }
 
     private fun loadSettings() {
         viewModelScope.launch {
-            platformRepo.getPlatformSettings().onSuccess { settings ->
-                val mCharge = settings["monthly_per_member"] ?: 10.0
-                val rFee = settings["registration_fee"] ?: 700.0
-                
-                // Update global singleton for system-wide effect
-                com.sanibonani.save.domain.model.PlatformFees.MONTHLY_PER_MEMBER = mCharge
-                com.sanibonani.save.domain.model.PlatformFees.REGISTRATION = rFee
+            platformRepo.getPlatformSettings()
+                .onSuccess { settings ->
+                    val mCharge = settings["monthly_member_fee"] ?: settings["monthly_per_member"] ?: 10.0
+                    val rFee = settings["registration_fee"] ?: 700.0
+                    
+                    // Update global singleton for system-wide effect
+                    com.sanibonani.save.domain.model.PlatformFees.MONTHLY_MEMBER_FEE = mCharge
+                    com.sanibonani.save.domain.model.PlatformFees.REGISTRATION = rFee
 
-                _state.update { it.copy(
-                    memberCharge = String.format(Locale.US, "%.2f", mCharge),
-                    registrationFee = String.format(Locale.US, "%.2f", rFee)
-                ) }
-            }
+                    _state.update { it.copy(
+                        memberCharge = String.format(Locale.US, "%.2f", mCharge),
+                        registrationFee = String.format(Locale.US, "%.2f", rFee)
+                    ) }
+                }
+                .onFailure { e ->
+                    _state.update { it.copy(error = e.toUserMessage()) }
+                }
+        }
+    }
+
+    private fun updateGroupSuspensionState(groupId: String, isSuspended: Boolean, feeStatus: AdminFeeState) {
+        _state.update { state ->
+            state.copy(
+                groups = state.groups.map { group ->
+                    if (group.id == groupId) {
+                        group.copy(
+                            isPlatformSuspended = isSuspended,
+                            feeStatus = feeStatus
+                        )
+                    } else {
+                        group
+                    }
+                }
+            )
         }
     }
 
     fun unsuspendGroup(groupId: String) {
         viewModelScope.launch {
             _state.update { it.copy(isSaving = true) }
+            AppAnalytics.track(
+                AnalyticsTaxonomy.Events.PLATFORM_GROUP_UNSUSPEND_REQUESTED,
+                mapOf(AnalyticsTaxonomy.Params.GROUP_ID to groupId)
+            )
             platformRepo.unsuspendGroup(groupId)
                 .onSuccess {
-                    _state.update { it.copy(isSaving = false) }
-                    loadData() // Refresh list
+                    updateGroupSuspensionState(
+                        groupId = groupId,
+                        isSuspended = false,
+                        feeStatus = AdminFeeState.PAID
+                    )
+                    _state.update { it.copy(isSaving = false, error = null) }
+                    AppAnalytics.track(
+                        AnalyticsTaxonomy.Events.PLATFORM_GROUP_UNSUSPEND_SUCCESS,
+                        mapOf(AnalyticsTaxonomy.Params.GROUP_ID to groupId)
+                    )
                 }
                 .onFailure { e ->
                     _state.update { it.copy(isSaving = false, error = e.toUserMessage()) }
+                    AppAnalytics.track(
+                        AnalyticsTaxonomy.Events.PLATFORM_GROUP_UNSUSPEND_FAILURE,
+                        mapOf(
+                            AnalyticsTaxonomy.Params.GROUP_ID to groupId,
+                            AnalyticsTaxonomy.Params.ERROR_TYPE to "repo"
+                        )
+                    )
                 }
         }
     }
@@ -127,21 +175,34 @@ class PlatformAdminViewModel @Inject constructor(
     fun suspendGroup(groupId: String, reason: String) {
         viewModelScope.launch {
             _state.update { it.copy(isSuspending = true) }
+            AppAnalytics.track(
+                AnalyticsTaxonomy.Events.PLATFORM_GROUP_SUSPEND_REQUESTED,
+                mapOf(AnalyticsTaxonomy.Params.GROUP_ID to groupId)
+            )
             platformRepo.suspendGroup(groupId, reason)
                 .onSuccess {
-                    _state.update { it.updateGroupStatus(groupId, true) }
-                    _state.update { it.copy(isSuspending = false) }
+                    updateGroupSuspensionState(
+                        groupId = groupId,
+                        isSuspended = true,
+                        feeStatus = AdminFeeState.SUSPENDED
+                    )
+                    _state.update { it.copy(isSuspending = false, error = null) }
+                    AppAnalytics.track(
+                        AnalyticsTaxonomy.Events.PLATFORM_GROUP_SUSPEND_SUCCESS,
+                        mapOf(AnalyticsTaxonomy.Params.GROUP_ID to groupId)
+                    )
                 }
                 .onFailure { e ->
                     _state.update { it.copy(isSuspending = false, error = e.toUserMessage()) }
+                    AppAnalytics.track(
+                        AnalyticsTaxonomy.Events.PLATFORM_GROUP_SUSPEND_FAILURE,
+                        mapOf(
+                            AnalyticsTaxonomy.Params.GROUP_ID to groupId,
+                            AnalyticsTaxonomy.Params.ERROR_TYPE to "repo"
+                        )
+                    )
                 }
         }
-    }
-
-    private fun PlatformAdminUiState.updateGroupStatus(groupId: String, suspended: Boolean): PlatformAdminUiState {
-        return copy(groups = groups.map { 
-            if (it.id == groupId) it.copy(isPlatformSuspended = suspended) else it 
-        })
     }
 
     fun fetchGroupMetrics(groupId: String) {
@@ -178,7 +239,7 @@ class PlatformAdminViewModel @Inject constructor(
             platformRepo.updateGlobalFees(charge, regFee)
                 .onSuccess {
                     // Update global singleton for immediate effect across system
-                    com.sanibonani.save.domain.model.PlatformFees.MONTHLY_PER_MEMBER = charge
+                    com.sanibonani.save.domain.model.PlatformFees.MONTHLY_MEMBER_FEE = charge
                     com.sanibonani.save.domain.model.PlatformFees.REGISTRATION = regFee
 
                     _state.update { it.copy(isSaving = false, saveSuccess = true) }
@@ -229,13 +290,38 @@ class PlatformAdminViewModel @Inject constructor(
     private fun processPayout(payoutId: String, groupId: String, status: PayoutStatus) {
         viewModelScope.launch {
             _state.update { it.copy(isProcessingPayout = true) }
+            AppAnalytics.track(
+                AnalyticsTaxonomy.Events.PLATFORM_PAYOUT_TRANSITION_REQUESTED,
+                mapOf(
+                    AnalyticsTaxonomy.Params.PAYOUT_ID to payoutId,
+                    AnalyticsTaxonomy.Params.GROUP_ID to groupId,
+                    AnalyticsTaxonomy.Params.STATUS to status.name.lowercase()
+                )
+            )
             processPayoutUseCase(payoutId, groupId, status)
                 .onSuccess {
                     _state.update { it.copy(isProcessingPayout = false) }
+                    AppAnalytics.track(
+                        AnalyticsTaxonomy.Events.PLATFORM_PAYOUT_TRANSITION_SUCCESS,
+                        mapOf(
+                            AnalyticsTaxonomy.Params.PAYOUT_ID to payoutId,
+                            AnalyticsTaxonomy.Params.GROUP_ID to groupId,
+                            AnalyticsTaxonomy.Params.STATUS to status.name.lowercase()
+                        )
+                    )
                     loadData()
                 }
                 .onFailure { e ->
                     _state.update { it.copy(isProcessingPayout = false, error = e.toUserMessage()) }
+                    AppAnalytics.track(
+                        AnalyticsTaxonomy.Events.PLATFORM_PAYOUT_TRANSITION_FAILURE,
+                        mapOf(
+                            AnalyticsTaxonomy.Params.PAYOUT_ID to payoutId,
+                            AnalyticsTaxonomy.Params.GROUP_ID to groupId,
+                            AnalyticsTaxonomy.Params.STATUS to status.name.lowercase(),
+                            AnalyticsTaxonomy.Params.ERROR_TYPE to "usecase"
+                        )
+                    )
                 }
         }
     }

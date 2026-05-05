@@ -74,7 +74,8 @@ class NavGraphRoleRoutingTest {
             shouldForcePlatformAdminRedirect(
                 isLoggedIn = true,
                 role = UserRole.PLATFORM_ADMIN,
-                currentRoute = Screen.MemberDashboard.withTab(0)
+                currentRoute = Screen.MemberDashboard.withTab(0),
+                isResettingPassword = false
             )
         )
     }
@@ -85,7 +86,8 @@ class NavGraphRoleRoutingTest {
             shouldForcePlatformAdminRedirect(
                 isLoggedIn = true,
                 role = UserRole.PLATFORM_ADMIN,
-                currentRoute = Screen.PlatformAdmin.route
+                currentRoute = Screen.PlatformAdmin.route,
+                isResettingPassword = false
             )
         )
     }
@@ -97,7 +99,21 @@ class NavGraphRoleRoutingTest {
                 currentRoute = Screen.Login.route,
                 navigateTo = null,
                 isNewRegistration = false,
+                isResettingPassword = false,
                 role = UserRole.MEMBER
+            )
+        )
+    }
+
+    @Test
+    fun shouldRedirectAuthenticatedFromEntry_platformAdminOnLanding_returnsTrue() {
+        assertTrue(
+            shouldRedirectAuthenticatedFromEntry(
+                currentRoute = Screen.Landing.route,
+                navigateTo = null,
+                isNewRegistration = false,
+                isResettingPassword = false,
+                role = UserRole.PLATFORM_ADMIN
             )
         )
     }
@@ -109,6 +125,7 @@ class NavGraphRoleRoutingTest {
                 currentRoute = Screen.UpdatePassword.route,
                 navigateTo = "login",
                 isNewRegistration = false,
+                isResettingPassword = false,
                 role = UserRole.MEMBER
             )
         )
@@ -143,7 +160,8 @@ class NavGraphRoleRoutingTest {
             shouldForcePlatformAdminRedirect(
                 isLoggedIn = true,
                 role = UserRole.MEMBER,
-                currentRoute = memberRoute
+                currentRoute = memberRoute,
+                isResettingPassword = false
             )
         )
 
@@ -152,7 +170,8 @@ class NavGraphRoleRoutingTest {
             shouldForcePlatformAdminRedirect(
                 isLoggedIn = true,
                 role = UserRole.PLATFORM_ADMIN,
-                currentRoute = memberRoute
+                currentRoute = memberRoute,
+                isResettingPassword = false
             )
         )
         // Force redirect still applies for auth entry routes.
@@ -160,7 +179,8 @@ class NavGraphRoleRoutingTest {
             shouldForcePlatformAdminRedirect(
                 isLoggedIn = true,
                 role = UserRole.PLATFORM_ADMIN,
-                currentRoute = Screen.Login.route
+                currentRoute = Screen.Login.route,
+                isResettingPassword = false
             )
         )
         assertEquals(Screen.PlatformAdmin.route, destinationForUserRole(UserRole.PLATFORM_ADMIN))
@@ -170,7 +190,8 @@ class NavGraphRoleRoutingTest {
             shouldForcePlatformAdminRedirect(
                 isLoggedIn = true,
                 role = UserRole.PLATFORM_ADMIN,
-                currentRoute = Screen.PlatformAdmin.route
+                currentRoute = Screen.PlatformAdmin.route,
+                isResettingPassword = false
             )
         )
     }

@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     id("com.android.library")
     id("kotlin-android")
@@ -7,6 +9,28 @@ plugins {
     alias(libs.plugins.ksp)
 }
 
+// ── Load secrets from local.properties ────────────────────────────────────────
+val localProps = Properties().apply {
+    val f = rootProject.file("local.properties")
+    if (f.exists()) load(f.inputStream())
+}
+
+fun getSafeProp(key: String, default: String = ""): String {
+    val raw = localProps.getProperty(key, default)
+    val clean = raw.trim().removeSurrounding("\"")
+    return "\"$clean\""
+}
+
+fun getSafeBooleanProp(key: String, default: Boolean): String {
+    val raw = localProps.getProperty(key)?.trim()?.lowercase()
+    val value = when (raw) {
+        "true" -> true
+        "false" -> false
+        else -> default
+    }
+    return value.toString()
+}
+
 android {
     namespace = "com.sanibonani.save.domain"
     compileSdk = 35
@@ -14,6 +38,30 @@ android {
     defaultConfig {
         minSdk = 26
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        // ── Platform Admin Policy ───────────────────────────────────────────────
+        buildConfigField("String", "PLATFORM_ADMIN_EMAIL", getSafeProp("PLATFORM_ADMIN_EMAIL", "torrymsimango@gmail.com"))
+        // Off by default; environment-specific values are set in build types below.
+        buildConfigField("boolean", "ASSUME_ALL_AUTH_USERS_ARE_PLATFORM_ADMIN", "false")
+    }
+
+    buildTypes {
+        getByName("debug") {
+            // Dev/test default is enabled; can be overridden in local.properties.
+            buildConfigField(
+                "boolean",
+                "ASSUME_ALL_AUTH_USERS_ARE_PLATFORM_ADMIN",
+                getSafeBooleanProp("ASSUME_ALL_AUTH_USERS_ARE_PLATFORM_ADMIN", true)
+            )
+        }
+        getByName("release") {
+            // Production default is disabled; can be overridden in local.properties if needed.
+            buildConfigField(
+                "boolean",
+                "ASSUME_ALL_AUTH_USERS_ARE_PLATFORM_ADMIN",
+                getSafeBooleanProp("ASSUME_ALL_AUTH_USERS_ARE_PLATFORM_ADMIN", false)
+            )
+        }
     }
 
     compileOptions {
@@ -22,6 +70,9 @@ android {
     }
     kotlinOptions {
         jvmTarget = "17"
+    }
+    buildFeatures {
+        buildConfig = true
     }
 }
 

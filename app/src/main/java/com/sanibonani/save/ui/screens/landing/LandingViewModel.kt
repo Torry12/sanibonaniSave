@@ -2,9 +2,10 @@ package com.sanibonani.save.ui.screens.landing
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.sanibonani.save.analytics.AnalyticsTaxonomy
+import com.sanibonani.save.analytics.AppAnalytics
 import com.sanibonani.save.data.utils.toUserMessage
 import com.sanibonani.save.domain.model.Group
-import com.sanibonani.save.domain.model.Member
 import com.sanibonani.save.domain.model.PlatformFees
 import com.sanibonani.save.domain.model.PlatformAnalytics
 import com.sanibonani.save.domain.model.UserRole
@@ -49,6 +50,7 @@ class LandingViewModel @Inject constructor(
 
     fun refreshData() {
         viewModelScope.launch {
+            AppAnalytics.track(AnalyticsTaxonomy.Events.LANDING_REFRESH_STARTED)
             _uiState.update { it.copy(isLoading = true, error = null) }
 
             val analyticsResult = platformRepository.getPlatformAnalytics()
@@ -97,6 +99,10 @@ class LandingViewModel @Inject constructor(
                             error = message
                         )
                     }
+                    AppAnalytics.track(
+                        AnalyticsTaxonomy.Events.LANDING_REFRESH_FAILURE,
+                        mapOf(AnalyticsTaxonomy.Params.ERROR_TYPE to "analytics")
+                    )
                 }
                 settingsResult.isFailure -> {
                     val message = settingsResult.exceptionOrNull()?.toUserMessage()
@@ -112,13 +118,18 @@ class LandingViewModel @Inject constructor(
                             error = message
                         )
                     }
+                    AppAnalytics.track(
+                        AnalyticsTaxonomy.Events.LANDING_REFRESH_FAILURE,
+                        mapOf(AnalyticsTaxonomy.Params.ERROR_TYPE to "settings")
+                    )
                 }
                 analyticsResult.isSuccess && settingsResult.isSuccess -> {
                     val settings = settingsResult.getOrThrow()
 
                     // Update global singleton for consistency across the app
                     settings["registration_fee"]?.let { PlatformFees.REGISTRATION = it }
-                    settings["monthly_per_member"]?.let { PlatformFees.MONTHLY_PER_MEMBER = it }
+                    (settings["monthly_member_fee"] ?: settings["monthly_per_member"])
+                        ?.let { PlatformFees.MONTHLY_MEMBER_FEE = it }
 
                     _uiState.update {
                         LandingUiState(
@@ -133,6 +144,10 @@ class LandingViewModel @Inject constructor(
                             error = null
                         )
                     }
+                    AppAnalytics.track(
+                        AnalyticsTaxonomy.Events.LANDING_REFRESH_SUCCESS,
+                        mapOf(AnalyticsTaxonomy.Params.ROLE to userRole.name.lowercase())
+                    )
                 }
                 else -> {
                     _uiState.update {
@@ -146,6 +161,10 @@ class LandingViewModel @Inject constructor(
                             error = "Unable to load platform data. Please try again."
                         )
                     }
+                    AppAnalytics.track(
+                        AnalyticsTaxonomy.Events.LANDING_REFRESH_FAILURE,
+                        mapOf(AnalyticsTaxonomy.Params.ERROR_TYPE to "unknown")
+                    )
                 }
             }
         }

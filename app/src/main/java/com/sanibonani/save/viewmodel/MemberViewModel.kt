@@ -63,7 +63,8 @@ class MemberViewModel @Inject constructor(
     private val sendNotificationUseCase: SendNotificationUseCase,
     private val validateLoanEligibilityUseCase: ValidateLoanEligibilityUseCase,
     private val geoapifyService: GeoapifyService,
-    private val contextCacheService: MemberGroupContextCacheService
+    private val contextCacheService: MemberGroupContextCacheService,
+    private val userProfileCacheService: com.sanibonani.save.service.UserProfileCacheService
 ) : ViewModel() {
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -386,6 +387,17 @@ class MemberViewModel @Inject constructor(
                 }
 
                 val calculation = if (member != null && group != null) {
+                    // Update loan eligibility status concurrently
+                    launch {
+                        validateLoanEligibilityUseCase(member, group).let { eligibility ->
+                            _uiState.update { state ->
+                                state.copy(
+                                    isEligibleForLoan = eligibility is ValidateLoanEligibilityUseCase.EligibilityResult.Eligible,
+                                    loanIneligibilityReason = (eligibility as? ValidateLoanEligibilityUseCase.EligibilityResult.Ineligible)?.reason
+                                )
+                            }
+                        }
+                    }
                     PaymentCalculator.calculateStatus(group, member, contributions)
                 } else null
 
@@ -948,10 +960,16 @@ class MemberViewModel @Inject constructor(
         val userId = supabaseRepo.currentUserId
         val userEmail = supabaseRepo.currentSession?.user?.email ?: ""
         
-        // Reset form state
+        // Seed form with cached profile (filled after every login/signup)
+        val cachedName  = userProfileCacheService.getFullName()
+        val cachedPhone = userProfileCacheService.getPhone()
+
+        // Reset form state — pre-fill from cache so onboarding forms are fast
         _registerState.update {
             RegisterMemberState(
-                email = userEmail,
+                email       = userEmail.ifBlank { userProfileCacheService.getEmail() },
+                fullName    = cachedName,
+                phone       = cachedPhone,
                 targetGroupId = groupId
             )
         }
@@ -1018,14 +1036,18 @@ class MemberViewModel @Inject constructor(
         memberRepo.getMemberships(userId).onSuccess { memberships ->
             if (memberships.isNotEmpty()) {
                 val profile = memberships.first()
+                // Also update cache so future onboarding forms stay pre-filled
+                if (profile.phone.isNotBlank()) {
+                    userProfileCacheService.updatePhone(profile.phone)
+                }
                 _registerState.update { state ->
                     state.copy(
                         fullName = profile.fullName,
                         idNumber = profile.idNumber ?: "",
-                        phone = profile.phone,
-                        street = profile.street ?: "",
-                        suburb = profile.suburb ?: "",
-                        city = profile.city ?: "",
+                        phone    = profile.phone,
+                        street   = profile.street ?: "",
+                        suburb   = profile.suburb ?: "",
+                        city     = profile.city ?: "",
                         province = profile.province ?: "",
                     )
                 }

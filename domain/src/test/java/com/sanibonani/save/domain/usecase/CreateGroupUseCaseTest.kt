@@ -43,6 +43,7 @@ class CreateGroupUseCaseTest {
 
         coEvery { supabaseRepository.signUp(adminEmail, adminPassword, any()) } returns Result.success(userId)
         coEvery { groupRepository.createGroup(any()) } returns Result.success(groupId)
+        coEvery { supabaseRepository.updateUserRole(userId, UserRole.GROUP_ADMIN, groupId) } returns Result.success(Unit)
         coEvery { memberRepository.registerMember(any()) } returns Result.success(mockk())
 
         // When
@@ -59,6 +60,7 @@ class CreateGroupUseCaseTest {
         assertTrue(result.isSuccess)
         assertEquals(groupId, result.getOrNull())
         coVerify { supabaseRepository.signUp(adminEmail, adminPassword, any()) }
+        coVerify { supabaseRepository.updateUserRole(userId, UserRole.GROUP_ADMIN, groupId) }
         coVerify { groupRepository.createGroup(match { it.adminUserId == userId }) }
         coVerify {
             memberRepository.registerMember(match { member ->
@@ -76,7 +78,7 @@ class CreateGroupUseCaseTest {
     }
 
     @Test
-    fun `invoke with existing account should update role and create group`() = runBlocking {
+    fun `invoke with existing account should elevate role after creating group`() = runBlocking {
         // Given
         val group = Group(name = "Test Group", province = "Western Cape", city = "Cape Town", probationMonths = 3)
         val userId = "user-123"
@@ -84,7 +86,7 @@ class CreateGroupUseCaseTest {
 
         coEvery { supabaseRepository.currentUserId } returns userId
         coEvery { supabaseRepository.getUserRole() } returns UserRole.MEMBER
-        coEvery { supabaseRepository.updateUserRole(userId, UserRole.GROUP_ADMIN) } returns Result.success(Unit)
+        coEvery { supabaseRepository.updateUserRole(userId, UserRole.GROUP_ADMIN, groupId) } returns Result.success(Unit)
         coEvery { supabaseRepository.currentSessionEmail } returns "existing@test.com"
         coEvery { groupRepository.createGroup(any()) } returns Result.success(groupId)
         coEvery { memberRepository.registerMember(any()) } returns Result.success(mockk())
@@ -95,7 +97,7 @@ class CreateGroupUseCaseTest {
         // Then
         assertTrue(result.isSuccess)
         assertEquals(groupId, result.getOrNull())
-        coVerify { supabaseRepository.updateUserRole(userId, UserRole.GROUP_ADMIN) }
+        coVerify { supabaseRepository.updateUserRole(userId, UserRole.GROUP_ADMIN, groupId) }
         coVerify { groupRepository.createGroup(match { it.adminUserId == userId }) }
         coVerify {
             memberRepository.registerMember(match { member ->
@@ -128,6 +130,7 @@ class CreateGroupUseCaseTest {
 
         coEvery { supabaseRepository.signUp(any(), any(), any()) } returns Result.success(userId)
         coEvery { groupRepository.createGroup(any()) } returns Result.success(groupId)
+        coEvery { supabaseRepository.updateUserRole(userId, UserRole.GROUP_ADMIN, groupId) } returns Result.success(Unit)
         coEvery { memberRepository.registerMember(any()) } returns Result.success(mockk())
 
         // When
@@ -144,6 +147,7 @@ class CreateGroupUseCaseTest {
 
         // Then
         assertTrue(result.isSuccess)
+        coVerify { supabaseRepository.signUp(adminEmail, adminPassword, match { it["role"] == "member" }) }
         coVerify {
             memberRepository.registerMember(match { member ->
                 member.fullName == adminFullName &&

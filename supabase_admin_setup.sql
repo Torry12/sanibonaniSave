@@ -10,12 +10,12 @@ SELECT id, email, is_platform_admin, role FROM profiles;
 -- 4. Set platform admin for a specific user in members table
 UPDATE members
 SET is_platform_admin = TRUE, role = 'platform_admin'
-WHERE email = 'torryymsimango@gmail.com';
+WHERE email = 'torrymsimango@gmail.com';
 
 -- 5. Set platform admin for a specific user in profiles table
 UPDATE profiles
 SET is_platform_admin = TRUE, role = 'platform_admin'
-WHERE email = 'torryymsimango@gmail.com';
+WHERE email = 'torrymsimango@gmail.com';
 
 -- 6. (Optional) Add columns if they do not exist
 ALTER TABLE members ADD COLUMN IF NOT EXISTS is_platform_admin BOOLEAN DEFAULT FALSE;

@@ -28,6 +28,10 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class PlatformAdminPortalTest {
 
+    private companion object {
+        const val TEST_PLATFORM_ADMIN_PASSWORD = "torry123M"
+    }
+
     @get:Rule(order = 0)
     var hiltRule = HiltAndroidRule(this)
 
@@ -42,7 +46,7 @@ class PlatformAdminPortalTest {
 
     // ── Helper: log in as platform admin ─────────────────────────────────────
 
-    private fun loginAsPlatformAdmin(password: String = PlatformAdminAuthPolicy.PASSWORD) {
+    private fun loginAsPlatformAdmin(password: String = TEST_PLATFORM_ADMIN_PASSWORD) {
         // Wait for Landing screen
         composeTestRule.waitUntil(timeoutMillis = 25_000) {
             runCatching {
@@ -81,23 +85,15 @@ class PlatformAdminPortalTest {
         composeTestRule.onNodeWithText("Platform Administration", substring = true).assertIsDisplayed()
     }
 
-    // ── Test 1: Login with alias password ────────────────────────────────────
-
-    @Test
-    fun loginWithAliasPassword_navigatesToPlatformAdmin() {
-        loginAsPlatformAdmin(password = "ttor123M")
-        waitForPortal()
-    }
-
-    // ── Test 2: Login with canonical password ────────────────────────────────
+    // ── Test 1: Login with canonical password ────────────────────────────────
 
     @Test
     fun loginWithCanonicalPassword_navigatesToPlatformAdmin() {
-        loginAsPlatformAdmin(password = PlatformAdminAuthPolicy.PASSWORD)
+        loginAsPlatformAdmin(password = TEST_PLATFORM_ADMIN_PASSWORD)
         waitForPortal()
     }
 
-    // ── Test 3: Tab 0 – Platform Analytics renders ────────────────────────────
+    // ── Test 2: Tab 0 – Platform Analytics renders ────────────────────────────
 
     @Test
     fun tab0_analyticsTab_displaysCriticalKpis() {

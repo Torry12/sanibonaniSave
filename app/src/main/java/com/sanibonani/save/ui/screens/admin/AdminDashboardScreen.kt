@@ -159,16 +159,14 @@ fun AdminDashboardScreen(
                 )
                 
                 // Admin Fee Banner
-                state.group?.let { group ->
+                state.group?.takeIf { state.feeStatus == AdminFeeState.PENDING_ACTIVATION }?.let { group ->
                     AdminFeeBanner(
                         group = group,
                         status = state.feeStatus,
                         daysOverdue = state.daysOverdue,
                         onPayClick = { 
                             group.id?.let { id ->
-                                // Dynamic platform fee amount
-                                val feeAmount = group.platformFeeAmount
-                                onNavigateToPayment("admin_fee", feeAmount.toString(), id)
+                                onNavigateToPayment("registration", group.registrationFee.toString(), id)
                             }
                         }
                     )
@@ -306,7 +304,9 @@ fun AdminDashboardScreen(
         Box(Modifier.padding(padding)) {
             when (state.selectedTab) {
                 0 -> OverviewTab(state, vm, 
-                    onPayClick = { amount -> onNavigateToPayment("admin_fee", amount.toString(), state.group?.id ?: state.currentGroupId ?: "") },
+                    onPayClick = { amount -> 
+                        onNavigateToPayment("registration", amount.toString(), state.group?.id ?: state.currentGroupId ?: "")
+                    },
                     onMemberPortalClick = { (state.group?.id ?: state.currentGroupId)?.let { onNavigateToMemberPortal(it) } }
                 )
                 1 -> MembersTab(state, vm)
@@ -342,13 +342,19 @@ fun AdminDashboardScreen(
                 }
             }
 
-            if (state.feeStatus == AdminFeeState.SUSPENDED && state.selectedTab != 0 && state.selectedTab != 5) {
-                LockedTabOverlay(
-                    message = if (state.restoreRequested) 
+            val isLocked = (state.feeStatus == AdminFeeState.SUSPENDED || state.feeStatus == AdminFeeState.PENDING_ACTIVATION) && 
+                          state.selectedTab != 0 && state.selectedTab != 5
+            
+            if (isLocked) {
+                val lockMessage = when (state.feeStatus) {
+                    AdminFeeState.PENDING_ACTIVATION -> "Onboarding Incomplete. Please pay the registration fee on the Overview tab to activate your group."
+                    AdminFeeState.SUSPENDED -> if (state.restoreRequested) 
                         "Suspension lift requested. Awaiting platform admin approval." 
                     else 
-                        "Account Suspended. Please pay the platform fee on the Overview tab."
-                )
+                        "Account Suspended. Please contact Platform Admin."
+                    else -> ""
+                }
+                LockedTabOverlay(message = lockMessage)
             }
         }
     }
@@ -361,6 +367,8 @@ fun AdminDashboardScreen(
             beneficiaries = state.selectedMemberBeneficiaries,
             documents = state.selectedMemberDocuments,
             calculation = state.selectedMemberCalculation,
+            isEligibleForLoan = state.isEligibleForLoan,
+            loanIneligibilityReason = state.loanIneligibilityReason,
             onDismiss = { vm.selectMember(null) },
             onVerifyDoc = { idx, approve -> 
                 member.id?.let { id ->
@@ -522,7 +530,7 @@ fun AdminFeeBanner(group: Group, status: AdminFeeState, daysOverdue: Int, onPayC
         AdminFeeState.OVERDUE -> Triple(ErrorRed, Color.White, "🚨 Platform fee overdue ($daysOverdue days)!")
         AdminFeeState.WARNING -> Triple(WarningYellow, Color.Black, "⚠️ Platform fee due soon — please pay R150.00")
         AdminFeeState.SUSPENDED -> Triple(Color.Black, Color.White, "🚫 Account Suspended — Pay R150.00 to restore access")
-        AdminFeeState.PENDING_ACTIVATION -> Triple(Color.Gray, Color.White, "⏳ Account pending activation")
+        AdminFeeState.PENDING_ACTIVATION -> Triple(ForestMid, Color.White, "🚀 Onboarding — Pay R${group.registrationFee.toInt()} to activate group")
     }
 
     Surface(
@@ -546,7 +554,7 @@ fun AdminFeeBanner(group: Group, status: AdminFeeState, daysOverdue: Int, onPayC
 
 @Suppress("DEPRECATION")
 @Composable
-fun OverviewTab(state: AdminUiState, vm: AdminViewModel, onPayClick: (Int) -> Unit, onMemberPortalClick: () -> Unit) {
+fun OverviewTab(state: AdminUiState, vm: AdminViewModel, onPayClick: (Double) -> Unit, onMemberPortalClick: () -> Unit) {
     val context = LocalContext.current
     Column(
         Modifier
@@ -555,6 +563,35 @@ fun OverviewTab(state: AdminUiState, vm: AdminViewModel, onPayClick: (Int) -> Un
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
+        // Activation/Onboarding Card
+        if (state.feeStatus == AdminFeeState.PENDING_ACTIVATION) {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Forest.copy(0.1f)),
+                border = BorderStroke(1.dp, Forest)
+            ) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.RocketLaunch, null, tint = Forest, modifier = Modifier.size(24.dp))
+                        Spacer(Modifier.width(12.dp))
+                        Text("Activate Your Group", style = MaterialTheme.typography.titleSmall, color = Forest, fontWeight = FontWeight.Bold)
+                    }
+                    Text("Your group is almost ready! Pay the one-time registration fee to start onboarding members, capturing details, and managing funds.", style = MaterialTheme.typography.bodySmall)
+                    
+                    Button(
+                        onClick = { 
+                            val fee = state.group?.registrationFee ?: 700.0
+                            onPayClick(fee) 
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = Forest),
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text("Pay Registration Fee (R${state.group?.registrationFee?.toInt() ?: 700})")
+                    }
+                }
+            }
+        }
+
         // Member Portal Link
         Card(
             onClick = onMemberPortalClick,
@@ -804,6 +841,8 @@ fun MemberDetailDialog(
     beneficiaries: List<Beneficiary>,
     documents: List<MemberDocument>,
     calculation: PaymentCalculation?,
+    isEligibleForLoan: Boolean = false,
+    loanIneligibilityReason: String? = null,
     onDismiss: () -> Unit,
     onVerifyDoc: (Int, Boolean) -> Unit,
     onVerifyRelDoc: (String, Boolean) -> Unit,
@@ -885,6 +924,21 @@ fun MemberDetailDialog(
                                 if (it.isOverdue) {
                                     DetailRow("Total Due Now", formatZAR(it.totalDueNow))
                                 }
+                            }
+                            
+                            HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp), color = Forest.copy(0.1f))
+                            
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                Text("Loan Eligibility", style = MaterialTheme.typography.bodySmall, color = MidGray)
+                                val (color, text) = if (isEligibleForLoan) {
+                                    Forest to "✅ QUALIFIED"
+                                } else {
+                                    ErrorRed to "❌ NOT QUALIFIED"
+                                }
+                                Text(text, color = color, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodySmall)
+                            }
+                            loanIneligibilityReason?.let { reason ->
+                                Text(reason, style = MaterialTheme.typography.labelSmall, color = ErrorRed, textAlign = TextAlign.End, modifier = Modifier.fillMaxWidth())
                             }
                         }
                     }
@@ -1738,6 +1792,8 @@ fun PayoutTab(state: AdminUiState, vm: AdminViewModel) {
                         
                         val statusColor = when(payout.status) {
                             PayoutStatus.PENDING -> MidGray
+
+                            PayoutStatus.GROUP_APPROVED -> InfoBlue
                             PayoutStatus.PROCESSING -> Forest
                             PayoutStatus.COMPLETED -> Forest
                             PayoutStatus.FAILED -> ErrorRed
@@ -1757,13 +1813,31 @@ fun PayoutTab(state: AdminUiState, vm: AdminViewModel) {
                                 )
                             }
                             
-                            if (payout.status == PayoutStatus.PENDING) {
-                                TextButton(
-                                    onClick = { vm.cancelPayoutRequest(payout.id ?: "") },
-                                    contentPadding = PaddingValues(0.dp)
-                                ) {
-                                    Text("Cancel", color = ErrorRed, style = MaterialTheme.typography.labelSmall)
+                            when (payout.status) {
+                                PayoutStatus.PENDING -> {
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        TextButton(
+                                            onClick = { vm.approveAndEscalatePayoutRequest(payout.id ?: "") },
+                                            contentPadding = PaddingValues(0.dp)
+                                        ) {
+                                            Text("Approve & Escalate", color = Forest, style = MaterialTheme.typography.labelSmall)
+                                        }
+                                        TextButton(
+                                            onClick = { vm.cancelPayoutRequest(payout.id ?: "") },
+                                            contentPadding = PaddingValues(0.dp)
+                                        ) {
+                                            Text("Cancel", color = ErrorRed, style = MaterialTheme.typography.labelSmall)
+                                        }
+                                    }
                                 }
+                                PayoutStatus.GROUP_APPROVED -> {
+                                    Text(
+                                        "Escalated to platform",
+                                        color = InfoBlue,
+                                        style = MaterialTheme.typography.labelSmall
+                                    )
+                                }
+                                else -> Unit
                             }
                         }
                     }

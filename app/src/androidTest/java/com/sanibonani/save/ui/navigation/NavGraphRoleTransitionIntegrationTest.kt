@@ -22,6 +22,10 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class NavGraphRoleTransitionIntegrationTest {
 
+    private companion object {
+        const val TEST_PLATFORM_ADMIN_PASSWORD = "torry123M"
+    }
+
     @get:Rule(order = 0)
     var hiltRule = HiltAndroidRule(this)
 
@@ -46,7 +50,7 @@ class NavGraphRoleTransitionIntegrationTest {
         composeTestRule.onNodeWithText("Welcome Back").assertIsDisplayed()
 
         composeTestRule.onNodeWithText("Email Address").performTextInput(PlatformAdminAuthPolicy.EMAIL)
-        composeTestRule.onNodeWithText("Password").performTextInput(PlatformAdminAuthPolicy.PASSWORD)
+        composeTestRule.onNodeWithText("Password").performTextInput(TEST_PLATFORM_ADMIN_PASSWORD)
         composeTestRule.onNodeWithText("Log In").performClick()
 
         composeTestRule.waitUntil(timeoutMillis = 20_000) {

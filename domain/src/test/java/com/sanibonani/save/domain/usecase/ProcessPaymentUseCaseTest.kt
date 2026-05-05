@@ -7,6 +7,7 @@ import io.mockk.*
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.After
 import org.junit.Before
 import org.junit.Test
 
@@ -21,6 +22,7 @@ class ProcessPaymentUseCaseTest {
 
     @Before
     fun setUp() {
+        PlatformFees.MONTHLY_MEMBER_FEE = 0.0
         processPaymentUseCase = ProcessPaymentUseCase(
             paymentRepository,
             groupRepository,
@@ -28,6 +30,11 @@ class ProcessPaymentUseCaseTest {
             notificationRepository,
             platformRepository
         )
+    }
+
+    @After
+    fun tearDown() {
+        PlatformFees.MONTHLY_MEMBER_FEE = 0.0
     }
 
     @Test
@@ -64,6 +71,7 @@ class ProcessPaymentUseCaseTest {
     @Test
     fun `process contribution payment success`() = runBlocking {
         // Given
+        PlatformFees.MONTHLY_MEMBER_FEE = 10.0
         val member = Member(id = "member-123", groupId = "group-456", status = MemberStatus.ACTIVE)
         val group = Group(id = "group-456", monthlyContribution = 200.0)
         val amount = 200.0
@@ -90,8 +98,11 @@ class ProcessPaymentUseCaseTest {
 
         // Then
         assertTrue(result.isSuccess)
-        coVerify { memberRepository.recordContribution(match { 
-            it.amount == amount && it.dueDate == calculation.nextDueDate 
+        coVerify { memberRepository.recordContribution(match {
+            it.type == "contribution" && it.amount == 190.0 && it.dueDate == calculation.nextDueDate
+        }) }
+        coVerify { memberRepository.recordContribution(match {
+            it.type == "member_fee_ledger" && it.amount == 10.0 && it.dueDate == calculation.nextDueDate
         }) }
     }
 

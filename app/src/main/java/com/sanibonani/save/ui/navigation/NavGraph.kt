@@ -19,6 +19,7 @@ import com.sanibonani.save.domain.utils.UserRoleMapper
 import com.sanibonani.save.ui.screens.admin.AdminDashboardScreen
 import com.sanibonani.save.ui.screens.admin.PlatformAdminScreen
 import com.sanibonani.save.ui.screens.auth.LoginScreen
+import com.sanibonani.save.ui.screens.auth.NewUserOnboardingScreen
 import com.sanibonani.save.ui.screens.auth.RegisterScreen
 import com.sanibonani.save.ui.screens.browse.BrowseGroupsScreen
 import com.sanibonani.save.ui.screens.group.GroupProfileScreen
@@ -30,12 +31,14 @@ import com.sanibonani.save.ui.screens.payment.PaymentScreen
 import com.sanibonani.save.viewmodel.AdminViewModel
 import com.sanibonani.save.viewmodel.AuthViewModel
 import com.sanibonani.save.viewmodel.MemberViewModel
+import com.sanibonani.save.service.UserProfileCacheService
 
 sealed class Screen(val route: String) {
-    data object Landing         : Screen("landing")
-    data object Login           : Screen("login")
-    data object Register        : Screen("register")
-    data object PasswordRecovery: Screen("password_recovery")
+    data object Landing             : Screen("landing")
+    data object Login               : Screen("login")
+    data object Register            : Screen("register")
+    data object NewUserOnboarding   : Screen("new_user_onboarding")
+    data object PasswordRecovery    : Screen("password_recovery")
     data object UpdatePassword  : Screen("update_password")
     data object BrowseGroups    : Screen("browse")
     data object RegisterGroup   : Screen("register_group")
@@ -65,6 +68,7 @@ private fun String?.isAuthOrPublicRoute(): Boolean {
     return route.startsWith(Screen.Landing.route) ||
         route.startsWith(Screen.Login.route) ||
         route.startsWith(Screen.Register.route) ||
+        route.startsWith(Screen.NewUserOnboarding.route) ||
         route.startsWith(Screen.PasswordRecovery.route) ||
         route.startsWith(Screen.UpdatePassword.route) ||
         route.startsWith(Screen.BrowseGroups.route) ||
@@ -74,8 +78,7 @@ private fun String?.isAuthOrPublicRoute(): Boolean {
 private fun String?.isAuthEntryRoute(): Boolean {
     val route = this ?: return false
     return route.startsWith(Screen.Login.route) ||
-        route.startsWith(Screen.Register.route) ||
-        route.startsWith(Screen.UpdatePassword.route)
+        route.startsWith(Screen.Register.route)
 }
 
 internal fun destinationForUserRole(role: UserRole, groupId: String? = null): String {
@@ -102,23 +105,25 @@ internal fun destinationForPaymentType(type: String, groupId: String): String {
 internal fun shouldForcePlatformAdminRedirect(
     isLoggedIn: Boolean,
     role: UserRole,
-    currentRoute: String?
+    currentRoute: String?,
+    isResettingPassword: Boolean
 ): Boolean {
     // Only force redirect to Platform Admin portal if they are on an auth entry route.
     // This allows them to navigate to public or other authorized pages once logged in.
-    return isLoggedIn && role == UserRole.PLATFORM_ADMIN && currentRoute.isAuthEntryRoute()
+    return isLoggedIn && role == UserRole.PLATFORM_ADMIN && currentRoute.isAuthEntryRoute() && !isResettingPassword
 }
 
 internal fun shouldRedirectAuthenticatedFromEntry(
     currentRoute: String?,
     navigateTo: String?,
     isNewRegistration: Boolean,
+    isResettingPassword: Boolean,
     role: UserRole
 ): Boolean {
-    // For regular users, we also consider Landing an entry route to auto-redirect to dashboard.
-    // For Platform Admin, we allow them to stay on Landing to explore public content.
-    val isEntry = currentRoute.isAuthEntryRoute() || (currentRoute == Screen.Landing.route && role != UserRole.PLATFORM_ADMIN)
-    return isEntry && navigateTo != "login" && !isNewRegistration
+    // Redirect all authenticated users from auth entry routes (Login/Register).
+    // Additionally, redirect away from Landing page if already logged in.
+    val isEntry = currentRoute.isAuthEntryRoute() || currentRoute == Screen.Landing.route
+    return isEntry && navigateTo != "login" && !isNewRegistration && !isResettingPassword
 }
 
 internal fun shouldRedirectUnauthenticatedToLanding(
@@ -169,10 +174,22 @@ internal fun shouldRedirectForRoleMismatch(
     return isLoggedIn && !isRoleAuthorizedForRoute(role, currentRoute)
 }
 
+@dagger.hilt.EntryPoint
+@dagger.hilt.InstallIn(dagger.hilt.components.SingletonComponent::class)
+interface NavGraphEntryPoint {
+    fun userProfileCacheService(): UserProfileCacheService
+}
+
 @Composable
 fun SanibonaniNavGraph(
     navController: NavHostController = rememberNavController()
 ) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val userProfileCacheService = remember(context) {
+        dagger.hilt.android.EntryPointAccessors
+            .fromApplication(context.applicationContext, NavGraphEntryPoint::class.java)
+            .userProfileCacheService()
+    }
     val authViewModel: AuthViewModel = hiltViewModel()
     val authState by authViewModel.state.collectAsState()
 
@@ -198,7 +215,12 @@ fun SanibonaniNavGraph(
              return@LaunchedEffect
          }
 
-          if (shouldForcePlatformAdminRedirect(authState.isLoggedIn, authState.userRole, currentRoute)) {
+          if (shouldForcePlatformAdminRedirect(
+                 isLoggedIn = authState.isLoggedIn,
+                 role = authState.userRole,
+                 currentRoute = currentRoute,
+                 isResettingPassword = authState.isResettingPassword
+             )) {
               AppLogger.d(tag = "NavGraph", message = "[Redirect] Platform admin detected. Navigating to portal from $currentRoute.")
               navController.navigate(Screen.PlatformAdmin.route) {
                   popUpTo(0) { inclusive = true }
@@ -207,19 +229,40 @@ fun SanibonaniNavGraph(
           }
 
           if (authState.isLoggedIn) {
-              if (shouldRedirectAuthenticatedFromEntry(currentRoute, authState.navigateTo, authState.isNewRegistration, authState.userRole)) {
+              if (authState.isNewRegistration && currentRoute == Screen.Register.route) {
+                  // Platform admins go to their portal; all other new users go to the onboarding chooser
+                  val destination = if (authState.userRole == UserRole.PLATFORM_ADMIN) {
+                      Screen.PlatformAdmin.route
+                  } else {
+                      Screen.NewUserOnboarding.route
+                  }
+                  AppLogger.d(tag = "NavGraph", message = "[Register] New registration detected. Navigating to $destination.")
+                  navController.navigate(destination) {
+                      popUpTo(0) { inclusive = true }
+                  }
+                  authViewModel.clearNewRegistrationFlag()
+                  return@LaunchedEffect
+              }
+
+              if (shouldRedirectAuthenticatedFromEntry(
+                      currentRoute = currentRoute,
+                      navigateTo = authState.navigateTo,
+                      isNewRegistration = authState.isNewRegistration,
+                      isResettingPassword = authState.isResettingPassword,
+                      role = authState.userRole
+                  )) {
                   val dest = destinationForUserRole(authState.userRole)
                   AppLogger.d(tag = "NavGraph", message = "[Redirect] Authenticated user. Navigating to $dest.")
                   navController.navigate(dest) {
                       popUpTo(0) { inclusive = true }
                   }
-              } else if (authState.isNewRegistration && currentRoute == Screen.Register.route) {
-                  // New registration: go to Landing page
-                  navController.navigate(Screen.Landing.route) {
-                      popUpTo(0) { inclusive = true }
-                  }
-                  authViewModel.clearNewRegistrationFlag()
               }
+          } else if (authState.isNewRegistration && currentRoute == Screen.Register.route) {
+              AppLogger.d(tag = "NavGraph", message = "[Register] Session not yet authenticated after signup. Redirecting to Login for platform admin sign-in.")
+              navController.navigate("${Screen.Login.route}?redirect=platform_admin") {
+                  popUpTo(0) { inclusive = true }
+              }
+              authViewModel.clearNewRegistrationFlag()
           } else if (shouldRedirectUnauthenticatedToLanding(authState.isLoggedIn, currentRoute)) {
               // If not logged in and on a protected screen, go to Landing
               navController.navigate(Screen.Landing.route) {
@@ -311,6 +354,22 @@ fun SanibonaniNavGraph(
             RegisterScreen(
                 onRegistered = { /* Handled by LaunchedEffect */ },
                 onBack = { navController.popBackStack() }
+            )
+        }
+
+        composable(Screen.NewUserOnboarding.route) {
+            NewUserOnboardingScreen(
+                profileCache    = userProfileCacheService,
+                onRegisterGroup = {
+                    navController.navigate(Screen.RegisterGroup.route) {
+                        popUpTo(Screen.NewUserOnboarding.route) { inclusive = false }
+                    }
+                },
+                onBrowseGroups  = {
+                    navController.navigate(Screen.BrowseGroups.route) {
+                        popUpTo(Screen.NewUserOnboarding.route) { inclusive = false }
+                    }
+                }
             )
         }
 
@@ -452,6 +511,9 @@ fun SanibonaniNavGraph(
                     navController.navigate(Screen.AdminDashboard.withId(groupId))
                 },
                 onImpersonateMember = { _, groupId ->
+                    navController.navigate(Screen.MemberDashboard.withTab(0, groupId))
+                },
+                onOpenMemberPortalFromDisbursement = { groupId, _ ->
                     navController.navigate(Screen.MemberDashboard.withTab(0, groupId))
                 }
             )

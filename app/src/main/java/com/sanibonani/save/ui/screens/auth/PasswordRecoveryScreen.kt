@@ -16,6 +16,7 @@ import com.sanibonani.save.ui.components.InfoBox
 import com.sanibonani.save.ui.components.InfoType
 import com.sanibonani.save.ui.components.PhoneNumberTransformation
 import com.sanibonani.save.ui.theme.Forest
+import com.sanibonani.save.ui.utils.KeyboardAwareScrollColumn
 import com.sanibonani.save.viewmodel.PasswordRecoveryViewModel
 import com.sanibonani.save.viewmodel.RecoveryMethod
 
@@ -27,7 +28,7 @@ fun PasswordRecoveryScreen(
     val state by vm.state.collectAsState()
     var selectedMethod by remember { mutableStateOf(RecoveryMethod.EMAIL) }
 
-    Column(Modifier.fillMaxSize().padding(24.dp)) {
+    KeyboardAwareScrollColumn(Modifier.fillMaxSize().padding(24.dp)) {
         Text("Password Recovery", style = MaterialTheme.typography.headlineMedium, color = Forest)
         Spacer(Modifier.height(16.dp))
         Text("Enter your email or WhatsApp number to receive a password reset link.")

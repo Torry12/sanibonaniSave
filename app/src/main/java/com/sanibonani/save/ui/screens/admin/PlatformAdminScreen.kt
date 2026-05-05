@@ -19,6 +19,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.sanibonani.save.domain.model.AdminFeeState
 import com.sanibonani.save.domain.model.Group
 import com.sanibonani.save.domain.model.Member
 import com.sanibonani.save.ui.components.*
@@ -32,6 +33,7 @@ fun PlatformAdminScreen(
     onLogout: () -> Unit,
     onImpersonateGroupAdmin: (groupId: String) -> Unit,
     onImpersonateMember: (memberId: String, groupId: String) -> Unit,
+    onOpenMemberPortalFromDisbursement: (groupId: String, payoutId: String?) -> Unit,
     vm: PlatformAdminViewModel = hiltViewModel()
 ) {
     val state by vm.state.collectAsState()
@@ -99,7 +101,12 @@ fun PlatformAdminScreen(
                 0 -> PlatformAnalyticsTab(state.analytics)
                 1 -> AllGroupsTab(state.groups, vm, state)
                 2 -> FeeManagementTab(state, vm)
-                3 -> DisbursementsTab(state.payouts, state.groups, vm)
+                3 -> DisbursementsTab(
+                    payouts = state.payouts,
+                    groups = state.groups,
+                    vm = vm,
+                    onOpenMemberPortal = onOpenMemberPortalFromDisbursement
+                )
                 4 -> MaintenanceTab(vm, onNavigateToCreateAdmin, onLogout, onImpersonateGroupAdmin, onImpersonateMember)
                 else -> CenterPlaceholder("Unknown Tab")
             }
@@ -129,9 +136,9 @@ private fun MaintenanceTab(
             border = BorderStroke(1.dp, Forest.copy(alpha = 0.3f))
         ) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("👤 Platform Admin Management", style = MaterialTheme.typography.titleSmall, color = Forest, fontWeight = FontWeight.Bold)
+                Text("👤 Administrator Management", style = MaterialTheme.typography.titleSmall, color = Forest, fontWeight = FontWeight.Bold)
                 Text(
-                    "Create additional platform administrator accounts to help manage the system.",
+                    "Create additional group administrator accounts to help manage the system.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MidGray
                 )
@@ -141,7 +148,7 @@ private fun MaintenanceTab(
                     modifier = Modifier.fillMaxWidth(),
                     colors = ButtonDefaults.buttonColors(containerColor = Forest)
                 ) {
-                    Text("CREATE NEW PLATFORM ADMIN")
+                    Text("CREATE NEW ADMIN")
                 }
             }
         }
@@ -364,6 +371,7 @@ private fun AllGroupsTab(groups: List<Group>, vm: PlatformAdminViewModel, state:
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     items(filteredGroups, key = { it.id ?: it.hashCode() }) { group ->
+                        val isSuspended = group.isPlatformSuspended || group.feeStatus == AdminFeeState.SUSPENDED
                         Card(
                             shape = RoundedCornerShape(12.dp),
                             colors = CardDefaults.cardColors(containerColor = Color.White),
@@ -400,10 +408,11 @@ private fun AllGroupsTab(groups: List<Group>, vm: PlatformAdminViewModel, state:
                                         Text("VIEW METRICS", style = MaterialTheme.typography.labelSmall)
                                     }
 
-                                    if (group.isPlatformSuspended) {
+                                    if (isSuspended) {
                                         Button(
                                             onClick = { vm.unsuspendGroup(group.id ?: "") },
                                             modifier = Modifier.weight(1f),
+                                            enabled = !state.isSaving && !state.isSuspending,
                                             colors = ButtonDefaults.buttonColors(containerColor = SuccessGreen),
                                             shape = RoundedCornerShape(8.dp)
                                         ) {
@@ -413,6 +422,7 @@ private fun AllGroupsTab(groups: List<Group>, vm: PlatformAdminViewModel, state:
                                         Button(
                                             onClick = { groupToSuspend = group },
                                             modifier = Modifier.weight(1f),
+                                            enabled = !state.isSaving && !state.isSuspending,
                                             colors = ButtonDefaults.buttonColors(containerColor = ErrorRed),
                                             shape = RoundedCornerShape(8.dp)
                                         ) {
@@ -428,7 +438,7 @@ private fun AllGroupsTab(groups: List<Group>, vm: PlatformAdminViewModel, state:
         }
 
         groupToSuspend?.let { group ->
-        var reason by remember { mutableStateOf("") }
+        var reason by remember(group.id) { mutableStateOf("") }
         AlertDialog(
             onDismissRequest = { groupToSuspend = null },
             title = { Text("Suspend Group: ${group.name}") },
@@ -451,7 +461,7 @@ private fun AllGroupsTab(groups: List<Group>, vm: PlatformAdminViewModel, state:
                         groupToSuspend = null
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = ErrorRed),
-                    enabled = reason.isNotBlank()
+                    enabled = reason.isNotBlank() && !state.isSuspending && !state.isSaving
                 ) { Text("Confirm Suspension") }
             },
             dismissButton = {
@@ -491,15 +501,20 @@ private fun MetricRow(label: String, value: String, color: Color) {
 }
 
 @Composable
-private fun DisbursementsTab(payouts: List<com.sanibonani.save.domain.model.PayoutRequest>, groups: List<Group>, vm: PlatformAdminViewModel) {
+private fun DisbursementsTab(
+    payouts: List<com.sanibonani.save.domain.model.PayoutRequest>,
+    groups: List<Group>,
+    vm: PlatformAdminViewModel,
+    onOpenMemberPortal: (groupId: String, payoutId: String?) -> Unit
+) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         item {
-            Text("Pending Disbursements", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-            Text("Payout requests from groups to their local bank accounts.", style = MaterialTheme.typography.labelSmall, color = MidGray)
+            Text("Escalated Disbursements", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Text("Validated payout requests escalated by group admins.", style = MaterialTheme.typography.labelSmall, color = MidGray)
         }
         
         items(payouts) { payout ->
@@ -524,6 +539,7 @@ private fun DisbursementsTab(payouts: List<com.sanibonani.save.domain.model.Payo
                         
                         val statusColor = when(payout.status) {
                             com.sanibonani.save.domain.model.PayoutStatus.PENDING -> MidGray
+                            com.sanibonani.save.domain.model.PayoutStatus.GROUP_APPROVED -> InfoBlue
                             com.sanibonani.save.domain.model.PayoutStatus.PROCESSING -> Forest
                             com.sanibonani.save.domain.model.PayoutStatus.COMPLETED -> SuccessGreen
                             com.sanibonani.save.domain.model.PayoutStatus.FAILED -> ErrorRed
@@ -548,15 +564,36 @@ private fun DisbursementsTab(payouts: List<com.sanibonani.save.domain.model.Payo
                     Text("Bank: ${payout.bankName}", style = MaterialTheme.typography.bodySmall)
                     Text("Account: ${payout.accountNo}", style = MaterialTheme.typography.bodySmall)
                     Text("Branch: ${payout.branchCode}", style = MaterialTheme.typography.bodySmall)
+
+                    OutlinedButton(
+                        onClick = {
+                            vm.logAudit(
+                                action = "OPEN_MEMBER_PORTAL_FROM_DISBURSEMENT",
+                                targetGroupId = payout.groupId,
+                                details = mapOf(
+                                    "payoutId" to (payout.id ?: "unknown"),
+                                    "status" to payout.status.name,
+                                    "groupName" to groupName
+                                )
+                            )
+                            onOpenMemberPortal(payout.groupId, payout.id)
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 12.dp),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Text("Open Related Member Portal")
+                    }
                     
-                    if (payout.status == com.sanibonani.save.domain.model.PayoutStatus.PENDING || 
+                    if (payout.status == com.sanibonani.save.domain.model.PayoutStatus.GROUP_APPROVED ||
                         payout.status == com.sanibonani.save.domain.model.PayoutStatus.PROCESSING) {
                         
                         Row(
                             modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            if (payout.status == com.sanibonani.save.domain.model.PayoutStatus.PENDING) {
+                            if (payout.status == com.sanibonani.save.domain.model.PayoutStatus.GROUP_APPROVED) {
                                 OutlinedButton(
                                     onClick = { payout.id?.let { vm.approvePayout(it, payout.groupId) } },
                                     modifier = Modifier.weight(1f),

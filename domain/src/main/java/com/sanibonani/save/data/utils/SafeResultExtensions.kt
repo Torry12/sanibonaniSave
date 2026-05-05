@@ -87,10 +87,13 @@ fun Throwable.toUserMessage(): String {
             return "Database permissions are not configured. Please run the Supabase grants/RLS setup script and try again."
 
         // Supabase Storage RLS / policy failures
+        msg.contains("storage.objects", ignoreCase = true) ->
+            return "File storage access is blocked by security rules. Please ensure Supabase Storage buckets and policies are configured."
+
+        // Generic RLS / row-level security violation (tables)
         msg.contains("row-level security", ignoreCase = true) ||
-            msg.contains("violates row-level security", ignoreCase = true) ||
-            msg.contains("storage.objects", ignoreCase = true) ->
-            return "Uploads are blocked by storage security rules. Please ensure the Supabase Storage bucket and policies are configured, then try again."
+            msg.contains("violates row-level security", ignoreCase = true) ->
+            return "You don't have permission to access or modify this data (RLS Violation). Check your user role or the table's security policies."
 
         // Missing bucket / misconfiguration
         (msg.contains("bucket", ignoreCase = true) && msg.contains("not found", ignoreCase = true)) ||

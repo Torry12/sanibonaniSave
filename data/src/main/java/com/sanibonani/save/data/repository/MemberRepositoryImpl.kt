@@ -318,7 +318,51 @@ class MemberRepositoryImpl @Inject constructor(
     override suspend fun recordContribution(contribution: Contribution): Result<Unit> = runCatching {
         val group = groupRepo.getGroupById(contribution.groupId).getOrThrow()
         val member = getMemberById(contribution.memberId).getOrThrow()
-        
+
+        if (contribution.type == "member_fee_ledger") {
+            val now = java.time.LocalDateTime.now().toString()
+            val ledgerInsert = buildJsonObject {
+                put("member_id", contribution.memberId)
+                put("group_id", contribution.groupId)
+                put("amount", contribution.amount)
+                put("type", "member_fee")
+                put("status", contribution.status.name.lowercase())
+                put("due_date", contribution.dueDate)
+                put("paid_at", contribution.paidAt ?: now)
+                contribution.yocoTransactionId?.let { put("yoco_transaction_id", it) }
+                put("payment_method", "ledger")
+            }
+
+            supabase.postgrest["contributions"].insert(ledgerInsert)
+
+            val ledgerRow = supabase.postgrest["contributions"].select(
+                columns = Columns.raw(CONTRIBUTION_COLUMNS_SAFE)
+            ) {
+                filter {
+                    eq("member_id", contribution.memberId)
+                    eq("group_id", contribution.groupId)
+                    eq("type", "member_fee")
+                    contribution.yocoTransactionId?.takeIf { it.isNotBlank() }?.let {
+                        eq("yoco_transaction_id", it)
+                    }
+                }
+                order("created_at", order = io.github.jan.supabase.postgrest.query.Order.DESCENDING)
+                range(0, 0)
+            }.decodeList<Contribution>().firstOrNull()
+                ?: throw IllegalStateException("Member fee ledger entry created but could not be retrieved.")
+
+            db.contributionDao().upsertContributions(listOf(ledgerRow.toEntity()))
+
+            // Charge the group account by the member-fee ledger amount.
+            val chargedBalance = group.balance - contribution.amount
+            supabase.postgrest["groups"].update(buildJsonObject { put("balance", chargedBalance) }) {
+                filter { eq("id", group.id ?: contribution.groupId) }
+            }
+
+            db.groupDao().upsertGroup(group.copy(balance = chargedBalance).toEntity())
+            return@runCatching Unit
+        }
+
         // Use actuarial premium if it's a burial society and not a manual amount
         val finalAmount = if (contribution.amount <= 0.0) {
             actuarialRepo.get().calculateMemberContribution(group, member)

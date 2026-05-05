@@ -43,7 +43,7 @@ class AdminSeeder {
                 }
             }
 
-            val email = "torryymsimango@gmail.com"
+            val email = "torrymsimango@gmail.com"
             val password = "torry123M"
             val fullName = "torry123"
 

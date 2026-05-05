@@ -28,6 +28,8 @@ data class MemberUiState(
     // Loans
     val loans: List<Loan> = emptyList(),
     val loanRepayments: List<LoanRepayment> = emptyList(),
+    val isEligibleForLoan: Boolean = false,
+    val loanIneligibilityReason: String? = null,
 
     // Multi-group support
     val memberships: List<Member> = emptyList(),

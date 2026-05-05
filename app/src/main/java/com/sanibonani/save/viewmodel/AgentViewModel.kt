@@ -2,6 +2,7 @@ package com.sanibonani.save.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.sanibonani.save.data.utils.toUserMessage
 import com.sanibonani.save.domain.model.AgentTask
 import com.sanibonani.save.domain.model.AgentResult
 import com.sanibonani.save.domain.usecase.SubmitAgentTaskUseCase
@@ -25,9 +26,11 @@ class AgentViewModel @Inject constructor(
             _state.update { it.copy(isLoading = true, error = null) }
             submitAgentTask(task).collect { result ->
                 result.onSuccess { agentResult ->
-                    _state.update { it.copy(result = agentResult, isLoading = false) }
+                    val isTerminal = agentResult.status.equals("completed", ignoreCase = true) ||
+                        agentResult.status.equals("failed", ignoreCase = true)
+                    _state.update { it.copy(result = agentResult, isLoading = !isTerminal, error = null) }
                 }.onFailure { e ->
-                    _state.update { it.copy(error = e.message ?: "Agent error", isLoading = false) }
+                    _state.update { it.copy(error = e.toUserMessage(), isLoading = false) }
                 }
             }
         }

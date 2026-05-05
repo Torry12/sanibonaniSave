@@ -366,13 +366,17 @@ class GroupRepositoryImpl @Inject constructor(
         // 3. Finalize Admin Member Registration & Credit their first contribution
         group.adminUserId?.let { adminId ->
             try {
-                // Find the admin member record
+                // Find the admin member record.
+                // Use decodeList().firstOrNull() instead of decodeSingleOrNull() so that
+                // environments returning a JSON array (e.g., mock engine in tests) are
+                // handled correctly.  decodeSingleOrNull requires Access:vnd.pgrst.object
+                // which the mock doesn't honour.
                 val memberResult = supabase.postgrest["members"].select {
                     filter {
                         eq("group_id", groupId)
                         eq("user_id", adminId)
                     }
-                }.decodeSingleOrNull<Member>()
+                }.decodeList<Member>().firstOrNull()
 
                 memberResult?.let { adminMember ->
                     val isPending = adminMember.status == MemberStatus.PENDING_PAYMENT

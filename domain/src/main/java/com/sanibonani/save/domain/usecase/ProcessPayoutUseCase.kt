@@ -6,6 +6,7 @@ import com.sanibonani.save.domain.repository.NotificationRepository
 import com.sanibonani.save.domain.model.AppNotification
 import com.sanibonani.save.domain.model.NotifEvent
 import com.sanibonani.save.domain.model.NotifChannel
+import com.sanibonani.save.domain.utils.OperationKeys
 import javax.inject.Inject
 
 /**
@@ -35,6 +36,7 @@ class ProcessPayoutUseCase @Inject constructor(
             message?.let {
                 notificationRepository.sendNotification(
                     AppNotification(
+                        id = OperationKeys.stableUuid("payout_transition_notification", payoutId, status.name),
                         groupId = groupId,
                         message = it,
                         triggerEvent = NotifEvent.CUSTOM,

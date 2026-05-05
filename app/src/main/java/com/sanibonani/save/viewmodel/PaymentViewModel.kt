@@ -2,6 +2,8 @@ package com.sanibonani.save.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.sanibonani.save.analytics.AnalyticsTaxonomy
+import com.sanibonani.save.analytics.AppAnalytics
 import com.sanibonani.save.data.utils.PaymentCalculation
 import com.sanibonani.save.data.utils.PaymentCalculator
 import com.sanibonani.save.data.utils.toUserMessage
@@ -114,9 +116,20 @@ class PaymentViewModel @Inject constructor(
     private var paymentContextJob: Job? = null
 
     fun loadPaymentContext(groupId: String) {
+        AppAnalytics.track(
+            AnalyticsTaxonomy.Events.PAYMENT_CONTEXT_LOAD_STARTED,
+            mapOf(AnalyticsTaxonomy.Params.GROUP_ID to groupId)
+        )
         val userId = supabaseRepo.currentUserId
         if (userId.isNullOrBlank()) {
             _state.update { it.copy(isProcessing = false, error = "You are not signed in.") }
+            AppAnalytics.track(
+                AnalyticsTaxonomy.Events.PAYMENT_CONTEXT_LOAD_FAILURE,
+                mapOf(
+                    AnalyticsTaxonomy.Params.GROUP_ID to groupId,
+                    AnalyticsTaxonomy.Params.ERROR_TYPE to "not_signed_in"
+                )
+            )
             return
         }
 
@@ -133,6 +146,13 @@ class PaymentViewModel @Inject constructor(
             val memberId = member?.id
             if (member == null || group == null || memberId.isNullOrBlank()) {
                 _state.update { it.copy(isProcessing = false, error = "Failed to load payment context") }
+                AppAnalytics.track(
+                    AnalyticsTaxonomy.Events.PAYMENT_CONTEXT_LOAD_FAILURE,
+                    mapOf(
+                        AnalyticsTaxonomy.Params.GROUP_ID to groupId,
+                        AnalyticsTaxonomy.Params.ERROR_TYPE to "missing_context"
+                    )
+                )
                 return@launch
             }
 
@@ -157,6 +177,13 @@ class PaymentViewModel @Inject constructor(
                         error = contributionsResult.exceptionOrNull()?.toUserMessage()
                     )
                 }
+                AppAnalytics.track(
+                    AnalyticsTaxonomy.Events.PAYMENT_CONTEXT_LOAD_SUCCESS,
+                    mapOf(
+                        AnalyticsTaxonomy.Params.GROUP_ID to groupId,
+                        AnalyticsTaxonomy.Params.MEMBER_ID to memberId
+                    )
+                )
             }
         }
     }
@@ -229,6 +256,13 @@ class PaymentViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 _state.update { it.copy(isProcessing = true, error = null) }
+                AppAnalytics.track(
+                    AnalyticsTaxonomy.Events.PAYMENT_PROCESS_STARTED,
+                    mapOf(
+                        AnalyticsTaxonomy.Params.GROUP_ID to groupId,
+                        AnalyticsTaxonomy.Params.PAYMENT_TYPE to paymentType.name.lowercase()
+                    )
+                )
                 delay(2000) // Simulate YoCo
 
                 processPaymentUseCase(
@@ -240,11 +274,34 @@ class PaymentViewModel @Inject constructor(
                     calculation = _state.value.calculation
                 ).onSuccess { txId ->
                     _state.update { it.copy(isProcessing = false, isSuccess = true, transactionId = txId) }
+                    AppAnalytics.track(
+                        AnalyticsTaxonomy.Events.PAYMENT_PROCESS_SUCCESS,
+                        mapOf(
+                            AnalyticsTaxonomy.Params.GROUP_ID to groupId,
+                            AnalyticsTaxonomy.Params.PAYMENT_TYPE to paymentType.name.lowercase()
+                        )
+                    )
                 }.onFailure { e ->
                     _state.update { it.copy(isProcessing = false, error = e.toUserMessage()) }
+                    AppAnalytics.track(
+                        AnalyticsTaxonomy.Events.PAYMENT_PROCESS_FAILURE,
+                        mapOf(
+                            AnalyticsTaxonomy.Params.GROUP_ID to groupId,
+                            AnalyticsTaxonomy.Params.PAYMENT_TYPE to paymentType.name.lowercase(),
+                            AnalyticsTaxonomy.Params.ERROR_TYPE to "usecase"
+                        )
+                    )
                 }
             } catch (e: Exception) {
                 _state.update { it.copy(isProcessing = false, error = e.toUserMessage()) }
+                AppAnalytics.track(
+                    AnalyticsTaxonomy.Events.PAYMENT_PROCESS_FAILURE,
+                    mapOf(
+                        AnalyticsTaxonomy.Params.GROUP_ID to groupId,
+                        AnalyticsTaxonomy.Params.PAYMENT_TYPE to paymentType.name.lowercase(),
+                        AnalyticsTaxonomy.Params.ERROR_TYPE to "exception"
+                    )
+                )
             }
         }
     }

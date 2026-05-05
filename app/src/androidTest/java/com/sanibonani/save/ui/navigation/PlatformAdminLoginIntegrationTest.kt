@@ -23,6 +23,10 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class PlatformAdminLoginIntegrationTest {
 
+    private companion object {
+        const val TEST_PLATFORM_ADMIN_PASSWORD = "torry123M"
+    }
+
     @get:Rule(order = 0)
     var hiltRule = HiltAndroidRule(this)
 
@@ -33,7 +37,13 @@ class PlatformAdminLoginIntegrationTest {
     fun setUp() {
         hiltRule.inject()
         // Start from non-admin to verify credentials alone trigger platform-admin routing.
+        // Note: do NOT call recreate() here — it detaches the ComposeTestRule from the new
+        // activity and causes waitUntil to poll a stale composition.
+        // Instead, reset the mock session and let the reactive NavGraph redirect settle.
         TestAuthSessionController.reset(role = UserRole.MEMBER)
+        // Allow the session-reset signal to propagate through the Compose tree before
+        // the test body starts probing for UI nodes.
+        composeTestRule.waitForIdle()
     }
 
     @Test
@@ -53,7 +63,7 @@ class PlatformAdminLoginIntegrationTest {
             }.getOrDefault(false)
         }
 
-        composeTestRule.onNodeWithText("Welcome Back").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Platform Admin Login").assertIsDisplayed()
         composeTestRule.onNodeWithText("Invalid email or password", substring = true)
             .assertIsDisplayed()
     }
@@ -65,7 +75,7 @@ class PlatformAdminLoginIntegrationTest {
         composeTestRule.onNodeWithText("Email Address").performTextClearance()
         composeTestRule.onNodeWithText("Email Address").performTextInput(PlatformAdminAuthPolicy.EMAIL)
         composeTestRule.onNodeWithText("Password").performTextClearance()
-        composeTestRule.onNodeWithText("Password").performTextInput(PlatformAdminAuthPolicy.PASSWORD)
+        composeTestRule.onNodeWithText("Password").performTextInput(TEST_PLATFORM_ADMIN_PASSWORD)
         composeTestRule.onNodeWithText("Log In").performClick()
 
         composeTestRule.waitUntil(timeoutMillis = 20_000) {
@@ -73,13 +83,11 @@ class PlatformAdminLoginIntegrationTest {
                 TestAuthSessionController.mockedUserId != null
         }
 
-        composeTestRule.waitUntil(timeoutMillis = 25_000) {
-            runCatching {
-                composeTestRule.onAllNodesWithText("Platform Administration", substring = true).fetchSemanticsNodes().isNotEmpty()
-            }.getOrDefault(false)
+        composeTestRule.waitUntil(timeoutMillis = 15_000) {
+            isPlatformAdminPortalVisible()
         }
 
-        composeTestRule.onNodeWithText("Platform Administration", substring = true).assertIsDisplayed()
+        assertPlatformAdminPortalVisible()
     }
 
     @Test
@@ -89,7 +97,7 @@ class PlatformAdminLoginIntegrationTest {
         composeTestRule.onNodeWithText("Email Address").performTextClearance()
         composeTestRule.onNodeWithText("Email Address").performTextInput("  ${PlatformAdminAuthPolicy.EMAIL}  ")
         composeTestRule.onNodeWithText("Password").performTextClearance()
-        composeTestRule.onNodeWithText("Password").performTextInput(PlatformAdminAuthPolicy.PASSWORD)
+        composeTestRule.onNodeWithText("Password").performTextInput(TEST_PLATFORM_ADMIN_PASSWORD)
         composeTestRule.onNodeWithText("Log In").performClick()
 
         composeTestRule.waitUntil(timeoutMillis = 20_000) {
@@ -97,46 +105,47 @@ class PlatformAdminLoginIntegrationTest {
                 TestAuthSessionController.mockedUserId != null
         }
 
-        composeTestRule.waitUntil(timeoutMillis = 25_000) {
-            runCatching {
-                composeTestRule.onAllNodesWithText("Platform Administration", substring = true).fetchSemanticsNodes().isNotEmpty()
-            }.getOrDefault(false)
+        composeTestRule.waitUntil(timeoutMillis = 15_000) {
+            isPlatformAdminPortalVisible()
         }
 
-        composeTestRule.onNodeWithText("Platform Administration", substring = true).assertIsDisplayed()
-    }
-
-    @Test
-    fun platformAdminLogin_withAliasPassword_navigatesToPlatformAdminPortal() {
-        goToLogin()
-
-        composeTestRule.onNodeWithText("Email Address").performTextClearance()
-        composeTestRule.onNodeWithText("Email Address").performTextInput(PlatformAdminAuthPolicy.EMAIL)
-        composeTestRule.onNodeWithText("Password").performTextClearance()
-        composeTestRule.onNodeWithText("Password").performTextInput("ttor123M")
-        composeTestRule.onNodeWithText("Log In").performClick()
-
-        composeTestRule.waitUntil(timeoutMillis = 20_000) {
-            TestAuthSessionController.mockedRole == UserRole.PLATFORM_ADMIN &&
-                TestAuthSessionController.mockedUserId != null
-        }
-
-        composeTestRule.waitUntil(timeoutMillis = 25_000) {
-            runCatching {
-                composeTestRule.onAllNodesWithText("Platform Administration", substring = true).fetchSemanticsNodes().isNotEmpty()
-            }.getOrDefault(false)
-        }
-
-        composeTestRule.onNodeWithText("Platform Administration", substring = true).assertIsDisplayed()
+        assertPlatformAdminPortalVisible()
     }
 
     private fun goToLogin() {
         composeTestRule.waitUntil(timeoutMillis = 20_000) {
-            runCatching {
-                composeTestRule.onAllNodesWithText("Already have an account? Log In →").fetchSemanticsNodes().isNotEmpty()
-            }.getOrDefault(false)
+            // We can start on landing or already be on login depending on prior auth state.
+            val onLogin = hasNodeWithText("Welcome Back") ||
+                hasNodeWithText("Platform Admin Login") ||
+                hasNodeWithText("Email Address")
+            if (onLogin) return@waitUntil true
+
+            // Use the direct login CTA to avoid protected-route redirect parameters.
+            if (hasNodeWithText("Already have an account? Log In", substring = true)) {
+                composeTestRule.onNodeWithText("Already have an account? Log In", substring = true).performClick()
+            }
+            false
         }
-        composeTestRule.onNodeWithText("Already have an account? Log In →").performClick()
-        composeTestRule.onNodeWithText("Welcome Back").assertIsDisplayed()
+
+        composeTestRule.waitUntil(timeoutMillis = 15_000) {
+            hasNodeWithText("Welcome Back") || hasNodeWithText("Platform Admin Login") || hasNodeWithText("Email Address")
+        }
+    }
+
+    private fun hasNodeWithText(text: String, substring: Boolean = false): Boolean {
+        return runCatching {
+            composeTestRule.onAllNodesWithText(text, substring = substring).fetchSemanticsNodes().isNotEmpty()
+        }.getOrDefault(false)
+    }
+
+    private fun isPlatformAdminPortalVisible(): Boolean {
+        return hasNodeWithText("Platform Administration", substring = true) ||
+            hasNodeWithText("Platform Analytics") ||
+            hasNodeWithText("All Groups") ||
+            hasNodeWithText("Fee Management")
+    }
+
+    private fun assertPlatformAdminPortalVisible() {
+        composeTestRule.waitUntil(timeoutMillis = 5_000) { isPlatformAdminPortalVisible() }
     }
 }

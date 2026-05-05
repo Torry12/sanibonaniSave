@@ -62,21 +62,20 @@ class StorageRepositoryImplTest {
     }
 
     @Test
-    fun `getPublicUrl should return authenticated URL for private avatars bucket`() = runBlocking {
+    fun `getPublicUrl should return public URL for avatars bucket`() = runBlocking {
         // Given
         val bucketName = "avatars"
         val path = "members/test-member-id/profile.jpg"
-        every { supabaseClient.supabaseUrl } returns "https://project.supabase.co"
+        val expectedUrl = "https://project.supabase.co/storage/v1/object/public/avatars/$path"
+        
+        every { bucketApi.publicUrl(path) } returns expectedUrl
 
         // When
         val result = storageRepository.getPublicUrl(bucketName, path)
 
         // Then
-        assertEquals(
-            "https://project.supabase.co/storage/v1/object/authenticated/avatars/$path",
-            result
-        )
-        verify(exactly = 0) { bucketApi.publicUrl(any()) }
+        assertEquals(expectedUrl, result)
+        verify { bucketApi.publicUrl(path) }
     }
 
     @Test
