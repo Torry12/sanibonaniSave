@@ -5,7 +5,7 @@
 
 DO $$
 DECLARE
-    v_email TEXT := 'torryymsimango@gmail.com';
+    v_email TEXT := 'torrymsimango@gmail.com';
     v_password TEXT := 'torry123M';
     v_full_name TEXT := 'Torry Msimango';
     v_user_id UUID;
@@ -133,7 +133,7 @@ SELECT
     email,
     raw_user_meta_data ->> 'role' AS role
 FROM auth.users
-WHERE lower(email) = lower('torryymsimango@gmail.com')
+WHERE lower(email) = lower('torrymsimango@gmail.com')
 
 UNION ALL
 
@@ -143,4 +143,4 @@ SELECT
     email,
     role
 FROM public.profiles
-WHERE lower(email) = lower('torryymsimango@gmail.com');
+WHERE lower(email) = lower('torrymsimango@gmail.com');

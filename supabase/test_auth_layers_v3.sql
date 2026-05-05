@@ -34,7 +34,7 @@ SELECT
     END AS status
 FROM auth.users u
 LEFT JOIN public.profiles p ON p.id = u.id
-WHERE u.email IN ('torryymsimango@gmail.com', 'admin1@test.com', 'member1@test.com')
+WHERE u.email IN ('torrymsimango@gmail.com', 'admin1@test.com', 'member1@test.com')
 ORDER BY u.email;
 
 -- 5) Simulated RLS visibility checks for each layer
@@ -47,7 +47,7 @@ DECLARE
     v_groups_visible INT;
     v_members_visible INT;
 BEGIN
-    SELECT id INTO v_platform_uid FROM auth.users WHERE email = 'torryymsimango@gmail.com' LIMIT 1;
+    SELECT id INTO v_platform_uid FROM auth.users WHERE email = 'torrymsimango@gmail.com' LIMIT 1;
     SELECT id INTO v_group_admin_uid FROM auth.users WHERE email = 'admin1@test.com' LIMIT 1;
     SELECT id INTO v_member_uid FROM auth.users WHERE email = 'member1@test.com' LIMIT 1;
 

@@ -1,18 +1,9 @@
 -- ─────────────────────────────────────────────────────────────────────────────
 -- SanibonaniSave — Comprehensive Supabase PostgreSQL Schema (Reset Script)
--- Version: 2.2 (Updated April 19, 2026)
+-- Version: 3.0 (Updated April 29, 2026)
 -- ─────────────────────────────────────────────────────────────────────────────
--- CHANGELOG v2.2:
--- - Synced with Kotlin models (Room DB v33)
--- - Contribution types: contribution, joining_fee, registration_contribution, late_fee
--- - Payment types: joining_fee, contribution, late_fee, platform_fee, claim, custom, registration
--- - Platform fee fields: paid_at, transaction_id
--- ─────────────────────────────────────────────────────────────────────────────
--- CHANGELOG v2.1:
--- - Added township field to groups for detailed location
--- - Added geolocation fields (latitude, longitude, geohash) for map display
--- - Updated contribution types to include registration_contribution
--- - Added proper indexes for geohash spatial queries
+-- This script performs a full reset of the public schema and recreates all tables,
+-- triggers, and functions required for the platform.
 -- ─────────────────────────────────────────────────────────────────────────────
 
 -- 1. DROP PUBLIC SCHEMA FIRST to remove all foreign key constraints and start fresh
@@ -116,7 +107,7 @@ CREATE TABLE public.groups (
     updated_at             TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 7. POLICIES
+-- 7. POLICIES (Insurance Policies within Groups)
 CREATE TABLE public.policies (
     id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     group_id          UUID REFERENCES public.groups(id) ON DELETE CASCADE NOT NULL,
@@ -204,8 +195,6 @@ CREATE TABLE public.contributions (
     paid_at                TIMESTAMPTZ,
     payment_method         TEXT DEFAULT 'yoco',
     yoco_transaction_id    TEXT,
-    -- Optional: some clients/policies expect a receipt URL for payment proofs.
-    -- Nullable for backward compatibility.
     receipt_url            TEXT,
     status                 TEXT DEFAULT 'due' CHECK (status IN ('paid', 'due', 'overdue', 'partial')),
     late_fees_applied      BOOLEAN DEFAULT FALSE,
@@ -303,6 +292,56 @@ CREATE TABLE public.platform_fees (
     updated_at        TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- 17. PLATFORM SETTINGS (Global config)
+CREATE TABLE public.platform_settings (
+    key   TEXT PRIMARY KEY,
+    value NUMERIC NOT NULL,
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 18. LOANS
+CREATE TABLE public.loans (
+    id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    member_id         UUID REFERENCES public.members(id) ON DELETE CASCADE NOT NULL,
+    group_id          UUID REFERENCES public.groups(id) ON DELETE CASCADE NOT NULL,
+    amount            NUMERIC(12,2) NOT NULL CHECK (amount > 0),
+    interest_rate     NUMERIC(5,2) DEFAULT 0 CHECK (interest_rate >= 0),
+    total_to_repay    NUMERIC(12,2) NOT NULL CHECK (total_to_repay >= amount),
+    total_repaid      NUMERIC(12,2) DEFAULT 0 CHECK (total_repaid >= 0),
+    monthly_repayment NUMERIC(12,2) NOT NULL CHECK (monthly_repayment > 0),
+    start_date        DATE,
+    end_date          DATE,
+    next_payment_date DATE,
+    status            TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'active', 'partially_paid', 'completed', 'rejected', 'overdue')),
+    purpose           TEXT,
+    created_at        TIMESTAMPTZ DEFAULT NOW(),
+    updated_at        TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 19. LOAN REPAYMENTS
+CREATE TABLE public.loan_repayments (
+    id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    loan_id           UUID REFERENCES public.loans(id) ON DELETE CASCADE NOT NULL,
+    member_id         UUID REFERENCES public.members(id) ON DELETE CASCADE NOT NULL,
+    group_id          UUID REFERENCES public.groups(id) ON DELETE CASCADE NOT NULL,
+    amount            NUMERIC(12,2) NOT NULL CHECK (amount > 0),
+    paid_at           TIMESTAMPTZ DEFAULT NOW(),
+    payment_method    TEXT DEFAULT 'yoco',
+    transaction_id    TEXT,
+    created_at        TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 20. AUDIT LOGS (Platform Admin activity logging)
+CREATE TABLE public.audit_logs (
+    id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    actor_id          UUID NOT NULL,         -- The admin's user id
+    target_member_id  UUID,                  -- The member being assisted (nullable)
+    target_group_id   UUID,                  -- The group being assisted (nullable)
+    action            TEXT NOT NULL,         -- e.g. "VIEW_MEMBER_DASHBOARD", "UPDATE_MEMBER_STATUS"
+    details           JSONB,                 -- Optional: extra info
+    created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 -- ── INDEXES FOR PERFORMANCE ──
 
 -- Groups indexes
@@ -345,6 +384,12 @@ CREATE INDEX IF NOT EXISTS idx_notifications_member_id ON public.notifications(m
 -- Member Documents indexes
 CREATE INDEX IF NOT EXISTS idx_member_documents_member_id ON public.member_documents(member_id);
 CREATE INDEX IF NOT EXISTS idx_member_documents_group_id ON public.member_documents(group_id);
+
+-- Loans indexes
+CREATE INDEX IF NOT EXISTS idx_loans_member_id ON public.loans(member_id);
+CREATE INDEX IF NOT EXISTS idx_loans_group_id ON public.loans(group_id);
+CREATE INDEX IF NOT EXISTS idx_loans_status ON public.loans(status);
+CREATE INDEX IF NOT EXISTS idx_loan_repayments_loan_id ON public.loan_repayments(loan_id);
 
 -- ── TRIGGER FUNCTIONS ──
 
@@ -395,6 +440,19 @@ $$ LANGUAGE plpgsql;
 
 CREATE TRIGGER trigger_update_member_count AFTER INSERT OR DELETE ON public.members FOR EACH ROW EXECUTE PROCEDURE public.update_member_count();
 
+-- Updated At triggers
+CREATE TRIGGER trigger_update_profiles_updated_at BEFORE UPDATE ON public.profiles FOR EACH ROW EXECUTE PROCEDURE public.update_updated_at_column();
+CREATE TRIGGER trigger_update_groups_updated_at BEFORE UPDATE ON public.groups FOR EACH ROW EXECUTE PROCEDURE public.update_updated_at_column();
+CREATE TRIGGER trigger_update_policies_updated_at BEFORE UPDATE ON public.policies FOR EACH ROW EXECUTE PROCEDURE public.update_updated_at_column();
+CREATE TRIGGER trigger_update_members_updated_at BEFORE UPDATE ON public.members FOR EACH ROW EXECUTE PROCEDURE public.update_updated_at_column();
+CREATE TRIGGER trigger_update_beneficiaries_updated_at BEFORE UPDATE ON public.beneficiaries FOR EACH ROW EXECUTE PROCEDURE public.update_updated_at_column();
+CREATE TRIGGER trigger_update_contributions_updated_at BEFORE UPDATE ON public.contributions FOR EACH ROW EXECUTE PROCEDURE public.update_updated_at_column();
+CREATE TRIGGER trigger_update_payments_updated_at BEFORE UPDATE ON public.payments FOR EACH ROW EXECUTE PROCEDURE public.update_updated_at_column();
+CREATE TRIGGER trigger_update_member_documents_updated_at BEFORE UPDATE ON public.member_documents FOR EACH ROW EXECUTE PROCEDURE public.update_updated_at_column();
+CREATE TRIGGER trigger_update_payouts_updated_at BEFORE UPDATE ON public.payouts FOR EACH ROW EXECUTE PROCEDURE public.update_updated_at_column();
+CREATE TRIGGER trigger_update_platform_fees_updated_at BEFORE UPDATE ON public.platform_fees FOR EACH ROW EXECUTE PROCEDURE public.update_updated_at_column();
+CREATE TRIGGER trigger_update_loans_updated_at BEFORE UPDATE ON public.loans FOR EACH ROW EXECUTE PROCEDURE public.update_updated_at_column();
+
 -- ── RPCs ──
 
 CREATE OR REPLACE FUNCTION public.record_contribution_v1(
@@ -431,49 +489,15 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
-GRANT EXECUTE ON FUNCTION public.record_contribution_v1(UUID, UUID, NUMERIC, DATE, TIMESTAMPTZ, TEXT, TEXT, TEXT)
-TO authenticated, service_role;
+-- ── SEEDING MANDATORY DATA ──
 
--- ── STORAGE ──
--- Note: Buckets must be managed via Supabase Dashboard or API, but we ensure policies exist.
--- DO NOT delete from storage.objects directly in SQL. Use storage.emptyBucket() via API.
-
--- ── SEEDING PLATFORM ADMIN ──
--- We clear auth.users only when we are sure public schema is gone.
-DELETE FROM auth.users;
-
-INSERT INTO auth.users (
-    id, aud, role, email, encrypted_password,
-    email_confirmed_at, raw_app_meta_data, raw_user_meta_data, created_at, updated_at, confirmation_token
-) VALUES (
-    '1b8aca84-c136-4c1b-b024-902584ae80d8',
-    'authenticated',
-    'authenticated',
-    'torryymsimango@gmail.com',
-    extensions.crypt('torry123M', extensions.gen_salt('bf')),
-    NOW(),
-    '{"provider": "email", "providers": ["email"]}',
-    '{"full_name": "torry123", "role": "platform_admin"}',
-    NOW(),
-    NOW(),
-    ''
-);
-
--- 17. PLATFORM SETTINGS (Global config)
-CREATE TABLE public.platform_settings (
-    key   TEXT PRIMARY KEY,
-    value NUMERIC NOT NULL,
-    updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- Seed platform settings
+-- Initial platform settings
 INSERT INTO public.platform_settings (key, value) VALUES
 ('monthly_per_member', 10.0),
 ('registration_fee', 700.0)
 ON CONFLICT (key) DO NOTHING;
 
--- 99. FINAL: RESTORE TABLE GRANTS (required for PostgREST / Android app visibility)
--- If these GRANTS are missing, the app will fail with: "permission denied for table groups"
+-- 99. FINAL: TABLE GRANTS (Required for PostgREST / Android App visibility)
 GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
 GRANT ALL ON ALL TABLES IN SCHEMA public TO postgres, service_role;
 GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO postgres, service_role;
@@ -481,9 +505,10 @@ GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO postgres, service_role;
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO anon, authenticated;
 GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO anon, authenticated;
 
--- Ensure future tables/sequences created by this script (or migrations) inherit correct privileges
+-- Ensure future tables/sequences created inherit correct privileges
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO anon, authenticated;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO anon, authenticated;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO service_role;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO service_role;
 
+GRANT EXECUTE ON FUNCTION public.record_contribution_v1(UUID, UUID, NUMERIC, DATE, TIMESTAMPTZ, TEXT, TEXT, TEXT) TO authenticated, service_role;

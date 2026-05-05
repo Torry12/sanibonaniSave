@@ -1,6 +1,6 @@
 DO $$
 DECLARE
-    v_email text := 'torryymsimango@gmail.com';
+    v_email text := 'torrymsimango@hotmail.com';
     v_password text := 'torry123M';
     v_full_name text := 'Torry Msimango';
     v_user_id uuid;
@@ -40,6 +40,35 @@ BEGIN
             updated_at = NOW()
         WHERE id = v_user_id;
     END IF;
+
+    BEGIN
+        INSERT INTO auth.identities (
+            id,
+            user_id,
+            provider,
+            provider_id,
+            identity_data,
+            created_at,
+            updated_at,
+            last_sign_in_at
+        ) VALUES (
+            gen_random_uuid(),
+            v_user_id,
+            'email',
+            lower(v_email),
+            jsonb_build_object('sub', v_user_id::text, 'email', v_email),
+            NOW(),
+            NOW(),
+            NOW()
+        )
+        ON CONFLICT (provider, provider_id) DO UPDATE
+        SET
+            user_id = EXCLUDED.user_id,
+            identity_data = EXCLUDED.identity_data,
+            updated_at = NOW();
+    EXCEPTION WHEN undefined_table THEN
+        RAISE NOTICE 'auth.identities not found, skipping identity upsert for %', v_email;
+    END;
 
     INSERT INTO public.profiles (id, full_name, email, role)
     VALUES (v_user_id, v_full_name, v_email, 'platform_admin')

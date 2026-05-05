@@ -1,78 +1,27 @@
 -- ─────────────────────────────────────────────────────────────────────────────
--- SanibonaniSave — MASTER PERMISSION FIX & RLS POLICIES
--- Version: 2.1 (Updated April 19, 2026)
+-- SanibonaniSave — MASTER RLS POLICIES & PERMISSIONS
+-- Version: 3.0 (Updated April 29, 2026)
 -- ─────────────────────────────────────────────────────────────────────────────
--- CHANGELOG v2.1:
--- - Added policies for group geolocation fields
--- - Updated contribution policies for registration_contribution type
--- - Enhanced platform admin access for all tables
--- ─────────────────────────────────────────────────────────────────────────────
--- Run this script in the Supabase SQL Editor to resolve "Permission Denied" errors.
 
--- 1. RESTORE SCHEMA & TABLE GRANTS (The "Permission Denied" Fix)
--- This allows the Supabase API to actually "see" the tables.
-GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
-GRANT ALL ON ALL TABLES IN SCHEMA public TO postgres, service_role;
-GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO postgres, service_role;
+-- 1. ENABLE RLS ON ALL TABLES
+ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.groups ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.members ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.beneficiaries ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.contributions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.payments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.policies ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.notifications ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.member_documents ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.group_actuarial_metrics ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.payouts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.platform_fees ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.platform_settings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.loans ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.loan_repayments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.audit_logs ENABLE ROW LEVEL SECURITY;
 
--- Grant standard access to API roles (Force re-application)
-GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO anon, authenticated;
-GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.record_contribution_v1(UUID, UUID, NUMERIC, DATE, TIMESTAMPTZ, TEXT, TEXT, TEXT)
-TO authenticated, service_role;
-
--- Ensure future tables also get these permissions automatically
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO anon, authenticated, service_role;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO anon, authenticated, service_role;
-
--- 2. SCHEMA SAFETY SYNC
--- Ensure groups table has all required columns for the "Safe Column" select
-DO $$ BEGIN
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='groups' AND column_name='is_platform_suspended') THEN
-        ALTER TABLE public.groups ADD COLUMN is_platform_suspended BOOLEAN DEFAULT FALSE;
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='groups' AND column_name='registration_paid') THEN
-        ALTER TABLE public.groups ADD COLUMN registration_paid BOOLEAN DEFAULT FALSE;
-    END IF;
-END $$;
-CREATE TABLE IF NOT EXISTS public.beneficiaries (
-    group_id             UUID NOT NULL,
-    member_id            UUID NOT NULL,
-    id                   UUID DEFAULT gen_random_uuid(),
-    full_name            TEXT NOT NULL,
-    id_number            TEXT,
-    relationship         TEXT,
-    date_of_birth        DATE,
-    is_over_65           BOOLEAN DEFAULT FALSE,
-    document_url         TEXT,
-    document_status      TEXT DEFAULT 'pending' CHECK (document_status IN ('pending', 'verified', 'rejected')),
-    created_at           TIMESTAMPTZ DEFAULT NOW(),
-    updated_at           TIMESTAMPTZ DEFAULT NOW(),
-    PRIMARY KEY (group_id, member_id, id)
-);
-
-CREATE TABLE IF NOT EXISTS public.policies (
-    id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    group_id          UUID NOT NULL,
-    name              TEXT NOT NULL,
-    description       TEXT,
-    required_amount   NUMERIC(12,2) NOT NULL DEFAULT 0,
-    status            TEXT DEFAULT 'inactive',
-    created_at        TIMESTAMPTZ DEFAULT NOW(),
-    updated_at        TIMESTAMPTZ DEFAULT NOW()
-);
-
--- 3. ENABLE RLS
-ALTER TABLE IF EXISTS public.profiles ENABLE ROW LEVEL SECURITY;
-ALTER TABLE IF EXISTS public.groups ENABLE ROW LEVEL SECURITY;
-ALTER TABLE IF EXISTS public.members ENABLE ROW LEVEL SECURITY;
-ALTER TABLE IF EXISTS public.beneficiaries ENABLE ROW LEVEL SECURITY;
-ALTER TABLE IF EXISTS public.contributions ENABLE ROW LEVEL SECURITY;
-ALTER TABLE IF EXISTS public.payments ENABLE ROW LEVEL SECURITY;
-ALTER TABLE IF EXISTS public.policies ENABLE ROW LEVEL SECURITY;
-ALTER TABLE IF EXISTS public.platform_settings ENABLE ROW LEVEL SECURITY;
-
--- 4. HELPER FUNCTIONS
+-- 2. HELPER FUNCTIONS
 CREATE OR REPLACE FUNCTION public.policy_exists(p_name TEXT, p_table TEXT)
 RETURNS BOOLEAN AS $$
 BEGIN
@@ -80,7 +29,40 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- BREAK RECURSION: SECURITY DEFINER functions bypass RLS internally
+CREATE OR REPLACE FUNCTION public.is_platform_admin()
+RETURNS BOOLEAN AS $$
+DECLARE
+    v_jwt_role TEXT;
+BEGIN
+    -- Accept either profile role or JWT metadata role for platform admin access.
+    v_jwt_role := COALESCE(
+        NULLIF(auth.jwt() -> 'app_metadata' ->> 'role', ''),
+        NULLIF(auth.jwt() -> 'user_metadata' ->> 'role', '')
+    );
+
+    RETURN v_jwt_role = 'platform_admin' OR EXISTS (
+        SELECT 1 FROM public.profiles
+        WHERE id = auth.uid() AND role = 'platform_admin'
+    );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Bootstrap platform admin profile(s) from existing auth users.
+-- If the auth user exists, this guarantees role = platform_admin in profiles.
+INSERT INTO public.profiles (id, full_name, email, role)
+SELECT
+    u.id,
+    COALESCE(NULLIF(u.raw_user_meta_data ->> 'full_name', ''), 'Platform Admin'),
+    u.email,
+    'platform_admin'
+FROM auth.users u
+WHERE lower(u.email) IN ('torrymsimango@gmail.com', 'torryymsimango@gmail.com', 'torrymsimango@hotmail.com')
+ON CONFLICT (id) DO UPDATE
+SET
+    full_name = COALESCE(NULLIF(EXCLUDED.full_name, ''), public.profiles.full_name),
+    email = EXCLUDED.email,
+    role = 'platform_admin';
+
 CREATE OR REPLACE FUNCTION public.is_group_admin(p_group_id UUID)
 RETURNS BOOLEAN AS $$
 BEGIN
@@ -101,441 +83,286 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- 5. APPLY SELECT POLICIES (Allowing data to flow to the UI)
-
--- GROUPS: Allow anyone to discover public groups
+-- 3. PROFILES POLICIES
 DO $$ BEGIN
-    IF public.policy_exists('Discover Public Groups', 'groups') THEN
-        -- Upgrade existing policy (common cause of "seeded data not showing" when app uses anon key)
-        ALTER POLICY "Discover Public Groups" ON public.groups TO anon, authenticated;
-        ALTER POLICY "Discover Public Groups" ON public.groups USING (is_public = true);
-    ELSE
-        CREATE POLICY "Discover Public Groups" ON public.groups
-        FOR SELECT TO anon, authenticated USING (is_public = true);
+    IF NOT public.policy_exists('View own profile', 'profiles') THEN
+        CREATE POLICY "View own profile" ON public.profiles FOR SELECT TO authenticated USING (auth.uid() = id);
     END IF;
-
-    IF NOT public.policy_exists('View Joined Groups', 'groups') THEN
-        CREATE POLICY "View Joined Groups" ON public.groups
-        FOR SELECT TO authenticated
-        USING (admin_user_id = auth.uid() OR public.is_group_member(id));
-    END IF;
-
-    IF NOT public.policy_exists('Allow Registration Insert', 'groups') THEN
-        CREATE POLICY "Allow Registration Insert" ON public.groups
-        FOR INSERT TO authenticated
-        WITH CHECK (true);
-    END IF;
-
-    IF NOT public.policy_exists('Allow Registration Update', 'groups') THEN
-        CREATE POLICY "Allow Registration Update" ON public.groups
-        FOR UPDATE TO authenticated
-        USING (admin_user_id = auth.uid())
-        WITH CHECK (admin_user_id = auth.uid());
-    END IF;
-
-    IF NOT public.policy_exists('Service Role All Access', 'groups') THEN
-        CREATE POLICY "Service Role All Access" ON public.groups FOR ALL TO service_role USING (true);
-    END IF;
-END $$;
-
--- ACTUARIAL METRICS: allow discovery UI to show metrics for public groups (read-only)
--- (Safe: only exposes aggregates; adjust/remove if you want metrics to be members-only.)
-DO $$ BEGIN
-    IF NOT public.policy_exists('Public View Actuarial Metrics', 'group_actuarial_metrics') THEN
-        CREATE POLICY "Public View Actuarial Metrics" ON public.group_actuarial_metrics
-        FOR SELECT TO anon, authenticated
-        USING (group_id IN (SELECT id FROM public.groups WHERE is_public = true));
-    END IF;
-END $$;
-
--- MEMBERS: Allow users to see their own status and admins to see their group
-DO $$ BEGIN
-    IF NOT public.policy_exists('View Own Member Record', 'members') THEN
-        CREATE POLICY "View Own Member Record" ON public.members
-        FOR SELECT TO authenticated USING (user_id = auth.uid());
-    END IF;
-
-    IF NOT public.policy_exists('Admins View Group Members', 'members') THEN
-        CREATE POLICY "Admins View Group Members" ON public.members
-        FOR SELECT TO authenticated
-        USING (public.is_group_admin(group_id));
-    END IF;
-
-    IF NOT public.policy_exists('Allow Member Registration', 'members') THEN
-        CREATE POLICY "Allow Member Registration" ON public.members
-        FOR INSERT TO authenticated
-        WITH CHECK (true);
-    END IF;
-
-    IF NOT public.policy_exists('Allow Member Update', 'members') THEN
-        CREATE POLICY "Allow Member Update" ON public.members
-        FOR UPDATE TO authenticated
-        USING (user_id = auth.uid() OR public.is_group_admin(group_id))
-        WITH CHECK (user_id = auth.uid() OR public.is_group_admin(group_id));
-    END IF;
-
-    IF NOT public.policy_exists('Service Role Member Access', 'members') THEN
-        CREATE POLICY "Service Role Member Access" ON public.members FOR ALL TO service_role USING (true);
-    END IF;
-END $$;
-
--- CONTRIBUTIONS: Essential for Dashboard
-DO $$ BEGIN
-    IF NOT public.policy_exists('Members View Own Contributions', 'contributions') THEN
-        CREATE POLICY "Members View Own Contributions" ON public.contributions
-        FOR SELECT TO authenticated
-        USING (member_id IN (SELECT id FROM public.members WHERE user_id = auth.uid()));
-    END IF;
-
-    IF NOT public.policy_exists('Admins View Group Contributions', 'contributions') THEN
-        CREATE POLICY "Admins View Group Contributions" ON public.contributions
-        FOR SELECT TO authenticated
-        USING (public.is_group_admin(group_id));
-    END IF;
-
-    IF NOT public.policy_exists('Service Role Contribution Access', 'contributions') THEN
-        CREATE POLICY "Service Role Contribution Access" ON public.contributions FOR ALL TO service_role USING (true);
-    END IF;
-END $$;
-
--- PROFILES: Essential for role-based UI
-DO $$ BEGIN
-    IF NOT public.policy_exists('View Own Profile', 'profiles') THEN
-        CREATE POLICY "View Own Profile" ON public.profiles
-        FOR SELECT TO authenticated USING (auth.uid() = id);
-    END IF;
-
-    IF NOT public.policy_exists('Allow Profile Insert', 'profiles') THEN
-        CREATE POLICY "Allow Profile Insert" ON public.profiles
-        FOR INSERT TO authenticated
-        WITH CHECK (auth.uid() = id);
-    END IF;
-
-    IF NOT public.policy_exists('Allow Profile Update', 'profiles') THEN
-        CREATE POLICY "Allow Profile Update" ON public.profiles
-        FOR UPDATE TO authenticated
+    IF NOT public.policy_exists('Update own profile', 'profiles') THEN
+        CREATE POLICY "Update own profile" ON public.profiles FOR UPDATE TO authenticated
         USING (auth.uid() = id)
-        WITH CHECK (auth.uid() = id);
-    END IF;
-
-    IF NOT public.policy_exists('Service Role Profile Access', 'profiles') THEN
-        CREATE POLICY "Service Role Profile Access" ON public.profiles FOR ALL TO service_role USING (true);
-    END IF;
-END $$;
-
--- 6. ENSURE ADMIN ACCESS (Platform Admins can see everything)
-DO $$ BEGIN
-    IF NOT public.policy_exists('Platform Admin All Access', 'groups') THEN
-        CREATE POLICY "Platform Admin All Access" ON public.groups FOR ALL TO authenticated
-        USING (EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'platform_admin'));
-    END IF;
-END $$;
-
--- ─────────────────────────────────────────────────────────────────────────────
--- 7. MEMBER DOCUMENTS POLICIES
--- ─────────────────────────────────────────────────────────────────────────────
-ALTER TABLE IF EXISTS public.member_documents ENABLE ROW LEVEL SECURITY;
-ALTER TABLE IF EXISTS public.payouts ENABLE ROW LEVEL SECURITY;
-ALTER TABLE IF EXISTS public.notifications ENABLE ROW LEVEL SECURITY;
-
-DO $$ BEGIN
-    IF NOT public.policy_exists('Members View Own Documents', 'member_documents') THEN
-        CREATE POLICY "Members View Own Documents" ON public.member_documents
-        FOR SELECT TO authenticated
-        USING (member_id IN (SELECT id FROM public.members WHERE user_id = auth.uid()));
-    END IF;
-
-    IF NOT public.policy_exists('Admins View Group Documents', 'member_documents') THEN
-        CREATE POLICY "Admins View Group Documents" ON public.member_documents
-        FOR SELECT TO authenticated
-        USING (public.is_group_admin(group_id));
-    END IF;
-
-    IF NOT public.policy_exists('Allow Document Insert', 'member_documents') THEN
-        CREATE POLICY "Allow Document Insert" ON public.member_documents
-        FOR INSERT TO authenticated
-        WITH CHECK (member_id IN (SELECT id FROM public.members WHERE user_id = auth.uid()) OR public.is_group_admin(group_id));
-    END IF;
-
-    IF NOT public.policy_exists('Allow Document Update', 'member_documents') THEN
-        CREATE POLICY "Allow Document Update" ON public.member_documents
-        FOR UPDATE TO authenticated
-        USING (member_id IN (SELECT id FROM public.members WHERE user_id = auth.uid()) OR public.is_group_admin(group_id));
-    END IF;
-
-    IF NOT public.policy_exists('Service Role Document Access', 'member_documents') THEN
-        CREATE POLICY "Service Role Document Access" ON public.member_documents FOR ALL TO service_role USING (true);
-    END IF;
-END $$;
-
--- ADDITIONAL POLICY FOR PLATFORM ADMINS
-DO $$ BEGIN
-    IF NOT public.policy_exists('Platform Admin Document Access', 'member_documents') THEN
-        CREATE POLICY "Platform Admin Document Access" ON public.member_documents
-        FOR SELECT, UPDATE TO authenticated
-        USING (EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'platform_admin'));
-    END IF;
-END $$;
-
--- Platform Admin DELETE access for member_documents
-DO $$ BEGIN
-    IF NOT public.policy_exists('Platform Admin Document Delete', 'member_documents') THEN
-        CREATE POLICY "Platform Admin Document Delete" ON public.member_documents
-        FOR DELETE TO authenticated
-        USING (EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'platform_admin'));
-    END IF;
-END $$;
-
--- ─────────────────────────────────────────────────────────────────────────────
--- 8. PAYOUT POLICIES
--- ─────────────────────────────────────────────────────────────────────────────
-DO $$ BEGIN
-    IF NOT public.policy_exists('Admins View Group Payouts', 'payouts') THEN
-        CREATE POLICY "Admins View Group Payouts" ON public.payouts
-        FOR SELECT TO authenticated
-        USING (public.is_group_admin(group_id));
-    END IF;
-
-    IF NOT public.policy_exists('Platform Admin Payout Access', 'payouts') THEN
-        CREATE POLICY "Platform Admin Payout Access" ON public.payouts
-        FOR ALL TO authenticated
-        USING (EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'platform_admin'));
-    END IF;
-
-    IF NOT public.policy_exists('Allow Payout Request', 'payouts') THEN
-        CREATE POLICY "Allow Payout Request" ON public.payouts
-        FOR INSERT TO authenticated
-        WITH CHECK (public.is_group_admin(group_id));
-    END IF;
-
-    IF NOT public.policy_exists('Allow Payout Update', 'payouts') THEN
-        CREATE POLICY "Allow Payout Update" ON public.payouts
-        FOR UPDATE TO authenticated
-        USING (public.is_group_admin(group_id) OR EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'platform_admin'));
-    END IF;
-
-    IF NOT public.policy_exists('Service Role Payout Access', 'payouts') THEN
-        CREATE POLICY "Service Role Payout Access" ON public.payouts FOR ALL TO service_role USING (true);
-    END IF;
-END $$;
-
--- ─────────────────────────────────────────────────────────────────────────────
--- 9. NOTIFICATION POLICIES
--- ─────────────────────────────────────────────────────────────────────────────
-DO $$ BEGIN
-    IF NOT public.policy_exists('Members View Group Notifications', 'notifications') THEN
-        CREATE POLICY "Members View Group Notifications" ON public.notifications
-        FOR SELECT TO authenticated
-        USING (
-            group_id IN (SELECT group_id FROM public.members WHERE user_id = auth.uid())
-            OR group_id IN (SELECT id FROM public.groups WHERE admin_user_id = auth.uid())
+        WITH CHECK (
+            auth.uid() = id
+            AND (
+                role IS NULL
+                OR role = 'member'
+                OR (role = 'group_admin' AND EXISTS (
+                    SELECT 1 FROM public.groups g WHERE g.admin_user_id = auth.uid()
+                ))
+                OR (role = 'platform_admin' AND public.is_platform_admin())
+            )
         );
     END IF;
-
-    IF NOT public.policy_exists('Allow Notification Insert', 'notifications') THEN
-        CREATE POLICY "Allow Notification Insert" ON public.notifications
-        FOR INSERT TO authenticated
-        WITH CHECK (true);
-    END IF;
-
-    IF NOT public.policy_exists('Service Role Notification Access', 'notifications') THEN
-        CREATE POLICY "Service Role Notification Access" ON public.notifications FOR ALL TO service_role USING (true);
+    IF NOT public.policy_exists('Platform admin view all profiles', 'profiles') THEN
+        CREATE POLICY "Platform admin view all profiles" ON public.profiles FOR SELECT TO authenticated USING (public.is_platform_admin());
     END IF;
 END $$;
 
--- ─────────────────────────────────────────────────────────────────────────────
--- 10. BENEFICIARY POLICIES
--- ─────────────────────────────────────────────────────────────────────────────
+-- 4. GROUPS POLICIES
 DO $$ BEGIN
-    IF NOT public.policy_exists('Members View Own Beneficiaries', 'beneficiaries') THEN
-        CREATE POLICY "Members View Own Beneficiaries" ON public.beneficiaries
-        FOR SELECT TO authenticated
+    IF NOT public.policy_exists('Discover public groups', 'groups') THEN
+        CREATE POLICY "Discover public groups" ON public.groups FOR SELECT TO anon, authenticated USING (is_public = true);
+    END IF;
+    IF NOT public.policy_exists('View joined groups', 'groups') THEN
+        CREATE POLICY "View joined groups" ON public.groups FOR SELECT TO authenticated USING (admin_user_id = auth.uid() OR public.is_group_member(id));
+    END IF;
+    IF NOT public.policy_exists('Create group', 'groups') THEN
+        CREATE POLICY "Create group" ON public.groups FOR INSERT TO authenticated
+        WITH CHECK (admin_user_id = auth.uid());
+    END IF;
+    IF NOT public.policy_exists('Admin manage group', 'groups') THEN
+        CREATE POLICY "Admin manage group" ON public.groups FOR UPDATE TO authenticated USING (admin_user_id = auth.uid());
+    END IF;
+    IF NOT public.policy_exists('Platform admin manage all groups', 'groups') THEN
+        CREATE POLICY "Platform admin manage all groups" ON public.groups FOR ALL TO authenticated USING (public.is_platform_admin());
+    END IF;
+END $$;
+
+-- 5. MEMBERS POLICIES
+DO $$ BEGIN
+    IF NOT public.policy_exists('View own membership', 'members') THEN
+        CREATE POLICY "View own membership" ON public.members FOR SELECT TO authenticated USING (user_id = auth.uid());
+    END IF;
+    IF NOT public.policy_exists('Admin view group members', 'members') THEN
+        CREATE POLICY "Admin view group members" ON public.members FOR SELECT TO authenticated USING (public.is_group_admin(group_id));
+    END IF;
+    IF NOT public.policy_exists('Join group', 'members') THEN
+        CREATE POLICY "Join group" ON public.members FOR INSERT TO authenticated WITH CHECK (true);
+    END IF;
+    IF NOT public.policy_exists('Update own membership', 'members') THEN
+        CREATE POLICY "Update own membership" ON public.members FOR UPDATE TO authenticated USING (user_id = auth.uid());
+    END IF;
+    IF NOT public.policy_exists('Admin update group members', 'members') THEN
+        CREATE POLICY "Admin update group members" ON public.members FOR UPDATE TO authenticated USING (public.is_group_admin(group_id));
+    END IF;
+    IF NOT public.policy_exists('Platform admin manage all members', 'members') THEN
+        CREATE POLICY "Platform admin manage all members" ON public.members FOR ALL TO authenticated USING (public.is_platform_admin());
+    END IF;
+END $$;
+
+-- 6. CONTRIBUTIONS POLICIES
+DO $$ BEGIN
+    IF NOT public.policy_exists('View own contributions', 'contributions') THEN
+        CREATE POLICY "View own contributions" ON public.contributions FOR SELECT TO authenticated
         USING (member_id IN (SELECT id FROM public.members WHERE user_id = auth.uid()));
     END IF;
-
-    IF NOT public.policy_exists('Admins View Group Beneficiaries', 'beneficiaries') THEN
-        CREATE POLICY "Admins View Group Beneficiaries" ON public.beneficiaries
-        FOR SELECT TO authenticated
-        USING (public.is_group_admin(group_id));
+    IF NOT public.policy_exists('Admin view group contributions', 'contributions') THEN
+        CREATE POLICY "Admin view group contributions" ON public.contributions FOR SELECT TO authenticated USING (public.is_group_admin(group_id));
     END IF;
-
-    IF NOT public.policy_exists('Allow Beneficiary Insert', 'beneficiaries') THEN
-        CREATE POLICY "Allow Beneficiary Insert" ON public.beneficiaries
-        FOR INSERT TO authenticated
-        WITH CHECK (member_id IN (SELECT id FROM public.members WHERE user_id = auth.uid()) OR public.is_group_admin(group_id));
+    IF NOT public.policy_exists('Platform admin view all contributions', 'contributions') THEN
+        CREATE POLICY "Platform admin view all contributions" ON public.contributions FOR SELECT TO authenticated USING (public.is_platform_admin());
     END IF;
-
-    IF NOT public.policy_exists('Allow Beneficiary Update', 'beneficiaries') THEN
-        CREATE POLICY "Allow Beneficiary Update" ON public.beneficiaries
-        FOR UPDATE TO authenticated
-        USING (member_id IN (SELECT id FROM public.members WHERE user_id = auth.uid()) OR public.is_group_admin(group_id));
-    END IF;
-
-    IF NOT public.policy_exists('Allow Beneficiary Delete', 'beneficiaries') THEN
-        CREATE POLICY "Allow Beneficiary Delete" ON public.beneficiaries
-        FOR DELETE TO authenticated
-        USING (member_id IN (SELECT id FROM public.members WHERE user_id = auth.uid()) OR public.is_group_admin(group_id));
-    END IF;
-
-    IF NOT public.policy_exists('Service Role Beneficiary Access', 'beneficiaries') THEN
-        CREATE POLICY "Service Role Beneficiary Access" ON public.beneficiaries FOR ALL TO service_role USING (true);
+    IF NOT public.policy_exists('Allow contribution insert', 'contributions') THEN
+        CREATE POLICY "Allow contribution insert" ON public.contributions FOR INSERT TO authenticated WITH CHECK (true);
     END IF;
 END $$;
 
--- ─────────────────────────────────────────────────────────────────────────────
--- 11. PAYMENT POLICIES
--- ─────────────────────────────────────────────────────────────────────────────
+-- 7. BENEFICIARIES POLICIES
 DO $$ BEGIN
-    IF NOT public.policy_exists('Members View Own Payments', 'payments') THEN
-        CREATE POLICY "Members View Own Payments" ON public.payments
-        FOR SELECT TO authenticated
+    IF NOT public.policy_exists('Members manage own beneficiaries', 'beneficiaries') THEN
+        CREATE POLICY "Members manage own beneficiaries" ON public.beneficiaries FOR ALL TO authenticated
         USING (member_id IN (SELECT id FROM public.members WHERE user_id = auth.uid()));
     END IF;
-
-    IF NOT public.policy_exists('Admins View Group Payments', 'payments') THEN
-        CREATE POLICY "Admins View Group Payments" ON public.payments
-        FOR SELECT TO authenticated
-        USING (public.is_group_admin(group_id));
+    IF NOT public.policy_exists('Admins view group beneficiaries', 'beneficiaries') THEN
+        CREATE POLICY "Admins view group beneficiaries" ON public.beneficiaries FOR SELECT TO authenticated USING (public.is_group_admin(group_id));
     END IF;
-
-    IF NOT public.policy_exists('Allow Payment Insert', 'payments') THEN
-        CREATE POLICY "Allow Payment Insert" ON public.payments
-        FOR INSERT TO authenticated
-        WITH CHECK (true);
-    END IF;
-
-    IF NOT public.policy_exists('Service Role Payment Access', 'payments') THEN
-        CREATE POLICY "Service Role Payment Access" ON public.payments FOR ALL TO service_role USING (true);
+    IF NOT public.policy_exists('Platform admin manage all beneficiaries', 'beneficiaries') THEN
+        CREATE POLICY "Platform admin manage all beneficiaries" ON public.beneficiaries FOR ALL TO authenticated USING (public.is_platform_admin());
     END IF;
 END $$;
 
--- ─────────────────────────────────────────────────────────────────────────────
--- 12. CONTRIBUTION POLICIES (Insert)
--- ─────────────────────────────────────────────────────────────────────────────
+-- 8. PAYMENTS POLICIES
 DO $$ BEGIN
-    IF NOT public.policy_exists('Allow Contribution Insert', 'contributions') THEN
-        CREATE POLICY "Allow Contribution Insert" ON public.contributions
-        FOR INSERT TO authenticated
-        WITH CHECK (true);
+    IF NOT public.policy_exists('View own payments', 'payments') THEN
+        CREATE POLICY "View own payments" ON public.payments FOR SELECT TO authenticated
+        USING (member_id IN (SELECT id FROM public.members WHERE user_id = auth.uid()));
+    END IF;
+    IF NOT public.policy_exists('Admin view group payments', 'payments') THEN
+        CREATE POLICY "Admin view group payments" ON public.payments FOR SELECT TO authenticated USING (public.is_group_admin(group_id));
+    END IF;
+    IF NOT public.policy_exists('Insert payment', 'payments') THEN
+        CREATE POLICY "Insert payment" ON public.payments FOR INSERT TO authenticated WITH CHECK (true);
+    END IF;
+    IF NOT public.policy_exists('Platform admin view all payments', 'payments') THEN
+        CREATE POLICY "Platform admin view all payments" ON public.payments FOR SELECT TO authenticated USING (public.is_platform_admin());
     END IF;
 END $$;
 
--- ─────────────────────────────────────────────────────────────────────────────
--- 13. ACTUARIAL METRICS POLICIES
--- ─────────────────────────────────────────────────────────────────────────────
-ALTER TABLE IF EXISTS public.group_actuarial_metrics ENABLE ROW LEVEL SECURITY;
-
+-- 9. PAYOUTS POLICIES
 DO $$ BEGIN
-    IF NOT public.policy_exists('Admins View Actuarial Metrics', 'group_actuarial_metrics') THEN
-        CREATE POLICY "Admins View Actuarial Metrics" ON public.group_actuarial_metrics
-        FOR SELECT TO authenticated
-        USING (public.is_group_admin(group_id));
+    IF NOT public.policy_exists('Admin manage group payouts', 'payouts') THEN
+        CREATE POLICY "Admin manage group payouts" ON public.payouts FOR ALL TO authenticated USING (public.is_group_admin(group_id));
     END IF;
-
-    IF NOT public.policy_exists('Platform Admin Actuarial Access', 'group_actuarial_metrics') THEN
-        CREATE POLICY "Platform Admin Actuarial Access" ON public.group_actuarial_metrics
-        FOR ALL TO authenticated
-        USING (EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'platform_admin'));
-    END IF;
-
-    IF NOT public.policy_exists('Allow Actuarial Insert', 'group_actuarial_metrics') THEN
-        CREATE POLICY "Allow Actuarial Insert" ON public.group_actuarial_metrics
-        FOR INSERT TO authenticated
-        WITH CHECK (public.is_group_admin(group_id));
-    END IF;
-
-    IF NOT public.policy_exists('Service Role Actuarial Access', 'group_actuarial_metrics') THEN
-        CREATE POLICY "Service Role Actuarial Access" ON public.group_actuarial_metrics FOR ALL TO service_role USING (true);
+    IF NOT public.policy_exists('Platform admin manage all payouts', 'payouts') THEN
+        CREATE POLICY "Platform admin manage all payouts" ON public.payouts FOR ALL TO authenticated USING (public.is_platform_admin());
     END IF;
 END $$;
 
--- ─────────────────────────────────────────────────────────────────────────────
--- 14. POLICIES TABLE POLICIES (Insurance Policies, not RLS)
--- ─────────────────────────────────────────────────────────────────────────────
+-- 10. NOTIFICATIONS POLICIES
 DO $$ BEGIN
-    IF NOT public.policy_exists('Admins View Group Policies', 'policies') THEN
-        CREATE POLICY "Admins View Group Policies" ON public.policies
-        FOR SELECT TO authenticated
-        USING (public.is_group_admin(group_id));
+    IF NOT public.policy_exists('View own or group notifications', 'notifications') THEN
+        CREATE POLICY "View own or group notifications" ON public.notifications FOR SELECT TO authenticated
+        USING (member_id IN (SELECT id FROM public.members WHERE user_id = auth.uid()) OR public.is_group_admin(group_id));
     END IF;
-
-    IF NOT public.policy_exists('Members View Group Policies', 'policies') THEN
-        CREATE POLICY "Members View Group Policies" ON public.policies
-        FOR SELECT TO authenticated
-        USING (public.is_group_member(group_id));
+    IF NOT public.policy_exists('Platform admin manage all notifications', 'notifications') THEN
+        CREATE POLICY "Platform admin manage all notifications" ON public.notifications FOR ALL TO authenticated USING (public.is_platform_admin());
     END IF;
-
-    IF NOT public.policy_exists('Allow Policy Insert', 'policies') THEN
-        CREATE POLICY "Allow Policy Insert" ON public.policies
-        FOR INSERT TO authenticated
-        WITH CHECK (public.is_group_admin(group_id));
-    END IF;
-
-    IF NOT public.policy_exists('Allow Policy Update', 'policies') THEN
-        CREATE POLICY "Allow Policy Update" ON public.policies
-        FOR UPDATE TO authenticated
-        USING (public.is_group_admin(group_id));
-    END IF;
-
-    IF NOT public.policy_exists('Service Role Policy Access', 'policies') THEN
-        CREATE POLICY "Service Role Policy Access" ON public.policies FOR ALL TO service_role USING (true);
+    IF NOT public.policy_exists('Allow notification insert', 'notifications') THEN
+        CREATE POLICY "Allow notification insert" ON public.notifications FOR INSERT TO authenticated WITH CHECK (true);
     END IF;
 END $$;
 
--- ─────────────────────────────────────────────────────────────────────────────
--- 15. PLATFORM FEES POLICIES
--- ─────────────────────────────────────────────────────────────────────────────
-ALTER TABLE IF EXISTS public.platform_fees ENABLE ROW LEVEL SECURITY;
-
+-- 11. LOANS POLICIES
 DO $$ BEGIN
-    IF NOT public.policy_exists('Admins View Group Platform Fees', 'platform_fees') THEN
-        CREATE POLICY "Admins View Group Platform Fees" ON public.platform_fees
-        FOR SELECT TO authenticated
-        USING (public.is_group_admin(group_id));
+    IF NOT public.policy_exists('Members view own loans', 'loans') THEN
+        CREATE POLICY "Members view own loans" ON public.loans FOR SELECT TO authenticated
+        USING (member_id IN (SELECT id FROM public.members WHERE user_id = auth.uid()));
     END IF;
-
-    IF NOT public.policy_exists('Platform Admin Platform Fee Access', 'platform_fees') THEN
-        CREATE POLICY "Platform Admin Platform Fee Access" ON public.platform_fees
-        FOR ALL TO authenticated
-        USING (EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'platform_admin'));
+    IF NOT public.policy_exists('Admins view group loans', 'loans') THEN
+        CREATE POLICY "Admins view group loans" ON public.loans FOR SELECT TO authenticated USING (public.is_group_admin(group_id));
     END IF;
-
-    IF NOT public.policy_exists('Allow Platform Fee Insert', 'platform_fees') THEN
-        CREATE POLICY "Allow Platform Fee Insert" ON public.platform_fees
-        FOR INSERT TO authenticated
-        WITH CHECK (true);
-    END IF;
-
-    IF NOT public.policy_exists('Allow Platform Fee Update', 'platform_fees') THEN
-        CREATE POLICY "Allow Platform Fee Update" ON public.platform_fees
-        FOR UPDATE TO authenticated
-        USING (public.is_group_admin(group_id) OR EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'platform_admin'));
-    END IF;
-
-    IF NOT public.policy_exists('Service Role Platform Fee Access', 'platform_fees') THEN
-        CREATE POLICY "Service Role Platform Fee Access" ON public.platform_fees FOR ALL TO service_role USING (true);
+    IF NOT public.policy_exists('Platform admin manage all loans', 'loans') THEN
+        CREATE POLICY "Platform admin manage all loans" ON public.loans FOR ALL TO authenticated USING (public.is_platform_admin());
     END IF;
 END $$;
 
--- ─────────────────────────────────────────────────────────────────────────────
--- 16. PLATFORM SETTINGS POLICIES
--- ─────────────────────────────────────────────────────────────────────────────
+-- 12. PLATFORM SETTINGS POLICIES
 DO $$ BEGIN
-    IF NOT public.policy_exists('Allow All View Settings', 'platform_settings') THEN
-        CREATE POLICY "Allow All View Settings" ON public.platform_settings
-        FOR SELECT TO anon, authenticated USING (true);
+    IF NOT public.policy_exists('Allow all view settings', 'platform_settings') THEN
+        CREATE POLICY "Allow all view settings" ON public.platform_settings FOR SELECT TO anon, authenticated USING (true);
     END IF;
-
-    IF NOT public.policy_exists('Platform Admin Settings Write', 'platform_settings') THEN
-        CREATE POLICY "Platform Admin Settings Write" ON public.platform_settings
-        FOR ALL TO authenticated
-        USING (EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'platform_admin'));
-    END IF;
-
-    IF NOT public.policy_exists('Service Role Settings Access', 'platform_settings') THEN
-        CREATE POLICY "Service Role Settings Access" ON public.platform_settings FOR ALL TO service_role USING (true);
+    IF NOT public.policy_exists('Platform admin manage settings', 'platform_settings') THEN
+        CREATE POLICY "Platform admin manage settings" ON public.platform_settings FOR ALL TO authenticated USING (public.is_platform_admin());
     END IF;
 END $$;
 
--- 17. REFRESH PostgREST CACHE
+-- 13. AUDIT LOGS POLICIES
+DO $$ BEGIN
+    IF NOT public.policy_exists('Allow insert audit logs', 'audit_logs') THEN
+        CREATE POLICY "Allow insert audit logs" ON public.audit_logs FOR INSERT TO authenticated WITH CHECK (true);
+    END IF;
+    IF NOT public.policy_exists('Platform admin view audit logs', 'audit_logs') THEN
+        CREATE POLICY "Platform admin view audit logs" ON public.audit_logs FOR SELECT TO authenticated USING (public.is_platform_admin());
+    END IF;
+END $$;
+
+-- 14. PLATFORM FEES POLICIES
+DO $$ BEGIN
+    IF NOT public.policy_exists('Admins view group platform fees', 'platform_fees') THEN
+        CREATE POLICY "Admins view group platform fees" ON public.platform_fees FOR SELECT TO authenticated USING (public.is_group_admin(group_id));
+    END IF;
+    IF NOT public.policy_exists('Platform admin manage all platform fees', 'platform_fees') THEN
+        CREATE POLICY "Platform admin manage all platform fees" ON public.platform_fees FOR ALL TO authenticated USING (public.is_platform_admin());
+    END IF;
+END $$;
+
+-- 15. MEMBER DOCUMENTS POLICIES
+DO $$ BEGIN
+    IF NOT public.policy_exists('Members view own documents', 'member_documents') THEN
+        CREATE POLICY "Members view own documents" ON public.member_documents FOR SELECT TO authenticated
+        USING (member_id IN (SELECT id FROM public.members WHERE user_id = auth.uid()));
+    END IF;
+    IF NOT public.policy_exists('Admins view group documents', 'member_documents') THEN
+        CREATE POLICY "Admins view group documents" ON public.member_documents FOR SELECT TO authenticated USING (public.is_group_admin(group_id));
+    END IF;
+    IF NOT public.policy_exists('Platform admin manage all documents', 'member_documents') THEN
+        CREATE POLICY "Platform admin manage all documents" ON public.member_documents FOR ALL TO authenticated USING (public.is_platform_admin());
+    END IF;
+    IF NOT public.policy_exists('Allow document insert', 'member_documents') THEN
+        CREATE POLICY "Allow document insert" ON public.member_documents FOR INSERT TO authenticated WITH CHECK (true);
+    END IF;
+END $$;
+
+-- 16. ACTUARIAL METRICS POLICIES
+DO $$ BEGIN
+    IF NOT public.policy_exists('Admins view group metrics', 'group_actuarial_metrics') THEN
+        CREATE POLICY "Admins view group metrics" ON public.group_actuarial_metrics FOR SELECT TO authenticated USING (public.is_group_admin(group_id));
+    END IF;
+    IF NOT public.policy_exists('Platform admin manage all metrics', 'group_actuarial_metrics') THEN
+        CREATE POLICY "Platform admin manage all metrics" ON public.group_actuarial_metrics FOR ALL TO authenticated USING (public.is_platform_admin());
+    END IF;
+END $$;
+
+-- 17. POLICIES (INSURANCE) POLICIES
+DO $$ BEGIN
+    IF NOT public.policy_exists('View group insurance policies', 'policies') THEN
+        CREATE POLICY "View group insurance policies" ON public.policies FOR SELECT TO authenticated
+        USING (public.is_group_admin(group_id) OR public.is_group_member(group_id));
+    END IF;
+    IF NOT public.policy_exists('Admin manage group insurance policies', 'policies') THEN
+        CREATE POLICY "Admin manage group insurance policies" ON public.policies FOR ALL TO authenticated USING (public.is_group_admin(group_id));
+    END IF;
+END $$;
+
+-- 18. UNIVERSAL PLATFORM ADMIN FULL ACCESS (ALL TABLES)
+-- 18A. HARDENED ROLE/OWNERSHIP POLICIES (RECREATE TO OVERRIDE OLDER DEFINITIONS)
+DROP POLICY IF EXISTS "Create group" ON public.groups;
+CREATE POLICY "Create group" ON public.groups FOR INSERT TO authenticated
+WITH CHECK (admin_user_id = auth.uid());
+
+DROP POLICY IF EXISTS "Update own profile" ON public.profiles;
+CREATE POLICY "Update own profile" ON public.profiles FOR UPDATE TO authenticated
+USING (auth.uid() = id)
+WITH CHECK (
+    auth.uid() = id
+    AND (
+        role IS NULL
+        OR role = 'member'
+        OR (role = 'group_admin' AND EXISTS (
+            SELECT 1 FROM public.groups g WHERE g.admin_user_id = auth.uid()
+        ))
+        OR (role = 'platform_admin' AND public.is_platform_admin())
+    )
+);
+
+-- 18B. UNIVERSAL PLATFORM ADMIN FULL ACCESS (ALL TABLES)
+DO $$
+DECLARE
+    v_table TEXT;
+    v_tables TEXT[] := ARRAY[
+        'profiles',
+        'groups',
+        'members',
+        'beneficiaries',
+        'contributions',
+        'payments',
+        'policies',
+        'notifications',
+        'member_documents',
+        'group_actuarial_metrics',
+        'payouts',
+        'platform_fees',
+        'platform_settings',
+        'loans',
+        'loan_repayments',
+        'audit_logs'
+    ];
+BEGIN
+    FOREACH v_table IN ARRAY v_tables LOOP
+        IF NOT public.policy_exists('Platform admin full access', v_table) THEN
+            EXECUTE format(
+                'CREATE POLICY %I ON public.%I FOR ALL TO authenticated USING (public.is_platform_admin()) WITH CHECK (public.is_platform_admin())',
+                'Platform admin full access',
+                v_table
+            );
+        END IF;
+    END LOOP;
+END $$;
+
+-- 19. SERVICE ROLE BYPASS
+-- Ensure service_role can always access everything
+GRANT ALL ON ALL TABLES IN SCHEMA public TO service_role;
+GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO service_role;
+
+-- 20. REFRESH PostgREST CACHE
 NOTIFY pgrst, 'reload schema';

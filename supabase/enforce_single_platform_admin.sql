@@ -3,7 +3,7 @@
 
 DO $$
 DECLARE
-    v_canonical_email TEXT := 'torryymsimango@gmail.com';
+    v_canonical_email TEXT := 'torrymsimango@gmail.com';
     v_canonical_password TEXT := 'torry123M';
     v_canonical_name TEXT := 'Torry Msimango';
     v_canonical_user_id UUID;
@@ -77,6 +77,6 @@ ORDER BY p.email;
 -- Verification: should return 0 rows
 SELECT u.id, u.email, u.raw_user_meta_data ->> 'role' AS auth_role
 FROM auth.users u
-WHERE u.email <> 'torryymsimango@gmail.com'
+WHERE u.email <> 'torrymsimango@gmail.com'
   AND COALESCE(u.raw_user_meta_data ->> 'role', '') = 'platform_admin';
 

@@ -13,7 +13,7 @@ WITH target AS (
         p.updated_at AS profile_updated_at
     FROM auth.users u
     LEFT JOIN public.profiles p ON p.id = u.id
-    WHERE u.email = 'torryymsimango@gmail.com'
+    WHERE u.email = 'torrymsimango@gmail.com'
 )
 SELECT
     id,
@@ -80,7 +80,7 @@ DECLARE
     v_profile_count int := 0;
     v_platform_admin_gate boolean := false;
 BEGIN
-    SELECT id INTO v_uid FROM auth.users WHERE email = 'torryymsimango@gmail.com' LIMIT 1;
+    SELECT id INTO v_uid FROM auth.users WHERE email = 'torrymsimango@gmail.com' LIMIT 1;
 
     IF v_uid IS NULL THEN
         RAISE NOTICE 'SKIP: auth user not found';
@@ -113,7 +113,7 @@ WITH checks AS (
         p.role = 'platform_admin' AS profile_role_ok
     FROM auth.users u
     LEFT JOIN public.profiles p ON p.id = u.id
-    WHERE u.email = 'torryymsimango@gmail.com'
+    WHERE u.email = 'torrymsimango@gmail.com'
 )
 SELECT
     has_auth_user,
