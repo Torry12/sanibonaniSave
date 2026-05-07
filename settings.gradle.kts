@@ -29,4 +29,3 @@ rootProject.name = "SanibonaniSave"
 include(":app")
 include(":domain")
 include(":data")
-include(":ui")
