@@ -7,6 +7,6 @@ if [ -n "$JAVA_HOME" ]; then
 else
     JAVACMD="java"
 fi
-exec "$JAVACMD" -Xmx64m -Xms64m \
+exec "$JAVACMD" -Xmx512m -Xms256m \
     -classpath "$CLASSPATH" \
     org.gradle.wrapper.GradleWrapperMain "$@"
