@@ -122,13 +122,11 @@ class RegistrationLifecycleTest {
         )
 
         // Simulate existing member with same user_id + group_id
-        coEvery { memberRepo.registerMember(any()) } throws Exception("You are already a member of this group.")
+        coEvery { memberRepo.registerMember(any(), any()) } returns Result.failure(
+            Exception("You are already a member of this group.")
+        )
 
-        val result = try {
-            memberRepo.registerMember(member)
-        } catch (e: Exception) {
-            Result.failure<Member>(e)
-        }
+        val result = memberRepo.registerMember(member)
 
         assertTrue(result.isFailure)
         assertEquals("You are already a member of this group.", result.exceptionOrNull()?.message)
