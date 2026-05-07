@@ -24,7 +24,7 @@ local.properties
 *.msi
 *.apk
 *.aar
-*.jar
+# Note: *.jar is intentionally NOT excluded — gradle-wrapper.jar must be committed
 
 # Android Studio / IntelliJ
 .idea/
@@ -62,5 +62,5 @@ ksp_log.txt
 daemon/
 caches/
 native/
-wrapper/
+# wrapper/ is intentionally NOT excluded — gradle/wrapper/ must be committed
 kotlin-profile/
