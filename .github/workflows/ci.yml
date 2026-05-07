@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21 (JetBrains)
+        uses: actions/setup-java@v4
+        with:
+          distribution: "jetbrains"
+          java-version: "21"
+
+      - name: Set up Gradle 8.11.1
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.11.1"
+
+      - name: Create local.properties
+        run: |
+          cat > local.properties <<EOF
+          SUPABASE_URL=${{ secrets.SUPABASE_URL || 'https://your-project.supabase.co' }}
+          SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY || '' }}
+          YOCO_PUBLIC_KEY=${{ secrets.YOCO_PUBLIC_KEY || '' }}
+          WHATSAPP_PHONE_NUMBER_ID=${{ secrets.WHATSAPP_PHONE_NUMBER_ID || '' }}
+          GEOAPIFY_API_KEY=${{ secrets.GEOAPIFY_API_KEY || 'placeholder_key' }}
+          PLATFORM_ADMIN_EMAIL=${{ secrets.PLATFORM_ADMIN_EMAIL || 'torrymsimango@gmail.com' }}
+          EOF
+
+      - name: Unit tests
+        run: gradle --no-daemon :app:testDebugUnitTest
+
+      - name: Lint
+        run: gradle --no-daemon :app:lintDebug
+
+      - name: Assemble debug APK
+        run: gradle --no-daemon :app:assembleDebug
+
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-reports
+          path: |
+            app/build/reports/**
+            app/build/test-results/**
