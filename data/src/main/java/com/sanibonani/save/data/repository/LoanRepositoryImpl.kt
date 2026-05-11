@@ -5,16 +5,21 @@ import com.sanibonani.save.data.local.LoanEntity
 import com.sanibonani.save.data.local.LoanRepaymentEntity
 import com.sanibonani.save.domain.model.*
 import com.sanibonani.save.domain.repository.LoanRepository
+import com.sanibonani.save.domain.repository.StorageRepository
 import io.github.jan.supabase.SupabaseClient
+import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.postgrest.query.Columns
 import kotlinx.coroutines.flow.Flow
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import javax.inject.Inject
 import kotlin.math.pow
 
 class LoanRepositoryImpl @Inject constructor(
     private val supabase: SupabaseClient,
-    private val db: SanibonaniDatabase
+    private val db: SanibonaniDatabase,
+    private val storageRepo: StorageRepository
 ) : BaseRepository("LoanRepository"), LoanRepository {
 
     private val LOAN_COLUMNS = "id,member_id,group_id,amount,interest_rate,total_to_repay,total_repaid,monthly_repayment,start_date,end_date,next_payment_date,status,purpose,created_at"
@@ -67,7 +72,11 @@ class LoanRepositoryImpl @Inject constructor(
     )
 
     override suspend fun approveLoan(loanId: String): Result<Unit> = runCatching {
-        supabase.postgrest["loans"].update(mapOf("status" to LoanStatus.APPROVED.name.lowercase())) {
+        supabase.postgrest["loans"].update(mapOf(
+            "status" to LoanStatus.APPROVED.name.lowercase(),
+            "reviewed_by" to supabase.auth.currentUserOrNull()?.id,
+            "reviewed_at" to java.time.Instant.now().toString()
+        )) {
             filter { eq("id", loanId) }
         }
         // Sync local
@@ -76,10 +85,55 @@ class LoanRepositoryImpl @Inject constructor(
     }
 
     override suspend fun rejectLoan(loanId: String, reason: String): Result<Unit> = runCatching {
-        supabase.postgrest["loans"].update(mapOf("status" to LoanStatus.REJECTED.name.lowercase())) {
+        supabase.postgrest["loans"].update(mapOf(
+            "status" to LoanStatus.REJECTED.name.lowercase(),
+            "rejection_reason" to reason,
+            "reviewed_by" to supabase.auth.currentUserOrNull()?.id,
+            "reviewed_at" to java.time.Instant.now().toString()
+        )) {
             filter { eq("id", loanId) }
         }
         // Sync local
+        getLoanById(loanId)
+        Unit
+    }
+
+    override suspend fun disburseLoan(loanId: String, paymentMethod: PaymentMethod): Result<Unit> = runCatching {
+        val adminId = supabase.auth.currentUserOrNull()?.id ?: throw IllegalStateException("Not authenticated")
+        
+        supabase.postgrest.rpc("disburse_loan_v1", buildJsonObject {
+            put("p_loan_id", loanId)
+            put("p_admin_id", adminId)
+            put("p_payment_method", paymentMethod.name.lowercase())
+        })
+        
+        // Sync local
+        getLoanById(loanId)
+        Unit
+    }
+
+    override suspend fun updateLoanContract(loanId: String, contractUrl: String): Result<Unit> = runCatching {
+        supabase.postgrest["loans"].update(mapOf("contract_url" to contractUrl)) {
+            filter { eq("id", loanId) }
+        }
+        getLoanById(loanId)
+        Unit
+    }
+
+    override suspend fun uploadLoanContract(loanId: String, byteArray: ByteArray, fileName: String): Result<String> = runCatching {
+        val path = "contracts/$loanId/$fileName"
+        val uploadedPath = storageRepo.uploadFile("loan_contracts", path, byteArray).getOrThrow()
+        val publicUrl = storageRepo.getPublicUrl("loan_contracts", uploadedPath)
+        updateLoanContract(loanId, publicUrl).getOrThrow()
+        publicUrl
+    }
+
+    override suspend fun acceptLoanAgreement(loanId: String): Result<Unit> = runCatching {
+        // Status might already be APPROVED, this could be for recording member's acceptance
+        // For now, let's just ensure it stays APPROVED or moves to it.
+        supabase.postgrest["loans"].update(mapOf("status" to LoanStatus.APPROVED.name.lowercase())) {
+            filter { eq("id", loanId) }
+        }
         getLoanById(loanId)
         Unit
     }

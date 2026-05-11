@@ -3,10 +3,13 @@
 package com.sanibonani.save.domain.model
 
 import android.os.Parcelable
-import kotlinx.parcelize.IgnoredOnParcel
 import kotlinx.parcelize.Parcelize
-import kotlinx.parcelize.RawValue
-import kotlinx.serialization.*
+import kotlinx.serialization.EncodeDefault
+import kotlinx.serialization.ExperimentalSerializationApi
+import kotlinx.serialization.KSerializer
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.Transient
 import kotlinx.serialization.descriptors.PrimitiveKind
 import kotlinx.serialization.descriptors.PrimitiveSerialDescriptor
 import kotlinx.serialization.descriptors.SerialDescriptor
@@ -435,6 +438,14 @@ enum class NotifEvent {
     @SerialName("platform_fee_warning")  PLATFORM_FEE_WARNING,
     @SerialName("group_suspended")       GROUP_SUSPENDED,
     @SerialName("group_restored")        GROUP_RESTORED,
+    @SerialName("payout_requested")      PAYOUT_REQUESTED,
+    @SerialName("payout_processed")       PAYOUT_PROCESSED,
+    @SerialName("payout_failed")          PAYOUT_FAILED,
+    @SerialName("payout_cancelled")       PAYOUT_CANCELLED,
+    @SerialName("loan_requested")        LOAN_REQUESTED,
+    @SerialName("loan_approved")         LOAN_APPROVED,
+    @SerialName("loan_rejected")         LOAN_REJECTED,
+    @SerialName("loan_defaulted")        LOAN_DEFAULTED,
     @SerialName("actuarial_alert")       ACTUARIAL_ALERT,
     @SerialName("investment_payout")     INVESTMENT_PAYOUT,
     @SerialName("member_message")        MEMBER_MESSAGE,
@@ -547,6 +558,9 @@ data class GroupSettings(
     val beneficiaryIncreasePct: String = "0",
     val goalAmount: String = "10000",
     val periodMonths: String = "12",
+    val loanInterestRate: String = "0",
+    val loanMaxAmount: String = "0",
+    val loanMaxMonths: String = "0",
     val isSaving: Boolean = false,
     val savedSuccess: Boolean = false
 )
@@ -578,8 +592,14 @@ data class Loan(
     @SerialName("start_date")     val startDate: String = "",
     @SerialName("end_date")       val endDate: String = "",
     @SerialName("next_payment_date") val nextPaymentDate: String? = null,
+    @SerialName("contract_url")      val contractUrl: String? = null,
+    @SerialName("surety_amount")    val suretyAmount: Double? = null,
     val status: LoanStatus = LoanStatus.PENDING,
     @SerialName("purpose")        val purpose: String? = null,
+    @SerialName("reviewed_by")     val reviewedBy: String? = null,
+    @SerialName("reviewed_at")     val reviewedAt: String? = null,
+    @SerialName("admin_notes")     val adminNotes: String? = null,
+    @SerialName("rejection_reason") val rejectionReason: String? = null,
     @EncodeDefault(EncodeDefault.Mode.NEVER)
     @SerialName("created_at")     val createdAt: String? = null
 ) : Parcelable {
@@ -595,7 +615,8 @@ enum class LoanStatus(val displayName: String) {
     @SerialName("partially_paid") PARTIALLY_PAID("Partially Paid"),
     @SerialName("completed") COMPLETED("Completed"),
     @SerialName("rejected")  REJECTED("Rejected"),
-    @SerialName("overdue")   OVERDUE("Overdue")
+    @SerialName("overdue")   OVERDUE("Overdue"),
+    @SerialName("cancelled") CANCELLED("Cancelled")
 }
 
 @Serializable
@@ -616,6 +637,21 @@ data class LoanRepayment(
 
 @Serializable
 @Parcelize
+data class MemberBehaviorInsight(
+    @SerialName("member_id") val memberId: String = "",
+    @SerialName("member_name") val memberName: String = "",
+    @SerialName("group_id") val groupId: String = "",
+    @SerialName("total_loan_requests") val totalLoanRequests: Int = 0,
+    @SerialName("pending_requests") val pendingRequests: Int = 0,
+    @SerialName("overdue_loans") val overdueLoans: Int = 0,
+    @SerialName("total_requested_amount") val totalRequestedAmount: Double = 0.0,
+    @SerialName("outstanding_amount") val outstandingAmount: Double = 0.0,
+    @SerialName("completion_ratio") val completionRatio: Double = 0.0,
+    @SerialName("risk_band") val riskBand: String = "Watch"
+) : Parcelable
+
+@Serializable
+@Parcelize
 data class AuditLog(
     @EncodeDefault(EncodeDefault.Mode.NEVER)
     val id: String? = null,
@@ -623,10 +659,67 @@ data class AuditLog(
     @SerialName("target_member_id") val targetMemberId: String? = null,
     @SerialName("target_group_id") val targetGroupId: String? = null,
     val action: String = "",
-    val details: Map<String, @RawValue @Contextual Any>? = null,
+    val details: Map<String, String>? = null,
     @EncodeDefault(EncodeDefault.Mode.NEVER)
     @SerialName("created_at") val createdAt: String? = null
 ) : Parcelable
 
 val SA_PROVINCES = listOf("Gauteng", "Western Cape", "KwaZulu-Natal", "Eastern Cape", "Limpopo", "Mpumalanga", "North West", "Free State", "Northern Cape")
 val SA_BANKS = listOf("ABSA", "African Bank", "Capitec", "FNB", "Nedbank", "Postbank", "Standard Bank", "TymeBank")
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  BURIAL SOCIETY CLAIM
+// ─────────────────────────────────────────────────────────────────────────────
+@Serializable
+enum class BeneficiaryClaimStatus(val displayName: String) {
+    @SerialName("submitted")  SUBMITTED("Submitted"),
+    @SerialName("under_review") UNDER_REVIEW("Under Review"),
+    @SerialName("escalated")  ESCALATED("Escalated to Platform"),
+    @SerialName("approved")   APPROVED("Approved"),
+    @SerialName("rejected")   REJECTED("Rejected"),
+    @SerialName("paid")       PAID("Paid Out"),
+    @SerialName("cancelled")  CANCELLED("Cancelled")
+}
+
+@Serializable
+@Parcelize
+data class BeneficiaryPayoutClaim(
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val id: String? = null,
+    @SerialName("group_id")          val groupId: String = "",
+    @SerialName("member_id")         val memberId: String = "",
+    @SerialName("beneficiary_id")    val beneficiaryId: String = "",
+    @SerialName("beneficiary_name")  val beneficiaryName: String = "",
+    @SerialName("cause_of_death")    val causeOfDeath: String = "",
+    @SerialName("date_of_death")     val dateOfDeath: String = "",
+    @SerialName("claim_amount")      val claimAmount: Double = 0.0,
+    @SerialName("bank_name")         val bankName: String = "",
+    @SerialName("account_no")        val accountNo: String = "",
+    @SerialName("branch_code")       val branchCode: String = "",
+    @SerialName("account_holder")    val accountHolder: String = "",
+    val notes: String? = null,
+    val status: BeneficiaryClaimStatus = BeneficiaryClaimStatus.SUBMITTED,
+    @SerialName("reviewed_by")       val reviewedBy: String? = null,
+    @SerialName("reviewed_at")       val reviewedAt: String? = null,
+    @SerialName("admin_notes")       val adminNotes: String? = null,
+    @SerialName("rejection_reason")  val rejectionReason: String? = null,
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    @SerialName("created_at")        val createdAt: String? = null
+) : Parcelable
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  LEDGER
+// ─────────────────────────────────────────────────────────────────────────────
+@Serializable
+@Parcelize
+data class LedgerEntry(
+    val id: String? = null,
+    @SerialName("group_id")       val groupId: String,
+    @SerialName("transaction_id") val transactionId: String? = null,
+    val amount: Double,
+    @SerialName("balance_after")  val balanceAfter: Double,
+    val description: String,
+    val category: String,
+    @SerialName("created_at")     val createdAt: String? = null
+) : Parcelable
+

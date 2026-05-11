@@ -40,11 +40,15 @@ class CreateGroupUseCase @Inject constructor(
             AppLogger.d(tag, "📍 Starting group creation: ${group.name}")
 
             val userId: String?
-            val isNewAccount = adminEmail != null && adminPassword != null
+            val normalizedAdminEmail = adminEmail?.trim()
+            val normalizedAdminPassword = adminPassword?.trim()
+            val isNewAccount = !normalizedAdminEmail.isNullOrBlank() && !normalizedAdminPassword.isNullOrBlank()
             
-            if (isNewAccount && adminEmail != null && adminPassword != null) {
-                AppLogger.d(tag, "📝 Creating new admin account: $adminEmail")
-                userId = supabaseRepository.signUp(adminEmail, adminPassword, mapOf(
+            if (isNewAccount) {
+                val emailForSignUp = normalizedAdminEmail
+                val passwordForSignUp = normalizedAdminPassword
+                AppLogger.d(tag, "📝 Creating new admin account: $emailForSignUp")
+                userId = supabaseRepository.signUp(emailForSignUp, passwordForSignUp, mapOf(
                     "full_name" to (adminFullName ?: "Group Admin"),
                     // A user only becomes group admin after successful group creation.
                     "role" to "member"
@@ -86,7 +90,7 @@ class CreateGroupUseCase @Inject constructor(
                 userId = userId,
                 fullName = adminFullName ?: "Group Admin",
                 idNumber = adminIdNumber?.takeIf { it.matches(Regex("^[0-9]{13}$")) }, // Validate 13-digit SA ID
-                email = adminEmail ?: supabaseRepository.currentSessionEmail ?: "",
+                email = normalizedAdminEmail?.takeIf { it.isNotBlank() } ?: supabaseRepository.currentSessionEmail ?: "",
                 phone = adminPhone ?: "",
                 province = group.province,
                 city = group.city,

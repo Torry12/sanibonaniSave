@@ -68,7 +68,7 @@ class MemberDashboardScreenTest {
 
     @Test
     fun `memberDashboard - displays group switcher for multi-group member`() {
-        val multiGroupMember = testMember.copy(isMultiGroupMember = true)
+        testMember.copy(isMultiGroupMember = true)
         composeTestRule.setContent {
             // MemberDashboardScreen(member = multiGroupMember)
         }
@@ -125,7 +125,7 @@ class MemberDashboardScreenTest {
 
     @Test
     fun `overviewTab - payment button enabled for overdue member`() {
-        val overdueCalculation = PaymentCalculation(
+        PaymentCalculation(
             totalDueNow = 150.0,
             shortfall = 150.0,
             isOverdue = true
@@ -217,7 +217,7 @@ class MemberDashboardScreenTest {
 
     @Test
     fun `loansTab - shows request loan button when eligible`() {
-        val eligibleMember = testMember.copy(
+        testMember.copy(
             joinedAt = "2023-01-01T00:00:00Z", // Over 6 months
             status = MemberStatus.ACTIVE
         )
@@ -232,7 +232,7 @@ class MemberDashboardScreenTest {
 
     @Test
     fun `loansTab - disables request loan button when ineligible`() {
-        val newMember = testMember.copy(
+        testMember.copy(
             joinedAt = LocalDate.now().toString() + "T00:00:00Z" // Just joined
         )
         composeTestRule.setContent {

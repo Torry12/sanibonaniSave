@@ -2,9 +2,10 @@ package com.sanibonani.save.domain.repository
 
 import android.content.Context
 import com.sanibonani.save.domain.model.Contribution
-import com.sanibonani.save.domain.model.Payment
-import com.sanibonani.save.domain.model.Member
 import com.sanibonani.save.domain.model.Group
+import com.sanibonani.save.domain.model.Loan
+import com.sanibonani.save.domain.model.Member
+import com.sanibonani.save.domain.model.Payment
 import java.io.File
 
 /**
@@ -25,6 +26,22 @@ interface ExportRepository {
         member: Member,
         contributions: List<Contribution>
     ): Result<File> = Result.failure(UnsupportedOperationException("PDF export not implemented"))
+
+    /**
+     * Generates a PDF loan agreement locally.
+     */
+    suspend fun exportLoanAgreement(
+        loan: Loan,
+        member: Member,
+        group: Group
+    ): Result<File> = Result.failure(UnsupportedOperationException("Loan agreement export not implemented"))
+
+    /**
+     * Generates a PDF group constitution locally.
+     */
+    suspend fun exportGroupConstitution(
+        group: Group
+    ): Result<File>
 
     fun downloadStatementPdf(context: Context, groupId: String, memberId: String? = null)
     fun shareFile(context: Context, file: File)

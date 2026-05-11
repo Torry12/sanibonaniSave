@@ -70,6 +70,11 @@ class Converters {
     @TypeConverter fun toLoanStatus(v: String): LoanStatus = try { 
         LoanStatus.entries.find { it.name == v || it.name.lowercase() == v.lowercase() } ?: LoanStatus.PENDING 
     } catch (e: Exception) { LoanStatus.PENDING }
+
+    @TypeConverter fun fromBeneficiaryClaimStatus(v: BeneficiaryClaimStatus): String = v.name
+    @TypeConverter fun toBeneficiaryClaimStatus(v: String): BeneficiaryClaimStatus = try {
+        BeneficiaryClaimStatus.entries.find { it.name.equals(v, ignoreCase = true) } ?: BeneficiaryClaimStatus.SUBMITTED
+    } catch (e: Exception) { BeneficiaryClaimStatus.SUBMITTED }
 }
 
 // ── Room Entities (mirrors Supabase tables for offline use) ──────────────────
@@ -709,6 +714,116 @@ interface GroupHealthScoreDao {
 
 // ── Database ──────────────────────────────────────────────────────────────────
 
+// ── BeneficiaryClaimEntity ────────────────────────────────────────────────────
+@Entity(
+    tableName = "burial_claims",
+    indices = [
+        Index("group_id"),
+        Index("member_id"),
+        Index("beneficiary_id"),
+        Index("status")
+    ]
+)
+data class BeneficiaryClaimEntity(
+    @PrimaryKey val id: String,
+    @ColumnInfo(name = "group_id")         val groupId: String,
+    @ColumnInfo(name = "member_id")        val memberId: String,
+    @ColumnInfo(name = "beneficiary_id")   val beneficiaryId: String,
+    @ColumnInfo(name = "beneficiary_name") val beneficiaryName: String,
+    @ColumnInfo(name = "cause_of_death")   val causeOfDeath: String,
+    @ColumnInfo(name = "date_of_death")    val dateOfDeath: String,
+    @ColumnInfo(name = "claim_amount")     val claimAmount: Double,
+    @ColumnInfo(name = "bank_name")        val bankName: String,
+    @ColumnInfo(name = "account_no")       val accountNo: String,
+    @ColumnInfo(name = "branch_code")      val branchCode: String,
+    @ColumnInfo(name = "account_holder")   val accountHolder: String,
+    val notes: String? = null,
+    val status: BeneficiaryClaimStatus = BeneficiaryClaimStatus.SUBMITTED,
+    @ColumnInfo(name = "reviewed_by")      val reviewedBy: String? = null,
+    @ColumnInfo(name = "reviewed_at")      val reviewedAt: String? = null,
+    @ColumnInfo(name = "admin_notes")      val adminNotes: String? = null,
+    @ColumnInfo(name = "rejection_reason") val rejectionReason: String? = null,
+    @ColumnInfo(name = "created_at")       val createdAt: String? = null,
+    @ColumnInfo(name = "updated_at")       val updatedAt: Long = System.currentTimeMillis()
+)
+
+@Dao
+interface BeneficiaryClaimDao {
+    @Query("SELECT * FROM burial_claims WHERE member_id = :memberId AND group_id = :groupId ORDER BY created_at DESC")
+    fun observeClaimsForMember(memberId: String, groupId: String): Flow<List<BeneficiaryClaimEntity>>
+
+    @Query("SELECT * FROM burial_claims WHERE group_id = :groupId ORDER BY created_at DESC")
+    fun observeClaimsForGroup(groupId: String): Flow<List<BeneficiaryClaimEntity>>
+
+    @Query("SELECT * FROM burial_claims WHERE status = 'ESCALATED' ORDER BY created_at DESC")
+    fun observeEscalatedClaims(): Flow<List<BeneficiaryClaimEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertClaim(claim: BeneficiaryClaimEntity): Long
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertClaims(claims: List<BeneficiaryClaimEntity>): List<Long>
+
+    @Query("SELECT * FROM burial_claims WHERE id = :id LIMIT 1")
+    suspend fun getClaimById(id: String): BeneficiaryClaimEntity?
+
+    @Query("DELETE FROM burial_claims WHERE group_id = :groupId")
+    suspend fun deleteByGroupId(groupId: String)
+
+    @Query("DELETE FROM burial_claims WHERE member_id = :memberId AND group_id = :groupId")
+    suspend fun deleteByMemberId(memberId: String, groupId: String)
+
+    @Query("DELETE FROM burial_claims")
+    suspend fun clearAll()
+
+    @Transaction
+    suspend fun syncForGroup(groupId: String, claims: List<BeneficiaryClaimEntity>) {
+        deleteByGroupId(groupId)
+        upsertClaims(claims)
+    }
+
+    @Transaction
+    suspend fun syncForMember(memberId: String, groupId: String, claims: List<BeneficiaryClaimEntity>) {
+        deleteByMemberId(memberId, groupId)
+        upsertClaims(claims)
+    }
+}
+
+// ── LEDGER ───────────────────────────────────────────────────────────────────
+@Entity(tableName = "group_ledger")
+data class LedgerEntryEntity(
+    @PrimaryKey val id: String,
+    val groupId: String,
+    val transactionId: String?,
+    val amount: Double,
+    val balanceAfter: Double,
+    val description: String,
+    val category: String,
+    val createdAt: String?,
+    val updatedAt: Long = System.currentTimeMillis()
+)
+
+@Dao
+interface LedgerDao {
+    @Query("SELECT * FROM group_ledger WHERE groupId = :groupId ORDER BY createdAt DESC")
+    fun observeLedger(groupId: String): Flow<List<LedgerEntryEntity>>
+
+    @Upsert
+    suspend fun upsertLedger(entries: List<LedgerEntryEntity>)
+
+    @Query("DELETE FROM group_ledger WHERE groupId = :groupId")
+    suspend fun clearLedger(groupId: String)
+
+    @Transaction
+    suspend fun syncLedger(groupId: String, entries: List<LedgerEntryEntity>) {
+        clearLedger(groupId)
+        upsertLedger(entries)
+    }
+
+    @Query("DELETE FROM group_ledger")
+    suspend fun clearAll()
+}
+
 @Database(
     entities = [
         GroupEntity::class, 
@@ -721,9 +836,11 @@ interface GroupHealthScoreDao {
         MemberDocumentEntity::class,
         LoanEntity::class,
         LoanRepaymentEntity::class,
-        GroupHealthScoreEntity::class
+        GroupHealthScoreEntity::class,
+        BeneficiaryClaimEntity::class,
+        LedgerEntryEntity::class
     ],
-    version  = 35,
+    version  = 37,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -738,6 +855,8 @@ abstract class SanibonaniDatabase : RoomDatabase() {
     abstract fun memberDocumentDao(): MemberDocumentDao
     abstract fun loanDao(): LoanDao
     abstract fun groupHealthScoreDao(): GroupHealthScoreDao
+    abstract fun beneficiaryClaimDao(): BeneficiaryClaimDao
+    abstract fun ledgerDao(): LedgerDao
 
     suspend fun clearAllData() {
         groupDao().clearAll()
@@ -751,5 +870,7 @@ abstract class SanibonaniDatabase : RoomDatabase() {
         loanDao().clearAllLoans()
         loanDao().clearAllRepayments()
         groupHealthScoreDao().clearAll()
+        beneficiaryClaimDao().clearAll()
+        ledgerDao().clearAll()
     }
 }

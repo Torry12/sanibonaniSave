@@ -66,7 +66,7 @@ class PaymentScreenTest {
 
     @Test
     fun `paymentScreen - shows payment title based on member status`() {
-        val pendingMember = testMember.copy(status = MemberStatus.PENDING_PAYMENT)
+        testMember.copy(status = MemberStatus.PENDING_PAYMENT)
         composeTestRule.setContent {
             // PaymentScreen(member = pendingMember)
         }
@@ -104,7 +104,7 @@ class PaymentScreenTest {
 
     @Test
     fun `paymentScreen - shows shortfall if behind`() {
-        val behindCalculation = testCalculation.copy(
+        testCalculation.copy(
             shortfall = 300.0,
             totalDueNow = 450.0 // Includes late fee
         )
@@ -119,7 +119,7 @@ class PaymentScreenTest {
 
     @Test
     fun `paymentScreen - shows late fee if overdue`() {
-        val overdueCalculation = testCalculation.copy(isOverdue = true)
+        testCalculation.copy(isOverdue = true)
         composeTestRule.setContent {
             // PaymentScreen(member = testMember, calculation = overdueCalculation)
         }
@@ -293,7 +293,7 @@ class PaymentScreenTest {
 
     @Test
     fun `paymentBreakdown - shows late fee if applicable`() {
-        val withLateFee = testCalculation.copy(
+        testCalculation.copy(
             isOverdue = true,
             totalDueNow = 200.0 // 150 + 50 late fee
         )

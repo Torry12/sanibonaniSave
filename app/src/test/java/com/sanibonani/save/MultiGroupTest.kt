@@ -9,6 +9,7 @@ import com.sanibonani.save.domain.model.MemberStatus
 import com.sanibonani.save.domain.model.UserRole
 import com.sanibonani.save.domain.repository.*
 import com.sanibonani.save.domain.usecase.*
+import com.sanibonani.save.domain.usecase.groups.GetGroupBusinessInsightsUseCase
 import com.sanibonani.save.service.AdminGroupContextCacheService
 import com.sanibonani.save.viewmodel.AdminViewModel
 import com.sanibonani.save.viewmodel.GroupViewModel
@@ -49,14 +50,21 @@ class MultiGroupTest {
     private val payoutRepo = mockk<PayoutRepository>(relaxed = true)
     private val exportRepo = mockk<ExportRepository>(relaxed = true)
     private val loanRepo = mockk<LoanRepository>(relaxed = true)
+    private val claimRepo = mockk<BeneficiaryClaimRepository>(relaxed = true)
 
     private val getManagedGroupsUseCase = mockk<GetManagedGroupsUseCase>(relaxed = true)
-    private val getAdminDashboardUseCase = mockk<GetAdminDashboardUseCase>(relaxed = true)
+    private val verifyMemberDocumentUseCase = mockk<VerifyMemberDocumentUseCase>(relaxed = true)
+    private val updateGroupSettingsUseCase = mockk<UpdateGroupSettingsUseCase>(relaxed = true)
+    private val applyViabilityPlanUseCase = mockk<ApplyViabilityPlanUseCase>(relaxed = true)
+    private val verifyRelationalDocumentUseCase = mockk<VerifyRelationalDocumentUseCase>(relaxed = true)
     private val calculateViabilityUseCase = mockk<CalculateViabilityUseCase>(relaxed = true)
     private val updateMemberStatusUseCase = mockk<UpdateMemberStatusUseCase>(relaxed = true)
     private val sendNotificationUseCase = mockk<SendNotificationUseCase>(relaxed = true)
     private val requestPayoutUseCase = mockk<RequestPayoutUseCase>(relaxed = true)
     private val validateLoanEligibilityUseCase = mockk<ValidateLoanEligibilityUseCase>(relaxed = true)
+    private val generateLoanContractUseCase = mockk<GenerateLoanContractUseCase>(relaxed = true)
+    private val getGroupBusinessInsightsUseCase = mockk<GetGroupBusinessInsightsUseCase>(relaxed = true)
+    private val ledgerRepo = mockk<LedgerRepository>(relaxed = true)
 
     private val adminContextCacheService by lazy {
         AdminGroupContextCacheService(
@@ -114,9 +122,6 @@ class MultiGroupTest {
         coEvery { groupRepo.getGroupById("group-1") } returns Result.success(group1)
         coEvery { groupRepo.getGroupById("group-2") } returns Result.success(group2)
 
-        every { getAdminDashboardUseCase.observeDashboard("group-1") } returns flowOf(Result.success(AdminDashboardData(group1, emptyList())))
-        every { getAdminDashboardUseCase.observeDashboard("group-2") } returns flowOf(Result.success(AdminDashboardData(group2, emptyList())))
-
         // Ensure all required flows emit at least one value for both groups
         every { memberRepo.getGroupContributions("group-1") } returns flowOf(Result.success(emptyList()))
         every { memberRepo.getGroupContributions("group-2") } returns flowOf(Result.success(emptyList()))
@@ -140,10 +145,18 @@ class MultiGroupTest {
         val adminViewModel = AdminViewModel(
             supabaseRepo, groupRepo, memberRepo, beneficiaryRepo, memberDocumentRepo,
             actuarialRepo, notifRepo, paymentRepo, payoutRepo, exportRepo, loanRepo,
+            claimRepo,
             adminContextCacheService,
+            verifyMemberDocumentUseCase,
+            updateGroupSettingsUseCase,
+            applyViabilityPlanUseCase,
+            verifyRelationalDocumentUseCase,
             getManagedGroupsUseCase, calculateViabilityUseCase,
             updateMemberStatusUseCase, sendNotificationUseCase, requestPayoutUseCase,
-            validateLoanEligibilityUseCase
+            validateLoanEligibilityUseCase,
+            generateLoanContractUseCase,
+            getGroupBusinessInsightsUseCase,
+            ledgerRepo
         )
         
         advanceUntilIdle()
@@ -172,7 +185,13 @@ class MultiGroupTest {
         } returns Result.success("new-group-id")
         coEvery { groupRepo.activateGroup(any(), any()) } returns Result.success(Unit)
 
-        val groupViewModel = GroupViewModel(groupRepo, createGroupUseCase, getPublicGroupsUseCase, geoapifyService)
+        val groupViewModel = GroupViewModel(
+            groupRepo,
+            exportRepo,
+            createGroupUseCase,
+            getPublicGroupsUseCase,
+            geoapifyService
+        )
         
         // Simulate a logged-in user filling the form
         groupViewModel.updateField("name", "New Managed Group")

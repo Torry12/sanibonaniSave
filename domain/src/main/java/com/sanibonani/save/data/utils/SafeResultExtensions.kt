@@ -81,6 +81,10 @@ fun Throwable.toUserMessage(): String {
             msg.contains("Expected start of the object", ignoreCase = true) ->
             return "We received an unexpected response from the server. Please try again. If the problem persists, update the app or contact support."
 
+        // Missing serializer for 'Any' (Kotlin Serialization error)
+        msg.contains("Serializer for class 'Any' is not found", ignoreCase = true) ->
+            return "Data structure error: Some information could not be processed. Please check your model definitions for 'Any' types."
+
         // Supabase/PostgREST often returns SQLSTATE 42501 for missing GRANTs
         msg.contains("permission denied", ignoreCase = true) ||
             msg.contains("42501") ->

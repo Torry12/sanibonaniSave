@@ -4,6 +4,7 @@ package com.sanibonani.save.ui.screens.auth
 import androidx.compose.ui.Alignment
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
@@ -22,7 +23,6 @@ import androidx.compose.ui.platform.LocalAutofillTree
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.*
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.*
 import androidx.biometric.BiometricPrompt
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -32,8 +32,8 @@ import com.sanibonani.save.ui.theme.*
 import com.sanibonani.save.ui.utils.ToastUtils
 import com.sanibonani.save.ui.utils.KeyboardAwareScrollColumn
 import com.sanibonani.save.viewmodel.AuthViewModel
-import com.sanibonani.save.BuildConfig
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import com.sanibonani.save.data.logging.AppLogger
@@ -44,19 +44,10 @@ fun LoginScreen(
     onLoginSuccess     : (role: UserRole) -> Unit,
     onNavigateRegister : () -> Unit,
     onForgotPassword   : () -> Unit,
-    onBack             : () -> Unit,
-    redirect           : String? = null,
     vm                 : AuthViewModel = hiltViewModel()
 ) {
     val state by vm.state.collectAsState()
     val context = LocalContext.current
-
-    // Prefill the canonical platform admin email if redirect == "platform_admin"
-    LaunchedEffect(redirect) {
-        if (redirect == "platform_admin") {
-            vm.prefillPlatformAdmin()
-        }
-    }
 
     LaunchedEffect(state.isLoggedIn) {
         if (state.isLoggedIn) {
@@ -71,7 +62,31 @@ fun LoginScreen(
 
     // Login errors are shown inline via InfoBox to avoid duplicate toast + banner feedback.
 
-    Box(modifier = Modifier.fillMaxSize().background(Cream)) {
+    // Auto-trigger biometric if enabled
+    var biometricTriggered by remember { mutableStateOf(false) }
+    if (state.biometricEnabled && state.hasSavedCredentials && !biometricTriggered) {
+        LaunchedEffect(Unit) {
+            biometricTriggered = true
+            BiometricHelper.showBiometricPrompt(
+                context = context,
+                title = "SanibonaniSave Login",
+                subtitle = "Use your fingerprint, face, or device PIN to sign in",
+                onSuccess = { _ -> vm.quickLogin() },
+                onError = { code, msg ->
+                    val ignored = setOf(
+                        BiometricPrompt.ERROR_USER_CANCELED,
+                        BiometricPrompt.ERROR_NEGATIVE_BUTTON,
+                        BiometricPrompt.ERROR_CANCELED
+                    )
+                    if (code !in ignored) vm.updateError(msg.toString())
+                }
+            )
+        }
+    }
+
+    Box(modifier = Modifier.fillMaxSize().background(
+        Brush.verticalGradient(listOf(Cream, Color.White))
+    )) {
         Column(
             modifier              = Modifier
                 .fillMaxSize()
@@ -83,44 +98,35 @@ fun LoginScreen(
             // Logo + headline
             Box(
                 modifier = Modifier
-                    .size(72.dp)
+                    .size(80.dp)
                     .background(
                         Brush.linearGradient(listOf(Forest, ForestMid)),
-                        RoundedCornerShape(20.dp)
-                    )
-                    .combinedClickable(
-                        onClick = {},
-                        onLongClick = { vm.prefillPlatformAdmin() }
+                        RoundedCornerShape(24.dp)
                     ),
                 contentAlignment = Alignment.Center
-            ) { Text("🤝", fontSize = 36.sp) }
+            ) { Text("🤝", fontSize = 42.sp) }
 
-            Spacer(Modifier.height(20.dp))
-            if (redirect == "platform_admin" || state.email == com.sanibonani.save.domain.utils.PlatformAdminAuthPolicy.EMAIL) {
-                Text("Platform Admin Login", style = MaterialTheme.typography.displaySmall,
-                    color = Gold, fontWeight = FontWeight.ExtraBold)
-                Text("Sign in as Platform Administrator", style = MaterialTheme.typography.bodyMedium,
-                    color = Forest, modifier = Modifier.padding(top = 4.dp, bottom = 32.dp))
-            } else {
-                Text("Welcome Back", style = MaterialTheme.typography.displaySmall,
-                    color = Forest, fontWeight = FontWeight.ExtraBold)
-                Text("Sign in to SanibonaniSave", style = MaterialTheme.typography.bodyMedium,
-                    color = MidGray, modifier = Modifier.padding(top = 4.dp, bottom = 32.dp))
-            }
+            Spacer(Modifier.height(24.dp))
+            Text("Welcome Back", style = MaterialTheme.typography.displaySmall,
+                color = Forest, fontWeight = FontWeight.Black)
+            Text("Securely manage your group's future.", style = MaterialTheme.typography.bodyLarge,
+                color = MidGray, modifier = Modifier.padding(top = 4.dp, bottom = 40.dp))
 
             // Form card
             Card(
-                shape     = RoundedCornerShape(20.dp),
+                shape     = RoundedCornerShape(28.dp),
                 colors    = CardDefaults.cardColors(containerColor = Color.White),
-                elevation = CardDefaults.cardElevation(4.dp),
+                elevation = CardDefaults.cardElevation(0.dp),
+                border    = BorderStroke(1.dp, Forest.copy(alpha = 0.05f)),
                 modifier  = Modifier.fillMaxWidth()
             ) {
-                Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                     SanibonaniTextField(
                         value         = state.email,
                         onValueChange = { vm.updateEmail(it) },
                         label         = "Email Address",
                         placeholder   = "you@example.com",
+                        leadingIcon   = { Icon(Icons.Default.Email, null, tint = Forest.copy(alpha = 0.4f)) },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email)
                     )
                      var passwordVisible by remember { mutableStateOf(false) }
@@ -169,34 +175,52 @@ fun LoginScreen(
                          )
                      )
                     
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically
+                    Surface(
+                        color = Forest.copy(alpha = 0.04f),
+                        shape = RoundedCornerShape(16.dp),
+                        onClick = { vm.updateRememberMe(!state.rememberMe) }
                     ) {
-                        Checkbox(
-                            checked = state.rememberMe,
-                            onCheckedChange = { vm.updateRememberMe(it) },
-                            colors = CheckboxDefaults.colors(checkedColor = Forest)
-                        )
-                        Text("Remember Me", style = MaterialTheme.typography.bodyMedium, color = MidGray)
-                    }
-
-                    if (BiometricHelper.canAuthenticate(context)) {
                         Row(
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Checkbox(
-                                checked = state.biometricEnabled,
-                                enabled = state.rememberMe && (state.hasSavedCredentials || state.password.isNotBlank()),
-                                onCheckedChange = { vm.toggleBiometric(it) },
+                                checked = state.rememberMe,
+                                onCheckedChange = { vm.updateRememberMe(it) },
                                 colors = CheckboxDefaults.colors(checkedColor = Forest)
                             )
-                            Text(
-                                "Enable biometric quick login on this device",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MidGray
-                            )
+                            Text("Remember Me", style = MaterialTheme.typography.bodyMedium, color = Charcoal, fontWeight = FontWeight.Medium)
+                        }
+                    }
+
+                    if (BiometricHelper.canAuthenticate(context)) {
+                        Surface(
+                            color = Forest.copy(alpha = 0.04f),
+                            shape = RoundedCornerShape(16.dp),
+                            onClick = { 
+                                if (state.rememberMe && (state.hasSavedCredentials || state.password.isNotBlank())) {
+                                    vm.toggleBiometric(!state.biometricEnabled)
+                                }
+                            },
+                            enabled = state.rememberMe && (state.hasSavedCredentials || state.password.isNotBlank())
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Checkbox(
+                                    checked = state.biometricEnabled,
+                                    enabled = state.rememberMe && (state.hasSavedCredentials || state.password.isNotBlank()),
+                                    onCheckedChange = { vm.toggleBiometric(it) },
+                                    colors = CheckboxDefaults.colors(checkedColor = Forest)
+                                )
+                                Text(
+                                    "Biometric Quick Login",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = if (state.rememberMe) Charcoal else MidGray,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
                         }
                     }
 
@@ -204,10 +228,10 @@ fun LoginScreen(
                         InfoBox(it, InfoType.ERROR)
                     }
                     SanibonaniButton(
-                        text     = if (state.isLoading) "Processing…" else if (state.password.isBlank()) "Send Magic Link" else "Log In",
+                        text     = if (state.isLoading) "Processing…" else "Log In",
                         onClick  = { vm.signIn() },
                         modifier = Modifier.fillMaxWidth(),
-                        enabled  = !state.isLoading && state.email.isNotBlank()
+                        enabled  = !state.isLoading && state.email.isNotBlank() && state.password.isNotBlank()
                     )
 
                     // Show biometric login only if device supports it AND credentials are saved
@@ -284,30 +308,28 @@ fun LoginScreen(
                         }
                     }
 
-                     TextButton(onClick = onForgotPassword, modifier = Modifier.align(Alignment.CenterHorizontally)) {
-                         Text("Forgot password?", color = Forest)
+                     TextButton(
+                         onClick = onForgotPassword, 
+                         modifier = Modifier.align(Alignment.CenterHorizontally)
+                     ) {
+                         Text("Forgot password?", color = Forest, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
                      }
                 }
             }
 
-            Spacer(Modifier.height(20.dp))
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.Center,
-                modifier = Modifier.fillMaxWidth()
+            Spacer(Modifier.height(32.dp))
+            Surface(
+                onClick = onNavigateRegister,
+                color = Forest.copy(alpha = 0.08f),
+                shape = CircleShape
             ) {
-                Text("Don't have an account?", style = MaterialTheme.typography.bodyMedium, color = MidGray)
-                TextButton(onClick = onNavigateRegister) {
-                    Text("Register", color = Forest, fontWeight = FontWeight.Bold)
-                }
-            }
-
-            if (BuildConfig.DEBUG) {
-                TextButton(
-                    onClick = { vm.prefillPlatformAdmin() },
-                    modifier = Modifier.padding(top = 8.dp)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp)
                 ) {
-                    Text("Use Platform Admin Email", color = Forest.copy(alpha = 0.5f), style = MaterialTheme.typography.labelSmall)
+                    Text("Don't have an account?", style = MaterialTheme.typography.bodyMedium, color = Charcoal)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Register Now", color = Forest, fontWeight = FontWeight.Black)
                 }
             }
         }

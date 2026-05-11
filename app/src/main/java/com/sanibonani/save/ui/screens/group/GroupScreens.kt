@@ -3,12 +3,24 @@ package com.sanibonani.save.ui.screens.group
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -17,9 +29,47 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.List
+import androidx.compose.material.icons.filled.Groups
+import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.Map
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CheckboxDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -29,20 +79,42 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.sanibonani.save.domain.model.Group
 import com.sanibonani.save.domain.model.GroupType
-import com.sanibonani.save.domain.model.SA_PROVINCES
-import com.sanibonani.save.domain.model.SA_BANKS
-import com.sanibonani.save.ui.components.*
-import com.sanibonani.save.ui.components.IDNumberTransformation
 import com.sanibonani.save.domain.model.PlatformFees
+import com.sanibonani.save.domain.model.SA_BANKS
+import com.sanibonani.save.domain.model.SA_PROVINCES
+import com.sanibonani.save.ui.components.AutoCompleteTextField
+import com.sanibonani.save.ui.components.DocumentUploadCard
+import com.sanibonani.save.ui.components.EmptyState
+import com.sanibonani.save.ui.components.IDNumberTransformation
+import com.sanibonani.save.ui.components.InfoBox
+import com.sanibonani.save.ui.components.InfoRow
+import com.sanibonani.save.ui.components.InfoType
+import com.sanibonani.save.ui.components.ModernNavigationLink
+import com.sanibonani.save.ui.components.PhoneNumberTransformation
+import com.sanibonani.save.ui.components.SaOsmMap
+import com.sanibonani.save.ui.components.SanibonaniButton
+import com.sanibonani.save.ui.components.SanibonaniTextField
+import com.sanibonani.save.ui.components.SanibonaniTopBar
+import com.sanibonani.save.ui.components.SectionTitle
+import com.sanibonani.save.ui.components.StatCard
+import com.sanibonani.save.ui.components.formatDecimal
+import com.sanibonani.save.ui.components.formatPct
+import com.sanibonani.save.ui.components.formatZAR
+import com.sanibonani.save.ui.components.formatZARShort
 import com.sanibonani.save.ui.screens.payment.PaymentScreen
-import com.sanibonani.save.ui.theme.*
+import com.sanibonani.save.ui.theme.Charcoal
+import com.sanibonani.save.ui.theme.Cream
+import com.sanibonani.save.ui.theme.Forest
+import com.sanibonani.save.ui.theme.Gold
+import com.sanibonani.save.ui.theme.LightGray
+import com.sanibonani.save.ui.theme.MidGray
 import com.sanibonani.save.ui.utils.ToastUtils
 import com.sanibonani.save.viewmodel.GroupViewModel
 import com.sanibonani.save.viewmodel.PaymentViewModel
@@ -77,13 +149,13 @@ fun GroupListScreen(vm: GroupViewModel, onGroupClick: (String) -> Unit) {
             ) 
         },
         floatingActionButton = {
-            FloatingActionButton(onClick = { /* Handled in NavGraph */ }, containerColor = com.sanibonani.save.ui.theme.Forest, contentColor = Color.White) {
+            FloatingActionButton(onClick = { /* Handled in NavGraph */ }, containerColor = Forest, contentColor = Color.White) {
                 Icon(Icons.Default.Add, "Register Group")
             }
         }
     ) { padding ->
         if (state.isLoading && state.filteredGroups.isEmpty()) {
-            Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = com.sanibonani.save.ui.theme.Forest) }
+            Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = Forest) }
         } else if (showMapView) {
             // Map View
             Column(
@@ -187,24 +259,13 @@ fun GroupListScreen(vm: GroupViewModel, onGroupClick: (String) -> Unit) {
 
 @Composable
 fun GroupListItem(group: Group, onClick: () -> Unit) {
-    Card(
+    ModernNavigationLink(
+        title = group.name,
+        subtitle = "${group.type.displayName} • ${group.city}",
+        icon = Icons.Default.Groups, // Or any appropriate icon
         onClick = onClick,
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-    ) {
-        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(48.dp).clip(RoundedCornerShape(8.dp)).background(com.sanibonani.save.ui.theme.Forest.copy(alpha = 0.1f)), contentAlignment = Alignment.Center) {
-                Text(group.logoEmoji, fontSize = 24.sp)
-            }
-            Spacer(Modifier.width(16.dp))
-            Column(Modifier.weight(1f)) {
-                Text(group.name, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
-                Text("${group.type.displayName} • ${group.city}", color = MidGray, style = MaterialTheme.typography.bodySmall)
-            }
-            Icon(Icons.Default.ChevronRight, null, tint = MidGray)
-        }
-    }
+        modifier = Modifier.padding(vertical = 4.dp)
+    )
 }
 
 @Composable
@@ -500,8 +561,8 @@ fun GroupRegistrationScreen(
                     LinearProgressIndicator(
                         progress = { state.currentStep / state.totalSteps.toFloat() },
                         modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(4.dp)),
-                        color = com.sanibonani.save.ui.theme.Forest,
-                        trackColor = com.sanibonani.save.ui.theme.Forest.copy(alpha = 0.1f)
+                        color = Forest,
+                        trackColor = Forest.copy(alpha = 0.1f)
                     )
                     Spacer(Modifier.height(24.dp))
 
@@ -548,7 +609,7 @@ fun RegisterGroupScreen(onGroupCreated: (String) -> Unit, onBack: () -> Unit) {
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun RegStep1(s: RegisterGroupState, vm: GroupViewModel) {
-    Text("Basic Info", style = MaterialTheme.typography.headlineMedium, color = com.sanibonani.save.ui.theme.Forest)
+    Text("Basic Info", style = MaterialTheme.typography.headlineMedium, color = Forest)
     Text("Tell us the name and type of your group.", style = MaterialTheme.typography.bodySmall, color = MidGray)
     Spacer(Modifier.height(16.dp))
     
@@ -594,7 +655,7 @@ private fun RegStep1(s: RegisterGroupState, vm: GroupViewModel) {
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(
-            Modifier.size(64.dp).background(com.sanibonani.save.ui.theme.Forest.copy(alpha = 0.1f), RoundedCornerShape(16.dp)),
+            Modifier.size(64.dp).background(Forest.copy(alpha = 0.1f), RoundedCornerShape(16.dp)),
             contentAlignment = Alignment.Center
         ) {
             Text(s.logoEmoji, fontSize = 32.sp)
@@ -604,7 +665,7 @@ private fun RegStep1(s: RegisterGroupState, vm: GroupViewModel) {
             listOf("🤝", "💰", "🏠", "📈", "🕊️", "🛡️", "🇿🇦", "🔥", "💎", "🌟").forEach { emoji ->
                 Box(
                     Modifier.size(40.dp).clip(CircleShape).clickable { vm.updateField("logoEmoji", emoji) }
-                        .background(if (s.logoEmoji == emoji) com.sanibonani.save.ui.theme.Forest.copy(alpha = 0.2f) else Color.Transparent),
+                        .background(if (s.logoEmoji == emoji) Forest.copy(alpha = 0.2f) else Color.Transparent),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(emoji, fontSize = 24.sp)
@@ -628,7 +689,7 @@ private fun getDesc(t: GroupType) = when(t) {
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun RegStep2(s: RegisterGroupState, vm: GroupViewModel) {
-    Text("Location", style = MaterialTheme.typography.headlineMedium, color = com.sanibonani.save.ui.theme.Forest)
+    Text("Location", style = MaterialTheme.typography.headlineMedium, color = Forest)
     Text("Where is your group based?", style = MaterialTheme.typography.bodySmall, color = MidGray)
     Spacer(Modifier.height(16.dp))
 
@@ -657,7 +718,7 @@ private fun RegStep2(s: RegisterGroupState, vm: GroupViewModel) {
 
 @Composable
 private fun RegStep3(s: RegisterGroupState, vm: GroupViewModel) {
-    Text("Rules & Fees", style = MaterialTheme.typography.headlineMedium, color = com.sanibonani.save.ui.theme.Forest)
+    Text("Rules & Fees", style = MaterialTheme.typography.headlineMedium, color = Forest)
     Text("Define the financial commitments.", style = MaterialTheme.typography.bodySmall, color = MidGray)
     Spacer(Modifier.height(16.dp))
 
@@ -782,7 +843,7 @@ private fun RegStep3(s: RegisterGroupState, vm: GroupViewModel) {
 
 @Composable
 private fun RegStep4(s: RegisterGroupState, vm: GroupViewModel) {
-    Text("Banking", style = MaterialTheme.typography.headlineMedium, color = com.sanibonani.save.ui.theme.Forest)
+    Text("Banking", style = MaterialTheme.typography.headlineMedium, color = Forest)
     Text("Where should group funds be deposited?", style = MaterialTheme.typography.bodySmall, color = MidGray)
     Spacer(Modifier.height(16.dp))
     
@@ -810,7 +871,7 @@ private fun RegStep4(s: RegisterGroupState, vm: GroupViewModel) {
 
 @Composable
 private fun RegStepConstitution(s: RegisterGroupState, vm: GroupViewModel) {
-    Text("Constitution", style = MaterialTheme.typography.headlineMedium, color = com.sanibonani.save.ui.theme.Forest)
+    Text("Constitution", style = MaterialTheme.typography.headlineMedium, color = Forest)
     Text("Upload your group's constitution or rules of operation.", style = MaterialTheme.typography.bodySmall, color = MidGray)
     Spacer(Modifier.height(16.dp))
 
@@ -824,7 +885,7 @@ private fun RegStepConstitution(s: RegisterGroupState, vm: GroupViewModel) {
                 val bytes = inputStream?.readBytes()
                 val fileName = "constitution_${System.currentTimeMillis()}.pdf"
                 if (bytes != null) {
-                    if (bytes.size > com.sanibonani.save.data.FileUploadLimits.MAX_FILE_SIZE_BYTES) {
+                    if (bytes.size > com.sanibonani.save.domain.config.FileUploadLimits.MAX_FILE_SIZE_BYTES) {
                         ToastUtils.showError(context, "File too large. Maximum 3MB allowed.")
                     } else {
                         vm.uploadConstitution(bytes, fileName)
@@ -843,6 +904,30 @@ private fun RegStepConstitution(s: RegisterGroupState, vm: GroupViewModel) {
         onUpload = { launcher.launch("application/pdf") }
     )
     
+    Spacer(Modifier.height(16.dp))
+    
+    Surface(
+        onClick = { vm.updateField("useStandardConstitution", !s.useStandardConstitution) },
+        shape = RoundedCornerShape(8.dp),
+        color = Forest.copy(alpha = 0.05f)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Checkbox(
+                checked = s.useStandardConstitution,
+                onCheckedChange = { vm.updateField("useStandardConstitution", it) },
+                colors = CheckboxDefaults.colors(checkedColor = Forest)
+            )
+            Spacer(Modifier.width(8.dp))
+            Column {
+                Text("Use Standard Constitution", fontWeight = FontWeight.Bold)
+                Text("Generate a professional policy document based on your group settings.", style = MaterialTheme.typography.labelSmall, color = MidGray)
+            }
+        }
+    }
+    
     if (s.isLoading) {
         LinearProgressIndicator(modifier = Modifier.fillMaxWidth().padding(top = 8.dp), color = Gold)
     }
@@ -858,7 +943,7 @@ private fun RegStepConstitution(s: RegisterGroupState, vm: GroupViewModel) {
 
 @Composable
 private fun RegStep5(s: RegisterGroupState, vm: GroupViewModel) {
-    Text("Admin Account", style = MaterialTheme.typography.headlineMedium, color = com.sanibonani.save.ui.theme.Forest)
+    Text("Admin Account", style = MaterialTheme.typography.headlineMedium, color = Forest)
     Text("Create your group administrator credentials.", style = MaterialTheme.typography.bodySmall, color = MidGray)
     Spacer(Modifier.height(16.dp))
 
@@ -919,18 +1004,18 @@ private fun RegStep5(s: RegisterGroupState, vm: GroupViewModel) {
 
     Spacer(Modifier.height(16.dp))
     Text("Summary", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-    Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = com.sanibonani.save.ui.theme.Forest.copy(alpha = 0.05f))) {
+    Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Forest.copy(alpha = 0.05f))) {
         Column(Modifier.padding(12.dp)) {
             Text("Name: ${s.name}")
             Text("Type: ${s.type.displayName}")
             Text("Location: ${s.city}, ${s.province}")
             Text("Monthly Fee: ${formatZAR(s.monthlyContribution.toDoubleOrNull() ?: 0.0)}")
             
-            HorizontalDivider(Modifier.padding(vertical = 8.dp), color = com.sanibonani.save.ui.theme.Forest.copy(alpha = 0.1f))
+            HorizontalDivider(Modifier.padding(vertical = 8.dp), color = Forest.copy(alpha = 0.1f))
             
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Text("Platform Registration Fee:", style = MaterialTheme.typography.bodySmall, color = MidGray)
-                Text(formatZAR(PlatformFees.REGISTRATION), fontWeight = FontWeight.Bold, color = com.sanibonani.save.ui.theme.Forest)
+                Text(formatZAR(PlatformFees.REGISTRATION), fontWeight = FontWeight.Bold, color = Forest)
             }
             Text("This is a once-off fee to activate your group.", style = MaterialTheme.typography.labelSmall, color = MidGray)
         }

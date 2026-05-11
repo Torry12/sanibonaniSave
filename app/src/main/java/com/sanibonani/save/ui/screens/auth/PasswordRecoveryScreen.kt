@@ -37,7 +37,7 @@ fun PasswordRecoveryScreen(
             value = state.input,
             onValueChange = { 
                 if (selectedMethod == RecoveryMethod.WHATSAPP) {
-                    if (it.length <= 10) vm.updateInput(it)
+                    if (it.length <= 16) vm.updateInput(it)
                 } else {
                     vm.updateInput(it)
                 }

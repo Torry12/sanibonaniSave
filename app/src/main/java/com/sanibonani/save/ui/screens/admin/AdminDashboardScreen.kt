@@ -3,6 +3,7 @@ package com.sanibonani.save.ui.screens.admin
 import com.sanibonani.save.BuildConfig
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -13,12 +14,15 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.List
+import androidx.compose.material.icons.automirrored.filled.Login
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -39,31 +43,122 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.foundation.border
 import com.sanibonani.save.domain.model.*
 import com.sanibonani.save.data.utils.PaymentCalculation
+import com.sanibonani.save.domain.usecase.rosca.CalculateRoscaRotationUseCase
+import com.sanibonani.save.domain.usecase.investment.CalculateInvestmentClubValuationUseCase
+import com.sanibonani.save.domain.usecase.stokvel.CalculateStokvelPayoutsUseCase
+import com.sanibonani.save.domain.usecase.groups.GetGroupBusinessInsightsUseCase
 import com.sanibonani.save.ui.components.*
 import com.sanibonani.save.ui.theme.*
 import com.sanibonani.save.ui.utils.ToastUtils
 import com.sanibonani.save.viewmodel.AdminUiState
 import com.sanibonani.save.viewmodel.AdminViewModel
 
+data class AdminMemberPortalAccess(
+    val enabled: Boolean,
+    val groupId: String?,
+    val memberId: String?,
+    val title: String,
+    val description: String,
+    val buttonLabel: String
+)
+
+fun resolveAdminMemberPortalAccess(
+    state: AdminUiState,
+    isSupportMode: Boolean
+): AdminMemberPortalAccess {
+    val groupId = state.group?.id
+        ?: state.currentGroupId
+        ?: state.managedGroups.firstOrNull { !it.id.isNullOrBlank() }?.id
+
+    if (groupId.isNullOrBlank()) {
+        return AdminMemberPortalAccess(
+            enabled = false,
+            groupId = null,
+            memberId = null,
+            title = if (isSupportMode) "Member portal unavailable" else "Switch to Member View",
+            description = "Load a valid group first before opening the member portal.",
+            buttonLabel = "Member Portal Unavailable"
+        )
+    }
+
+    if (!isSupportMode) {
+        val groupName = state.group?.name
+            ?: state.managedGroups.firstOrNull { it.id == groupId }?.name
+        val buttonLabel = if (!groupName.isNullOrBlank()) {
+            "Switch to Member Portal ($groupName)"
+        } else {
+            "Switch to Member Portal"
+        }
+        return AdminMemberPortalAccess(
+            enabled = true,
+            groupId = groupId,
+            memberId = null,
+            title = "Switch to Member View",
+            description = "Manage your personal contributions and beneficiaries",
+            buttonLabel = buttonLabel
+        )
+    }
+
+    val selectedMember = state.selectedMember
+    val selectedMemberId = selectedMember?.id?.takeIf { it.isNotBlank() }
+    return if (selectedMemberId != null) {
+        val memberName = selectedMember.fullName.ifBlank { "selected member" }
+        AdminMemberPortalAccess(
+            enabled = true,
+            groupId = groupId,
+            memberId = selectedMemberId,
+            title = "Open $memberName's Member Portal",
+            description = "Support mode is active. You will enter the selected member's portal for this group.",
+            buttonLabel = "Open $memberName's Member Portal"
+        )
+    } else {
+        AdminMemberPortalAccess(
+            enabled = false,
+            groupId = groupId,
+            memberId = null,
+            title = "Select a member to continue",
+            description = "Support mode is active. Open the Members tab and select a member before entering a member portal.",
+            buttonLabel = "Select a Member First"
+        )
+    }
+}
+
 @Composable
 fun AdminDashboardScreen(
     onNavigateToPayment: (type: String, amount: String, groupId: String) -> Unit,
-    onNavigateToMemberPortal: (groupId: String) -> Unit,
+    onNavigateToMemberPortal: (groupId: String, memberId: String?) -> Unit,
     onNavigateBack: () -> Unit,
     onLogout: () -> Unit,
+    isSupportMode: Boolean = false,
     vm: AdminViewModel
 ) {
     val state by vm.state.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     val context = LocalContext.current
+
+    // In-app file viewing state
+    var viewFileData by remember { mutableStateOf<Triple<String, String, Map<String, String>>?>(null) }
+    var downloadFileData by remember { mutableStateOf<Triple<String, String, Map<String, String>>?>(null) }
+    var showFileActionDialog by remember { mutableStateOf<Triple<String, String, Map<String, String>>?>(null) }
+
     val portalGroupId = state.group?.id
         ?: state.currentGroupId
         ?: state.managedGroups.firstOrNull { !it.id.isNullOrBlank() }?.id
-    val portalGroupName = state.group?.name
-        ?: state.managedGroups.firstOrNull { it.id == portalGroupId }?.name
+    val memberPortalAccess = remember(
+        state.group?.id,
+        state.currentGroupId,
+        state.managedGroups,
+        state.selectedMember?.id,
+        state.selectedMember?.fullName,
+        isSupportMode
+    ) {
+        resolveAdminMemberPortalAccess(state, isSupportMode)
+    }
     val adminTabs = listOf(
         0 to "Overview",
         1 to "Members",
+        9 to "Insights",
+        10 to "Ledger",
         3 to "Messaging",
         7 to "Payouts",
         8 to "Loans",
@@ -126,7 +221,7 @@ fun AdminDashboardScreen(
                                 Text("Loading...", style = MaterialTheme.typography.labelSmall)
                             }
                             Text(
-                                "Group Admin Portal",
+                                if (isSupportMode) "Group Support Portal" else "Group Admin Portal",
                                 style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.Bold,
                                 maxLines = 1,
@@ -142,9 +237,12 @@ fun AdminDashboardScreen(
                     actions = {
                             IconButton(
                                 onClick = {
-                                    val gid = state.group?.id ?: state.currentGroupId
-                                    if (!gid.isNullOrBlank()) onNavigateToMemberPortal(gid)
-                                }
+                                    val gid = memberPortalAccess.groupId
+                                    if (!gid.isNullOrBlank() && memberPortalAccess.enabled) {
+                                        onNavigateToMemberPortal(gid, memberPortalAccess.memberId)
+                                    }
+                                },
+                                enabled = memberPortalAccess.enabled
                             ) {
                                 Icon(Icons.Default.Person, contentDescription = "Member Portal")
                             }
@@ -233,6 +331,32 @@ fun AdminDashboardScreen(
                     }
                 }
 
+                if (isSupportMode) {
+                    Surface(
+                        color = InfoBlue.copy(alpha = 0.08f),
+                        border = BorderStroke(1.dp, InfoBlue.copy(alpha = 0.25f))
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 10.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Text(
+                                "Support mode is active",
+                                color = InfoBlue,
+                                fontWeight = FontWeight.Bold,
+                                style = MaterialTheme.typography.labelLarge
+                            )
+                            Text(
+                                memberPortalAccess.description,
+                                color = MidGray,
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
+                    }
+                }
+
                 // Tab Row - moved to middle of screen (below banner/group switcher)
                 Surface(
                     tonalElevation = 3.dp,
@@ -268,32 +392,43 @@ fun AdminDashboardScreen(
         bottomBar = {
             if (!portalGroupId.isNullOrBlank()) {
                 Surface(shadowElevation = 8.dp, tonalElevation = 2.dp, color = Color.White) {
-                    Row(
+                    Column(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 16.dp, vertical = 10.dp)
                             .navigationBarsPadding()
                             .imePadding(),
-                        horizontalArrangement = Arrangement.Center
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         Button(
-                            onClick = { onNavigateToMemberPortal(portalGroupId) },
+                            onClick = {
+                                val gid = memberPortalAccess.groupId
+                                if (!gid.isNullOrBlank() && memberPortalAccess.enabled) {
+                                    onNavigateToMemberPortal(gid, memberPortalAccess.memberId)
+                                }
+                            },
                             modifier = Modifier.fillMaxWidth(),
+                            enabled = memberPortalAccess.enabled,
                             colors = ButtonDefaults.buttonColors(containerColor = Forest),
                             shape = RoundedCornerShape(12.dp)
                         ) {
                             Icon(Icons.Default.Person, contentDescription = null)
                             Spacer(Modifier.width(8.dp))
-                            val label = if (!portalGroupName.isNullOrBlank()) {
-                                "Switch to Member Portal (${portalGroupName})"
-                            } else {
-                                "Switch to Member Portal"
-                            }
                             Text(
-                                text = label,
+                                text = memberPortalAccess.buttonLabel,
                                 fontWeight = FontWeight.SemiBold,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
+                            )
+                        }
+
+                        if (isSupportMode && !memberPortalAccess.enabled) {
+                            Text(
+                                text = memberPortalAccess.description,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MidGray,
+                                textAlign = TextAlign.Center
                             )
                         }
                     }
@@ -307,16 +442,37 @@ fun AdminDashboardScreen(
                     onPayClick = { amount -> 
                         onNavigateToPayment("registration", amount.toString(), state.group?.id ?: state.currentGroupId ?: "")
                     },
-                    onMemberPortalClick = { (state.group?.id ?: state.currentGroupId)?.let { onNavigateToMemberPortal(it) } }
+                    memberPortalEnabled = memberPortalAccess.enabled,
+                    memberPortalTitle = memberPortalAccess.title,
+                    memberPortalDescription = memberPortalAccess.description,
+                    onMemberPortalClick = {
+                        val gid = memberPortalAccess.groupId
+                        if (!gid.isNullOrBlank() && memberPortalAccess.enabled) {
+                            onNavigateToMemberPortal(gid, memberPortalAccess.memberId)
+                        }
+                    },
+                    onFileAction = { url, name, headers -> showFileActionDialog = Triple(url, name, headers) }
                 )
-                1 -> MembersTab(state, vm)
+                1 -> MembersTab(
+                    state = state,
+                    vm = vm,
+                    isSupportMode = isSupportMode,
+                    onEnterPortal = { memberId ->
+                        portalGroupId?.let { gid ->
+                            onNavigateToMemberPortal(gid, memberId)
+                        }
+                    },
+                    onFileAction = { url, name, headers -> showFileActionDialog = Triple(url, name, headers) }
+                )
                 2 -> NotificationsTab(state)
                 3 -> MessagingTab(state, vm)
                 4 -> ViabilityPlanningTab(state, vm)
                 5 -> AccountTab(state, state.group, onLogout)
                 6 -> SettingsTab(state, vm)
                 7 -> PayoutTab(state, vm)
-                8 -> LoansTab(state, vm)
+                8 -> LoansTab(state, vm, onFileAction = { url, name, headers -> showFileActionDialog = Triple(url, name, headers) })
+                9 -> InsightsTab(state)
+                10 -> LedgerTab(state)
             }
 
             if (state.isLoading && state.group == null) {
@@ -388,7 +544,18 @@ fun AdminDashboardScreen(
             isSendingWhatsAppTest = state.isSendingWhatsAppTest,
             whatsAppTestResult = state.whatsAppTestResult,
             onEditBeneficiary = { vm.startEditBeneficiary(it) },
-            vm = vm
+            vm = vm,
+            isSupportMode = isSupportMode,
+            onEnterPortal = {
+                portalGroupId?.let { gid ->
+                    onNavigateToMemberPortal(gid, member.id)
+                }
+            },
+            isExporting = state.isExporting,
+            burialClaims = state.burialClaims.filter { it.memberId == member.id },
+            onVerifyClaim = { id, approve -> vm.verifyClaim(id, approve) },
+            onEscalateClaim = { id -> vm.escalateClaim(id) },
+            onFileAction = { url, name, headers -> showFileActionDialog = Triple(url, name, headers) }
         )
     }
 
@@ -412,6 +579,74 @@ fun AdminDashboardScreen(
                 TextButton(onClick = { vm.clearError() }) { Text("OK") }
             }
         )
+    }
+
+    // ── File Handling Dialogs ───────────────────────────────────────────
+    showFileActionDialog?.let { (url, name, headers) ->
+        FileActionDialog(
+            onDismiss = { showFileActionDialog = null },
+            onView = { viewFileData = Triple(url, name, headers) },
+            onDownload = {
+                val ext = url.substringAfterLast(".", "pdf").substringBefore("?")
+                val mimeType = when (ext.lowercase()) {
+                    "pdf" -> "application/pdf"
+                    "jpg", "jpeg" -> "image/jpeg"
+                    "png" -> "image/png"
+                    else -> "application/octet-stream"
+                }
+                com.sanibonani.save.domain.utils.FileDownloader.downloadFile(context, url, name, mimeType, headers)
+            },
+            fileName = name
+        )
+    }
+
+    viewFileData?.let { (url, name, headers) ->
+        FileViewerDialog(
+            url = url,
+            fileName = name,
+            headers = headers,
+            onDismiss = { viewFileData = null }
+        )
+    }
+}
+
+@Composable
+fun LedgerTab(state: AdminUiState) {
+    Column(
+        Modifier
+            .fillMaxSize()
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        SectionHeading("📖 Group Ledger")
+        Text("Detailed record of all group financial movements.", style = MaterialTheme.typography.bodyMedium, color = MidGray)
+
+        if (state.ledger.isEmpty()) {
+            EmptyState(
+                icon = "📒",
+                title = "Empty Ledger",
+                description = "No ledger entries recorded yet. Financial actions will appear here."
+            )
+        } else {
+            LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                items(state.ledger) { entry ->
+                    Card(colors = CardDefaults.cardColors(containerColor = Color.White), border = BorderStroke(1.dp, LightGray.copy(0.5f))) {
+                        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text(entry.description, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+                                Text("${entry.createdAt?.take(16)} • ${entry.category}", style = MaterialTheme.typography.labelSmall, color = MidGray)
+                            }
+                            Column(horizontalAlignment = Alignment.End) {
+                                val color = if (entry.amount >= 0) SuccessGreen else Color.Red
+                                val prefix = if (entry.amount >= 0) "+" else ""
+                                Text("$prefix${formatZAR(entry.amount)}", color = color, fontWeight = FontWeight.Black)
+                                Text("Bal: ${formatZAR(entry.balanceAfter)}", style = MaterialTheme.typography.labelSmall, color = MidGray)
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -554,7 +789,16 @@ fun AdminFeeBanner(group: Group, status: AdminFeeState, daysOverdue: Int, onPayC
 
 @Suppress("DEPRECATION")
 @Composable
-fun OverviewTab(state: AdminUiState, vm: AdminViewModel, onPayClick: (Double) -> Unit, onMemberPortalClick: () -> Unit) {
+private fun OverviewTab(
+    state: AdminUiState,
+    vm: AdminViewModel,
+    onPayClick: (Double) -> Unit,
+    memberPortalEnabled: Boolean,
+    memberPortalTitle: String,
+    memberPortalDescription: String,
+    onMemberPortalClick: () -> Unit,
+    onFileAction: (String, String, Map<String, String>) -> Unit
+) {
     val context = LocalContext.current
     Column(
         Modifier
@@ -593,34 +837,15 @@ fun OverviewTab(state: AdminUiState, vm: AdminViewModel, onPayClick: (Double) ->
         }
 
         // Member Portal Link
-        Card(
-            onClick = onMemberPortalClick,
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(containerColor = Forest.copy(0.05f)),
-            border = BorderStroke(1.dp, Forest.copy(0.2f))
-        ) {
-            Row(
-                Modifier.padding(16.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Surface(
-                    shape = CircleShape,
-                    color = Forest.copy(0.1f),
-                    modifier = Modifier.size(40.dp)
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(Icons.Default.Person, null, tint = Forest, modifier = Modifier.size(24.dp))
-                    }
-                }
-                Column(Modifier.weight(1f)) {
-                    Text("Switch to Member View", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = Forest)
-                    Text("Manage your personal contributions and beneficiaries", style = MaterialTheme.typography.labelSmall, color = MidGray)
-                }
-                Icon(Icons.Default.ChevronRight, null, tint = Forest)
-            }
-        }
+        ModernNavigationLink(
+            title = memberPortalTitle,
+            subtitle = memberPortalDescription,
+            icon = Icons.Default.Person,
+            onClick = { if (memberPortalEnabled) onMemberPortalClick() },
+            accentColor = if (memberPortalEnabled) Forest else MidGray,
+            containerColor = if (memberPortalEnabled) Forest.copy(0.05f) else LightGray.copy(alpha = 0.18f),
+            modifier = Modifier.fillMaxWidth().alpha(if (memberPortalEnabled) 1f else 0.6f)
+        )
 
         // Balance Card
         Card(
@@ -710,46 +935,75 @@ fun OverviewTab(state: AdminUiState, vm: AdminViewModel, onPayClick: (Double) ->
             }
         }
 
-        Text("Quick Actions", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center)
+        Text("Quick Actions", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Black, modifier = Modifier.fillMaxWidth().padding(top = 8.dp), color = MidGray, textAlign = TextAlign.Center)
         
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             ActionButton(
                 icon = Icons.Default.Share,
-                label = "Export CSV",
+                label = "CSV",
                 modifier = Modifier.weight(1f)
             ) { vm.exportGroupStatement() }
             ActionButton(
                 icon = Icons.Default.PictureAsPdf,
-                label = "Download PDF",
+                label = "PDF",
                 modifier = Modifier.weight(1f)
             ) { vm.downloadPdfStatement() }
             ActionButton(
                 icon = Icons.Filled.Message,
-                label = "Broadcast",
+                label = "Alert",
                 modifier = Modifier.weight(1f)
             ) { vm.setTab(3) }
+            ActionButton(
+                icon = Icons.Default.Description,
+                label = "Policy",
+                modifier = Modifier.weight(1f)
+            ) { 
+                val officialUrl = state.group?.constitutionUrl
+                if (!officialUrl.isNullOrBlank()) {
+                    val headers = vm.getDownloadParams(officialUrl)
+                    val fileName = "Group_Constitution_${state.group?.name?.replace(" ", "_")}.pdf"
+                    onFileAction(officialUrl, fileName, headers)
+                } else {
+                    vm.downloadGroupConstitution() 
+                }
+            }
+            ActionButton(
+                icon = Icons.Default.Add,
+                label = "Payout",
+                modifier = Modifier.weight(1f)
+            ) { vm.setTab(7) }
         }
+
+        ModernNavigationLink(
+            title = "Actuarial Health Score",
+            subtitle = "View detailed risk and solvency metrics",
+            icon = Icons.Default.Shield,
+            onClick = { /* Detail screen */ },
+            badgeCount = if (state.metrics.compositeRiskScore > 70) 1 else 0
+        )
     }
 }
 
 @Composable
 fun ActionButton(icon: ImageVector, label: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = modifier) {
-        IconButton(
-            onClick = onClick,
-            modifier = Modifier
-                .size(48.dp)
-                .background(Color.White, CircleShape)
-                .clip(CircleShape)
+    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = modifier.clickable(onClick = onClick)) {
+        Surface(
+            shape = RoundedCornerShape(16.dp),
+            color = Color.White,
+            border = BorderStroke(1.dp, Forest.copy(alpha = 0.1f)),
+            modifier = Modifier.size(56.dp)
         ) {
-            Icon(icon, label, tint = Forest)
+            Box(contentAlignment = Alignment.Center) {
+                Icon(icon, label, tint = Forest, modifier = Modifier.size(24.dp))
+            }
         }
-        Spacer(Modifier.height(4.dp))
+        Spacer(Modifier.height(8.dp))
         Text(
             label,
             style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Bold,
             color = MidGray,
-            maxLines = 2,
+            maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             textAlign = TextAlign.Center
         )
@@ -757,7 +1011,13 @@ fun ActionButton(icon: ImageVector, label: String, modifier: Modifier = Modifier
 }
 
 @Composable
-fun MembersTab(state: AdminUiState, vm: AdminViewModel) {
+fun MembersTab(
+    state: AdminUiState,
+    vm: AdminViewModel,
+    isSupportMode: Boolean = false,
+    onEnterPortal: (String) -> Unit = {},
+    onFileAction: (String, String, Map<String, String>) -> Unit = { _, _, _ -> }
+) {
     var searchQuery by remember { mutableStateOf("") }
     val filteredMembers = state.members.filter { 
         it.fullName.contains(searchQuery, ignoreCase = true) || 
@@ -780,14 +1040,26 @@ fun MembersTab(state: AdminUiState, vm: AdminViewModel) {
         ) {
             items(filteredMembers) { member ->
                 val calculation = state.memberCalculations[member.id ?: ""]
-                MemberItem(member, calculation) { vm.selectMember(member) }
+                MemberItem(
+                    member = member,
+                    calculation = calculation,
+                    isSupportMode = isSupportMode,
+                    onEnterPortal = { member.id?.let { onEnterPortal(it) } },
+                    onClick = { vm.selectMember(member) }
+                )
             }
         }
     }
 }
 
 @Composable
-fun MemberItem(member: Member, calculation: PaymentCalculation?, onClick: () -> Unit) {
+fun MemberItem(
+    member: Member,
+    calculation: PaymentCalculation?,
+    isSupportMode: Boolean = false,
+    onEnterPortal: (() -> Unit)? = null,
+    onClick: () -> Unit
+) {
     val statusColor = when (member.status) {
         MemberStatus.ACTIVE -> if (calculation?.isOverdue == true) ErrorRed else Forest
         MemberStatus.PROBATION -> WarningYellow
@@ -795,43 +1067,15 @@ fun MemberItem(member: Member, calculation: PaymentCalculation?, onClick: () -> 
         else -> ErrorRed
     }
 
-    Surface(
+    ModernNavigationLink(
+        title = member.fullName,
+        subtitle = member.idNumber ?: "No ID captured",
+        icon = Icons.Default.Person,
         onClick = onClick,
-        color = Color.White,
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Row(
-            Modifier
-                .padding(16.dp)
-                .fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Surface(
-                shape = CircleShape,
-                color = statusColor.copy(0.1f),
-                modifier = Modifier.size(48.dp)
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Text(member.fullName.take(1).uppercase(), fontWeight = FontWeight.Bold, color = statusColor)
-                }
-            }
-            Spacer(Modifier.width(16.dp))
-            Column(Modifier.weight(1f)) {
-                Text(member.fullName, fontWeight = FontWeight.Bold)
-                Text(member.idNumber ?: "", style = MaterialTheme.typography.labelSmall, color = MidGray)
-            }
-            Column(horizontalAlignment = Alignment.End) {
-                Text(member.status.displayName, color = statusColor, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
-                calculation?.let {
-                    if (it.shortfall > 0) {
-                        Text("Due: ${formatZAR(it.totalDueNow)}", color = ErrorRed, style = MaterialTheme.typography.labelSmall)
-                    } else if (it.overpayment > 0) {
-                        Text("Credit: ${formatZAR(it.overpayment)}", color = Forest, style = MaterialTheme.typography.labelSmall)
-                    }
-                }
-            }
-        }
-    }
+        accentColor = statusColor,
+        badgeCount = if (calculation?.isOverdue == true) 1 else 0,
+        modifier = Modifier.padding(vertical = 4.dp)
+    )
 }
 
 @Composable
@@ -855,7 +1099,14 @@ fun MemberDetailDialog(
     isSendingWhatsAppTest: Boolean,
     whatsAppTestResult: String?,
     onEditBeneficiary: (Beneficiary) -> Unit,
-    vm: AdminViewModel? = null
+    vm: AdminViewModel? = null,
+    isSupportMode: Boolean = false,
+    onEnterPortal: (() -> Unit)? = null,
+    isExporting: Boolean = false,
+    burialClaims: List<BeneficiaryPayoutClaim> = emptyList(),
+    onVerifyClaim: (String, Boolean) -> Unit = { _, _ -> },
+    onEscalateClaim: (String) -> Unit = {},
+    onFileAction: (String, String, Map<String, String>) -> Unit = { _, _, _ -> }
 ) {
     val context = LocalContext.current
     Dialog(
@@ -901,6 +1152,15 @@ fun MemberDetailDialog(
                     navigationIcon = {
                         IconButton(onClick = onDismiss) { Icon(Icons.Default.Close, null) }
                     },
+                    actions = {
+                        if (isSupportMode && onEnterPortal != null) {
+                            TextButton(onClick = onEnterPortal) {
+                                Icon(Icons.AutoMirrored.Filled.Login, null, tint = Forest)
+                                Spacer(Modifier.width(4.dp))
+                                Text("Enter Portal", color = Forest, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    },
                     colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.White)
                 )
 
@@ -914,7 +1174,30 @@ fun MemberDetailDialog(
                     // Status Overview
                     Card(colors = CardDefaults.cardColors(containerColor = Color.White)) {
                         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text("Financial Summary", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                                Text("Financial Summary", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    IconButton(
+                                        onClick = { vm?.exportMemberStatement(member, pdf = false) },
+                                        modifier = Modifier.size(24.dp),
+                                        enabled = !isExporting
+                                    ) {
+                                        Icon(Icons.AutoMirrored.Filled.List, "Export CSV", tint = Forest)
+                                    }
+                                    Spacer(Modifier.width(8.dp))
+                                    IconButton(
+                                        onClick = { vm?.exportMemberStatement(member, pdf = true) },
+                                        modifier = Modifier.size(24.dp),
+                                        enabled = !isExporting
+                                    ) {
+                                        if (isExporting) {
+                                            CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.size(16.dp))
+                                        } else {
+                                            Icon(Icons.Default.PictureAsPdf, "Export PDF", tint = Forest)
+                                        }
+                                    }
+                                }
+                            }
                             DetailRow("Status", member.status.displayName)
                             DetailRow("Total Paid", formatZAR(member.totalPaid ?: 0.0))
                             calculation?.let {
@@ -960,16 +1243,51 @@ fun MemberDetailDialog(
                                 modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
                             ) {
                                 Row(Modifier.padding(12.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                                    Column {
+                                    Column(modifier = Modifier.weight(1f)) {
                                         Text(b.fullName, fontWeight = FontWeight.Bold)
                                         Text("${b.relationship} • ${b.idNumber ?: "N/A"}", style = MaterialTheme.typography.labelSmall)
+                                        
+                                        if (b.documentUrl != null) {
+                                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
+                                                Icon(Icons.Default.CheckCircle, null, tint = Forest, modifier = Modifier.size(12.dp))
+                                                Spacer(Modifier.width(4.dp))
+                                                Text("ID Document Uploaded", style = MaterialTheme.typography.labelSmall, color = Forest)
+                                            }
+                                        }
                                     }
-                                    Icon(Icons.Default.Edit, null, tint = Forest, modifier = Modifier.size(16.dp))
+                                    
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        if (b.documentUrl != null) {
+                                            IconButton(onClick = {
+                                                val url = b.documentUrl!!
+                                                val headers = vm!!.getDownloadParams(url)
+                                                val ext = url.substringAfterLast(".", "pdf").substringBefore("?")
+                                                val fileName = "Beneficiary_ID_${b.fullName.replace(" ", "_")}_${System.currentTimeMillis()}.$ext"
+                                                onFileAction(url, fileName, headers)
+                                            }) {
+                                                Icon(Icons.Default.PictureAsPdf, "Download ID", tint = Forest)
+                                            }
+                                        }
+                                        Icon(Icons.Default.Edit, null, tint = Forest, modifier = Modifier.size(16.dp))
+                                    }
                                 }
                             }
                         }
                         if (beneficiaries.isEmpty()) {
                             Text("No beneficiaries registered.", style = MaterialTheme.typography.bodySmall, color = MidGray)
+                        }
+                    }
+
+                    // Burial Claims
+                    if (burialClaims.isNotEmpty()) {
+                        DetailSection("Burial Claims (${burialClaims.size})") {
+                            burialClaims.forEach { claim ->
+                                ClaimAdminCard(
+                                    claim = claim,
+                                    onVerify = { approve: Boolean -> claim.id?.let { onVerifyClaim(it, approve) } },
+                                    onEscalate = { claim.id?.let { onEscalateClaim(it) } }
+                                )
+                            }
                         }
                     }
 
@@ -999,16 +1317,10 @@ fun MemberDetailDialog(
                                     status = status,
                                     onVerify = { approve -> onVerifyDoc(i, approve) },
                                     onDownload = { dUrl, dLabel -> 
-                                        val (url, headers) = vm!!.downloadMemberDocument(dUrl, dLabel)
-                                        val extension = url.substringAfterLast(".", "pdf")
+                                        val (dlUrl, headers) = vm!!.downloadMemberDocument(dUrl, dLabel)
+                                        val extension = dlUrl.substringAfterLast(".", "pdf")
                                         val fileName = "${dLabel.replace(" ", "_")}_${System.currentTimeMillis()}.$extension"
-                                        val mimeType = when (extension.lowercase()) {
-                                            "pdf" -> "application/pdf"
-                                            "jpg", "jpeg" -> "image/jpeg"
-                                            "png" -> "image/png"
-                                            else -> "application/octet-stream"
-                                        }
-                                        com.sanibonani.save.domain.utils.FileDownloader.downloadFile(context, url, fileName, mimeType, headers)
+                                        onFileAction(dlUrl, fileName, headers)
                                     }
                                 )
                             }
@@ -1024,16 +1336,10 @@ fun MemberDetailDialog(
                                     status = doc.status,
                                     onVerify = { approve -> onVerifyRelDoc(docId, approve) },
                                     onDownload = { dUrl, dLabel -> 
-                                        val (url, headers) = vm!!.downloadMemberDocument(dUrl, dLabel)
-                                        val extension = url.substringAfterLast(".", "pdf")
+                                        val (dlUrl, headers) = vm!!.downloadMemberDocument(dUrl, dLabel)
+                                        val extension = dlUrl.substringAfterLast(".", "pdf")
                                         val fileName = "${dLabel.replace(" ", "_")}_${System.currentTimeMillis()}.$extension"
-                                        val mimeType = when (extension.lowercase()) {
-                                            "pdf" -> "application/pdf"
-                                            "jpg", "jpeg" -> "image/jpeg"
-                                            "png" -> "image/png"
-                                            else -> "application/octet-stream"
-                                        }
-                                        com.sanibonani.save.domain.utils.FileDownloader.downloadFile(context, url, fileName, mimeType, headers)
+                                        onFileAction(dlUrl, fileName, headers)
                                     }
                                 )
                             }
@@ -1091,6 +1397,95 @@ fun MemberDetailDialog(
 }
 
 @Composable
+fun ClaimAdminCard(
+    claim: BeneficiaryPayoutClaim,
+    onVerify: (Boolean) -> Unit,
+    onEscalate: () -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+        colors = CardDefaults.cardColors(containerColor = Forest.copy(0.05f)),
+        border = BorderStroke(1.dp, Forest.copy(0.1f))
+    ) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+                Column {
+                    Text(claim.beneficiaryName, fontWeight = FontWeight.Bold)
+                    // Note: actual relationship isn't in claim model but beneficiary name is
+                    Text("Burial Payout Claim", style = MaterialTheme.typography.labelSmall, color = Forest)
+                }
+                Surface(
+                    color = when(claim.status) {
+                        BeneficiaryClaimStatus.SUBMITTED -> MidGray
+                        BeneficiaryClaimStatus.UNDER_REVIEW -> InfoBlue
+                        BeneficiaryClaimStatus.ESCALATED -> ForestMid
+                        BeneficiaryClaimStatus.APPROVED -> Forest
+                        BeneficiaryClaimStatus.PAID -> Forest
+                        BeneficiaryClaimStatus.REJECTED -> ErrorRed
+                        else -> MidGray
+                    }.copy(0.1f),
+                    shape = RoundedCornerShape(16.dp)
+                ) {
+                    Text(
+                        claim.status.displayName,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                        color = when(claim.status) {
+                            BeneficiaryClaimStatus.SUBMITTED -> MidGray
+                            BeneficiaryClaimStatus.UNDER_REVIEW -> InfoBlue
+                            BeneficiaryClaimStatus.ESCALATED -> ForestMid
+                            BeneficiaryClaimStatus.APPROVED -> Forest
+                            BeneficiaryClaimStatus.PAID -> Forest
+                            BeneficiaryClaimStatus.REJECTED -> ErrorRed
+                            else -> MidGray
+                        },
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+            
+            DetailRow("Cause of Death", claim.causeOfDeath)
+            DetailRow("Date of Death", claim.dateOfDeath)
+            DetailRow("Claim Amount", formatZAR(claim.claimAmount))
+            
+            HorizontalDivider(color = Forest.copy(0.1f))
+            Text("Banking Details", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+            DetailRow("Bank", claim.bankName)
+            DetailRow("Account", claim.accountNo)
+            DetailRow("Account Holder", claim.accountHolder)
+
+            if (claim.status == BeneficiaryClaimStatus.SUBMITTED) {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(
+                        onClick = { onVerify(false) },
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = ErrorRed),
+                        border = BorderStroke(1.dp, ErrorRed)
+                    ) {
+                        Text("Reject", style = MaterialTheme.typography.labelSmall)
+                    }
+                    Button(
+                        onClick = { onVerify(true) },
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.buttonColors(containerColor = InfoBlue)
+                    ) {
+                        Text("Verify Details", style = MaterialTheme.typography.labelSmall)
+                    }
+                }
+            } else if (claim.status == BeneficiaryClaimStatus.UNDER_REVIEW) {
+                Button(
+                    onClick = onEscalate,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(containerColor = Forest)
+                ) {
+                    Text("Escalate to Platform", style = MaterialTheme.typography.labelSmall)
+                }
+            }
+        }
+    }
+}
+
+@Composable
 fun DocumentRow(label: String, status: DocumentStatus, onVerify: (Boolean) -> Unit) {
     Row(
         modifier = Modifier
@@ -1132,26 +1527,121 @@ fun DetailSection(title: String, content: @Composable ColumnScope.() -> Unit) {
     }
 }
 
+
 @Composable
-fun DetailRow(label: String, value: String) {
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
-        Text(
-            label,
-            modifier = Modifier.weight(0.42f),
-            style = MaterialTheme.typography.bodySmall,
-            color = MidGray,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis
-        )
-        Text(
-            value,
-            modifier = Modifier.weight(0.58f),
-            style = MaterialTheme.typography.bodySmall,
-            fontWeight = FontWeight.Bold,
-            textAlign = TextAlign.End,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis
-        )
+fun InsightsTab(state: AdminUiState) {
+    val insight = state.businessInsight
+    
+    Column(
+        Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        SectionHeading("💎 Business Insights")
+        
+        when (insight) {
+            is GetGroupBusinessInsightsUseCase.GroupBusinessInsight.Rosca -> RoscaInsights(insight.schedule)
+            is GetGroupBusinessInsightsUseCase.GroupBusinessInsight.InvestmentClub -> InvestmentClubInsights(insight.valuation)
+            is GetGroupBusinessInsightsUseCase.GroupBusinessInsight.Stokvel -> StokvelInsights(insight.projection)
+            else -> {
+                EmptyState(
+                    icon = "📊",
+                    title = "No specialized insights",
+                    description = "Specialized business tools are available for ROSCA, Investment Club, and Stokvel group types."
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun RoscaInsights(schedule: CalculateRoscaRotationUseCase.RoscaSchedule) {
+    Card(colors = CardDefaults.cardColors(containerColor = Color.White)) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text("ROSCA Rotation Schedule", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Forest)
+            DetailRow("Pot Total", formatZAR(schedule.totalPot))
+            DetailRow("Cycle Length", "${schedule.cycleMonths} Months")
+            
+            HorizontalDivider(color = Forest.copy(0.1f))
+            
+            schedule.items.forEach { item ->
+                Row(
+                    Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    val color = if (item.isCurrent) Forest else if (item.isCompleted) SuccessGreen else MidGray
+                    val icon = if (item.isCurrent) Icons.Default.Star else if (item.isCompleted) Icons.Default.CheckCircle else Icons.Default.Circle
+                    
+                    Icon(icon, null, tint = color, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(item.memberName, fontWeight = if (item.isCurrent) FontWeight.Bold else FontWeight.Normal)
+                        Text(item.payoutDate, style = MaterialTheme.typography.labelSmall, color = MidGray)
+                    }
+                    if (item.isCurrent) {
+                        Surface(color = Forest.copy(0.1f), shape = RoundedCornerShape(12.dp)) {
+                            Text("CURRENT", modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp), style = MaterialTheme.typography.labelSmall, color = Forest, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun InvestmentClubInsights(valuation: CalculateInvestmentClubValuationUseCase.PortfolioValuation) {
+    Card(colors = CardDefaults.cardColors(containerColor = Color.White)) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text("Investment Valuation", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Forest)
+            DetailRow("Portfolio NAV", formatZAR(valuation.totalAssets))
+            DetailRow("Unit Price", formatZAR(valuation.unitPrice))
+            DetailRow("Total Units Issued", valuation.totalUnits.toInt().toString())
+            
+            HorizontalDivider(color = Forest.copy(0.1f))
+            Text("Member Equity Breakdown", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+            
+            valuation.memberValuations.forEach { m ->
+                Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Column {
+                        Text(m.memberName, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
+                        Text("${m.contributionWeight.toInt()}% weight", style = MaterialTheme.typography.labelSmall, color = MidGray)
+                    }
+                    Text(formatZAR(m.marketValue), style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold, color = Forest)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun StokvelInsights(projection: CalculateStokvelPayoutsUseCase.PayoutProjection) {
+    Card(colors = CardDefaults.cardColors(containerColor = Color.White)) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text("Annual Payout Projection", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Forest)
+            DetailRow("Months to Year-End", "${projection.monthsRemaining} Months")
+            DetailRow("Projected Total Fund", formatZAR(projection.totalProjectedFund))
+            
+            HorizontalDivider(color = Forest.copy(0.1f))
+            
+            projection.memberProjections.forEach { m ->
+                Column(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text(m.memberName, style = MaterialTheme.typography.bodySmall)
+                        Text(formatZAR(m.projectedFinalPayout), style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
+                    }
+                    val progress = if (m.projectedFinalPayout > 0) (m.currentSavings / m.projectedFinalPayout).toFloat() else 0f
+                    LinearProgressIndicator(
+                        progress = { progress },
+                        modifier = Modifier.fillMaxWidth().padding(top = 4.dp).height(4.dp).clip(CircleShape),
+                        color = Forest,
+                        trackColor = Forest.copy(alpha = 0.1f)
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -1504,14 +1994,34 @@ fun SettingsTab(state: AdminUiState, vm: AdminViewModel) {
 
         Spacer(Modifier.height(8.dp))
         
-        if (state.isSaving) {
-            CircularProgressIndicator(modifier = Modifier.align(Alignment.CenterHorizontally), color = Forest)
-        } else {
-            SanibonaniButton(
-                text = "Save All Changes",
-                onClick = { vm.saveSettings() },
-                modifier = Modifier.fillMaxWidth()
-            )
+        SanibonaniButton(
+            text = "Save All Changes",
+            onClick = { vm.saveSettings() },
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        if (state.group?.constitutionUrl.isNullOrBlank()) {
+            Spacer(Modifier.height(16.dp))
+            Card(
+                shape = RoundedCornerShape(12.dp), 
+                colors = CardDefaults.cardColors(containerColor = WarningAmber.copy(alpha = 0.05f)), 
+                border = BorderStroke(1.dp, WarningAmber.copy(alpha = 0.2f))
+            ) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("📜 Missing Constitution", style = MaterialTheme.typography.titleSmall, color = Charcoal, fontWeight = FontWeight.Bold)
+                    Text("Your group doesn't have a constitution uploaded. You can generate a standard one based on your current settings.", style = MaterialTheme.typography.bodySmall)
+                    
+                    Button(
+                        onClick = { vm.generateAndUploadStandardConstitution() },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(containerColor = Forest),
+                        enabled = !state.isUploading
+                    ) {
+                        if (state.isUploading) CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Color.White)
+                        else Text("Generate Standard Constitution")
+                    }
+                }
+            }
         }
 
         if (state.saveSuccess) {
@@ -1595,7 +2105,7 @@ fun BeneficiaryEditDialog(
                     onValueChange = { text -> onUpdate { it.copy(relationship = text) } },
                     label = "Relationship"
                 )
-                DatePickerField(
+                SanibonaniDatePickerField(
                     label = "Date of Birth",
                     value = beneficiary.dateOfBirth ?: "",
                     onValueChange = { text -> onUpdate { it.copy(dateOfBirth = text) } }
@@ -1614,16 +2124,6 @@ fun BeneficiaryEditDialog(
     )
 }
 
-@Composable
-fun DatePickerField(label: String, value: String, onValueChange: (String) -> Unit) {
-    // Basic implementation for now
-    SanibonaniTextField(
-        value = value,
-        onValueChange = onValueChange,
-        label = label,
-        placeholder = "YYYY-MM-DD"
-    )
-}
 
 @Composable
 fun LockedTabOverlay(message: String) {
@@ -1848,7 +2348,11 @@ fun PayoutTab(state: AdminUiState, vm: AdminViewModel) {
 }
 
 @Composable
-fun LoansTab(state: AdminUiState, vm: AdminViewModel) {
+fun LoansTab(
+    state: AdminUiState, 
+    vm: AdminViewModel,
+    onFileAction: (String, String, Map<String, String>) -> Unit = { _, _, _ -> }
+) {
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -1878,7 +2382,7 @@ fun LoansTab(state: AdminUiState, vm: AdminViewModel) {
             Spacer(Modifier.height(24.dp))
             Text("Active Loans", fontWeight = FontWeight.Bold, color = Forest)
             activeLoans.forEach { loan ->
-                ActiveLoanCard(loan, state)
+                ActiveLoanCard(loan, state, vm, onFileAction)
             }
         }
 
@@ -1999,17 +2503,37 @@ fun LoanRequestCard(loan: Loan, state: AdminUiState, vm: AdminViewModel) {
 }
 
 @Composable
-fun ActiveLoanCard(loan: Loan, state: AdminUiState) {
+fun ActiveLoanCard(
+    loan: Loan, 
+    state: AdminUiState, 
+    vm: AdminViewModel,
+    onFileAction: (String, String, Map<String, String>) -> Unit = { _, _, _ -> }
+) {
     val member = state.members.find { it.id == loan.memberId }
+    val context = LocalContext.current
     Card(
         modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
         colors = CardDefaults.cardColors(containerColor = Color.White),
         border = BorderStroke(1.dp, LightGray)
     ) {
         Column(Modifier.padding(16.dp)) {
-            Text(member?.fullName ?: "Unknown Member", fontWeight = FontWeight.Bold)
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Balance: R${loan.balanceRemaining}", style = MaterialTheme.typography.titleMedium, color = Forest, modifier = Modifier.weight(1f))
+                Column(Modifier.weight(1f)) {
+                    Text(member?.fullName ?: "Unknown Member", fontWeight = FontWeight.Bold)
+                    Text("Balance: R${loan.balanceRemaining}", style = MaterialTheme.typography.titleMedium, color = Forest)
+                }
+                
+                if (!loan.contractUrl.isNullOrBlank()) {
+                    IconButton(onClick = { 
+                        val url = loan.contractUrl!!
+                        val headers = vm.getDownloadParams(url)
+                        val fileName = "Loan_Agreement_${loan.id?.take(5)}_${System.currentTimeMillis()}.pdf"
+                        onFileAction(url, fileName, headers)
+                    }) {
+                        Icon(Icons.Default.Description, "Download Contract", tint = Forest)
+                    }
+                }
+
                 Surface(
                     color = when(loan.status) {
                         LoanStatus.OVERDUE -> ErrorRed.copy(0.1f)
@@ -2055,28 +2579,3 @@ fun HistoryLoanCard(loan: Loan, state: AdminUiState) {
     }
 }
 
-@Composable
-fun InfoRow(label: String, value: String) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.Top
-    ) {
-        Text(
-            label,
-            modifier = Modifier.weight(0.42f),
-            style = MaterialTheme.typography.bodySmall,
-            color = MidGray,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis
-        )
-        Text(
-            value,
-            modifier = Modifier.weight(0.58f),
-            style = MaterialTheme.typography.bodyMedium,
-            fontWeight = FontWeight.SemiBold,
-            textAlign = TextAlign.End,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis
-        )
-    }
-}

@@ -150,7 +150,12 @@ fun LeafletGroupsMap(
 	LaunchedEffect(pageReady, markersJson) {
 		if (!pageReady) return@LaunchedEffect
 
-		fun pushMarkers(attempt: Int) {
+		var attempt = 0
+		val maxAttempts = 10
+
+		fun pushMarkers() {
+			if (attempt >= maxAttempts) return
+
 			// Guard against race conditions where onPageFinished fires before Leaflet finishes loading.
 			val js = """
 				(function(){
@@ -167,13 +172,15 @@ fun LeafletGroupsMap(
 			webView.evaluateJavascript(js) { result ->
 				// WebView returns "true" / "false" (or null on older devices)
 				val ok = result?.contains("true", ignoreCase = true) == true
-				if (!ok && attempt < 10) {
-					Handler(Looper.getMainLooper()).postDelayed({ pushMarkers(attempt + 1) }, 200)
+				if (!ok && attempt < maxAttempts) {
+					attempt++
+					// Use postDelayed on background-ish timing, but limit attempt count
+					Handler(Looper.getMainLooper()).postDelayed({ pushMarkers() }, 200)
 				}
 			}
 		}
 
-		pushMarkers(attempt = 0)
+		pushMarkers()
 	}
 
 	AndroidView(

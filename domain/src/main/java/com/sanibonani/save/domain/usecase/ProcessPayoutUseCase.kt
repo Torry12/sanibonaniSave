@@ -1,11 +1,11 @@
 package com.sanibonani.save.domain.usecase
 
-import com.sanibonani.save.domain.model.PayoutStatus
-import com.sanibonani.save.domain.repository.PayoutRepository
-import com.sanibonani.save.domain.repository.NotificationRepository
 import com.sanibonani.save.domain.model.AppNotification
-import com.sanibonani.save.domain.model.NotifEvent
 import com.sanibonani.save.domain.model.NotifChannel
+import com.sanibonani.save.domain.model.NotifEvent
+import com.sanibonani.save.domain.model.PayoutStatus
+import com.sanibonani.save.domain.repository.NotificationRepository
+import com.sanibonani.save.domain.repository.PayoutRepository
 import com.sanibonani.save.domain.utils.OperationKeys
 import javax.inject.Inject
 

@@ -6,6 +6,7 @@ import com.sanibonani.save.domain.model.Group
 import com.sanibonani.save.domain.model.GroupType
 import com.sanibonani.save.domain.model.Member
 import java.time.LocalDate
+import java.time.temporal.ChronoUnit
 import kotlin.math.roundToInt
 
 data class PaymentCalculation(
@@ -150,6 +151,38 @@ object PaymentCalculator {
             tempDate = tempDate.plusMonths(1)
         }
         return "N/A"
+    }
+
+    /**
+     * Calculates the member's share of the total group fund.
+     * Used for Investment Clubs to distribute dividends.
+     */
+    fun calculateMemberSharePercentage(groupBalance: Double, memberTotalPaid: Double): Double {
+        if (groupBalance <= 0) return 0.0
+        return (memberTotalPaid / groupBalance * 100.0).roundToTwoDecimals()
+    }
+
+    /**
+     * Calculates exit penalty for Investment Clubs.
+     * Standard rule: 10% penalty if exiting before lock-in period (e.g., 12 months).
+     */
+    fun calculateInvestmentExitPenalty(
+        member: Member,
+        amountToWithdraw: Double,
+        currentDate: LocalDate = DateProvider.getCurrentDate()
+    ): Double {
+        val joinedDate = try {
+            LocalDate.parse(member.joinedAt?.substringBefore("T"))
+        } catch (_: Exception) {
+            currentDate
+        }
+
+        val monthsMembership = ChronoUnit.MONTHS.between(joinedDate, currentDate)
+        return if (monthsMembership < 12) {
+            (amountToWithdraw * 0.10).roundToTwoDecimals()
+        } else {
+            0.0
+        }
     }
     
     fun calculateRealtime(

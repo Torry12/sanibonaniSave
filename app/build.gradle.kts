@@ -188,6 +188,7 @@ dependencies {
     implementation(libs.navigation.compose)
     implementation(libs.datastore.preferences)
     implementation(libs.preference.ktx)
+    implementation(libs.play.services.location)
     implementation(libs.splashscreen)
     implementation(libs.browser)
     implementation(libs.biometric)

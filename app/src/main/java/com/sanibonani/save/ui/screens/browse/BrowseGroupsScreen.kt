@@ -5,8 +5,10 @@ import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -14,17 +16,27 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.*
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.google.accompanist.permissions.ExperimentalPermissionsApi
+import com.google.accompanist.permissions.isGranted
+import com.google.accompanist.permissions.rememberPermissionState
+import android.location.Location
+import com.google.android.gms.location.LocationServices
+import android.Manifest
+import android.annotation.SuppressLint
 import com.sanibonani.save.domain.model.*
 import com.sanibonani.save.ui.components.*
 import com.sanibonani.save.ui.theme.*
 import com.sanibonani.save.viewmodel.GroupViewModel
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalPermissionsApi::class)
+@SuppressLint("MissingPermission")
 @Composable
 fun BrowseGroupsScreen(
     onGroupClick: (String) -> Unit,
@@ -33,12 +45,30 @@ fun BrowseGroupsScreen(
     vm: GroupViewModel = hiltViewModel()
 ) {
     val state by vm.listState.collectAsState()
+    val context = LocalContext.current
     var showMap by remember { mutableStateOf(false) }
     var showFilters by remember { mutableStateOf(false) }
     var selectedLocationGroups by remember { mutableStateOf<List<Group>>(emptyList()) }
+    var userLocation by remember { mutableStateOf<Location?>(null) }
+    
+    val locationPermissionState = rememberPermissionState(Manifest.permission.ACCESS_FINE_LOCATION)
+    val fusedLocationClient = remember(context) { LocationServices.getFusedLocationProviderClient(context) }
+
+    fun requestLocation() {
+        if (locationPermissionState.status.isGranted) {
+            fusedLocationClient.lastLocation.addOnSuccessListener { location ->
+                userLocation = location
+            }
+        } else {
+            locationPermissionState.launchPermissionRequest()
+        }
+    }
 
     LaunchedEffect(Unit) {
         vm.loadGroups()
+        if (locationPermissionState.status.isGranted) {
+            requestLocation()
+        }
     }
 
     Scaffold(
@@ -163,9 +193,27 @@ fun BrowseGroupsScreen(
                         onLocationTap = { groupsAtLocation ->
                             selectedLocationGroups = groupsAtLocation.sortedBy { it.name }
                         },
+                        userLocation = userLocation,
                         autoCenterOnGroups = false,
                         modifier = Modifier.fillMaxSize()
                     )
+
+                    // Find My Location Button
+                    SmallFloatingActionButton(
+                        onClick = { requestLocation() },
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(16.dp),
+                        containerColor = Color.White,
+                        contentColor = Forest,
+                        shape = CircleShape
+                    ) {
+                        Icon(
+                            imageVector = if (locationPermissionState.status.isGranted) Icons.Default.MyLocation else Icons.Default.LocationSearching,
+                            contentDescription = "Find My Location",
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
 
                     // Helpful overlay when groups have no coordinates yet.
                     val hasAnyCoords = remember(state.filteredGroups) {
@@ -219,8 +267,12 @@ fun BrowseGroupsScreen(
                 FloatingActionButton(
                     onClick = onRegisterGroup,
                     modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        .padding(24.dp),
+                        .align(if (showMap) Alignment.BottomStart else Alignment.BottomEnd)
+                        .padding(
+                            start = if (showMap) 16.dp else 0.dp,
+                            end = if (showMap) 0.dp else 24.dp,
+                            bottom = 24.dp
+                        ),
                     containerColor = Forest,
                     contentColor = Color.White,
                     shape = RoundedCornerShape(16.dp)
@@ -339,20 +391,25 @@ fun GroupDiscoveryCard(group: Group, onClick: () -> Unit) {
     Card(
         onClick = onClick,
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(20.dp),
+        shape = RoundedCornerShape(24.dp),
         colors = CardDefaults.cardColors(containerColor = Color.White),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        border = BorderStroke(1.dp, Forest.copy(alpha = 0.08f))
     ) {
-        Column(Modifier.padding(16.dp)) {
+        Column(Modifier.padding(20.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(
                     modifier = Modifier
-                        .size(56.dp)
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(Forest.copy(alpha = 0.08f)),
+                        .size(64.dp)
+                        .clip(RoundedCornerShape(18.dp))
+                        .background(
+                            Brush.linearGradient(
+                                listOf(Forest.copy(alpha = 0.12f), Forest.copy(alpha = 0.04f))
+                            )
+                        ),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text(group.logoEmoji, fontSize = 28.sp)
+                    Text(group.logoEmoji, fontSize = 32.sp)
                 }
                 
                 Spacer(Modifier.width(16.dp))
@@ -360,47 +417,42 @@ fun GroupDiscoveryCard(group: Group, onClick: () -> Unit) {
                 Column(Modifier.weight(1f)) {
                     Text(
                         text = group.name,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Black,
                         color = Charcoal
                     )
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 2.dp)) {
                         Icon(Icons.Default.LocationOn, null, tint = Forest, modifier = Modifier.size(14.dp))
                         Spacer(Modifier.width(4.dp))
                         Text(
                             text = "${group.city}, ${group.province}",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MidGray
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MidGray,
+                            fontWeight = FontWeight.Medium
                         )
                     }
                 }
                 
-                Surface(
-                    color = Cream,
-                    shape = RoundedCornerShape(8.dp)
-                ) {
-                    Text(
-                        text = group.type.displayName,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = Forest,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
+                Icon(
+                    imageVector = Icons.AutoMirrored.Rounded.KeyboardArrowRight,
+                    contentDescription = null,
+                    tint = MidGray.copy(alpha = 0.4f),
+                    modifier = Modifier.size(28.dp)
+                )
             }
             
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(16.dp))
             
             Text(
-                text = group.description ?: "",
-                style = MaterialTheme.typography.bodySmall,
+                text = group.description ?: "A savings group focused on community financial growth and mutual support.",
+                style = MaterialTheme.typography.bodyMedium,
                 color = MidGray,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
-                lineHeight = 18.sp
+                lineHeight = 20.sp
             )
             
-            HorizontalDivider(Modifier.padding(vertical = 12.dp), color = Cream)
+            Spacer(Modifier.height(20.dp))
             
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -408,22 +460,55 @@ fun GroupDiscoveryCard(group: Group, onClick: () -> Unit) {
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.Groups, null, tint = MidGray, modifier = Modifier.size(16.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text(
-                        text = "${group.currentMembers} / ${group.maxMembers} members",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = Charcoal,
-                        fontWeight = FontWeight.Medium
-                    )
+                    Surface(
+                        color = Forest.copy(alpha = 0.08f),
+                        shape = CircleShape
+                    ) {
+                        Row(
+                            Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.Groups, null, tint = Forest, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                text = "${group.currentMembers} / ${group.maxMembers}",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = Forest,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                    
+                    Spacer(Modifier.width(8.dp))
+                    
+                    Surface(
+                        color = Gold.copy(alpha = 0.1f),
+                        shape = CircleShape
+                    ) {
+                        Text(
+                            text = group.type.displayName,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = Charcoal,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
                 }
                 
-                Text(
-                    text = "${formatZAR(group.monthlyContribution)} /mo",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = Forest,
-                    fontWeight = FontWeight.ExtraBold
-                )
+                Column(horizontalAlignment = Alignment.End) {
+                    Text(
+                        text = "Monthly",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MidGray,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Text(
+                        text = formatZAR(group.monthlyContribution),
+                        style = MaterialTheme.typography.titleLarge,
+                        color = Forest,
+                        fontWeight = FontWeight.Black
+                    )
+                }
             }
         }
     }

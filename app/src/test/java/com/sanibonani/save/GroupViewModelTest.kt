@@ -8,6 +8,7 @@ import com.sanibonani.save.data.remote.GeoapifyResponse
 import com.sanibonani.save.data.remote.GeoapifyService
 import com.sanibonani.save.data.remote.Geometry
 import com.sanibonani.save.data.remote.Properties
+import com.sanibonani.save.domain.repository.ExportRepository
 import com.sanibonani.save.domain.repository.GroupRepository
 import com.sanibonani.save.domain.usecase.CreateGroupUseCase
 import com.sanibonani.save.domain.usecase.GetPublicGroupsUseCase
@@ -41,6 +42,7 @@ class GroupViewModelTest {
     val instantExecutorRule = InstantTaskExecutorRule()
 
     private val groupRepo = mockk<GroupRepository>(relaxed = true)
+    private val exportRepo = mockk<ExportRepository>(relaxed = true)
     private val createGroupUseCase = mockk<CreateGroupUseCase>(relaxed = true)
     private val getPublicGroupsUseCase = mockk<GetPublicGroupsUseCase>(relaxed = true)
     private val geoapifyService = mockk<GeoapifyService>()
@@ -61,7 +63,13 @@ class GroupViewModelTest {
         every { FirebaseCrashlytics.getInstance() } returns mockCrashlytics
 
         Dispatchers.setMain(testDispatcher)
-        viewModel = GroupViewModel(groupRepo, createGroupUseCase, getPublicGroupsUseCase, geoapifyService)
+        viewModel = GroupViewModel(
+            groupRepo,
+            exportRepo,
+            createGroupUseCase,
+            getPublicGroupsUseCase,
+            geoapifyService
+        )
     }
 
     @After

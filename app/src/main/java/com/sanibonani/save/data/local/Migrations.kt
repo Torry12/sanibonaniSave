@@ -666,6 +666,44 @@ val MIGRATION_34_35 = object : Migration(34, 35) {
     }
 }
 
+val MIGRATION_35_36 = object : Migration(35, 36) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        fun safeExec(sql: String) {
+            try { db.execSQL(sql) } catch (e: Exception) {}
+        }
+        // Create burial_claims table for beneficiary payout claims
+        safeExec("""
+            CREATE TABLE IF NOT EXISTS `burial_claims` (
+                `id` TEXT NOT NULL,
+                `group_id` TEXT NOT NULL,
+                `member_id` TEXT NOT NULL,
+                `beneficiary_id` TEXT NOT NULL,
+                `beneficiary_name` TEXT NOT NULL,
+                `cause_of_death` TEXT NOT NULL,
+                `date_of_death` TEXT NOT NULL,
+                `claim_amount` REAL NOT NULL,
+                `bank_name` TEXT NOT NULL,
+                `account_no` TEXT NOT NULL,
+                `branch_code` TEXT NOT NULL,
+                `account_holder` TEXT NOT NULL,
+                `notes` TEXT,
+                `status` TEXT NOT NULL DEFAULT 'SUBMITTED',
+                `reviewed_by` TEXT,
+                `reviewed_at` TEXT,
+                `admin_notes` TEXT,
+                `rejection_reason` TEXT,
+                `created_at` TEXT,
+                `updated_at` INTEGER NOT NULL,
+                PRIMARY KEY(`id`)
+            )
+        """.trimIndent())
+        safeExec("CREATE INDEX IF NOT EXISTS `index_burial_claims_group_id` ON `burial_claims` (`group_id`)")
+        safeExec("CREATE INDEX IF NOT EXISTS `index_burial_claims_member_id` ON `burial_claims` (`member_id`)")
+        safeExec("CREATE INDEX IF NOT EXISTS `index_burial_claims_beneficiary_id` ON `burial_claims` (`beneficiary_id`)")
+        safeExec("CREATE INDEX IF NOT EXISTS `index_burial_claims_status` ON `burial_claims` (`status`)")
+    }
+}
+
 val ALL_MIGRATIONS = arrayOf(
     MIGRATION_1_2,
     MIGRATION_2_3,
@@ -700,6 +738,7 @@ val ALL_MIGRATIONS = arrayOf(
     MIGRATION_31_32,
     MIGRATION_32_33,
     MIGRATION_33_34,
-    MIGRATION_34_35
+    MIGRATION_34_35,
+    MIGRATION_35_36
 )
 

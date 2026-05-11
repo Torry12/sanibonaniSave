@@ -1,10 +1,19 @@
 package com.sanibonani.save.data.repository
 
-import com.sanibonani.save.domain.repository.*
-import com.sanibonani.save.domain.model.PlatformFees
 import com.sanibonani.save.data.local.SanibonaniDatabase
 import com.sanibonani.save.data.logging.AppLogger
-import com.sanibonani.save.domain.model.*
+import com.sanibonani.save.domain.model.AdminFeeState
+import com.sanibonani.save.domain.model.Contribution
+import com.sanibonani.save.domain.model.DocumentStatus
+import com.sanibonani.save.domain.model.Group
+import com.sanibonani.save.domain.model.GroupSettings
+import com.sanibonani.save.domain.model.Member
+import com.sanibonani.save.domain.model.MemberStatus
+import com.sanibonani.save.domain.model.PlatformFee
+import com.sanibonani.save.domain.model.PlatformFees
+import com.sanibonani.save.domain.repository.GroupRepository
+import com.sanibonani.save.domain.repository.StorageRepository
+import com.sanibonani.save.domain.repository.SupabaseRepository
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.postgrest.from
 import io.github.jan.supabase.postgrest.postgrest
@@ -16,21 +25,21 @@ import io.github.jan.supabase.realtime.realtime
 import io.github.jan.supabase.storage.storage
 import io.ktor.http.ContentType
 import kotlinx.coroutines.channels.awaitClose
-import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.launch
-import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import java.time.LocalDateTime
-import java.util.UUID
 import javax.inject.Inject
-import javax.inject.Singleton
 
 class GroupRepositoryImpl @Inject constructor(
     private val supabase: SupabaseClient,
     private val supabaseRepo: SupabaseRepository,
-    private val db: SanibonaniDatabase
+    private val db: SanibonaniDatabase,
+    private val storageRepo: StorageRepository
 ) : BaseRepository("GroupRepository"), GroupRepository {
 
     override suspend fun uploadConstitution(
@@ -49,18 +58,7 @@ class GroupRepositoryImpl @Inject constructor(
                 return cleaned.ifBlank { "constitution_${System.currentTimeMillis()}.pdf" }
             }
 
-            fun guessContentType(name: String): ContentType {
-                val raw = when (name.substringAfterLast('.', "").lowercase()) {
-                    "pdf" -> "application/pdf"
-                    "png" -> "image/png"
-                    "jpg", "jpeg" -> "image/jpeg"
-                    else -> "application/octet-stream"
-                }
-                return ContentType.parse(raw)
-            }
-
             val safeName = sanitizeFileName(fileName)
-            val contentType = guessContentType(safeName)
             val timestamp = System.currentTimeMillis()
             val fileNameWithTimestamp = if (safeName.contains(".")) {
                 val name = safeName.substringBeforeLast(".")
@@ -70,17 +68,11 @@ class GroupRepositoryImpl @Inject constructor(
                 "${safeName}_$timestamp"
             }
 
-            val bucket = supabase.storage.from("constitutions")
             val path = "$groupId/$fileNameWithTimestamp"
 
             AppLogger.d(tag, "📤 Uploading constitution to constitutions/$path (${fileBytes.size} bytes)")
-            bucket.upload(path, fileBytes) {
-                upsert = true
-                // Some clients/servers depend on content-type for correct handling.
-                this.contentType = contentType
-            }
-
-            val url = bucket.publicUrl(path)
+            val uploadedPath = storageRepo.uploadFile("constitutions", path, fileBytes).getOrThrow()
+            val url = storageRepo.getPublicUrl("constitutions", uploadedPath)
 
             // Update the group record with the new URL and reset status to PENDING
             supabase.from("groups").update(buildJsonObject {
@@ -380,7 +372,7 @@ class GroupRepositoryImpl @Inject constructor(
 
                 memberResult?.let { adminMember ->
                     val isPending = adminMember.status == MemberStatus.PENDING_PAYMENT
-                    val nowStr = java.time.LocalDateTime.now().toString()
+                    val nowStr = LocalDateTime.now().toString()
 
                     // Check if admin already has a first contribution recorded
                     val existingFirstContrib = supabase.postgrest["contributions"].select {

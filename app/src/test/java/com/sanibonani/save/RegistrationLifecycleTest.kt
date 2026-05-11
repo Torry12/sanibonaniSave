@@ -27,6 +27,7 @@ class RegistrationLifecycleTest {
     val instantExecutorRule = InstantTaskExecutorRule()
 
     private val groupRepo = mockk<GroupRepository>(relaxed = true)
+    private val exportRepo = mockk<ExportRepository>(relaxed = true)
     private val memberRepo = mockk<MemberRepository>(relaxed = true)
     private val createGroupUseCase = mockk<CreateGroupUseCase>(relaxed = true)
     private val getPublicGroupsUseCase = mockk<GetPublicGroupsUseCase>(relaxed = true)
@@ -55,7 +56,13 @@ class RegistrationLifecycleTest {
         coEvery { getPublicGroupsUseCase() } returns flowOf(Result.success(emptyList()))
 
         Dispatchers.setMain(testDispatcher)
-        viewModel = GroupViewModel(groupRepo, createGroupUseCase, getPublicGroupsUseCase, geoapifyService)
+        viewModel = GroupViewModel(
+            groupRepo,
+            exportRepo,
+            createGroupUseCase,
+            getPublicGroupsUseCase,
+            geoapifyService
+        )
     }
 
     @After

@@ -37,12 +37,6 @@ serve(async (req) => {
     return new Response(null, { status: 204, headers: CORS_HEADERS });
   }
 
-  // ── Auth guard — only authenticated Supabase users may invoke this ───────
-  const authHeader = req.headers.get("Authorization");
-  if (!authHeader?.startsWith("Bearer ")) {
-    return json({ error: "Unauthorized" }, 401);
-  }
-
   // ── Secrets ─────────────────────────────────────────────────────────────
   const token = Deno.env.get("WHATSAPP_TOKEN");
   const phoneNumberId = Deno.env.get("WHATSAPP_PHONE_NUMBER_ID");
@@ -76,10 +70,70 @@ serve(async (req) => {
     return json({ error: "Missing required field: to" }, 400);
   }
 
+  // ── Auth guard ───────────────────────────────────────────────────────────
+  // Public recovery is allowed only for the password_reset template.
+  const authHeader = req.headers.get("Authorization");
+  const isPasswordResetTemplate = body.template?.name === "password_reset";
+  if (!authHeader?.startsWith("Bearer ") && !isPasswordResetTemplate) {
+    return json({ error: "Unauthorized" }, 401);
+  }
+
+  const serviceClient = createClient(SUPABASE_URL ?? "", SUPABASE_SERVICE_ROLE_KEY ?? "", {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+
   // ── Normalise phone number to E.164 (digits only, SA starts with 27) ────
   const normalised = body.to
     .replace(/\D/g, "")
     .replace(/^0/, "27"); // 0821234567 → 27821234567
+
+  // ── Password Reset Link Generation ──────────────────────────────────────
+  if (isPasswordResetTemplate) {
+    console.log(`Generating password reset link for phone: ${normalised}`);
+
+    // 1. Find the user by phone number in the members table to get their email.
+    // (Supabase Auth doesn't support generateLink by phone if they registered with email).
+    const { data: member, error: memberError } = await serviceClient
+      .from("members")
+      .select("email")
+      .eq("phone", normalised)
+      .limit(1)
+      .single();
+
+    if (memberError || !member?.email) {
+      console.error("Member not found for phone:", normalised, memberError);
+      return json({ error: "No account found with this WhatsApp number." }, 404);
+    }
+
+    // 2. Generate the recovery link
+    const { data: linkData, error: linkError } = await serviceClient.auth.admin.generateLink({
+      type: "recovery",
+      email: member.email,
+      options: { redirectTo: "sanibonani://reset-password" }
+    });
+
+    if (linkError || !linkData.properties?.action_link) {
+      console.error("Failed to generate reset link:", linkError);
+      return json({ error: "Failed to generate security link. Please try again." }, 500);
+    }
+
+    const resetLink = linkData.properties.action_link;
+    console.log("Generated reset link successfully");
+
+    // 3. Override template components with the link
+    body.template = {
+      name: "password_reset",
+      language: { code: "en_US" },
+      components: [
+        {
+          type: "body",
+          parameters: [
+            { type: "text", text: resetLink }
+          ]
+        }
+      ]
+    };
+  }
 
   // ── Build Meta Graph API payload ────────────────────────────────────────
   let messagePayload: Record<string, unknown>;

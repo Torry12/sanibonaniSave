@@ -3,6 +3,7 @@ package com.sanibonani.save.viewmodel.state
 import com.sanibonani.save.data.remote.Feature
 import com.sanibonani.save.data.utils.PaymentCalculation
 import com.sanibonani.save.domain.model.*
+import com.sanibonani.save.domain.usecase.groups.GetGroupBusinessInsightsUseCase
 import java.io.File
 
 /**
@@ -17,6 +18,7 @@ data class MemberUiState(
     val group: Group? = null,
     val userRole: UserRole = UserRole.MEMBER,
     val currentGroupId: String? = null,
+    val businessInsight: GetGroupBusinessInsightsUseCase.GroupBusinessInsight = GetGroupBusinessInsightsUseCase.GroupBusinessInsight.None,
 
     // Financial data
     val contributions: List<Contribution> = emptyList(),
@@ -25,11 +27,19 @@ data class MemberUiState(
     // Beneficiaries
     val beneficiaries: List<Beneficiary> = emptyList(),
 
+    // Documents
+    val documents: List<MemberDocument> = emptyList(),
+
     // Loans
     val loans: List<Loan> = emptyList(),
     val loanRepayments: List<LoanRepayment> = emptyList(),
     val isEligibleForLoan: Boolean = false,
     val loanIneligibilityReason: String? = null,
+
+    // Burial Society Claims
+    val burialClaims: List<BeneficiaryPayoutClaim> = emptyList(),
+    val isSubmittingClaim: Boolean = false,
+    val claimSubmitSuccess: Boolean = false,
 
     // Multi-group support
     val memberships: List<Member> = emptyList(),
@@ -56,7 +66,10 @@ data class MemberUiState(
     // Messaging state
     val messageText: String = "",
     val isSendingMessage: Boolean = false,
-    val messageSentSuccess: Boolean = false
+    val messageSentSuccess: Boolean = false,
+
+    // Security
+    val biometricEnabled: Boolean = false
 ) {
     /**
      * Returns true if the member portal has loaded required data.
@@ -165,6 +178,14 @@ sealed class MemberEvent {
         val file: File,
         val mimeType: String,
         val chooserTitle: String
+    ) : MemberEvent()
+
+    /** Ask the UI to download a remote file via URL and headers. */
+    data class DownloadFile(
+        val url: String,
+        val fileName: String,
+        val mimeType: String,
+        val headers: Map<String, String>
     ) : MemberEvent()
 }
 

@@ -33,9 +33,14 @@ class MemberViewModelTest {
     private val notificationRepo = mockk<NotificationRepository>()
     private val exportRepo = mockk<ExportRepository>()
     private val loanRepo = mockk<LoanRepository>()
+    private val claimRepo = mockk<BeneficiaryClaimRepository>(relaxed = true)
+    private val memberDocumentRepo = mockk<MemberDocumentRepository>(relaxed = true)
+    private val credentialsRepo = mockk<CredentialsRepository>(relaxed = true)
     private val registerMemberUseCase = mockk<RegisterMemberUseCase>()
     private val sendNotificationUseCase = mockk<SendNotificationUseCase>()
     private val validateLoanEligibilityUseCase = mockk<ValidateLoanEligibilityUseCase>()
+    private val validateBurialClaimEligibilityUseCase = mockk<ValidateBurialClaimEligibilityUseCase>()
+    private val getGroupBusinessInsightsUseCase = mockk<com.sanibonani.save.domain.usecase.groups.GetGroupBusinessInsightsUseCase>(relaxed = true)
     private val geoapifyService = mockk<GeoapifyService>()
     private val contextCacheService = mockk<MemberGroupContextCacheService>()
     private val userProfileCacheService = mockk<com.sanibonani.save.service.UserProfileCacheService>(relaxed = true)
@@ -50,7 +55,9 @@ class MemberViewModelTest {
         mockkStatic(Log::class)
         every { Log.d(any(), any()) } returns 0
         every { Log.i(any(), any()) } returns 0
+        every { Log.w(any<String>(), any<String>()) } returns 0
         every { Log.w(any(), any(), any()) } returns 0
+        every { Log.e(any<String>(), any<String>()) } returns 0
         every { Log.e(any(), any(), any()) } returns 0
         
         Dispatchers.setMain(testDispatcher)
@@ -61,6 +68,9 @@ class MemberViewModelTest {
         coEvery { supabaseRepo.getUserRole() } returns UserRole.MEMBER
         
         every { memberRepo.observeMemberships(any()) } returns flowOf(Result.success(emptyList()))
+        every { memberRepo.getGroupMembers(any()) } returns flowOf(Result.success(emptyList()))
+        every { claimRepo.observeClaimsForMember(any(), any()) } returns flowOf(Result.success(emptyList()))
+        every { memberDocumentRepo.observeMemberDocuments(any()) } returns flowOf(Result.success(emptyList()))
         every { contextCacheService.contexts } returns MutableStateFlow<Map<String, CachedGroupContext>>(emptyMap())
         every { contextCacheService.getContext(any()) } returns null
         every { contextCacheService.ensureUserSession(any()) } returns Unit
@@ -78,8 +88,10 @@ class MemberViewModelTest {
 
         viewModel = MemberViewModel(
             supabaseRepo, memberRepo, groupRepo, beneficiaryRepo, notificationRepo,
-            exportRepo, loanRepo, registerMemberUseCase, sendNotificationUseCase,
-            validateLoanEligibilityUseCase, geoapifyService, contextCacheService,
+            exportRepo, loanRepo, claimRepo, memberDocumentRepo, credentialsRepo,
+            registerMemberUseCase, sendNotificationUseCase,
+            validateLoanEligibilityUseCase, validateBurialClaimEligibilityUseCase,
+            getGroupBusinessInsightsUseCase, geoapifyService, contextCacheService,
             userProfileCacheService
         )
     }
@@ -91,7 +103,7 @@ class MemberViewModelTest {
     }
 
     @Test
-    fun `switchGroup resets state and starts observation`() = runTest {
+    fun `switchGroup resets state and starts observation`() = runTest(testDispatcher.scheduler) {
         val groupId = "new_group_id"
         
         coEvery { memberRepo.getMemberByUserId(any(), groupId) } returns Result.success(mockk(relaxed = true))
@@ -109,7 +121,7 @@ class MemberViewModelTest {
     }
 
     @Test
-    fun `dashboard calculation identifies overdue status`() = runTest {
+    fun `dashboard calculation identifies overdue status`() = runTest(testDispatcher.scheduler) {
         val groupId = "g1"
         val member = Member(id = "m1", groupId = groupId, userId = "user_123", status = MemberStatus.ACTIVE, joinedAt = "2026-01-01T00:00:00Z")
         val group = Group(id = groupId, name = "Test Group", monthlyContribution = 200.0, paymentDueDay = 1)
@@ -135,7 +147,7 @@ class MemberViewModelTest {
     }
 
     @Test
-    fun `requestLoan handles ineligibility`() = runTest {
+    fun `requestLoan handles ineligibility`() = runTest(testDispatcher.scheduler) {
         val groupId = "g1"
         val member = Member(id = "m1", groupId = groupId)
         val group = Group(id = groupId)

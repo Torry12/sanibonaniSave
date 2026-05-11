@@ -35,6 +35,7 @@ coil                        = "2.7.0"
 osmdroid                    = "6.1.20"
 osmBonusPack                = "6.9.0"
 mpAndroidChart              = "3.1.0"
+playServicesLocation        = "21.3.0"
 accompanistPermissions      = "0.37.0"
 accompanistSystemUi         = "0.36.0"
 firebaseBom                 = "33.7.0"
@@ -123,6 +124,7 @@ coil-compose                        = { group = "io.coil-kt", name = "coil-compo
 coil-video                          = { group = "io.coil-kt", name = "coil-video", version.ref = "coil" }
 
 osmdroid                            = { group = "org.osmdroid", name = "osmdroid-android", version.ref = "osmdroid" }
+play-services-location              = { group = "com.google.android.gms", name = "play-services-location", version.ref = "playServicesLocation" }
 osm-bonus-pack                      = { group = "com.github.MKergall", name = "osmbonuspack", version.ref = "osmBonusPack" }
 
 mp-android-chart                    = { group = "com.github.PhilJay", name = "MPAndroidChart", version.ref = "mpAndroidChart" }

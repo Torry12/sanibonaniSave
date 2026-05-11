@@ -34,3 +34,4 @@ enum class PayoutStatus {
     @SerialName("failed")    FAILED,
     @SerialName("cancelled") CANCELLED
 }
+

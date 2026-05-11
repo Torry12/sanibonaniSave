@@ -1,5 +1,6 @@
 package com.sanibonani.save.data.validation
 
+import com.sanibonani.save.domain.validation.ValidationUtils
 import org.junit.Assert.*
 import org.junit.Test
 

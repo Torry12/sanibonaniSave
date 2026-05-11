@@ -53,6 +53,14 @@ class NavGraphRoleRoutingTest {
     }
 
     @Test
+    fun adminDashboardWithSupportMode_appendsSupportFlag() {
+        assertEquals(
+            "admin_dashboard?groupId=group_123&supportMode=true",
+            Screen.AdminDashboard.withId("group_123", supportMode = true)
+        )
+    }
+
+    @Test
     fun destinationForPaymentType_joiningFee_goesToMemberPanelForGroup() {
         assertEquals(
             Screen.MemberDashboard.withTab(0, "group_456"),

@@ -3,18 +3,19 @@ package com.sanibonani.save.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.sanibonani.save.BuildConfig
-import com.sanibonani.save.data.FileUploadLimits
+import com.sanibonani.save.domain.config.FileUploadLimits
 import com.sanibonani.save.data.logging.AppLogger
 import com.sanibonani.save.domain.model.Group
 import com.sanibonani.save.domain.model.GroupType
 import com.sanibonani.save.domain.model.DocumentStatus
 import com.sanibonani.save.data.remote.Feature
 import com.sanibonani.save.data.remote.GeoapifyService
+import com.sanibonani.save.domain.repository.ExportRepository
 import com.sanibonani.save.domain.repository.GroupRepository
 import com.sanibonani.save.data.utils.LocationUtils
 import com.sanibonani.save.data.utils.toUserMessage
-import com.sanibonani.save.data.validation.ValidationResult
-import com.sanibonani.save.data.validation.ValidationUtils
+import com.sanibonani.save.domain.validation.ValidationResult
+import com.sanibonani.save.domain.validation.ValidationUtils
 import com.sanibonani.save.domain.usecase.CreateGroupUseCase
 import com.sanibonani.save.domain.usecase.GetPublicGroupsUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -86,12 +87,14 @@ data class RegisterGroupState(
     val constitutionUrl: String? = null,
     val constitutionStatus: DocumentStatus = DocumentStatus.PENDING,
     val pendingConstitutionBytes: ByteArray? = null,
-    val pendingConstitutionName: String? = null
+    val pendingConstitutionName: String? = null,
+    val useStandardConstitution: Boolean = false
 )
 
 @HiltViewModel
 class GroupViewModel @Inject constructor(
     private val groupRepo: GroupRepository,
+    private val exportRepo: ExportRepository,
     private val createGroupUseCase: CreateGroupUseCase,
     private val getPublicGroupsUseCase: GetPublicGroupsUseCase,
     private val geoapifyService: GeoapifyService
@@ -421,6 +424,16 @@ class GroupViewModel @Inject constructor(
                 finalState.adminPhone.trim(),
                 finalState.adminIdNumber.trim()
             ).onSuccess { id ->
+                // Generate standard constitution if requested and none uploaded
+                if (finalState.useStandardConstitution && finalState.constitutionUrl == null) {
+                    viewModelScope.launch {
+                        exportRepo.exportGroupConstitution(group.copy(id = id))
+                            .onSuccess { file ->
+                                groupRepo.uploadConstitution(id, file.readBytes(), "Constitution_${group.name.replace(" ", "_")}.pdf")
+                            }
+                    }
+                }
+
                 _registerState.update { it.copy(
                     isSubmitting = false,
                     createdGroupId = id,

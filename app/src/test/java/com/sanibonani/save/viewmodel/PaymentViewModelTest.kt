@@ -5,8 +5,8 @@ import androidx.arch.core.executor.testing.InstantTaskExecutorRule
 import com.sanibonani.save.domain.model.*
 import com.sanibonani.save.domain.repository.*
 import com.sanibonani.save.domain.usecase.ProcessPaymentUseCase
-import com.sanibonani.save.data.validation.ValidationUtils
-import com.sanibonani.save.data.validation.ValidationResult
+import com.sanibonani.save.domain.validation.ValidationResult
+import com.sanibonani.save.domain.validation.ValidationUtils
 import io.mockk.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi

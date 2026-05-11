@@ -4,6 +4,7 @@ import com.sanibonani.save.data.local.SanibonaniDatabase
 import com.sanibonani.save.data.logging.AppLogger
 import com.sanibonani.save.domain.model.UserRole
 import com.sanibonani.save.domain.repository.SupabaseRepository
+import com.sanibonani.save.domain.utils.AuthIdentityUtils
 import com.sanibonani.save.domain.utils.PlatformAdminAuthPolicy
 import com.sanibonani.save.domain.utils.UserRoleMapper
 import io.github.jan.supabase.SupabaseClient
@@ -15,7 +16,6 @@ import io.github.jan.supabase.auth.status.SessionStatus
 import io.github.jan.supabase.auth.user.UserSession
 import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.postgrest.query.Columns
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.json.*
@@ -34,6 +34,8 @@ class SupabaseManager @Inject constructor(
     private val db: SanibonaniDatabase,
     private val edgeFunctionGateway: EdgeFunctionGateway
 ) : SupabaseRepository {
+    private fun canonicalEmail(email: String): String = AuthIdentityUtils.normalizeEmail(email)
+
     override val currentSession: UserSession? get() = client.auth.currentSessionOrNull()
     
     override val currentUserId: String? get() = currentSession?.user?.id
@@ -62,13 +64,13 @@ class SupabaseManager @Inject constructor(
         password: String, 
         metadata: Map<String, String>
     ): Result<String> = runCatching {
-        val trimmedEmail = email.trim()
-        val trimmedPassword = password.trim()
-        
+        val normalizedEmail = canonicalEmail(email)
+        val exactPassword = password
+
         try {
             val response = client.auth.signUpWith(Email) {
-                this.email = trimmedEmail
-                this.password = trimmedPassword
+                this.email = normalizedEmail
+                this.password = exactPassword
                 if (metadata.isNotEmpty()) {
                     data = buildJsonObject {
                         metadata.forEach { (k, v) -> put(k, JsonPrimitive(v)) }
@@ -87,8 +89,8 @@ class SupabaseManager @Inject constructor(
                 // If user exists, attempt to sign in to confirm ownership and get the ID
                 try {
                     client.auth.signInWith(Email) {
-                        this.email = trimmedEmail
-                        this.password = trimmedPassword
+                        this.email = normalizedEmail
+                        this.password = exactPassword
                     }
                     client.auth.currentUserOrNull()?.id ?: throw IllegalStateException("Sign-in succeeded but user ID is missing.")
                 } catch (signInError: Exception) {
@@ -122,15 +124,15 @@ class SupabaseManager @Inject constructor(
         metadata: Map<String, String>,
         confirm: Boolean
     ): Result<String> = runCatching {
-        val trimmedEmail = email.trim()
-        val trimmedPassword = password.trim()
+        val normalizedEmail = canonicalEmail(email)
+        val exactPassword = password
 
         edgeFunctionGateway.invoke(
             functionName = "mobile-admin-actions",
             payload = buildJsonObject {
                 put("action", "admin_sign_up")
-                put("email", trimmedEmail)
-                put("password", trimmedPassword)
+                put("email", normalizedEmail)
+                put("password", exactPassword)
                 put("confirm", confirm)
                 put("metadata", buildJsonObject {
                     metadata.forEach { (k, v) -> put(k, JsonPrimitive(v)) }
@@ -141,18 +143,20 @@ class SupabaseManager @Inject constructor(
     }
 
     override suspend fun signIn(email: String, password: String): Result<Unit> = runCatching {
-        AppLogger.d("SupabaseManager", "🔄 Attempting sign-in for: $email")
+        val normalizedEmail = canonicalEmail(email)
+        AppLogger.d("SupabaseManager", "🔄 Attempting sign-in for: $normalizedEmail")
         client.auth.signInWith(Email) {
-            this.email    = email
+            this.email    = normalizedEmail
             this.password = password
         }
-        AppLogger.d("SupabaseManager", "✅ Sign-in successful for: $email")
+        AppLogger.d("SupabaseManager", "✅ Sign-in successful for: $normalizedEmail")
         updateLoginAuditFields()
     }
 
     override suspend fun signInWithMagicLink(email: String): Result<Unit> = runCatching {
+        val normalizedEmail = canonicalEmail(email)
         client.auth.signInWith(OTP) {
-            this.email = email
+            this.email = normalizedEmail
             createUser = false
         }
         updateLoginAuditFields()
@@ -180,7 +184,7 @@ class SupabaseManager @Inject constructor(
 
     override suspend fun sendPasswordResetEmail(email: String): Result<Unit> = runCatching {
         client.auth.resetPasswordForEmail(
-            email = email,
+            email = canonicalEmail(email),
             redirectUrl = "sanibonani://reset-password"
         )
     }
@@ -212,20 +216,6 @@ class SupabaseManager @Inject constructor(
         val sessionEmail = user.email?.trim()?.lowercase()
         val isCanonicalPlatformAdminEmail = PlatformAdminAuthPolicy.isPlatformAdminEmail(sessionEmail)
 
-        if (PlatformAdminAuthPolicy.ASSUME_ALL_AUTH_USERS_ARE_PLATFORM_ADMIN) {
-            if (!isCanonicalPlatformAdminEmail) {
-                AppLogger.d(
-                    tag = "SupabaseManager",
-                    message = "Feature flag enabled but user is not canonical platform admin email; no elevation. userId=$userId email=$sessionEmail"
-                )
-            } else {
-                AppLogger.d(
-                    tag = "SupabaseManager",
-                    message = "Role resolved to PLATFORM_ADMIN by feature flag for canonical platform admin email: userId=$userId email=$sessionEmail"
-                )
-                return UserRole.PLATFORM_ADMIN
-            }
-        }
 
         // 1. Priority check: hardcoded platform admin email policy
         if (isCanonicalPlatformAdminEmail) {
@@ -282,21 +272,6 @@ class SupabaseManager @Inject constructor(
             }.getOrDefault(true)
         } else {
             false
-        }
-
-        // Guardrail: only the configured canonical email can ever be treated as PLATFORM_ADMIN.
-        if (resolved == UserRole.PLATFORM_ADMIN && !isCanonicalPlatformAdminEmail) {
-            val fallback = profileRole
-                .takeIf { it != UserRole.PLATFORM_ADMIN }
-                ?: metadataRole.takeIf { it != UserRole.PLATFORM_ADMIN }
-                ?: appMetadataRole.takeIf { it != UserRole.PLATFORM_ADMIN }
-                ?: UserRole.MEMBER
-
-            AppLogger.w(
-                tag = "SupabaseManager",
-                message = "Rejected PLATFORM_ADMIN resolution for non-canonical email. userId=$userId email=$sessionEmail fallback=$fallback"
-            )
-            return fallback
         }
 
         if (resolved == UserRole.GROUP_ADMIN && !hasOwnedGroup) {

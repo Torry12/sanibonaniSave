@@ -44,9 +44,9 @@ class LandingViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(LandingUiState())
     val uiState: StateFlow<LandingUiState> = _uiState.asStateFlow()
 
-    init {
-        refreshData()
-    }
+    // init {
+    //     refreshData()
+    // }
 
     fun refreshData() {
         viewModelScope.launch {

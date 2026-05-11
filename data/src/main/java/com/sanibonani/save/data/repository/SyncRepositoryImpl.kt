@@ -2,6 +2,7 @@ package com.sanibonani.save.data.repository
 
 import com.sanibonani.save.domain.repository.*
 import com.sanibonani.save.data.logging.AppLogger
+import com.sanibonani.save.data.utils.toUserMessage
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import javax.inject.Inject
@@ -19,8 +20,12 @@ class SyncRepositoryImpl @Inject constructor(
 
     override suspend fun syncAllData(): Result<Unit> = runCatching {
         kotlinx.coroutines.withTimeout(30000) { // 30s timeout for full sync
-            val userId = supabaseRepo.currentUserId ?: return@withTimeout
-            
+            val userId = supabaseRepo.currentUserId ?: run {
+                val message = "Please sign in to sync your data."
+                _syncStatus.value = SyncStatus.Error(message)
+                throw IllegalStateException(message)
+            }
+
             _syncStatus.value = SyncStatus.Progress("Syncing memberships...", 0.1f)
             val memberships = memberRepo.getMemberships(userId).getOrThrow()
             
@@ -53,7 +58,8 @@ class SyncRepositoryImpl @Inject constructor(
             _syncStatus.value = SyncStatus.Completed
         }
     }.onFailure { e ->
-        AppLogger.e(tag, "Full sync failed: ${e.message}")
-        _syncStatus.value = SyncStatus.Error(e.message ?: "Unknown sync error")
+        val userMessage = e.toUserMessage()
+        AppLogger.e(tag, "Full sync failed: $userMessage")
+        _syncStatus.value = SyncStatus.Error(userMessage)
     }
 }

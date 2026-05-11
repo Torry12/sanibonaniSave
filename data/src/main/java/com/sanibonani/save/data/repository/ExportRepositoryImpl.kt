@@ -12,6 +12,7 @@ import com.sanibonani.save.domain.model.Contribution
 import com.sanibonani.save.domain.model.Payment
 import com.sanibonani.save.domain.model.Member
 import com.sanibonani.save.domain.model.Group
+import com.sanibonani.save.domain.model.Loan
 import com.sanibonani.save.domain.repository.SupabaseRepository
 import com.sanibonani.save.domain.utils.FileDownloader
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -96,23 +97,19 @@ class ExportRepositoryImpl @Inject constructor(
         val pdf = PdfDocument()
         val generatedAt = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date())
 
-        fun newPage(pageNo: Int): Pair<PdfDocument.Page, PdfDocument.PageInfo> {
-            val info = PdfDocument.PageInfo.Builder(pageWidth, pageHeight, pageNo).create()
-            return pdf.startPage(info) to info
-        }
-
         var pageNo = 1
-        var (page, pageInfo) = newPage(pageNo)
-        var canvas = page.canvas
-        var y = margin
+        var currentPage: PdfDocument.Page? = null
+        var canvas: android.graphics.Canvas? = null
+        var y = 0f
 
-        fun drawHeader() {
-            canvas.drawText("Group Payments Statement", margin.toFloat(), y.toFloat(), titlePaint)
-            y += 22
-            canvas.drawText("Group: ${group.name}", margin.toFloat(), y.toFloat(), subtitlePaint)
-            y += rowHeight
-            canvas.drawText("Generated: $generatedAt", margin.toFloat(), y.toFloat(), subtitlePaint)
-            y += (rowHeight + 8)
+        fun drawHeader(cv: android.graphics.Canvas) {
+            var localY = margin.toFloat()
+            cv.drawText("Group Payments Statement", margin.toFloat(), localY, titlePaint)
+            localY += 22
+            cv.drawText("Group: ${group.name}", margin.toFloat(), localY, subtitlePaint)
+            localY += rowHeight
+            cv.drawText("Generated: $generatedAt", margin.toFloat(), localY, subtitlePaint)
+            localY += (rowHeight + 8)
 
             val c1 = margin
             val c2 = margin + 72
@@ -121,35 +118,34 @@ class ExportRepositoryImpl @Inject constructor(
             val c5 = margin + 410
             val c6 = margin + 486
 
-            canvas.drawText("Date", c1.toFloat(), y.toFloat(), headerPaint)
-            canvas.drawText("Member", c2.toFloat(), y.toFloat(), headerPaint)
-            canvas.drawText("Type", c3.toFloat(), y.toFloat(), headerPaint)
-            canvas.drawText("Amount", c4.toFloat(), y.toFloat(), headerPaint)
-            canvas.drawText("Method", c5.toFloat(), y.toFloat(), headerPaint)
-            canvas.drawText("Status", c6.toFloat(), y.toFloat(), headerPaint)
-            y += rowHeight
+            cv.drawText("Date", c1.toFloat(), localY, headerPaint)
+            cv.drawText("Member", c2.toFloat(), localY, headerPaint)
+            cv.drawText("Type", c3.toFloat(), localY, headerPaint)
+            cv.drawText("Amount", c4.toFloat(), localY, headerPaint)
+            cv.drawText("Method", c5.toFloat(), localY, headerPaint)
+            cv.drawText("Status", c6.toFloat(), localY, headerPaint)
+            y = localY + rowHeight
         }
 
-        fun ensureSpace(required: Int) {
-            if (y + required >= pageInfo.pageHeight - margin) {
-                pdf.finishPage(page)
-                pageNo += 1
-                val next = newPage(pageNo)
-                page = next.first
-                pageInfo = next.second
-                canvas = page.canvas
-                y = margin
-                drawHeader()
-            }
+        fun startNewPage() {
+            currentPage?.let { pdf.finishPage(it) }
+            val pageInfo = PdfDocument.PageInfo.Builder(pageWidth, pageHeight, pageNo++).create()
+            val page = pdf.startPage(pageInfo)
+            currentPage = page
+            canvas = page.canvas
+            drawHeader(page.canvas)
         }
 
-        drawHeader()
+        startNewPage()
         val rows = payments.sortedByDescending { it.createdAt }
         if (rows.isEmpty()) {
-            canvas.drawText("No payment records found.", margin.toFloat(), y.toFloat(), textPaint)
+            canvas?.drawText("No payment records found.", margin.toFloat(), y, textPaint)
         } else {
             rows.forEach { p ->
-                ensureSpace(rowHeight)
+                if (y + rowHeight >= pageHeight - margin) {
+                    startNewPage()
+                }
+                
                 val date = p.createdAt?.take(10) ?: "N/A"
                 val memberName = (memberMap[p.memberId]?.fullName ?: "Unknown").take(24)
                 val type = p.paymentType.displayName.take(12)
@@ -157,17 +153,17 @@ class ExportRepositoryImpl @Inject constructor(
                 val method = p.paymentMethod.displayName.take(10)
                 val status = p.status.displayName.take(10)
 
-                canvas.drawText(date, margin.toFloat(), y.toFloat(), textPaint)
-                canvas.drawText(memberName, (margin + 72).toFloat(), y.toFloat(), textPaint)
-                canvas.drawText(type, (margin + 258).toFloat(), y.toFloat(), textPaint)
-                canvas.drawText(amount, (margin + 340).toFloat(), y.toFloat(), textPaint)
-                canvas.drawText(method, (margin + 410).toFloat(), y.toFloat(), textPaint)
-                canvas.drawText(status, (margin + 486).toFloat(), y.toFloat(), textPaint)
+                canvas?.drawText(date, margin.toFloat(), y, textPaint)
+                canvas?.drawText(memberName, (margin + 72).toFloat(), y, textPaint)
+                canvas?.drawText(type, (margin + 258).toFloat(), y, textPaint)
+                canvas?.drawText(amount, (margin + 340).toFloat(), y, textPaint)
+                canvas?.drawText(method, (margin + 410).toFloat(), y, textPaint)
+                canvas?.drawText(status, (margin + 486).toFloat(), y, textPaint)
                 y += rowHeight
             }
         }
 
-        pdf.finishPage(page)
+        currentPage?.let { pdf.finishPage(it) }
         FileOutputStream(file).use { out -> pdf.writeTo(out) }
         pdf.close()
         file
@@ -203,13 +199,12 @@ class ExportRepositoryImpl @Inject constructor(
         val sanitizedMemberName = member.fullName.replace(Regex("[^a-zA-Z0-9_-]"), "_")
         val fileName = "Statement_${sanitizedMemberName}_${System.currentTimeMillis()}.pdf"
 
-        // Try external files dir first, fallback to internal files dir if needed
         val storageDir = context.getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS)
             ?: context.filesDir.let { File(it, "documents").apply { if (!exists()) mkdirs() } }
 
         val file = File(storageDir, fileName)
 
-        val pageWidth = 595 // A4 @ 72dpi (approx)
+        val pageWidth = 595
         val pageHeight = 842
         val margin = 40
         val lineHeight = 18
@@ -222,7 +217,6 @@ class ExportRepositoryImpl @Inject constructor(
         }
         val subtitlePaint = Paint().apply {
             textSize = 12f
-            typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
             isAntiAlias = true
         }
         val headerPaint = Paint().apply {
@@ -232,85 +226,289 @@ class ExportRepositoryImpl @Inject constructor(
         }
         val textPaint = Paint().apply {
             textSize = 11f
-            typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
             isAntiAlias = true
         }
 
         val now = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date())
-
         val pdf = PdfDocument()
 
-        fun newPage(pageNumber: Int): Pair<PdfDocument.Page, PdfDocument.PageInfo> {
-            val pageInfo = PdfDocument.PageInfo.Builder(pageWidth, pageHeight, pageNumber).create()
-            return pdf.startPage(pageInfo) to pageInfo
-        }
-
         var pageNumber = 1
-        var (page, pageInfo) = newPage(pageNumber)
-        var canvas = page.canvas
-        var y = margin
+        var currentPage: PdfDocument.Page? = null
+        var canvas: android.graphics.Canvas? = null
+        var y = 0f
 
-        fun ensureSpace(required: Int) {
-            if (y + required >= pageInfo.pageHeight - margin) {
-                pdf.finishPage(page)
-                pageNumber += 1
-                val next = newPage(pageNumber)
-                page = next.first
-                pageInfo = next.second
-                canvas = page.canvas
-                y = margin
-            }
+        fun drawHeader(cv: android.graphics.Canvas) {
+            var localY = margin.toFloat()
+            cv.drawText("Contribution Statement", margin.toFloat(), localY, titlePaint)
+            localY += 26
+            cv.drawText("Group: ${group.name}", margin.toFloat(), localY, subtitlePaint)
+            localY += lineHeight
+            cv.drawText("Member: ${member.fullName}", margin.toFloat(), localY, subtitlePaint)
+            localY += lineHeight
+            cv.drawText("Generated: $now", margin.toFloat(), localY, subtitlePaint)
+            localY += (lineHeight + tableGap)
+
+            val col1 = margin
+            val col2 = margin + 220
+            val col3 = margin + 330
+            val col4 = margin + 430
+
+            cv.drawText("Due Date", col1.toFloat(), localY, headerPaint)
+            cv.drawText("Paid Date", col2.toFloat(), localY, headerPaint)
+            cv.drawText("Amount", col3.toFloat(), localY, headerPaint)
+            cv.drawText("Status", col4.toFloat(), localY, headerPaint)
+            y = localY + lineHeight
         }
 
-        // Header
-        canvas.drawText("Contribution Statement", margin.toFloat(), y.toFloat(), titlePaint)
-        y += 26
-        canvas.drawText("Group: ${group.name}", margin.toFloat(), y.toFloat(), subtitlePaint)
-        y += lineHeight
-        canvas.drawText("Member: ${member.fullName}", margin.toFloat(), y.toFloat(), subtitlePaint)
-        y += lineHeight
-        canvas.drawText("Generated: $now", margin.toFloat(), y.toFloat(), subtitlePaint)
-        y += (lineHeight + tableGap)
+        fun startNewPage() {
+            currentPage?.let { pdf.finishPage(it) }
+            val pageInfo = PdfDocument.PageInfo.Builder(pageWidth, pageHeight, pageNumber++).create()
+            val page = pdf.startPage(pageInfo)
+            currentPage = page
+            canvas = page.canvas
+            drawHeader(page.canvas)
+        }
 
-        // Table header
-        val col1 = margin
-        val col2 = margin + 220
-        val col3 = margin + 330
-        val col4 = margin + 430
-
-        canvas.drawText("Due Date", col1.toFloat(), y.toFloat(), headerPaint)
-        canvas.drawText("Paid Date", col2.toFloat(), y.toFloat(), headerPaint)
-        canvas.drawText("Amount", col3.toFloat(), y.toFloat(), headerPaint)
-        canvas.drawText("Status", col4.toFloat(), y.toFloat(), headerPaint)
-        y += (lineHeight)
-
+        startNewPage()
         val sorted = contributions.sortedByDescending { it.dueDate }
         if (sorted.isEmpty()) {
-            canvas.drawText("No contributions found.", margin.toFloat(), y.toFloat(), textPaint)
-            y += lineHeight
+            canvas?.drawText("No contributions found.", margin.toFloat(), y, textPaint)
         } else {
             sorted.forEach { c ->
-                ensureSpace(lineHeight)
+                if (y + lineHeight >= pageHeight - margin) {
+                    startNewPage()
+                }
+                
                 val due = c.dueDate
                 val paid = c.paidAt?.take(10) ?: "N/A"
                 val amount = "R%.2f".format(Locale.getDefault(), c.amount)
                 val status = c.status.displayName
 
-                canvas.drawText(due, col1.toFloat(), y.toFloat(), textPaint)
-                canvas.drawText(paid, col2.toFloat(), y.toFloat(), textPaint)
-                canvas.drawText(amount, col3.toFloat(), y.toFloat(), textPaint)
-                canvas.drawText(status, col4.toFloat(), y.toFloat(), textPaint)
+                canvas?.drawText(due, margin.toFloat(), y, textPaint)
+                canvas?.drawText(paid, (margin + 220).toFloat(), y, textPaint)
+                canvas?.drawText(amount, (margin + 330).toFloat(), y, textPaint)
+                canvas?.drawText(status, (margin + 430).toFloat(), y, textPaint)
                 y += lineHeight
             }
         }
 
-        pdf.finishPage(page)
-
-        FileOutputStream(file).use { out ->
-            pdf.writeTo(out)
-        }
+        currentPage?.let { pdf.finishPage(it) }
+        FileOutputStream(file).use { out -> pdf.writeTo(out) }
         pdf.close()
+        file
+    }
 
+    override suspend fun exportLoanAgreement(
+        loan: Loan,
+        member: Member,
+        group: Group
+    ): Result<File> = runCatching {
+        val sanitizedMemberName = member.fullName.replace(Regex("[^a-zA-Z0-9_-]"), "_")
+        val fileName = "Loan_Agreement_${sanitizedMemberName}_${System.currentTimeMillis()}.pdf"
+
+        val storageDir = context.getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS)
+            ?: context.filesDir.let { File(it, "documents").apply { if (!exists()) mkdirs() } }
+
+        val file = File(storageDir, fileName)
+
+        val pageWidth = 595
+        val pageHeight = 842
+        val margin = 50
+        val lineHeight = 20
+
+        val titlePaint = Paint().apply {
+            textSize = 20f
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            isAntiAlias = true
+        }
+        val headerPaint = Paint().apply {
+            textSize = 14f
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            isAntiAlias = true
+        }
+        val textPaint = Paint().apply {
+            textSize = 12f
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
+            isAntiAlias = true
+        }
+
+        val pdf = PdfDocument()
+        var pageNo = 1
+        var currentPage: PdfDocument.Page? = null
+        var canvas: android.graphics.Canvas? = null
+        var y = 0f
+        
+        fun drawHeader(cv: android.graphics.Canvas) {
+            var localY = margin.toFloat()
+            cv.drawText("LOAN AGREEMENT", margin.toFloat(), localY, titlePaint)
+            localY += 40
+
+            cv.drawText("Group: ${group.name}", margin.toFloat(), localY, headerPaint)
+            localY += lineHeight
+            cv.drawText("Borrower: ${member.fullName}", margin.toFloat(), localY, headerPaint)
+            localY += lineHeight
+            cv.drawText("ID Number: ${member.idNumber ?: "N/A"}", margin.toFloat(), localY, textPaint)
+            y = localY + 30
+        }
+
+        fun startNewPage() {
+            currentPage?.let { pdf.finishPage(it) }
+            val pageInfo = PdfDocument.PageInfo.Builder(pageWidth, pageHeight, pageNo++).create()
+            val page = pdf.startPage(pageInfo)
+            currentPage = page
+            canvas = page.canvas
+            drawHeader(page.canvas)
+        }
+
+        startNewPage()
+
+        canvas?.drawText("Loan Details:", margin.toFloat(), y, headerPaint)
+        y += lineHeight
+        canvas?.drawText("Principal Amount: R${"%.2f".format(loan.amount)}", margin.toFloat(), y, textPaint)
+        y += lineHeight
+        canvas?.drawText("Interest Rate: ${loan.interestRate}%", margin.toFloat(), y, textPaint)
+        y += lineHeight
+        canvas?.drawText("Total to Repay: R${"%.2f".format(loan.totalToRepay)}", margin.toFloat(), y, textPaint)
+        y += lineHeight
+        canvas?.drawText("Monthly Installment: R${"%.2f".format(loan.monthlyRepayment)}", margin.toFloat(), y, textPaint)
+        y += 30
+
+        val terms = listOf(
+            "1. The borrower agrees to repay the total amount in monthly installments.",
+            "2. Repayments are due on the ${group.paymentDueDay}th of each month.",
+            "3. Late payments may incur additional fees as per group policy.",
+            "4. This loan is subject to the constitution of ${group.name}.",
+            "5. The borrower acknowledges receipt of the funds and agrees to the interest rate specified."
+        )
+
+        canvas?.drawText("Terms and Conditions:", margin.toFloat(), y, headerPaint)
+        y += lineHeight
+        terms.forEach { term ->
+            if (y + lineHeight >= pageHeight - margin) {
+                startNewPage()
+            }
+            canvas?.drawText(term, margin.toFloat(), y, textPaint)
+            y += lineHeight
+        }
+
+        y += 50
+        if (y + lineHeight * 2 >= pageHeight - margin) {
+            startNewPage()
+        }
+        canvas?.drawText("__________________________", margin.toFloat(), y, textPaint)
+        canvas?.drawText("__________________________", (pageWidth / 2 + 20).toFloat(), y, textPaint)
+        y += lineHeight
+        canvas?.drawText("Borrower Signature", margin.toFloat(), y, textPaint)
+        canvas?.drawText("Admin Signature", (pageWidth / 2 + 20).toFloat(), y, textPaint)
+
+        currentPage?.let { pdf.finishPage(it) }
+        FileOutputStream(file).use { out -> pdf.writeTo(out) }
+        pdf.close()
+        file
+    }
+
+    override suspend fun exportGroupConstitution(group: Group): Result<File> = runCatching {
+        val sanitizedGroupName = group.name.replace(Regex("[^a-zA-Z0-9_-]"), "_")
+        val fileName = "Constitution_${sanitizedGroupName}_${System.currentTimeMillis()}.pdf"
+
+        val storageDir = context.getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS)
+            ?: context.filesDir.let { File(it, "documents").apply { if (!exists()) mkdirs() } }
+
+        val file = File(storageDir, fileName)
+
+        val pageWidth = 595
+        val pageHeight = 842
+        val margin = 50
+        val lineHeight = 20
+
+        val titlePaint = Paint().apply {
+            textSize = 22f
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            isAntiAlias = true
+        }
+        val headerPaint = Paint().apply {
+            textSize = 14f
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            isAntiAlias = true
+        }
+        val textPaint = Paint().apply {
+            textSize = 12f
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
+            isAntiAlias = true
+        }
+
+        val pdf = PdfDocument()
+        var pageNo = 1
+        var currentPage: PdfDocument.Page? = null
+        var canvas: android.graphics.Canvas? = null
+        var y = 0f
+
+        fun drawHeader(cv: android.graphics.Canvas) {
+            var localY = margin.toFloat()
+            cv.drawText("CONSTITUTION OF", margin.toFloat(), localY, headerPaint)
+            localY += 30
+            cv.drawText(group.name.uppercase(), margin.toFloat(), localY, titlePaint)
+            y = localY + 50
+        }
+
+        fun startNewPage() {
+            currentPage?.let { pdf.finishPage(it) }
+            val pageInfo = PdfDocument.PageInfo.Builder(pageWidth, pageHeight, pageNo++).create()
+            val page = pdf.startPage(pageInfo)
+            currentPage = page
+            canvas = page.canvas
+            drawHeader(page.canvas)
+        }
+
+        startNewPage()
+
+        val sections = listOf(
+            "1. NAME AND TYPE" to "The name of the group is ${group.name}, which is a ${group.type.displayName}.",
+            "2. OBJECTIVES" to "The primary objective of the group is to promote collective savings and financial security for its members.",
+            "3. MEMBERSHIP" to "Membership is open to individuals who meet the group criteria. Maximum members allowed: ${group.maxMembers}.",
+            "4. CONTRIBUTIONS" to "Each member shall contribute R${"%.2f".format(group.monthlyContribution)} per month, due on the ${group.paymentDueDay}th of each month.",
+            "5. LATE FEES" to "A late fee of R${"%.2f".format(group.lateFee)} will be applied if payments are not made within ${group.lateFeeGraceDays} days of the due date.",
+            "6. LOANS" to (let {
+                val maxAmount = group.loanMaxAmount
+                if (maxAmount != null && maxAmount > 0) 
+                    "Members may apply for loans up to R${"%.2f".format(maxAmount)} at an interest rate of ${group.loanInterestRate}%." 
+                else "Loan facilities are subject to group approval and available funds."
+            }),
+            "7. AMENDMENTS" to "This constitution may be amended by a two-thirds majority vote of all active members."
+        )
+
+        sections.forEach { (title, content) ->
+            if (y + lineHeight * 2 >= pageHeight - margin) {
+                startNewPage()
+            }
+            canvas?.drawText(title, margin.toFloat(), y, headerPaint)
+            y += lineHeight
+            
+            val words = content.split(" ")
+            var line = ""
+            words.forEach { word ->
+                val testLine = if (line.isEmpty()) word else "$line $word"
+                if (textPaint.measureText(testLine) < pageWidth - (margin * 2)) {
+                    line = testLine
+                } else {
+                    if (y + lineHeight >= pageHeight - margin) {
+                        startNewPage()
+                    }
+                    canvas?.drawText(line, margin.toFloat(), y, textPaint)
+                    y += lineHeight
+                    line = word
+                }
+            }
+            if (y + lineHeight >= pageHeight - margin) {
+                startNewPage()
+            }
+            canvas?.drawText(line, margin.toFloat(), y, textPaint)
+            y += 40
+        }
+
+        currentPage?.let { pdf.finishPage(it) }
+        FileOutputStream(file).use { out -> pdf.writeTo(out) }
+        pdf.close()
         file
     }
 
@@ -341,12 +539,21 @@ class ExportRepositoryImpl @Inject constructor(
             val authority = "${context.packageName}.fileprovider"
             val uri: Uri = FileProvider.getUriForFile(context, authority, file)
             
+            val extension = file.extension.lowercase()
+            val mimeType = when (extension) {
+                "csv" -> "text/csv"
+                "pdf" -> "application/pdf"
+                "jpg", "jpeg" -> "image/jpeg"
+                "png" -> "image/png"
+                else -> "application/octet-stream"
+            }
+
             val intent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
-                type = "text/csv"
+                type = mimeType
                 putExtra(android.content.Intent.EXTRA_STREAM, uri)
                 addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
-            val chooser = android.content.Intent.createChooser(intent, "Share Statement").apply {
+            val chooser = android.content.Intent.createChooser(intent, "Share Document").apply {
                 addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
             }
             context.startActivity(chooser)

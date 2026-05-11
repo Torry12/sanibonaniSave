@@ -75,6 +75,16 @@ class MemberRepositoryImpl @Inject constructor(
         },
         cacheSync = { list -> db.memberDao().syncMembers(groupId, list) }
     )
+
+    override suspend fun syncGroupMembers(groupId: String): Result<List<Member>> = retryWithExponentialBackoff {
+        runCatching {
+            val remote = supabase.postgrest["members"].select(columns = Columns.raw(MEMBER_COLUMNS_SAFE)) {
+                filter { eq("group_id", groupId) }
+            }.decodeList<Member>()
+            db.memberDao().syncMembers(groupId, remote.map { it.toEntity() })
+            remote
+        }
+    }
     
     override suspend fun getGroupMembersPaginated(
         groupId: String,
@@ -360,7 +370,7 @@ class MemberRepositoryImpl @Inject constructor(
             }
 
             db.groupDao().upsertGroup(group.copy(balance = chargedBalance).toEntity())
-            return@runCatching Unit
+            return@runCatching
         }
 
         // Use actuarial premium if it's a burial society and not a manual amount

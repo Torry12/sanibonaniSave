@@ -25,6 +25,10 @@ abstract class RepoModule {
 
     @Binds
     @Singleton
+    abstract fun bindLedgerRepository(impl: LedgerRepositoryImpl): LedgerRepository
+
+    @Binds
+    @Singleton
     abstract fun bindGroupRepository(
         groupRepositoryImpl: GroupRepositoryImpl
     ): GroupRepository
@@ -124,4 +128,10 @@ abstract class RepoModule {
     abstract fun bindHealthScoreRepository(
         healthScoreRepositoryImpl: HealthScoreRepositoryImpl
     ): HealthScoreRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindBeneficiaryClaimRepository(
+        beneficiaryClaimRepositoryImpl: BeneficiaryClaimRepositoryImpl
+    ): BeneficiaryClaimRepository
 }

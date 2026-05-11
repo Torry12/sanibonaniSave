@@ -1,18 +1,23 @@
 package com.sanibonani.save.ui.components
 
 import androidx.compose.animation.core.*
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.*
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.*
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.*
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -24,6 +29,20 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.*
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.viewinterop.AndroidView
+import android.graphics.pdf.PdfRenderer
+import android.os.ParcelFileDescriptor
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.ui.graphics.asImageBitmap
+import java.io.File
+import java.io.FileOutputStream
+import java.net.URL
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import android.graphics.Bitmap
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -33,6 +52,7 @@ import coil.request.ImageRequest
 import com.sanibonani.save.domain.model.*
 import com.sanibonani.save.ui.theme.*
 import org.osmdroid.tileprovider.tilesource.TileSourceFactory
+import org.osmdroid.util.BoundingBox
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Marker
@@ -42,6 +62,9 @@ import android.preference.PreferenceManager
 import java.util.Locale
 import java.text.NumberFormat
 import java.util.Currency
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 
 // ── Currency formatter ────────────────────────────────────────────────────────
 private val zarFormatter: NumberFormat = NumberFormat.getCurrencyInstance(Locale("en", "ZA")).apply {
@@ -307,22 +330,26 @@ fun StatCard(
 ) {
     Card(
         modifier  = modifier
-            .width(180.dp)
+            .width(185.dp)
             .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier),
-        shape     = RoundedCornerShape(20.dp),
+        shape     = RoundedCornerShape(24.dp),
         colors    = CardDefaults.cardColors(containerColor = Color.White),
-        elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
-        border    = BorderStroke(1.dp, accentColor.copy(alpha = 0.1f))
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        border    = BorderStroke(1.dp, accentColor.copy(alpha = 0.08f))
     ) {
         Column(Modifier.padding(20.dp)) {
             Box(
                 modifier         = Modifier
-                    .size(44.dp)
-                    .clip(CircleShape)
-                    .background(accentColor.copy(alpha = 0.12f)),
+                    .size(48.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(
+                        Brush.linearGradient(
+                            listOf(accentColor.copy(alpha = 0.15f), accentColor.copy(alpha = 0.05f))
+                        )
+                    ),
                 contentAlignment = Alignment.Center
             ) { 
-                Text(icon, fontSize = 22.sp) 
+                Text(icon, fontSize = 24.sp) 
             }
             
             Spacer(Modifier.height(16.dp))
@@ -331,7 +358,7 @@ fun StatCard(
                 text = label, 
                 style = MaterialTheme.typography.labelMedium, 
                 color = MidGray, 
-                fontWeight = FontWeight.SemiBold,
+                fontWeight = FontWeight.Medium,
                 maxLines = 1
             )
             
@@ -341,7 +368,7 @@ fun StatCard(
                 text = value, 
                 style = MaterialTheme.typography.titleLarge, 
                 color = Charcoal, 
-                fontWeight = FontWeight.ExtraBold, 
+                fontWeight = FontWeight.Black, 
                 maxLines = 1, 
                 overflow = TextOverflow.Ellipsis
             )
@@ -349,10 +376,10 @@ fun StatCard(
             subtitle?.let {
                 Text(
                     text = it, 
-                    style = MaterialTheme.typography.bodySmall, 
-                    color = accentColor.copy(alpha = 0.8f), 
-                    fontWeight = FontWeight.Medium,
-                    modifier = Modifier.padding(top = 4.dp)
+                    style = MaterialTheme.typography.labelSmall, 
+                    color = accentColor.copy(alpha = 0.7f), 
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.padding(top = 6.dp)
                 )
             }
         }
@@ -387,27 +414,30 @@ fun SanibonaniButton(
     contentColor   : Color    = Color.White,
     textStyle      : androidx.compose.ui.text.TextStyle = MaterialTheme.typography.labelLarge
 ) {
+    val alpha = if (enabled) 1f else 0.6f
     Button(
         onClick  = onClick,
-        modifier = modifier.height(48.dp),
+        modifier = modifier.height(52.dp).alpha(alpha),
         enabled  = enabled && !isLoading,
-        shape    = RoundedCornerShape(12.dp),
+        shape    = RoundedCornerShape(16.dp),
         colors   = ButtonDefaults.buttonColors(
             containerColor   = containerColor,
             contentColor     = contentColor
-        )
+        ),
+        elevation = ButtonDefaults.buttonElevation(defaultElevation = 2.dp, pressedElevation = 0.dp)
     ) {
         if (isLoading) {
             CircularProgressIndicator(
                 modifier = Modifier.size(24.dp),
                 color = contentColor,
-                strokeWidth = 2.dp
+                strokeWidth = 2.5.dp
             )
         } else {
             Text(
                 text = text,
                 style = textStyle,
-                fontWeight = FontWeight.Bold,
+                fontWeight = FontWeight.Black,
+                letterSpacing = 0.5.sp,
                 maxLines = 1,
                 softWrap = false,
                 overflow = TextOverflow.Ellipsis
@@ -460,6 +490,7 @@ fun SanibonaniTextField(
     visualTransformation: VisualTransformation = VisualTransformation.None,
     keyboardOptions: androidx.compose.foundation.text.KeyboardOptions =
         androidx.compose.foundation.text.KeyboardOptions.Default,
+    readOnly: Boolean = false,
     enabled: Boolean = true
 ) {
     OutlinedTextField(
@@ -471,6 +502,7 @@ fun SanibonaniTextField(
         singleLine      = singleLine,
         isError         = isError,
         enabled         = enabled,
+        readOnly        = readOnly,
         supportingText  = supportingText?.let { { Text(it) } },
         keyboardOptions = keyboardOptions,
         leadingIcon     = leadingIcon,
@@ -766,6 +798,99 @@ fun InfoRow(label: String, value: String) {
 }
 
 @Composable
+fun DetailRow(label: String, value: String) {
+    Row(Modifier.fillMaxWidth().padding(vertical = 2.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+        Text(label, style = MaterialTheme.typography.bodySmall, color = MidGray)
+        Text(value, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
+    }
+}
+
+// ── Modern Navigation Link ───────────────────────────────────────────────────
+@Composable
+fun ModernNavigationLink(
+    title: String,
+    subtitle: String? = null,
+    icon: ImageVector? = null,
+    badgeCount: Int = 0,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    containerColor: Color = Color.White,
+    contentColor: Color = Charcoal,
+    accentColor: Color = Forest
+) {
+    Surface(
+        onClick = onClick,
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        color = containerColor,
+        border = BorderStroke(1.dp, accentColor.copy(alpha = 0.05f)),
+        shadowElevation = 0.dp
+    ) {
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            if (icon != null) {
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(accentColor.copy(alpha = 0.08f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = null,
+                        tint = accentColor,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+                Spacer(Modifier.width(16.dp))
+            }
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = contentColor
+                )
+                if (subtitle != null) {
+                    Text(
+                        text = subtitle,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MidGray
+                    )
+                }
+            }
+
+            if (badgeCount > 0) {
+                Surface(
+                    color = ErrorRed,
+                    shape = CircleShape,
+                    modifier = Modifier.padding(horizontal = 8.dp)
+                ) {
+                    Text(
+                        text = badgeCount.toString(),
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+
+            Icon(
+                imageVector = Icons.AutoMirrored.Rounded.KeyboardArrowRight,
+                contentDescription = null,
+                tint = MidGray.copy(alpha = 0.5f),
+                modifier = Modifier.size(24.dp)
+            )
+        }
+    }
+}
+
+@Composable
 fun DashboardHeader(
     title: String,
     subtitle: String,
@@ -775,19 +900,23 @@ fun DashboardHeader(
         modifier = Modifier
             .fillMaxWidth()
             .background(Color.White)
-            .padding(horizontal = 20.dp, vertical = 16.dp),
+            .padding(horizontal = 24.dp, vertical = 20.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
         Column {
-            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MidGray)
-            Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = Forest)
+            Text(subtitle, style = MaterialTheme.typography.labelMedium, color = MidGray, fontWeight = FontWeight.Medium)
+            Text(title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Black, color = Forest)
         }
-        IconButton(
+        Surface(
             onClick = onProfileClick,
-            modifier = Modifier.background(Forest.copy(0.1f), CircleShape)
+            shape = CircleShape,
+            color = Forest.copy(0.08f),
+            modifier = Modifier.size(48.dp)
         ) {
-            Icon(Icons.Default.Person, null, tint = Forest)
+            Box(contentAlignment = Alignment.Center) {
+                Icon(Icons.Default.Person, null, tint = Forest, modifier = Modifier.size(24.dp))
+            }
         }
     }
 }
@@ -1162,11 +1291,21 @@ fun SaOsmMap(
     groups   : List<Group>,
     onMarker : (String) -> Unit,
     onLocationTap: ((List<Group>) -> Unit)? = null,
+    userLocation: android.location.Location? = null,
     autoCenterOnGroups: Boolean = true,
     modifier : Modifier = Modifier
 ) {
     val context = LocalContext.current
-    
+    var lastUserViewportKey by remember { mutableStateOf<String?>(null) }
+    var zoomControlsVisible by remember { mutableStateOf(true) }
+
+    LaunchedEffect(zoomControlsVisible) {
+        if (zoomControlsVisible) {
+            kotlinx.coroutines.delay(3000)
+            zoomControlsVisible = false
+        }
+    }
+
     // Initialize OSMDroid configuration
     LaunchedEffect(Unit) {
         Configuration.getInstance().load(context, PreferenceManager.getDefaultSharedPreferences(context))
@@ -1180,6 +1319,43 @@ fun SaOsmMap(
             // Start with a South Africa-wide viewport for discovery maps.
             controller.setZoom(5.3)
             controller.setCenter(GeoPoint(-29.0, 24.0))
+        }
+    }
+
+    val markerEntries = remember(groups) {
+        groups.mapNotNull { g ->
+            val lat = g.latitude
+            val lon = g.longitude
+            if (lat != null && lon != null) Triple(lat, lon, g) else null
+        }
+    }
+
+    // Pre-compute grouped locations on a background thread to avoid blocking the main thread
+    var groupedLocationsState by remember { mutableStateOf<Map<String, List<Triple<Double, Double, Group>>>>(emptyMap()) }
+    var shouldCenterMap by remember { mutableStateOf(false) }
+    var avgLat by remember { mutableStateOf(0.0) }
+    var avgLon by remember { mutableStateOf(0.0) }
+    var centerZoom by remember { mutableStateOf(10.0) }
+
+    // Compute grouped locations asynchronously to avoid UI thread blocking
+    LaunchedEffect(markerEntries) {
+        if (markerEntries.isEmpty()) {
+            groupedLocationsState = emptyMap()
+            shouldCenterMap = false
+        } else {
+            // Move expensive computation off the main thread
+            val grouped = markerEntries
+                .groupBy { (lat, lon, _) ->
+                    "${"%.4f".format(Locale.US, lat)}:${"%.4f".format(Locale.US, lon)}"
+                }
+            groupedLocationsState = grouped
+
+            if (autoCenterOnGroups) {
+                avgLat = markerEntries.map { it.first }.average()
+                avgLon = markerEntries.map { it.second }.average()
+                centerZoom = if (markerEntries.size == 1) 14.0 else 10.0
+                shouldCenterMap = true
+            }
         }
     }
 
@@ -1200,64 +1376,382 @@ fun SaOsmMap(
         }
     }
 
-    AndroidView(
-        modifier = modifier,
-        factory  = { mapView },
-        update = { map ->
-            map.overlays.clear()
-            
-            val validGroups = groups.mapNotNull { g ->
-                val lat = g.latitude
-                val lon = g.longitude
-                if (lat != null && lon != null) {
-                    Triple(lat, lon, g)
-                } else null
-            }
+    Box(modifier = modifier) {
+        AndroidView(
+            modifier = Modifier.fillMaxSize(),
+            factory  = { mapView },
+            update = { }
+        )
 
-            // Group near-identical coordinates so one pin can represent multiple groups at a location.
-            val groupedLocations = validGroups
-                .groupBy { (lat, lon, _) ->
-                    "${"%.4f".format(Locale.US, lat)}:${"%.4f".format(Locale.US, lon)}"
+        LaunchedEffect(markerEntries, userLocation, autoCenterOnGroups) {
+            mapView.post {
+                mapView.overlays.clear()
+
+                if (userLocation != null && !autoCenterOnGroups) {
+                    val lat = userLocation.latitude
+                    val lon = userLocation.longitude
+                    val viewportKey = "${"%.4f".format(Locale.US, lat)}:${"%.4f".format(Locale.US, lon)}"
+                    if (lastUserViewportKey != viewportKey) {
+                        val radiusKm = 50.0
+                        val latDelta = radiusKm / 111.0
+                        val cosLat = kotlin.math.cos(Math.toRadians(lat)).coerceAtLeast(0.01)
+                        val lonDelta = radiusKm / (111.0 * cosLat)
+
+                        val bounds = BoundingBox(
+                            lat + latDelta,
+                            lon + lonDelta,
+                            lat - latDelta,
+                            lon - lonDelta
+                        )
+
+                        mapView.zoomToBoundingBox(bounds, true, 64)
+                        lastUserViewportKey = viewportKey
+                    }
                 }
-                .values
 
-            if (autoCenterOnGroups && validGroups.isNotEmpty()) {
-                val avgLat = validGroups.map { it.first }.average()
-                val avgLon = validGroups.map { it.second }.average()
-                map.controller.animateTo(GeoPoint(avgLat, avgLon))
-                map.controller.setZoom(if (validGroups.size == 1) 14.0 else 10.0)
-            }
+                // Group near-identical coordinates so one pin can represent multiple groups at a location.
+                val groupedLocations = groupedLocationsState.values
 
-            groupedLocations.forEach { locationEntries ->
-                val lat = locationEntries.map { it.first }.average()
-                val lon = locationEntries.map { it.second }.average()
-                val locationGroups = locationEntries.map { it.third }
-                val marker = Marker(map).apply {
-                    position = GeoPoint(lat, lon)
-                    title = if (locationGroups.size == 1) {
-                        locationGroups.first().name
-                    } else {
-                        "${locationGroups.size} groups at this location"
-                    }
-                    snippet = if (locationGroups.size == 1) {
-                        val group = locationGroups.first()
-                        "${group.type.displayName} • ${group.currentMembers} members"
-                    } else {
-                        locationGroups.take(3).joinToString(" • ") { it.name }
-                    }
-                    setOnMarkerClickListener { _, _ ->
-                        if (locationGroups.size == 1) {
-                            onMarker(locationGroups.first().id ?: "")
+                if (shouldCenterMap && markerEntries.isNotEmpty()) {
+                    mapView.controller.animateTo(GeoPoint(avgLat, avgLon))
+                    mapView.controller.setZoom(centerZoom)
+                }
+
+                groupedLocations.forEach { locationEntries ->
+                    val lat = locationEntries.map { it.first }.average()
+                    val lon = locationEntries.map { it.second }.average()
+                    val locationGroups = locationEntries.map { it.third }
+                    val marker = Marker(mapView).apply {
+                        position = GeoPoint(lat, lon)
+                        title = if (locationGroups.size == 1) {
+                            locationGroups.first().name
                         } else {
-                            onLocationTap?.invoke(locationGroups)
-                                ?: onMarker(locationGroups.first().id ?: "")
+                            "${locationGroups.size} groups at this location"
                         }
-                        true
+                        snippet = if (locationGroups.size == 1) {
+                            val group = locationGroups.first()
+                            "${group.type.displayName} • ${group.currentMembers} members"
+                        } else {
+                            locationGroups.take(3).joinToString(" • ") { it.name }
+                        }
+                        setOnMarkerClickListener { _, _ ->
+                            if (locationGroups.size == 1) {
+                                onMarker(locationGroups.first().id ?: "")
+                            } else {
+                                onLocationTap?.invoke(locationGroups)
+                                    ?: onMarker(locationGroups.first().id ?: "")
+                            }
+                            true
+                        }
+                    }
+                    mapView.overlays.add(marker)
+                }
+
+                mapView.invalidate()
+            }
+        }
+
+        Column(
+            modifier = Modifier
+                .align(Alignment.CenterEnd)
+                .padding(end = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            AnimatedVisibility(visible = zoomControlsVisible) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    SmallFloatingActionButton(
+                        onClick = {
+                            mapView.controller.zoomIn()
+                            zoomControlsVisible = true
+                        },
+                        containerColor = Color.White.copy(alpha = 0.85f),
+                        contentColor = Forest
+                    ) {
+                        Icon(Icons.Default.Add, contentDescription = "Zoom in")
+                    }
+
+                    SmallFloatingActionButton(
+                        onClick = {
+                            mapView.controller.zoomOut()
+                            zoomControlsVisible = true
+                        },
+                        containerColor = Color.White.copy(alpha = 0.85f),
+                        contentColor = Forest
+                    ) {
+                        Icon(Icons.Default.Remove, contentDescription = "Zoom out")
                     }
                 }
-                map.overlays.add(marker)
             }
-            map.invalidate()
+
+            AnimatedVisibility(visible = !zoomControlsVisible) {
+                SmallFloatingActionButton(
+                    onClick = { zoomControlsVisible = true },
+                    containerColor = Color.White.copy(alpha = 0.75f),
+                    contentColor = Forest
+                ) {
+                    Icon(Icons.Default.ZoomIn, contentDescription = "Show zoom controls")
+                }
+            }
+        }
+    }
+}
+
+// ── In-App File View / Download Choice ───────────────────────────────────────
+
+@Composable
+fun FileActionDialog(
+    onDismiss: () -> Unit,
+    onView: () -> Unit,
+    onDownload: () -> Unit,
+    fileName: String = "File"
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = { Icon(Icons.Default.FilePresent, null, tint = Forest) },
+        title = { Text("File Options") },
+        text = { Text("Would you like to view '$fileName' inside the app or download it to your device?") },
+        confirmButton = {
+            Button(onClick = { onView(); onDismiss() }, colors = ButtonDefaults.buttonColors(containerColor = Forest)) {
+                Text("View In-App")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = { onDownload(); onDismiss() }) {
+                Text("Download", color = Forest)
+            }
         }
     )
+}
+
+@Composable
+fun FileViewerDialog(
+    url: String,
+    fileName: String,
+    headers: Map<String, String>,
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+    val isPdf = url.substringAfterLast(".", "").substringBefore("?").lowercase() == "pdf"
+    
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Surface(
+            modifier = Modifier.fillMaxSize(),
+            color = Color.Black.copy(alpha = 0.9f)
+        ) {
+            Column(Modifier.fillMaxSize()) {
+                // Top Bar
+                Row(
+                    Modifier.fillMaxWidth().padding(16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(onClick = onDismiss) {
+                        Icon(Icons.Default.Close, null, tint = Color.White)
+                    }
+                    Text(
+                        fileName,
+                        color = Color.White,
+                        style = MaterialTheme.typography.titleMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f).padding(horizontal = 16.dp)
+                    )
+                }
+
+                Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                    if (isPdf) {
+                        PdfViewer(url, headers)
+                    } else {
+                        ImageViewer(url, headers)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun ImageViewer(url: String, headers: Map<String, String>) {
+    val request = ImageRequest.Builder(LocalContext.current)
+        .data(url)
+        .apply {
+            headers.forEach { (k, v) -> addHeader(k, v) }
+        }
+        .crossfade(true)
+        .build()
+
+    AsyncImage(
+        model = request,
+        contentDescription = "Document Image",
+        modifier = Modifier.fillMaxSize(),
+        contentScale = ContentScale.Fit
+    )
+}
+
+@Composable
+fun PdfViewer(url: String, headers: Map<String, String>) {
+    val context = LocalContext.current
+    var bitmaps by remember { mutableStateOf<List<Bitmap>>(emptyList()) }
+    var isLoading by remember { mutableStateOf(true) }
+    var error by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(url) {
+        withContext(Dispatchers.IO) {
+            try {
+                val file = File(context.cacheDir, "temp_view_${System.currentTimeMillis()}.pdf")
+                val connection = URL(url).openConnection()
+                headers.forEach { (k, v) -> connection.setRequestProperty(k, v) }
+                
+                connection.getInputStream().use { input ->
+                    FileOutputStream(file).use { output ->
+                        input.copyTo(output)
+                    }
+                }
+
+                val fd = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
+                val renderer = PdfRenderer(fd)
+                val pageCount = renderer.pageCount
+                val list = mutableListOf<Bitmap>()
+                
+                for (i in 0 until pageCount) {
+                    val page = renderer.openPage(i)
+                    val bitmap = Bitmap.createBitmap(page.width * 2, page.height * 2, Bitmap.Config.ARGB_8888)
+                    page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                    list.add(bitmap)
+                    page.close()
+                }
+                
+                renderer.close()
+                fd.close()
+                file.delete()
+                
+                withContext(Dispatchers.Main) {
+                    bitmaps = list
+                    isLoading = false
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    error = e.message ?: "Failed to load PDF"
+                    isLoading = false
+                }
+            }
+        }
+    }
+
+    if (isLoading) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            CircularProgressIndicator(color = Forest)
+        }
+    } else if (error != null) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text("Error: $error", color = Color.White)
+        }
+    } else {
+        LazyColumn(Modifier.fillMaxSize()) {
+            items(bitmaps) { bitmap ->
+                Image(
+                    bitmap = bitmap.asImageBitmap(),
+                    contentDescription = "PDF Page",
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                    contentScale = ContentScale.FillWidth
+                )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun SanibonaniDatePicker(
+    state: DatePickerState,
+    onDismiss: () -> Unit,
+    onConfirm: (Long?) -> Unit
+) {
+    DatePickerDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            TextButton(onClick = { 
+                onConfirm(state.selectedDateMillis)
+                onDismiss()
+            }) {
+                Text("OK", color = Forest, fontWeight = FontWeight.Bold)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel", color = Forest)
+            }
+        },
+        colors = DatePickerDefaults.colors(
+            containerColor = Color.White
+        )
+    ) {
+        DatePicker(
+            state = state,
+            colors = DatePickerDefaults.colors(
+                selectedDayContainerColor = Forest,
+                selectedDayContentColor = Color.White,
+                todayContentColor = Forest,
+                todayDateBorderColor = Forest
+            )
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun SanibonaniDatePickerField(
+    label: String,
+    value: String,
+    onValueChange: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var showDialog by remember { mutableStateOf(false) }
+    val datePickerState = rememberDatePickerState(
+        initialSelectedDateMillis = try {
+            if (value.isNotBlank()) {
+                java.time.LocalDate.parse(value).atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
+            } else null
+        } catch (_: Exception) { null }
+    )
+
+    Box(modifier = modifier) {
+        SanibonaniTextField(
+            value = value,
+            onValueChange = { /* Read only */ },
+            label = label,
+            readOnly = true,
+            trailingIcon = {
+                IconButton(onClick = { showDialog = true }) {
+                    Icon(Icons.Default.CalendarToday, contentDescription = "Select Date", tint = Forest)
+                }
+            },
+            modifier = Modifier.fillMaxWidth()
+        )
+        
+        // Transparent overlay to catch clicks on the whole field
+        Box(
+            Modifier
+                .matchParentSize()
+                .clickable { showDialog = true }
+        )
+    }
+
+    if (showDialog) {
+        SanibonaniDatePicker(
+            state = datePickerState,
+            onDismiss = { showDialog = false },
+            onConfirm = { millis ->
+                millis?.let {
+                    val date = Instant.ofEpochMilli(it)
+                        .atZone(ZoneId.systemDefault())
+                        .toLocalDate()
+                    onValueChange(date.format(DateTimeFormatter.ISO_LOCAL_DATE))
+                }
+            }
+        )
+    }
 }

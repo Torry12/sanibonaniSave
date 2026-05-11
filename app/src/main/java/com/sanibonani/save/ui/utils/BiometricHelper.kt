@@ -35,7 +35,8 @@ object BiometricHelper {
     }
 
     /**
-     * Shows the biometric prompt.
+     * Shows the biometric prompt with robust error handling.
+     * If activity context is not available, fails gracefully with a user-friendly message.
      */
     fun showBiometricPrompt(
         context: Context,
@@ -48,7 +49,7 @@ object BiometricHelper {
 		if (activity == null) {
 			onError(
 				BiometricPrompt.ERROR_HW_UNAVAILABLE,
-				"Biometric login is not available on this screen. Please try again."
+				"Biometric authentication is not available. Please log in with your password."
 			)
 			return
 		}
@@ -58,7 +59,21 @@ object BiometricHelper {
             object : BiometricPrompt.AuthenticationCallback() {
                 override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
                     super.onAuthenticationError(errorCode, errString)
-                    onError(errorCode, errString)
+                    // Map system error codes to user-friendly messages
+                    val userMessage = when (errorCode) {
+                        BiometricPrompt.ERROR_HW_NOT_PRESENT ->
+                            "Biometric hardware not available on this device."
+                        BiometricPrompt.ERROR_HW_UNAVAILABLE ->
+                            "Biometric hardware temporarily unavailable."
+                        BiometricPrompt.ERROR_NO_BIOMETRICS ->
+                            "No biometric data enrolled. Please set up biometrics in device settings."
+                        BiometricPrompt.ERROR_NO_DEVICE_CREDENTIAL ->
+                            "Device credentials not set. Please set a PIN or pattern."
+                        BiometricPrompt.ERROR_TIMEOUT ->
+                            "Authentication timeout. Please try again."
+                        else -> errString
+                    }
+                    onError(errorCode, userMessage)
                 }
 
                 override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
@@ -68,7 +83,7 @@ object BiometricHelper {
 
                 override fun onAuthenticationFailed() {
                     super.onAuthenticationFailed()
-                    // Usually handled by the system UI, but we could notify the caller
+                    // Handled by system UI
                 }
             })
 

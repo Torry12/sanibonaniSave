@@ -428,3 +428,78 @@ fun LoanRepaymentEntity.toModel() = LoanRepayment(
     transactionId = transactionId,
     createdAt = createdAt
 )
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  BURIAL CLAIM MAPPERS
+// ─────────────────────────────────────────────────────────────────────────────
+
+fun BeneficiaryPayoutClaim.toEntity() = BeneficiaryClaimEntity(
+    id = id ?: java.util.UUID.randomUUID().toString(),
+    groupId = groupId,
+    memberId = memberId,
+    beneficiaryId = beneficiaryId,
+    beneficiaryName = beneficiaryName,
+    causeOfDeath = causeOfDeath,
+    dateOfDeath = dateOfDeath,
+    claimAmount = claimAmount,
+    bankName = bankName,
+    accountNo = accountNo,
+    branchCode = branchCode,
+    accountHolder = accountHolder,
+    notes = notes,
+    status = status,
+    reviewedBy = reviewedBy,
+    reviewedAt = reviewedAt,
+    adminNotes = adminNotes,
+    rejectionReason = rejectionReason,
+    createdAt = createdAt
+)
+
+fun BeneficiaryClaimEntity.toModel() = BeneficiaryPayoutClaim(
+    id = id,
+    groupId = groupId,
+    memberId = memberId,
+    beneficiaryId = beneficiaryId,
+    beneficiaryName = beneficiaryName,
+    causeOfDeath = causeOfDeath,
+    dateOfDeath = dateOfDeath,
+    claimAmount = claimAmount,
+    bankName = bankName,
+    accountNo = accountNo,
+    branchCode = branchCode,
+    accountHolder = accountHolder,
+    notes = notes,
+    status = status,
+    reviewedBy = reviewedBy,
+    reviewedAt = reviewedAt,
+    adminNotes = adminNotes,
+    rejectionReason = rejectionReason,
+    createdAt = createdAt
+)
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  LEDGER MAPPERS
+// ─────────────────────────────────────────────────────────────────────────────
+
+fun LedgerEntryEntity.toModel() = LedgerEntry(
+    id = id,
+    groupId = groupId,
+    transactionId = transactionId,
+    amount = amount,
+    balanceAfter = balanceAfter,
+    description = description,
+    category = category,
+    createdAt = createdAt
+)
+
+fun LedgerEntry.toLedgerEntity() = LedgerEntryEntity(
+    id = id ?: java.util.UUID.randomUUID().toString(),
+    groupId = groupId,
+    transactionId = transactionId,
+    amount = amount,
+    balanceAfter = balanceAfter,
+    description = description,
+    category = category,
+    createdAt = createdAt
+)
+

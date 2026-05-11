@@ -1,10 +1,10 @@
 package com.sanibonani.save.domain.repository
 
+import com.sanibonani.save.domain.model.ActuarialMetrics
+import com.sanibonani.save.domain.model.AuditLog
 import com.sanibonani.save.domain.model.Group
 import com.sanibonani.save.domain.model.Payment
-import com.sanibonani.save.domain.model.ActuarialMetrics
 import com.sanibonani.save.domain.model.PlatformAnalytics
-import com.sanibonani.save.domain.model.AuditLog
 
 interface PlatformRepository {
     suspend fun getPlatformAnalytics(): Result<PlatformAnalytics>
@@ -16,4 +16,8 @@ interface PlatformRepository {
     suspend fun getPlatformPayments(): Result<List<Payment>>
     suspend fun getGroupMetrics(groupId: String): Result<ActuarialMetrics>
     suspend fun logAuditEvent(auditLog: AuditLog): Result<Unit>
+    suspend fun broadcastPlatformMessage(message: String): Result<Unit>
+    suspend fun getAuditLogs(limit: Int = 50): Result<List<AuditLog>>
+    suspend fun getPlatformLedger(): Result<List<com.sanibonani.save.domain.model.LedgerEntry>>
+    suspend fun getMemberBehaviorInsights(): Result<List<com.sanibonani.save.domain.model.MemberBehaviorInsight>>
 }

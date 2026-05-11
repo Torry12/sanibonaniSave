@@ -1,20 +1,18 @@
 package com.sanibonani.save.data.repository
 
-import com.sanibonani.save.domain.repository.PayoutRepository
 import com.sanibonani.save.data.local.SanibonaniDatabase
 import com.sanibonani.save.domain.model.PayoutRequest
 import com.sanibonani.save.domain.model.PayoutStatus
+import com.sanibonani.save.domain.repository.PayoutRepository
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.postgrest.query.Columns
-import io.github.jan.supabase.postgrest.query.filter.PostgrestFilterBuilder
 import kotlinx.coroutines.flow.Flow
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import java.time.OffsetDateTime
 import java.time.format.DateTimeFormatter
 import javax.inject.Inject
-import javax.inject.Singleton
 
 class PayoutRepositoryImpl @Inject constructor(
     private val supabase: SupabaseClient,
@@ -71,7 +69,7 @@ class PayoutRepositoryImpl @Inject constructor(
 
             if (existing != null && existing.status == status && (yocoPayoutId == null || existing.yocoPayoutId == yocoPayoutId)) {
                 db.payoutDao().upsertPayout(existing.toEntity())
-                return@runCatching Unit
+                return@runCatching
             }
 
             supabase.postgrest["payouts"].update(buildJsonObject {

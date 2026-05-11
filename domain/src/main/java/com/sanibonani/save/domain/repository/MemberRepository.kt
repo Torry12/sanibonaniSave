@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.Flow
 
 interface MemberRepository {
     fun getGroupMembers(groupId: String): Flow<Result<List<Member>>>
+    suspend fun syncGroupMembers(groupId: String): Result<List<Member>>
     suspend fun getGroupMembersPaginated(
         groupId: String,
         offset: Int,

@@ -6,6 +6,7 @@ import com.sanibonani.save.data.local.SanibonaniDatabase
 import com.sanibonani.save.data.logging.AppLogger
 import com.sanibonani.save.domain.model.*
 import io.github.jan.supabase.SupabaseClient
+import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.postgrest.query.Columns
 import kotlinx.coroutines.Dispatchers
@@ -46,11 +47,15 @@ class PlatformRepositoryImpl @Inject constructor(
                 throw e
             }
 
-            val members: List<Member> = runCatching {
-                supabase.postgrest["members"].select().decodeList<Member>()
-            }.getOrElse { e ->
-                // Members are often private; don't fail analytics for anon.
-                AppLogger.w(tag, "Members not accessible for analytics: ${e.message}")
+            val members: List<Member> = if (supabase.auth.currentSessionOrNull() != null) {
+                runCatching {
+                    supabase.postgrest["members"].select().decodeList<Member>()
+                }.getOrElse { e ->
+                    // Members are often private; don't fail analytics for non-admins.
+                    AppLogger.w(tag = "PlatformRepo", message = "Members not accessible: ${e.message}")
+                    emptyList()
+                }
+            } else {
                 emptyList()
             }
 
@@ -213,6 +218,46 @@ class PlatformRepositoryImpl @Inject constructor(
         runCatching {
             supabase.postgrest["audit_logs"].insert(auditLog) { select() }
             Unit
+        }
+    }
+
+    override suspend fun broadcastPlatformMessage(message: String): Result<Unit> = retryWithExponentialBackoff {
+        runCatching {
+            val groups = getAllGroups().getOrThrow()
+            groups.forEach { group ->
+                notifRepo.sendNotification(AppNotification(
+                    groupId = group.id ?: return@forEach,
+                    message = "[SYSTEM BROADCAST]: $message",
+                    triggerEvent = NotifEvent.CUSTOM,
+                    channel = NotifChannel.BOTH
+                ))
+            }
+        }
+    }
+
+    override suspend fun getAuditLogs(limit: Int): Result<List<AuditLog>> = retryWithExponentialBackoff {
+        runCatching {
+            supabase.postgrest["audit_logs"].select {
+                order("created_at", order = io.github.jan.supabase.postgrest.query.Order.DESCENDING)
+                limit(limit.toLong())
+            }.decodeList<AuditLog>()
+        }
+    }
+
+    override suspend fun getPlatformLedger(): Result<List<com.sanibonani.save.domain.model.LedgerEntry>> = retryWithExponentialBackoff {
+        runCatching {
+            supabase.postgrest["platform_ledger"].select {
+                order("created_at", order = io.github.jan.supabase.postgrest.query.Order.DESCENDING)
+            }.decodeList<com.sanibonani.save.domain.model.LedgerEntry>()
+        }
+    }
+
+    override suspend fun getMemberBehaviorInsights(): Result<List<com.sanibonani.save.domain.model.MemberBehaviorInsight>> = retryWithExponentialBackoff {
+        runCatching {
+            supabase.postgrest["platform_member_behavior_insights_v1"].select {
+                order("overdue_loans", order = io.github.jan.supabase.postgrest.query.Order.DESCENDING)
+                order("outstanding_amount", order = io.github.jan.supabase.postgrest.query.Order.DESCENDING)
+            }.decodeList<com.sanibonani.save.domain.model.MemberBehaviorInsight>()
         }
     }
 }

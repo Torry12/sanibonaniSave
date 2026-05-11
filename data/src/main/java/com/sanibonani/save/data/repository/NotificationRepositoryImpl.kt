@@ -84,8 +84,8 @@ class NotificationRepositoryImpl @Inject constructor(
 
         if (notification.channel == NotifChannel.WHATSAPP || notification.channel == NotifChannel.BOTH) {
             val memberId = notification.memberId
-            if (notification.triggerEvent == NotifEvent.MEMBER_MESSAGE) {
-                // Member inquiry: Send WhatsApp to group administrator
+            if (notification.triggerEvent == NotifEvent.MEMBER_MESSAGE || notification.triggerEvent == NotifEvent.LOAN_REQUESTED) {
+                // Member inquiry or loan request: Send WhatsApp to group administrator
                 val group = supabase.postgrest["groups"].select(columns = Columns.list("admin_user_id")) {
                     filter { eq("id", notification.groupId) }
                 }.decodeSingle<Group>()
@@ -264,6 +264,10 @@ class NotificationRepositoryImpl @Inject constructor(
                 put("language", buildJsonObject { put("code", "en_US") })
             })
         }
-        edgeFunctionGateway.invoke("send-whatsapp", resetPayload).getOrThrow()
+        edgeFunctionGateway.invoke(
+            functionName = "send-whatsapp",
+            payload = resetPayload,
+            requireAuth = false
+        ).getOrThrow()
     }
 }

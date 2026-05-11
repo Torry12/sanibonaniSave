@@ -69,10 +69,10 @@ class StorageRepositoryImpl @Inject constructor(
     }
 
     override suspend fun getPublicUrl(bucketName: String, path: String): String {
-        // Only `documents` remains a private bucket requiring authenticated access.
-        // `avatars` is now public to ensure fast, reliable profile photo display
-        // without complex auth-header management in every UI component.
-        return if (bucketName == "documents") {
+        // Private buckets requiring authenticated access.
+        val privateBuckets = setOf("documents", "loan_contracts", "constitutions")
+        
+        return if (bucketName in privateBuckets) {
             val base = supabase.supabaseUrl.trimEnd('/')
             "$base/storage/v1/object/authenticated/$bucketName/$path"
         } else {

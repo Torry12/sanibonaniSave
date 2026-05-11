@@ -1,8 +1,8 @@
 package com.sanibonani.save.domain.usecase
 
 import com.sanibonani.save.domain.model.Group
-import com.sanibonani.save.domain.repository.MemberRepository
 import com.sanibonani.save.domain.repository.GroupRepository
+import com.sanibonani.save.domain.repository.MemberRepository
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import javax.inject.Inject

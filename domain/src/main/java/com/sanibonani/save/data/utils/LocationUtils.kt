@@ -1,7 +1,5 @@
 package com.sanibonani.save.data.utils
 
-import kotlin.math.*
-
 object LocationUtils {
     /**
      * Encodes a latitude and longitude into a geohash string.

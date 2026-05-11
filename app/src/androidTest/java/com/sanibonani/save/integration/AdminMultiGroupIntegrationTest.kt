@@ -1,43 +1,50 @@
 package com.sanibonani.save.integration
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.sanibonani.save.di.TestAppModule
+import com.sanibonani.save.di.TestAuthSessionController
 import com.sanibonani.save.domain.model.DocumentStatus
 import com.sanibonani.save.domain.model.Group
 import com.sanibonani.save.domain.model.MemberStatus
 import com.sanibonani.save.domain.model.PayoutStatus
 import com.sanibonani.save.domain.repository.ActuarialRepository
+import com.sanibonani.save.domain.repository.BeneficiaryClaimRepository
 import com.sanibonani.save.domain.repository.BeneficiaryRepository
 import com.sanibonani.save.domain.repository.ExportRepository
 import com.sanibonani.save.domain.repository.GroupRepository
 import com.sanibonani.save.domain.repository.LoanRepository
 import com.sanibonani.save.domain.repository.MemberDocumentRepository
+import com.sanibonani.save.domain.repository.LedgerRepository
 import com.sanibonani.save.domain.repository.MemberRepository
 import com.sanibonani.save.domain.repository.NotificationRepository
 import com.sanibonani.save.domain.repository.PaymentRepository
 import com.sanibonani.save.domain.repository.PayoutRepository
 import com.sanibonani.save.domain.repository.SupabaseRepository
+import com.sanibonani.save.domain.usecase.ApplyViabilityPlanUseCase
 import com.sanibonani.save.domain.usecase.CalculateViabilityUseCase
 import com.sanibonani.save.domain.usecase.CreateGroupUseCase
-import com.sanibonani.save.domain.usecase.GetAdminDashboardUseCase
+import com.sanibonani.save.domain.usecase.GenerateLoanContractUseCase
+import com.sanibonani.save.domain.usecase.groups.GetGroupBusinessInsightsUseCase
 import com.sanibonani.save.domain.usecase.GetManagedGroupsUseCase
 import com.sanibonani.save.domain.usecase.RequestPayoutUseCase
 import com.sanibonani.save.domain.usecase.SendNotificationUseCase
+import com.sanibonani.save.domain.usecase.UpdateGroupSettingsUseCase
 import com.sanibonani.save.domain.usecase.UpdateMemberStatusUseCase
 import com.sanibonani.save.domain.usecase.ValidateLoanEligibilityUseCase
-import com.sanibonani.save.di.TestAppModule
-import com.sanibonani.save.di.TestAuthSessionController
+import com.sanibonani.save.domain.usecase.VerifyMemberDocumentUseCase
+import com.sanibonani.save.domain.usecase.VerifyRelationalDocumentUseCase
 import com.sanibonani.save.service.AdminGroupContextCacheService
 import com.sanibonani.save.viewmodel.AdminViewModel
 import dagger.hilt.android.testing.HiltAndroidRule
 import dagger.hilt.android.testing.HiltAndroidTest
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
-import kotlinx.coroutines.TimeoutCancellationException
 import org.junit.Assert.assertEquals
-import org.junit.Assert.fail
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
 import org.junit.Before
 import org.junit.Ignore
 import org.junit.Rule
@@ -90,10 +97,22 @@ class AdminMultiGroupIntegrationTest {
     lateinit var loanRepo: LoanRepository
 
     @Inject
-    lateinit var getManagedGroupsUseCase: GetManagedGroupsUseCase
+    lateinit var claimRepo: BeneficiaryClaimRepository
 
     @Inject
-    lateinit var getAdminDashboardUseCase: GetAdminDashboardUseCase
+    lateinit var verifyMemberDocumentUseCase: VerifyMemberDocumentUseCase
+
+    @Inject
+    lateinit var updateGroupSettingsUseCase: UpdateGroupSettingsUseCase
+
+    @Inject
+    lateinit var applyViabilityPlanUseCase: ApplyViabilityPlanUseCase
+
+    @Inject
+    lateinit var verifyRelationalDocumentUseCase: VerifyRelationalDocumentUseCase
+
+    @Inject
+    lateinit var getManagedGroupsUseCase: GetManagedGroupsUseCase
 
     @Inject
     lateinit var calculateViabilityUseCase: CalculateViabilityUseCase
@@ -109,6 +128,15 @@ class AdminMultiGroupIntegrationTest {
 
     @Inject
     lateinit var validateLoanEligibilityUseCase: ValidateLoanEligibilityUseCase
+
+    @Inject
+    lateinit var generateLoanContractUseCase: GenerateLoanContractUseCase
+
+    @Inject
+    lateinit var getGroupBusinessInsightsUseCase: GetGroupBusinessInsightsUseCase
+
+    @Inject
+    lateinit var ledgerRepo: LedgerRepository
 
     lateinit var viewModel: AdminViewModel
 
@@ -128,10 +156,19 @@ class AdminMultiGroupIntegrationTest {
             supabaseRepo, groupRepository, memberRepo, beneficiaryRepo, memberDocumentRepo,
             actuarialRepo, notifRepo, paymentRepo, payoutRepo, exportRepo,
             loanRepo,
+            claimRepo,
             adminContextCacheService,
+            verifyMemberDocumentUseCase,
+            updateGroupSettingsUseCase,
+            applyViabilityPlanUseCase,
+            verifyRelationalDocumentUseCase,
             getManagedGroupsUseCase, calculateViabilityUseCase,
-            updateMemberStatusUseCase, sendNotificationUseCase, requestPayoutUseCase,
-            validateLoanEligibilityUseCase
+            updateMemberStatusUseCase, sendNotificationUseCase,
+            requestPayoutUseCase,
+            validateLoanEligibilityUseCase,
+            generateLoanContractUseCase,
+            getGroupBusinessInsightsUseCase,
+            ledgerRepo
         )
     }
 

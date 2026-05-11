@@ -1,7 +1,6 @@
 package com.sanibonani.save.domain.usecase
 
 import com.sanibonani.save.domain.model.Member
-import com.sanibonani.save.domain.model.MemberStatus
 import com.sanibonani.save.domain.repository.GroupRepository
 import com.sanibonani.save.domain.repository.MemberRepository
 import javax.inject.Inject

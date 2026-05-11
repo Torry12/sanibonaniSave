@@ -1,7 +1,6 @@
 package com.sanibonani.save.domain.usecase
 
 import com.sanibonani.save.domain.model.Group
-import com.sanibonani.save.domain.model.Member
 import com.sanibonani.save.domain.model.MemberStatus
 import com.sanibonani.save.domain.model.UserRole
 import com.sanibonani.save.domain.repository.GroupRepository
@@ -15,7 +14,6 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
-import java.util.UUID
 
 class CreateGroupUseCaseTest {
 
@@ -159,6 +157,73 @@ class CreateGroupUseCaseTest {
                 member.province == "KwaZulu-Natal" &&
                 member.city == "Durban" &&
                 member.probationEndAt != null // Probation end date should be set
+            })
+        }
+    }
+
+    @Test
+    fun `invoke with admin email and blank password should use existing session account and not sign up`() = runBlocking {
+        // Given
+        val group = Group(name = "Mixed Credentials Group", province = "Gauteng", city = "Johannesburg", probationMonths = 3)
+        val currentUserId = "existing-user-1"
+        val groupId = "group-mixed-1"
+
+        coEvery { supabaseRepository.currentUserId } returns currentUserId
+        coEvery { supabaseRepository.getUserRole() } returns UserRole.MEMBER
+        coEvery { supabaseRepository.currentSessionEmail } returns "sessionuser@test.com"
+        coEvery { groupRepository.createGroup(any()) } returns Result.success(groupId)
+        coEvery { supabaseRepository.updateUserRole(currentUserId, UserRole.GROUP_ADMIN, groupId) } returns Result.success(Unit)
+        coEvery { memberRepository.registerMember(any()) } returns Result.success(mockk())
+
+        // When
+        val result = createGroupUseCase(
+            group = group,
+            adminEmail = "adminprovided@test.com",
+            adminPassword = "   "
+        )
+
+        // Then
+        assertTrue(result.isSuccess)
+        coVerify(exactly = 0) { supabaseRepository.signUp(any(), any(), any()) }
+        coVerify { groupRepository.createGroup(match { it.adminUserId == currentUserId }) }
+        coVerify {
+            memberRepository.registerMember(match { member ->
+                member.userId == currentUserId &&
+                member.email == "adminprovided@test.com" &&
+                member.status == MemberStatus.PENDING_PAYMENT
+            })
+        }
+    }
+
+    @Test
+    fun `invoke with whitespace email and whitespace password should not sign up and should fall back to session email`() = runBlocking {
+        // Given
+        val group = Group(name = "Whitespace Credentials Group", province = "Limpopo", city = "Polokwane", probationMonths = 3)
+        val currentUserId = "existing-user-2"
+        val groupId = "group-mixed-2"
+        val sessionEmail = "fallback@test.com"
+
+        coEvery { supabaseRepository.currentUserId } returns currentUserId
+        coEvery { supabaseRepository.getUserRole() } returns UserRole.MEMBER
+        coEvery { supabaseRepository.currentSessionEmail } returns sessionEmail
+        coEvery { groupRepository.createGroup(any()) } returns Result.success(groupId)
+        coEvery { supabaseRepository.updateUserRole(currentUserId, UserRole.GROUP_ADMIN, groupId) } returns Result.success(Unit)
+        coEvery { memberRepository.registerMember(any()) } returns Result.success(mockk())
+
+        // When
+        val result = createGroupUseCase(
+            group = group,
+            adminEmail = "   ",
+            adminPassword = "\t\n"
+        )
+
+        // Then
+        assertTrue(result.isSuccess)
+        coVerify(exactly = 0) { supabaseRepository.signUp(any(), any(), any()) }
+        coVerify {
+            memberRepository.registerMember(match { member ->
+                member.userId == currentUserId &&
+                member.email == sessionEmail
             })
         }
     }

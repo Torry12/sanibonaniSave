@@ -104,6 +104,14 @@ class ActuarialRepositoryImpl @Inject constructor(
                             messages.add("Investment Club: Factored in 8% projected annual return.")
                             adjusted
                         }
+                        GroupType.STOKVEL -> {
+                            messages.add("Stokvel: Payout target set for month $effectivePeriod.")
+                            monthlyPerMember
+                        }
+                        GroupType.ROSCA -> {
+                            messages.add("ROSCA: Monthly pot will be R${(monthlyPerMember * numMembers).roundToTwoDecimals()}.")
+                            monthlyPerMember
+                        }
                         else -> monthlyPerMember
                     }
 
@@ -153,10 +161,11 @@ class ActuarialRepositoryImpl @Inject constructor(
         val estimatedAnnualClaims = when (group.type) {
             GroupType.BURIAL_SOCIETY -> memberCount * 15000.0
             GroupType.STOKVEL -> memberCount * 5000.0
+            GroupType.ROSCA -> 0.0 // ROSCA has no insurance claims
             else -> memberCount * 10000.0
         }
 
-        val mortalityRatePct = 0.82
+        val mortalityRatePct = if (group.type == GroupType.ROSCA) 0.0 else 0.82
 
         return computeMetrics(
             membersCount = memberCount,

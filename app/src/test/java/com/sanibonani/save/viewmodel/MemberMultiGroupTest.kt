@@ -6,7 +6,6 @@ import com.sanibonani.save.data.remote.GeoapifyService
 import com.sanibonani.save.domain.model.*
 import com.sanibonani.save.domain.repository.*
 import com.sanibonani.save.domain.usecase.*
-import com.sanibonani.save.service.CachedGroupContext
 import com.sanibonani.save.service.MemberGroupContextCacheService
 import com.sanibonani.save.service.UserProfileCacheService
 import io.mockk.*
@@ -34,9 +33,14 @@ class MemberMultiGroupTest {
     private val notificationRepo = mockk<NotificationRepository>()
     private val exportRepo = mockk<ExportRepository>()
     private val loanRepo = mockk<LoanRepository>()
+    private val claimRepo = mockk<BeneficiaryClaimRepository>(relaxed = true)
+    private val memberDocumentRepo = mockk<MemberDocumentRepository>(relaxed = true)
+    private val credentialsRepo = mockk<CredentialsRepository>(relaxed = true)
     private val registerMemberUseCase = mockk<RegisterMemberUseCase>()
     private val sendNotificationUseCase = mockk<SendNotificationUseCase>()
     private val validateLoanEligibilityUseCase = mockk<ValidateLoanEligibilityUseCase>()
+    private val validateBurialClaimEligibilityUseCase = mockk<ValidateBurialClaimEligibilityUseCase>()
+    private val getGroupBusinessInsightsUseCase = mockk<com.sanibonani.save.domain.usecase.groups.GetGroupBusinessInsightsUseCase>(relaxed = true)
     private val geoapifyService = mockk<GeoapifyService>()
     private val contextCacheService = mockk<MemberGroupContextCacheService>()
     private val userProfileCacheService = mockk<UserProfileCacheService>(relaxed = true)
@@ -51,7 +55,9 @@ class MemberMultiGroupTest {
         mockkStatic(Log::class)
         every { Log.d(any(), any()) } returns 0
         every { Log.i(any(), any()) } returns 0
+        every { Log.w(any<String>(), any<String>()) } returns 0
         every { Log.w(any(), any(), any()) } returns 0
+        every { Log.e(any<String>(), any<String>()) } returns 0
         every { Log.e(any(), any(), any()) } returns 0
         
         Dispatchers.setMain(testDispatcher)
@@ -66,6 +72,9 @@ class MemberMultiGroupTest {
         every { contextCacheService.ensureUserSession(any()) } returns Unit
         every { contextCacheService.warmMembershipsInBackground(any(), any()) } returns Unit
         every { contextCacheService.updateContext(any(), any()) } returns Unit
+        every { memberRepo.getGroupMembers(any()) } returns flowOf(Result.success(emptyList()))
+        every { claimRepo.observeClaimsForMember(any(), any()) } returns flowOf(Result.success(emptyList()))
+        every { memberDocumentRepo.observeMemberDocuments(any()) } returns flowOf(Result.success(emptyList()))
         coEvery { validateLoanEligibilityUseCase(any(), any()) } returns ValidateLoanEligibilityUseCase.EligibilityResult.Eligible
 
         // Default memberships (2 groups)
@@ -75,8 +84,10 @@ class MemberMultiGroupTest {
 
         viewModel = MemberViewModel(
             supabaseRepo, memberRepo, groupRepo, beneficiaryRepo, notificationRepo,
-            exportRepo, loanRepo, registerMemberUseCase, sendNotificationUseCase,
-            validateLoanEligibilityUseCase, geoapifyService, contextCacheService,
+            exportRepo, loanRepo, claimRepo, memberDocumentRepo, credentialsRepo,
+            registerMemberUseCase, sendNotificationUseCase,
+            validateLoanEligibilityUseCase, validateBurialClaimEligibilityUseCase,
+            getGroupBusinessInsightsUseCase, geoapifyService, contextCacheService,
             userProfileCacheService
         )
     }
@@ -88,7 +99,7 @@ class MemberMultiGroupTest {
     }
 
     @Test
-    fun `switching between groups isolates state correctly`() = runTest {
+    fun `switching between groups isolates state correctly`() = runTest(testDispatcher.scheduler) {
         val g1 = Group(id = "g1", name = "Group 1", monthlyContribution = 100.0)
         val g2 = Group(id = "g2", name = "Group 2", monthlyContribution = 200.0)
         val m1 = Member(id = "m1", groupId = "g1", userId = "user_1", status = MemberStatus.ACTIVE)

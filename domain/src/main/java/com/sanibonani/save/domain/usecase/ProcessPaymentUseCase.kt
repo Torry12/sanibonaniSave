@@ -1,8 +1,24 @@
 package com.sanibonani.save.domain.usecase
 
-import com.sanibonani.save.domain.model.*
-import com.sanibonani.save.domain.repository.*
 import com.sanibonani.save.data.utils.PaymentCalculator
+import com.sanibonani.save.domain.model.AdminFeeState
+import com.sanibonani.save.domain.model.AppNotification
+import com.sanibonani.save.domain.model.Contribution
+import com.sanibonani.save.domain.model.ContributionStatus
+import com.sanibonani.save.domain.model.Group
+import com.sanibonani.save.domain.model.Member
+import com.sanibonani.save.domain.model.MemberStatus
+import com.sanibonani.save.domain.model.NotifChannel
+import com.sanibonani.save.domain.model.NotifEvent
+import com.sanibonani.save.domain.model.Payment
+import com.sanibonani.save.domain.model.PaymentStatus
+import com.sanibonani.save.domain.model.PaymentType
+import com.sanibonani.save.domain.model.PlatformFees
+import com.sanibonani.save.domain.repository.GroupRepository
+import com.sanibonani.save.domain.repository.MemberRepository
+import com.sanibonani.save.domain.repository.NotificationRepository
+import com.sanibonani.save.domain.repository.PaymentRepository
+import com.sanibonani.save.domain.repository.PlatformRepository
 import com.sanibonani.save.domain.utils.OperationKeys
 import com.sanibonani.save.domain.utils.formatZAR
 import javax.inject.Inject
@@ -67,7 +83,7 @@ class ProcessPaymentUseCase @Inject constructor(
         group: Group?,
         member: Member?,
         timestampStr: String
-    ): Unit {
+    ) {
         if (groupId == "new_group") {
             // Handled by registration flow in GroupViewModel
             return
@@ -97,7 +113,7 @@ class ProcessPaymentUseCase @Inject constructor(
         groupId: String,
         member: Member?,
         timestampStr: String
-    ): Unit {
+    ) {
         val targetMember = member ?: throw Exception("Member context required for joining fee")
         
         recordPayment(txId, amount, groupId, PaymentType.JOINING_FEE, timestampStr, targetMember.id)
@@ -135,7 +151,7 @@ class ProcessPaymentUseCase @Inject constructor(
         group: Group?,
         calculation: com.sanibonani.save.data.utils.PaymentCalculation?,
         timestampStr: String
-    ): Unit {
+    ) {
         val targetMember = member ?: throw Exception("Member context required for contribution")
         val targetGroup = group ?: throw Exception("Group context required for contribution")
         val calc = calculation ?: throw Exception("Calculation context required for contribution")

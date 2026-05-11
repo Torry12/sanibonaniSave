@@ -3,7 +3,8 @@ package com.sanibonani.save.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.sanibonani.save.BuildConfig
-import com.sanibonani.save.data.FileUploadLimits
+import com.sanibonani.save.domain.config.FileUploadLimits
+import com.sanibonani.save.data.logging.AppLogger
 import com.sanibonani.save.data.remote.Feature
 import com.sanibonani.save.data.remote.GeoapifyService
 import com.sanibonani.save.data.utils.PaymentCalculator
@@ -17,13 +18,18 @@ import com.sanibonani.save.data.utils.requiresSupabaseAuthHeaders
 import com.sanibonani.save.data.utils.sanitizeMemberDocumentUploadError
 import com.sanibonani.save.data.utils.shouldRefreshProfileImageVersion
 import com.sanibonani.save.data.utils.toUserMessage
-import com.sanibonani.save.data.validation.ValidationResult
-import com.sanibonani.save.data.validation.ValidationUtils
+import com.sanibonani.save.domain.validation.ValidationResult
+import com.sanibonani.save.domain.validation.ValidationUtils
 import com.sanibonani.save.domain.model.*
 import com.sanibonani.save.domain.repository.*
-import com.sanibonani.save.domain.usecase.ValidateLoanEligibilityUseCase
+import com.sanibonani.save.domain.model.BeneficiaryPayoutClaim
+import com.sanibonani.save.domain.model.BeneficiaryClaimStatus
+import com.sanibonani.save.domain.repository.BeneficiaryClaimRepository
+import com.sanibonani.save.domain.usecase.groups.GetGroupBusinessInsightsUseCase
 import com.sanibonani.save.domain.usecase.RegisterMemberUseCase
 import com.sanibonani.save.domain.usecase.SendNotificationUseCase
+import com.sanibonani.save.domain.usecase.ValidateLoanEligibilityUseCase
+import com.sanibonani.save.domain.usecase.ValidateBurialClaimEligibilityUseCase
 import com.sanibonani.save.service.MemberGroupContextCacheService
 import com.sanibonani.save.viewmodel.state.MemberEvent
 import com.sanibonani.save.viewmodel.state.MemberUiState
@@ -59,9 +65,14 @@ class MemberViewModel @Inject constructor(
     private val notificationRepo: NotificationRepository,
     private val exportRepo: ExportRepository,
     private val loanRepo: LoanRepository,
+    private val claimRepo: BeneficiaryClaimRepository,
+    private val memberDocumentRepo: MemberDocumentRepository,
+    private val credentialsRepo: CredentialsRepository,
     private val registerMemberUseCase: RegisterMemberUseCase,
     private val sendNotificationUseCase: SendNotificationUseCase,
     private val validateLoanEligibilityUseCase: ValidateLoanEligibilityUseCase,
+    private val validateBurialClaimEligibilityUseCase: ValidateBurialClaimEligibilityUseCase,
+    private val getGroupBusinessInsightsUseCase: GetGroupBusinessInsightsUseCase,
     private val geoapifyService: GeoapifyService,
     private val contextCacheService: MemberGroupContextCacheService,
     private val userProfileCacheService: com.sanibonani.save.service.UserProfileCacheService
@@ -88,21 +99,35 @@ class MemberViewModel @Inject constructor(
     private var membershipObservationJob: Job? = null
     private var groupObservationJob: Job? = null
     private var memberDataObservationJob: Job? = null
+    private var allMembersObservationJob: Job? = null
     private var notificationObservationJob: Job? = null
     private var beneficiaryObservationJob: Job? = null
+    private var documentObservationJob: Job? = null
     private var loanObservationJob: Job? = null
+    private var burialClaimObservationJob: Job? = null
     private var cacheObservationJob: Job? = null
     private var addressSearchJob: Job? = null
     private var activeObservedGroupId: String? = null
     private var observationVersion: Long = 0L
+    private var impersonatedMemberId: String? = null
 
     // ══════════════════════════════════════════════════════════════════════════
     // INITIALIZATION
     // ══════════════════════════════════════════════════════════════════════════
 
     init {
+        loadSavedSecuritySettings()
         observeCacheFreshness()
         loadUserMemberships()
+    }
+
+    private fun loadSavedSecuritySettings() {
+        _uiState.update { it.copy(biometricEnabled = credentialsRepo.isBiometricEnabled()) }
+    }
+
+    fun toggleBiometric(enabled: Boolean) {
+        credentialsRepo.setBiometricEnabled(enabled)
+        _uiState.update { it.copy(biometricEnabled = enabled) }
     }
 
     private fun observeCacheFreshness() {
@@ -162,6 +187,8 @@ class MemberViewModel @Inject constructor(
      * Handles successful membership load - determines which group to observe.
      */
     private fun handleMembershipsLoaded(memberships: List<Member>) {
+        if (!impersonatedMemberId.isNullOrBlank()) return
+
         if (memberships.isEmpty()) {
             // No memberships yet, stop loading
             if (_uiState.value.member == null) {
@@ -212,6 +239,9 @@ class MemberViewModel @Inject constructor(
      * Performs a deep state reset to prevent data leakage between groups.
      */
     fun switchGroup(groupId: String) {
+        // User-driven switching exits any active impersonation context.
+        impersonatedMemberId = null
+
         // Skip if already on this group with loaded data
         if (_uiState.value.currentGroupId == groupId &&
             _uiState.value.group != null &&
@@ -223,6 +253,33 @@ class MemberViewModel @Inject constructor(
             _uiState.update { resetStateForGroupSwitch(it, groupId) }
         }
         startRealtimeObservation(groupId)
+    }
+
+    fun beginImpersonation(memberId: String, groupId: String) {
+        if (memberId.isBlank() || groupId.isBlank()) {
+            _uiState.update { it.copy(error = "Unable to impersonate member: missing member or group context.") }
+            return
+        }
+
+        impersonatedMemberId = memberId
+        _uiState.update {
+            resetStateForGroupSwitch(it, groupId).copy(userRole = UserRole.PLATFORM_ADMIN)
+        }
+        AppLogger.d(
+            tag = "MemberViewModel",
+            message = "[Impersonation] Starting impersonation of member=$memberId in group=$groupId"
+        )
+        startRealtimeObservation(groupId)
+    }
+
+    fun clearImpersonation() {
+        if (impersonatedMemberId != null) {
+            AppLogger.d(
+                tag = "MemberViewModel",
+                message = "[Impersonation] Clearing impersonation context"
+            )
+        }
+        impersonatedMemberId = null
     }
 
     /**
@@ -252,7 +309,9 @@ class MemberViewModel @Inject constructor(
      */
     fun startRealtimeObservation(groupId: String) {
         val userId = supabaseRepo.currentUserId ?: return
-        val cachedContext = contextCacheService.getContext(groupId)
+        val targetMemberId = impersonatedMemberId
+        val isImpersonating = !targetMemberId.isNullOrBlank()
+        val cachedContext = if (isImpersonating) null else contextCacheService.getContext(groupId)
 
         if (hasActiveObservationFor(groupId)) {
             return
@@ -262,8 +321,10 @@ class MemberViewModel @Inject constructor(
         val requestVersion = ++observationVersion
         groupObservationJob?.cancel()
         memberDataObservationJob?.cancel()
+        allMembersObservationJob?.cancel()
         notificationObservationJob?.cancel()
         beneficiaryObservationJob?.cancel()
+        documentObservationJob?.cancel()
 
         viewModelScope.launch {
             val role = withTimeoutOrNull(2500) {
@@ -302,7 +363,11 @@ class MemberViewModel @Inject constructor(
                     }
                 } else {
                     // Initial member fetch to get memberId for dependent flows.
-                    val initialMember = memberRepo.getMemberByUserId(userId, groupId).getOrNull()
+                    val initialMember = if (isImpersonating) {
+                        memberRepo.getMemberById(targetMemberId!!).getOrNull()?.takeIf { it.groupId == groupId }
+                    } else {
+                        memberRepo.getMemberByUserId(userId, groupId).getOrNull()
+                    }
                     if (requestVersion != observationVersion) return@launch
                     _uiState.update { state ->
                         state.copy(
@@ -313,7 +378,17 @@ class MemberViewModel @Inject constructor(
                 }
 
                 // Launch concurrent observation flows
-                val memberFlow = memberRepo.observeMemberByUserId(userId, groupId)
+                val memberFlow = if (isImpersonating) {
+                    flow {
+                        emit(
+                            runCatching {
+                                memberRepo.getMemberById(targetMemberId!!).getOrThrow().takeIf { it.groupId == groupId }
+                            }
+                        )
+                    }
+                } else {
+                    memberRepo.observeMemberByUserId(userId, groupId)
+                }
                     .distinctUntilChanged()
                     .shareIn(
                         scope = this,
@@ -322,9 +397,12 @@ class MemberViewModel @Inject constructor(
                     )
 
                 memberDataObservationJob = observeMemberAndCalculation(memberFlow, groupId, requestVersion)
+                allMembersObservationJob = observeAllMembersAndInsights(groupId, requestVersion)
                 notificationObservationJob = observeNotifications(groupId, requestVersion)
                 beneficiaryObservationJob = observeBeneficiaries(memberFlow, groupId, requestVersion)
+                documentObservationJob = observeDocuments(memberFlow, groupId, requestVersion)
                 loanObservationJob = observeLoans(memberFlow, groupId, requestVersion)
+                burialClaimObservationJob = observeBurialClaims(memberFlow, groupId, requestVersion)
                 activeObservedGroupId = groupId
             }
         }
@@ -411,13 +489,15 @@ class MemberViewModel @Inject constructor(
                     )
                 }
 
-                contextCacheService.updateContext(groupId) { cached ->
-                    cached.copy(
-                        member = member ?: cached.member,
-                        group = group ?: cached.group,
-                        contributions = contributions,
-                        calculation = calculation
-                    )
+                if (impersonatedMemberId.isNullOrBlank()) {
+                    contextCacheService.updateContext(groupId) { cached ->
+                        cached.copy(
+                            member = member ?: cached.member,
+                            group = group ?: cached.group,
+                            contributions = contributions,
+                            calculation = calculation
+                        )
+                    }
                 }
             }
     }
@@ -444,11 +524,13 @@ class MemberViewModel @Inject constructor(
                             messages = messages
                         )
                     }
-                    contextCacheService.updateContext(groupId) { cached ->
-                        cached.copy(
-                            notifications = systemNotifs,
-                            messages = messages
-                        )
+                    if (impersonatedMemberId.isNullOrBlank()) {
+                        contextCacheService.updateContext(groupId) { cached ->
+                            cached.copy(
+                                notifications = systemNotifs,
+                                messages = messages
+                            )
+                        }
                     }
                 }.onFailure { error ->
                     _uiState.update { it.copy(error = error.toUserMessage()) }
@@ -478,9 +560,81 @@ class MemberViewModel @Inject constructor(
                 }
                 result.onSuccess { beneficiaries ->
                     _uiState.update { it.copy(beneficiaries = beneficiaries) }
-                    contextCacheService.updateContext(groupId) { cached ->
-                        cached.copy(beneficiaries = beneficiaries)
+                    if (impersonatedMemberId.isNullOrBlank()) {
+                        contextCacheService.updateContext(groupId) { cached ->
+                            cached.copy(beneficiaries = beneficiaries)
+                        }
                     }
+                }.onFailure { error ->
+                    _uiState.update { it.copy(error = error.toUserMessage()) }
+                }
+            }
+    }
+
+    /**
+     * Observes relational documents for the current member.
+     */
+    private fun observeDocuments(
+        memberFlow: Flow<Result<Member?>>,
+        groupId: String,
+        requestVersion: Long
+    ): Job = viewModelScope.launch {
+        observeForCurrentMemberId(
+            memberFlow = memberFlow,
+            emptyValue = emptyList(),
+            observer = memberDocumentRepo::observeMemberDocuments
+        )
+            .distinctUntilChanged()
+            .collect { result ->
+                if (isStaleObservation(groupId, requestVersion)) {
+                    return@collect
+                }
+                result.onSuccess { docs ->
+                    _uiState.update { it.copy(documents = docs) }
+                }.onFailure { error ->
+                    _uiState.update { it.copy(error = error.toUserMessage()) }
+                }
+            }
+    }
+
+    private fun observeAllMembersAndInsights(
+        groupId: String,
+        requestVersion: Long
+    ): Job = viewModelScope.launch {
+        val groupFlow = groupRepo.observeGroup(groupId)
+        val allMembersFlow = memberRepo.getGroupMembers(groupId)
+
+        combine(groupFlow, allMembersFlow) { groupRes, membersRes ->
+            groupRes.getOrNull() to (membersRes.getOrNull() ?: emptyList())
+        }.collect { (group, members) ->
+            if (isStaleObservation(groupId, requestVersion)) return@collect
+            if (group != null && members.isNotEmpty()) {
+                val insights = getGroupBusinessInsightsUseCase(group, members)
+                _uiState.update { it.copy(businessInsight = insights) }
+            }
+        }
+    }
+
+    /**
+     * Observes burial claims for the current member.
+     */
+    private fun observeBurialClaims(
+        memberFlow: Flow<Result<Member?>>,
+        groupId: String,
+        requestVersion: Long
+    ): Job = viewModelScope.launch {
+        observeForCurrentMemberId(
+            memberFlow = memberFlow,
+            emptyValue = emptyList(),
+            observer = { memberId -> claimRepo.observeClaimsForMember(memberId, groupId) }
+        )
+            .distinctUntilChanged()
+            .collect { result ->
+                if (isStaleObservation(groupId, requestVersion)) {
+                    return@collect
+                }
+                result.onSuccess { claims ->
+                    _uiState.update { it.copy(burialClaims = claims) }
                 }.onFailure { error ->
                     _uiState.update { it.copy(error = error.toUserMessage()) }
                 }
@@ -509,8 +663,10 @@ class MemberViewModel @Inject constructor(
                 }
                 result.onSuccess { loans ->
                     _uiState.update { it.copy(loans = loans) }
-                    contextCacheService.updateContext(groupId) { it.copy(loans = loans) }
-                    
+                    if (impersonatedMemberId.isNullOrBlank()) {
+                        contextCacheService.updateContext(groupId) { it.copy(loans = loans) }
+                    }
+
                     // If there's an active loan, observe its repayments
                     val activeLoan = loans.find { it.status == LoanStatus.APPROVED || it.status == LoanStatus.ACTIVE || it.status == LoanStatus.PARTIALLY_PAID }
                     if (activeLoan != null) {
@@ -534,7 +690,9 @@ class MemberViewModel @Inject constructor(
                     }
                     result.onSuccess { repayments ->
                         _uiState.update { it.copy(loanRepayments = repayments) }
-                        contextCacheService.updateContext(groupId) { it.copy(loanRepayments = repayments) }
+                        if (impersonatedMemberId.isNullOrBlank()) {
+                            contextCacheService.updateContext(groupId) { it.copy(loanRepayments = repayments) }
+                        }
                     }
                 }
         }
@@ -795,6 +953,30 @@ class MemberViewModel @Inject constructor(
             }.onFailure { error ->
                 val userMessage = sanitizeMemberDocumentUploadError(error.toUserMessage())
                 _uiState.update { it.copy(isUploading = false, uploadProgress = null, error = userMessage) }
+            }
+        }
+    }
+
+    fun uploadRelationalDocument(label: String, bytes: ByteArray, fileName: String) {
+        val member = _uiState.value.member ?: return
+        val memberId = member.id ?: return
+        val groupId = member.groupId
+
+        viewModelScope.launch {
+            _uiState.update { it.copy(isUploading = true, error = null, uploadProgress = 0.0) }
+            val result = memberDocumentRepo.uploadAndAddMemberDocument(
+                memberId = memberId,
+                groupId = groupId,
+                label = label,
+                byteArray = bytes,
+                fileName = fileName
+            )
+
+            result.onSuccess {
+                _uiState.update { it.copy(isUploading = false, uploadProgress = 1.0) }
+                sendEvent(MemberEvent.ShowMessage("Document '$label' uploaded successfully"))
+            }.onFailure { error ->
+                _uiState.update { it.copy(isUploading = false, error = error.toUserMessage()) }
             }
         }
     }
@@ -1236,15 +1418,107 @@ class MemberViewModel @Inject constructor(
                     // Notify admins about the new loan request
                     sendNotificationUseCase(
                         groupId = group.id ?: "",
-                        memberId = member.id ?: "",
+                        memberId = null, // Broadcast to group admins
                         message = "NEW LOAN REQUEST: ${member.fullName} requested R$amount for $months months.",
-                        triggerEvent = NotifEvent.MEMBER_MESSAGE // Using MEMBER_MESSAGE as a generic trigger for now
+                        triggerEvent = NotifEvent.LOAN_REQUESTED,
+                        channel = NotifChannel.BOTH
                     )
                 }
                 .onFailure { error ->
                     _uiState.update { it.copy(isLoading = false, error = error.toUserMessage()) }
                 }
         }
+    }
+
+    fun acceptLoanAgreement(loanId: String) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isLoading = true) }
+            loanRepo.acceptLoanAgreement(loanId)
+                .onSuccess {
+                    _uiState.update { it.copy(isLoading = false) }
+                    sendEvent(MemberEvent.ShowMessage("Loan agreement accepted."))
+                }
+                .onFailure { error ->
+                    _uiState.update { it.copy(isLoading = false, error = error.toUserMessage()) }
+                }
+        }
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // BURIAL SOCIETY CLAIMS
+    // ══════════════════════════════════════════════════════════════════════════
+
+    /**
+     * Submits a new beneficiary payout claim.
+     */
+    fun submitBeneficiaryClaim(
+        beneficiary: Beneficiary,
+        causeOfDeath: String,
+        dateOfDeath: String,
+        claimAmount: Double,
+        bankName: String,
+        accountNo: String,
+        branchCode: String,
+        accountHolder: String,
+        notes: String?
+    ) {
+        val member = _uiState.value.member ?: return
+        val group = _uiState.value.group ?: return
+
+        viewModelScope.launch {
+            _uiState.update { it.copy(isSubmittingClaim = true, error = null) }
+
+            // Validate eligibility (Waiting periods, group type, member status)
+            val eligibility = validateBurialClaimEligibilityUseCase(
+                member = member,
+                group = group,
+                causeOfDeath = causeOfDeath,
+                dateOfDeath = dateOfDeath
+            )
+
+            if (eligibility is ValidateBurialClaimEligibilityUseCase.EligibilityResult.Ineligible) {
+                _uiState.update { it.copy(isSubmittingClaim = false, error = eligibility.reason) }
+                return@launch
+            }
+
+            val claim = BeneficiaryPayoutClaim(
+                groupId = group.id ?: "",
+                memberId = member.id ?: "",
+                beneficiaryId = beneficiary.id ?: "",
+                beneficiaryName = beneficiary.fullName,
+                causeOfDeath = causeOfDeath,
+                dateOfDeath = dateOfDeath,
+                claimAmount = claimAmount,
+                bankName = bankName,
+                accountNo = accountNo,
+                branchCode = branchCode,
+                accountHolder = accountHolder,
+                notes = notes,
+                status = BeneficiaryClaimStatus.SUBMITTED
+            )
+
+            claimRepo.submitClaim(claim)
+                .onSuccess {
+                    _uiState.update { it.copy(isSubmittingClaim = false, claimSubmitSuccess = true) }
+                    sendEvent(MemberEvent.ShowMessage("Claim submitted successfully"))
+                    
+                    // Notify admins about the new claim
+                    sendNotificationUseCase(
+                        groupId = group.id ?: "",
+                        memberId = null, // Broadcast to group admins
+                        message = "New burial claim submitted by ${member.fullName} for beneficiary ${beneficiary.fullName}.",
+                        triggerEvent = NotifEvent.CUSTOM,
+                        channel = NotifChannel.BOTH
+                    )
+                }
+                .onFailure { error ->
+                    _uiState.update { it.copy(isSubmittingClaim = false, error = error.toUserMessage()) }
+                }
+        }
+    }
+
+    fun dismissClaimSuccess() {
+        _uiState.update { it.copy(claimSubmitSuccess = false) }
     }
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -1270,7 +1544,6 @@ class MemberViewModel @Inject constructor(
             exportRepo.exportContributionsToCsv(group, member, contributions)
                 .onSuccess { file ->
                     _uiState.update { it.copy(isExporting = false, exportFile = file) }
-                    sendEvent(MemberEvent.OpenFile(file, mimeType = "text/csv", chooserTitle = "Share My Statement"))
                 }
                 .onFailure { error ->
                     val userMessage = error.toUserMessage()
@@ -1282,7 +1555,6 @@ class MemberViewModel @Inject constructor(
 
     /**
      * Initiates PDF statement download.
-     * Note: Actual PDF generation is handled by the UI layer via context-aware tools.
      */
     fun downloadPdfStatement() {
         val group = _uiState.value.group
@@ -1302,17 +1574,40 @@ class MemberViewModel @Inject constructor(
         }
 
         viewModelScope.launch {
-            _uiState.update { it.copy(isExporting = true, error = null) }
+            _uiState.update { it.copy(isExporting = true) }
 
-            exportRepo.exportContributionsToPdf(group, member, contributions)
+            exportRepo.exportContributionsToPdf(group!!, member!!, contributions)
                 .onSuccess { file ->
-                    _uiState.update { it.copy(isExporting = false) }
-                    sendEvent(MemberEvent.OpenFile(file, mimeType = "application/pdf", chooserTitle = "Open Statement PDF"))
+                    _uiState.update { it.copy(isExporting = false, exportFile = file) }
                 }
                 .onFailure { error ->
                     val userMessage = error.toUserMessage()
                     _uiState.update { it.copy(isExporting = false, error = userMessage) }
                     sendEvent(MemberEvent.ShowMessage(userMessage))
+                }
+        }
+    }
+
+    fun downloadGroupConstitution() {
+        val group = _uiState.value.group ?: return
+        
+        // If the group has an official uploaded constitution, we use that.
+        val officialUrl = group.constitutionUrl
+        if (!officialUrl.isNullOrBlank()) {
+            val headers = getDownloadParams(officialUrl)
+            val fileName = "Group_Constitution_${group.name.replace(" ", "_")}.pdf"
+            sendEvent(MemberEvent.DownloadFile(officialUrl, fileName, "application/pdf", headers))
+            return
+        }
+
+        viewModelScope.launch {
+            _uiState.update { it.copy(isExporting = true) }
+            exportRepo.exportGroupConstitution(group)
+                .onSuccess { file ->
+                    _uiState.update { it.copy(isExporting = false, exportFile = file) }
+                }
+                .onFailure { error ->
+                    _uiState.update { it.copy(isExporting = false, error = error.toUserMessage()) }
                 }
         }
     }

@@ -10,6 +10,7 @@ import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import androidx.navigation.navDeepLink
@@ -42,11 +43,20 @@ sealed class Screen(val route: String) {
     data object UpdatePassword  : Screen("update_password")
     data object BrowseGroups    : Screen("browse")
     data object RegisterGroup   : Screen("register_group")
-    data object MemberDashboard : Screen("member_dashboard?targetTab={targetTab}&groupId={groupId}") {
-        fun withTab(tab: Int, groupId: String? = null) = "member_dashboard?targetTab=$tab${if (groupId != null) "&groupId=$groupId" else ""}"
+    data object MemberDashboard : Screen("member_dashboard?targetTab={targetTab}&groupId={groupId}&memberId={memberId}") {
+        fun withTab(tab: Int, groupId: String? = null, memberId: String? = null) =
+            "member_dashboard?targetTab=$tab" +
+                (if (groupId != null) "&groupId=$groupId" else "") +
+                (if (memberId != null) "&memberId=$memberId" else "")
     }
-    data object AdminDashboard  : Screen("admin_dashboard?groupId={groupId}") {
-        fun withId(groupId: String? = null) = "admin_dashboard" + (if (groupId != null) "?groupId=$groupId" else "")
+    data object AdminDashboard  : Screen("admin_dashboard?groupId={groupId}&supportMode={supportMode}") {
+        fun withId(groupId: String? = null, supportMode: Boolean = false): String {
+            val params = buildList {
+                if (groupId != null) add("groupId=$groupId")
+                if (supportMode) add("supportMode=true")
+            }
+            return "admin_dashboard" + if (params.isEmpty()) "" else "?${params.joinToString("&")}" 
+        }
     }
     data object PlatformAdmin   : Screen("platform_admin")
     data object CreatePlatformAdmin : Screen("create_platform_admin")
@@ -192,10 +202,11 @@ fun SanibonaniNavGraph(
     }
     val authViewModel: AuthViewModel = hiltViewModel()
     val authState by authViewModel.state.collectAsState()
+    val navBackStackEntry by navController.currentBackStackEntryAsState()
+    val currentRoute = navBackStackEntry?.destination?.route
 
      // Global session observer for forced navigation
-     LaunchedEffect(authState.isLoggedIn, authState.userRole, authState.isNewRegistration, authState.navigateTo) {
-         val currentRoute = navController.currentDestination?.route
+     LaunchedEffect(authState.isLoggedIn, authState.userRole, authState.isNewRegistration, authState.navigateTo, currentRoute) {
          if (currentRoute == null) return@LaunchedEffect
 
          AppLogger.d(
@@ -258,8 +269,8 @@ fun SanibonaniNavGraph(
                   }
               }
           } else if (authState.isNewRegistration && currentRoute == Screen.Register.route) {
-              AppLogger.d(tag = "NavGraph", message = "[Register] Session not yet authenticated after signup. Redirecting to Login for platform admin sign-in.")
-              navController.navigate("${Screen.Login.route}?redirect=platform_admin") {
+              AppLogger.d(tag = "NavGraph", message = "[Register] Session not yet authenticated after signup. Redirecting to Login.")
+              navController.navigate(Screen.Login.route) {
                   popUpTo(0) { inclusive = true }
               }
               authViewModel.clearNewRegistrationFlag()
@@ -315,7 +326,7 @@ fun SanibonaniNavGraph(
                  onLoginSuccess = { role ->
                      // Route immediately on successful login so role-based destinations are deterministic
                      // in both production and instrumentation flows.
-                     if (decodedRedirect != null && decodedRedirect != "platform_admin") {
+                      if (decodedRedirect != null) {
                          AppLogger.d(tag = "NavGraph", message = "[Login] Applying protected redirect to $decodedRedirect.")
                          navController.navigate(decodedRedirect) {
                              popUpTo(Screen.Login.route) { inclusive = true }
@@ -329,10 +340,8 @@ fun SanibonaniNavGraph(
                          }
                      }
                  },
-                 onNavigateRegister = { navController.navigate(Screen.Register.route) },
-                 onForgotPassword = { navController.navigate(Screen.PasswordRecovery.route) },
-                 onBack = { navController.popBackStack() },
-                 redirect = redirectRoute
+                  onNavigateRegister = { navController.navigate(Screen.Register.route) },
+                  onForgotPassword = { navController.navigate(Screen.PasswordRecovery.route) }
              )
          }
          composable(Screen.PasswordRecovery.route) {
@@ -436,17 +445,24 @@ fun SanibonaniNavGraph(
             ),
             arguments = listOf(
                 navArgument("targetTab") { type = NavType.IntType; defaultValue = 0 },
-                navArgument("groupId") { type = NavType.StringType; nullable = true; defaultValue = null }
+                navArgument("groupId") { type = NavType.StringType; nullable = true; defaultValue = null },
+                navArgument("memberId") { type = NavType.StringType; nullable = true; defaultValue = null }
             )
         ) { backStackEntry ->
             val targetTab = backStackEntry.arguments?.getInt("targetTab") ?: 0
             val groupId = backStackEntry.arguments?.getString("groupId")
+            val memberId = backStackEntry.arguments?.getString("memberId")
             val memberViewModel: MemberViewModel = hiltViewModel()
 
-            // If a specific groupId is passed, ensure the ViewModel switches to it
-            LaunchedEffect(groupId) {
-                if (groupId != null) {
+            // If a specific group/member is passed, switch to that context.
+            LaunchedEffect(groupId, memberId) {
+                if (!groupId.isNullOrBlank() && !memberId.isNullOrBlank()) {
+                    memberViewModel.beginImpersonation(memberId, groupId)
+                } else if (!groupId.isNullOrBlank()) {
+                    memberViewModel.clearImpersonation()
                     memberViewModel.switchGroup(groupId)
+                } else {
+                    memberViewModel.clearImpersonation()
                 }
             }
 
@@ -470,10 +486,12 @@ fun SanibonaniNavGraph(
         composable(
             route = Screen.AdminDashboard.route,
             arguments = listOf(
-                navArgument("groupId") { type = NavType.StringType; nullable = true; defaultValue = null }
+                navArgument("groupId") { type = NavType.StringType; nullable = true; defaultValue = null },
+                navArgument("supportMode") { type = NavType.BoolType; defaultValue = false }
             )
         ) { back ->
             val groupId = back.arguments?.getString("groupId")
+            val supportMode = back.arguments?.getBoolean("supportMode") ?: false
             val adminViewModel: AdminViewModel = hiltViewModel()
 
             // If a groupId is explicitly provided, we want to ensure the ViewModel
@@ -488,14 +506,15 @@ fun SanibonaniNavGraph(
                 onNavigateToPayment = { type, amount, gid ->
                     navController.navigate(Screen.Payment.build(type, amount, gid))
                 },
-                onNavigateToMemberPortal = { gid ->
-                    navController.navigate(Screen.MemberDashboard.withTab(0, gid))
+                onNavigateToMemberPortal = { gid, memberId ->
+                    navController.navigate(Screen.MemberDashboard.withTab(0, gid, memberId))
                 },
                 onNavigateBack = { navController.popBackStack() },
                 onLogout = {
                     authViewModel.signOut()
                     navController.navigate(Screen.Landing.route) { popUpTo(0) }
                 },
+                isSupportMode = supportMode,
                 vm = adminViewModel
             )
         }
@@ -508,10 +527,10 @@ fun SanibonaniNavGraph(
                     navController.navigate(Screen.Landing.route) { popUpTo(0) }
                 },
                 onImpersonateGroupAdmin = { groupId ->
-                    navController.navigate(Screen.AdminDashboard.withId(groupId))
+                    navController.navigate(Screen.AdminDashboard.withId(groupId, supportMode = true))
                 },
-                onImpersonateMember = { _, groupId ->
-                    navController.navigate(Screen.MemberDashboard.withTab(0, groupId))
+                onImpersonateMember = { memberId, groupId ->
+                    navController.navigate(Screen.MemberDashboard.withTab(0, groupId, memberId))
                 },
                 onOpenMemberPortalFromDisbursement = { groupId, _ ->
                     navController.navigate(Screen.MemberDashboard.withTab(0, groupId))

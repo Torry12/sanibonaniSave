@@ -1,10 +1,9 @@
 package com.sanibonani.save.domain.repository
 
+import com.sanibonani.save.domain.model.UserRole
 import io.github.jan.supabase.auth.status.SessionStatus
 import io.github.jan.supabase.auth.user.UserSession
 import kotlinx.coroutines.flow.Flow
-
-import com.sanibonani.save.domain.model.UserRole
 
 interface SupabaseRepository {
     val currentUserId: String?

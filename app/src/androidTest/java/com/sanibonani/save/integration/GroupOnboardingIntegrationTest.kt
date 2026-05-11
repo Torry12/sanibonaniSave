@@ -1,7 +1,11 @@
 package com.sanibonani.save.integration
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import com.sanibonani.save.domain.model.*
+import com.sanibonani.save.domain.model.AdminFeeState
+import com.sanibonani.save.domain.model.Group
+import com.sanibonani.save.domain.model.GroupType
+import com.sanibonani.save.domain.model.MemberStatus
+import com.sanibonani.save.domain.model.NotificationPref
 import com.sanibonani.save.domain.repository.GroupRepository
 import com.sanibonani.save.domain.repository.MemberRepository
 import com.sanibonani.save.domain.repository.SupabaseRepository
@@ -11,13 +15,16 @@ import dagger.hilt.android.testing.HiltAndroidTest
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
-import org.junit.Assert.*
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
-import javax.inject.Inject
 import java.util.UUID
+import javax.inject.Inject
 
 /**
  * Integration tests for the complete group onboarding flow.
@@ -218,7 +225,7 @@ class GroupOnboardingIntegrationTest {
     @Test
     fun testGroupGeolocationCapture() = runBlocking {
         // 1. Authenticate
-        val adminUserId = ensureAuthenticated()
+        ensureAuthenticated()
         val adminEmail = supabaseRepo.currentSessionEmail ?: "test@example.com"
 
         // 2. Create group with geolocation

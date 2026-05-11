@@ -7,8 +7,8 @@ import com.sanibonani.save.analytics.AppAnalytics
 import com.sanibonani.save.data.utils.PaymentCalculation
 import com.sanibonani.save.data.utils.PaymentCalculator
 import com.sanibonani.save.data.utils.toUserMessage
-import com.sanibonani.save.data.validation.ValidationResult
-import com.sanibonani.save.data.validation.ValidationUtils
+import com.sanibonani.save.domain.validation.ValidationResult
+import com.sanibonani.save.domain.validation.ValidationUtils
 import com.sanibonani.save.domain.model.*
 import com.sanibonani.save.domain.repository.GroupRepository
 import com.sanibonani.save.domain.repository.MemberRepository

@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SanibonaniSave</title>
+  <meta name="description" content="Savings group administration for burial societies, stokvels, ROSCAs, and community funds.">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="#home">SanibonaniSave</a>
+    <nav aria-label="Primary">
+      <a href="#groups">Groups</a>
+      <a href="#admin">Admin</a>
+      <a href="#support">Support</a>
+    </nav>
+  </header>
+
+  <main id="home">
+    <section class="hero">
+      <div class="hero-copy">
+        <p class="eyebrow">South African savings groups</p>
+        <h1>SanibonaniSave</h1>
+        <p class="lead">Administration, member records, payments, documents, and payout governance for burial societies, stokvels, ROSCAs, and community savings groups.</p>
+        <div class="actions">
+          <a class="button primary" href="#install">Get the app</a>
+          <a class="button secondary" href="#admin">For administrators</a>
+        </div>
+      </div>
+    </section>
+
+    <section id="groups" class="band">
+      <div class="section-head">
+        <h2>Group Operations</h2>
+        <p>Built for recurring contributions, joining fees, documents, member status, and group health checks.</p>
+      </div>
+      <div class="grid">
+        <article>
+          <h3>Member management</h3>
+          <p>Register members, beneficiaries, document slots, notifications, and payment status in one place.</p>
+        </article>
+        <article>
+          <h3>Contribution tracking</h3>
+          <p>Post contributions through the backend RPC path so balances and member totals stay consistent.</p>
+        </article>
+        <article>
+          <h3>Payout governance</h3>
+          <p>Request, approve, process, complete, cancel, or reject payouts with platform oversight.</p>
+        </article>
+      </div>
+    </section>
+
+    <section id="admin" class="band muted">
+      <div class="section-head">
+        <h2>Platform Administration</h2>
+        <p>Operational tools for onboarding, fee management, maintenance, support access, and audit records.</p>
+      </div>
+      <dl class="facts">
+        <div><dt>Backend</dt><dd>Supabase Auth, Postgres, Storage, Realtime, Edge Functions</dd></div>
+        <div><dt>Payments</dt><dd>Yoco integration with joining fee and contribution contexts</dd></div>
+        <div><dt>Audit</dt><dd>Impersonation and support actions logged for compliance</dd></div>
+      </dl>
+    </section>
+
+    <section id="install" class="band">
+      <div class="section-head">
+        <h2>Install</h2>
+        <p>Use the Android app for live group administration. Production download links can be connected here.</p>
+      </div>
+      <div class="install-row">
+        <a class="button primary" href="mailto:support@sanibonanisave.co.za?subject=SanibonaniSave%20app%20access">Request access</a>
+        <span>Android package: <strong>com.sanibonani.save</strong></span>
+      </div>
+    </section>
+  </main>
+
+  <footer id="support">
+    <span>SanibonaniSave</span>
+    <a href="mailto:support@sanibonanisave.co.za">support@sanibonanisave.co.za</a>
+  </footer>
+</body>
+</html>
+

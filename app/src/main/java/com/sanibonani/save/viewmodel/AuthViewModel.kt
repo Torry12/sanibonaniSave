@@ -9,7 +9,7 @@ import com.sanibonani.save.data.utils.toUserMessage
 import com.sanibonani.save.domain.model.UserRole
 import com.sanibonani.save.domain.repository.CredentialsRepository
 import com.sanibonani.save.domain.repository.SupabaseRepository
-import com.sanibonani.save.domain.utils.PlatformAdminAuthPolicy
+import com.sanibonani.save.domain.utils.AuthIdentityUtils
 import com.sanibonani.save.domain.utils.UserRoleMapper
 import com.sanibonani.save.service.AdminGroupContextCacheService
 import com.sanibonani.save.service.MemberGroupContextCacheService
@@ -53,6 +53,21 @@ class AuthViewModel @Inject constructor(
 
     private val _state = MutableStateFlow(AuthState())
     val state: StateFlow<AuthState> = _state.asStateFlow()
+
+    private fun buildSignedOutState(current: AuthState? = null): AuthState {
+        val savedEmail = credentialsRepo.getSavedEmail()
+        val remember = credentialsRepo.getRememberMe()
+        val biometric = credentialsRepo.isBiometricEnabled()
+        val hasCreds = credentialsRepo.hasSavedCredentials()
+
+        return AuthState(
+            email = if (hasCreds && savedEmail.isNotBlank()) savedEmail else "",
+            rememberMe = remember,
+            biometricEnabled = biometric && remember && hasCreds,
+            hasSavedCredentials = hasCreds,
+            isResettingPassword = current?.isResettingPassword == true
+        )
+    }
 
     init {
         loadSavedCredentials()
@@ -164,11 +179,8 @@ class AuthViewModel @Inject constructor(
                         adminGroupContextCacheService.clearForSignOut()
                         memberGroupContextCacheService.clearForSignOut()
                         userProfileCacheService.clear()
-                        // Full state reset for security and clean UI
-                        _state.update { AuthState(
-                            biometricEnabled = credentialsRepo.isBiometricEnabled(),
-                            hasSavedCredentials = credentialsRepo.hasSavedCredentials()
-                        ) }
+                        // Keep saved-login flags consistent so quick login does not clear credentials.
+                        _state.update { buildSignedOutState(it) }
                     }
                     else -> {}
                 }
@@ -217,8 +229,8 @@ class AuthViewModel @Inject constructor(
      */
     fun signIn() {
         val s = _state.value
-        val normalizedEmail = s.email.trim()
-        val rawPassword = s.password.trim()
+        val normalizedEmail = AuthIdentityUtils.normalizeEmail(s.email)
+        val rawPassword = s.password
         AppAnalytics.track(
             AnalyticsTaxonomy.Events.AUTH_SIGN_IN_ATTEMPT,
             mapOf(
@@ -231,38 +243,40 @@ class AuthViewModel @Inject constructor(
             _state.update { it.copy(error = "Please enter your email", errorType = "generic") }
             return
         }
+
+        if (!AuthIdentityUtils.isPlausibleEmail(normalizedEmail)) {
+            _state.update { it.copy(error = "Please enter a valid email address.", errorType = "invalid_credentials") }
+            return
+        }
+
+        // Fix: Explicitly check if we have a password, otherwise enforce it for sign-in
+        if (rawPassword.isBlank()) {
+            _state.update { it.copy(error = "Please enter your password to sign in.", errorType = "invalid_credentials") }
+            return
+        }
+
         viewModelScope.launch {
             _state.update { it.copy(isLoading = true, error = null, errorType = null) }
-            val result = if (rawPassword.isBlank()) {
-                AppAnalytics.track(AnalyticsTaxonomy.Events.AUTH_MAGIC_LINK_REQUESTED)
-                supabaseRepo.signInWithMagicLink(normalizedEmail)
-            } else {
-                supabaseRepo.signIn(normalizedEmail, rawPassword)
-            }
+            val result = supabaseRepo.signIn(normalizedEmail, rawPassword)
             result.onSuccess {
-                if (s.password.isNotBlank()) {
-                    // Only persist credentials when the user opted in.
-                    if (s.rememberMe) {
-                        credentialsRepo.saveCredentials(normalizedEmail, s.password, true)
-                        _state.update {
-                            it.copy(
-                                email = normalizedEmail,
-                                hasSavedCredentials = true,
-                                biometricEnabled = credentialsRepo.isBiometricEnabled()
-                            )
-                        }
-                    } else {
-                        clearSavedLoginData()
+                val shouldRemember = _state.value.rememberMe
+                if (shouldRemember) {
+                    credentialsRepo.saveCredentials(normalizedEmail, rawPassword, true)
+                    _state.update {
+                        it.copy(
+                            email = normalizedEmail,
+                            rememberMe = true,
+                            hasSavedCredentials = true,
+                            biometricEnabled = credentialsRepo.isBiometricEnabled()
+                        )
                     }
-                }
-                if (s.password.isBlank()) {
-                    _state.update { it.copy(isLoading = false, error = "Magic link sent to your email!", errorType = null) }
                 } else {
-                    _state.update { it.copy(isLoading = false, email = normalizedEmail, errorType = null) }
+                    clearSavedLoginData()
                 }
+                _state.update { it.copy(isLoading = false, email = normalizedEmail, errorType = null) }
                 AppAnalytics.track(
                     AnalyticsTaxonomy.Events.AUTH_SIGN_IN_SUCCESS,
-                    mapOf(AnalyticsTaxonomy.Params.ENTRY_POINT to if (s.password.isBlank()) "magic_link" else "password")
+                    mapOf(AnalyticsTaxonomy.Params.ENTRY_POINT to "password")
                 )
             }.onFailure { e ->
                 val msg = e.toUserMessage()
@@ -281,15 +295,20 @@ class AuthViewModel @Inject constructor(
     }
 
 
-    fun signUp(role: UserRole = UserRole.PLATFORM_ADMIN) {
+    fun signUp(role: UserRole = UserRole.MEMBER) {
         val s = _state.value
-        val normalizedEmail = s.email.trim()
+        val normalizedEmail = AuthIdentityUtils.normalizeEmail(s.email)
         AppAnalytics.track(
             AnalyticsTaxonomy.Events.AUTH_SIGN_UP_ATTEMPT,
             mapOf(AnalyticsTaxonomy.Params.ROLE to role.name.lowercase())
         )
         if (normalizedEmail.isBlank() || s.fullName.isBlank() || s.password.isBlank() || s.confirmPw.isBlank()) {
             _state.update { it.copy(error = "Please fill in all fields") }
+            return
+        }
+
+        if (!AuthIdentityUtils.isPlausibleEmail(normalizedEmail)) {
+            _state.update { it.copy(error = "Please enter a valid email address") }
             return
         }
 
@@ -352,13 +371,7 @@ class AuthViewModel @Inject constructor(
             memberGroupContextCacheService.clearForSignOut()
             userProfileCacheService.clear()
             supabaseRepo.signOut()
-            // Full state reset for security and clean UI
-            _state.update {
-                AuthState(
-                    biometricEnabled = credentialsRepo.isBiometricEnabled(),
-                    hasSavedCredentials = credentialsRepo.hasSavedCredentials()
-                )
-            }
+            _state.update { buildSignedOutState(it) }
         }
     }
 
@@ -377,14 +390,17 @@ class AuthViewModel @Inject constructor(
         viewModelScope.launch {
             _state.update { it.copy(isLoading = true, error = null) }
             
-            // Check if we have an active session. If not, wait briefly for the deep link processing to finish.
-            if (!supabaseRepo.isLoggedIn) {
-                AppLogger.d("AuthViewModel", "No active session in updatePassword, waiting 2s for deep link import...")
-                kotlinx.coroutines.delay(2000)
+            // Wait for session status to be Authenticated (with timeout)
+            // This handles the gap between deep link import and state update
+            var attempts = 0
+            while (!supabaseRepo.isLoggedIn && attempts < 10) {
+                AppLogger.d("AuthViewModel", "Waiting for session... attempt $attempts")
+                kotlinx.coroutines.delay(500)
+                attempts++
             }
 
             if (!supabaseRepo.isLoggedIn) {
-                AppLogger.e("AuthViewModel", "Update password failed: No session after wait.")
+                AppLogger.e("AuthViewModel", "Update password failed: No session after waiting.")
                 _state.update { it.copy(
                     isLoading = false, 
                     error = "No active session found. Your reset link may have expired or is invalid. Please try requesting a new reset link."
@@ -395,10 +411,19 @@ class AuthViewModel @Inject constructor(
             AppLogger.d("AuthViewModel", "Updating password for userId=${supabaseRepo.currentUserId}")
             supabaseRepo.updatePassword(s.password)
                 .onSuccess {
+                    AppLogger.d("AuthViewModel", "Password updated successfully!")
+                    // If they have Remember Me enabled, update the saved password so biometric/quick login keeps working.
+                    if (s.rememberMe && s.email.isNotBlank()) {
+                        credentialsRepo.saveCredentials(AuthIdentityUtils.normalizeEmail(s.email), s.password, true)
+                    } else {
+                        // Otherwise clear old invalid credentials
+                        clearSavedLoginData()
+                    }
                     _state.update { it.copy(isLoading = false, navigateTo = "login", isResettingPassword = false) }
                 }
                 .onFailure { e ->
-                    val errorMsg = e.message ?: "Failed to update password"
+                    val errorMsg = e.toUserMessage()
+                    AppLogger.e("AuthViewModel", "Update password failed: $errorMsg", e)
                     val finalMsg = if (errorMsg.contains("claim", ignoreCase = true)) {
                         "Session authentication failed. Please request a new reset link."
                     } else {
@@ -409,37 +434,28 @@ class AuthViewModel @Inject constructor(
         }
     }
 
-    fun prefillPlatformAdmin() {
-        _state.update {
-            it.copy(
-                email = PlatformAdminAuthPolicy.EMAIL,
-                password = "",
-                error = null
-            )
-        }
-    }
-
     fun quickLogin() {
     if (!_state.value.biometricEnabled) {
       _state.update {
-        it.copy(error = "Biometric login is not enabled. Turn it on after choosing Remember Me.")
+        it.copy(error = "Biometric login is not enabled. Enable 'Remember Me' first to use biometric login.")
       }
       return
     }
 
 		val current = _state.value
-		val email = current.email.ifBlank { credentialsRepo.getSavedEmail() }
-		val password = current.password.ifBlank { credentialsRepo.getSavedPassword() }
+		val savedEmail = credentialsRepo.getSavedEmail()
+		val savedPassword = credentialsRepo.getSavedPassword()
 
-		if (email.isBlank() || password.isBlank()) {
+		if (savedEmail.isBlank() || savedPassword.isBlank()) {
 			_state.update {
-				it.copy(error = "No saved credentials found. Please log in with your password first and enable 'Remember Me'.")
+				it.copy(error = "Saved credentials not found. Please log in with your password and enable Remember Me.")
 			}
+			credentialsRepo.setBiometricEnabled(false)
 			return
 		}
 
-		// Ensure signIn() runs with the credentials we just resolved.
-		_state.update { it.copy(email = email, password = password, error = null) }
+		// Ensure signIn() runs with the saved credentials
+    _state.update { it.copy(email = savedEmail, password = savedPassword, rememberMe = true, error = null) }
 		signIn()
     }
 

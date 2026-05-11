@@ -43,12 +43,20 @@ class AdminViewModelWhatsAppTest {
     private val payoutRepo             = mockk<PayoutRepository>(relaxed = true)
     private val exportRepo             = mockk<ExportRepository>(relaxed = true)
     private val loanRepo               = mockk<LoanRepository>(relaxed = true)
+    private val claimRepo              = mockk<BeneficiaryClaimRepository>(relaxed = true)
     private val getManagedGroups       = mockk<GetManagedGroupsUseCase>(relaxed = true)
+    private val verifyMemberDocument   = mockk<VerifyMemberDocumentUseCase>(relaxed = true)
+    private val updateGroupSettings    = mockk<UpdateGroupSettingsUseCase>(relaxed = true)
+    private val applyViabilityPlan     = mockk<ApplyViabilityPlanUseCase>(relaxed = true)
+    private val verifyRelationalDoc    = mockk<VerifyRelationalDocumentUseCase>(relaxed = true)
     private val calculateViability     = mockk<CalculateViabilityUseCase>(relaxed = true)
     private val updateMemberStatus     = mockk<UpdateMemberStatusUseCase>(relaxed = true)
     private val sendNotification       = mockk<SendNotificationUseCase>(relaxed = true)
     private val requestPayout          = mockk<RequestPayoutUseCase>(relaxed = true)
     private val validateLoanEligibility = mockk<ValidateLoanEligibilityUseCase>(relaxed = true)
+    private val generateLoanContract   = mockk<GenerateLoanContractUseCase>(relaxed = true)
+    private val getGroupBusinessInsights = mockk<com.sanibonani.save.domain.usecase.groups.GetGroupBusinessInsightsUseCase>(relaxed = true)
+    private val ledgerRepo             = mockk<LedgerRepository>(relaxed = true)
 
     // Use real cache service backed by relaxed mocks (matches MultiGroupTest pattern)
     private val adminContextCache by lazy {
@@ -98,8 +106,15 @@ class AdminViewModelWhatsAppTest {
         viewModel = AdminViewModel(
             supabaseRepo, groupRepo, memberRepo, beneficiaryRepo, memberDocumentRepo,
             actuarialRepo, notifRepo, paymentRepo, payoutRepo, exportRepo, loanRepo,
-            adminContextCache, getManagedGroups, calculateViability,
-            updateMemberStatus, sendNotification, requestPayout, validateLoanEligibility
+            claimRepo,
+            adminContextCache, 
+            verifyMemberDocument,
+            updateGroupSettings,
+            applyViabilityPlan,
+            verifyRelationalDoc,
+            getManagedGroups, calculateViability,
+            updateMemberStatus, sendNotification, requestPayout, validateLoanEligibility,
+            generateLoanContract, getGroupBusinessInsights, ledgerRepo
         )
     }
 

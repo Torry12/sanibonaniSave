@@ -1,9 +1,9 @@
 package com.sanibonani.save
 
 import android.os.Bundle
+import androidx.fragment.app.FragmentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.activity.ComponentActivity
 import androidx.activity.viewModels
 import androidx.navigation.compose.rememberNavController
 import androidx.compose.animation.AnimatedVisibility
@@ -28,6 +28,7 @@ import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.sanibonani.save.data.utils.AppDateSync
+import com.sanibonani.save.domain.repository.GroupRepository
 import com.sanibonani.save.domain.repository.SupabaseRepository
 import com.sanibonani.save.domain.repository.SyncRepository
 import com.sanibonani.save.domain.repository.SyncStatus
@@ -42,6 +43,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import javax.inject.Inject
@@ -98,12 +100,14 @@ class SplashViewModel @Inject constructor(
                                 if (url.contains("127.0.0.1") || url.contains("localhost")) return@withContext true
                                 val host = url.removePrefix("https://").removePrefix("http://").split("/")[0]
                                 
-                                // Optimized: Use a simple socket connection with short timeout instead of InetAddress.getByName
-                                // which can block indefinitely in some OS versions/conditions.
+                                // Optimized: Use a simple socket connection with short timeout
                                 val socket = java.net.Socket()
-                                socket.connect(java.net.InetSocketAddress(host, 443), 2000)
-                                socket.close()
-                                true
+                                try {
+                                    socket.connect(java.net.InetSocketAddress(host, 443), 1500)
+                                    true
+                                } finally {
+                                    runCatching { socket.close() }
+                                }
                             } catch (e: Exception) {
                                 android.util.Log.e("SplashViewModel", "Network check failed for $url", e)
                                 false
@@ -159,14 +163,36 @@ class SplashViewModel @Inject constructor(
     }
 }
 
+@HiltViewModel
+class StartupDataViewModel @Inject constructor(
+    private val groupRepository: GroupRepository
+) : ViewModel() {
+    private var preloaded = false
+
+    fun preloadMapData() {
+        if (preloaded) return
+        preloaded = true
+
+        viewModelScope.launch {
+            // Warm public groups cache on app launch so map screens render faster.
+            withTimeoutOrNull(7000) {
+                runCatching { groupRepository.getPublicGroups().first() }
+            }
+        }
+    }
+}
+
 @AndroidEntryPoint
-class MainActivity : ComponentActivity() {
+class MainActivity : FragmentActivity() {
 
     private val authViewModel: AuthViewModel by viewModels()
+    private val startupDataViewModel: StartupDataViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        
+
+        startupDataViewModel.preloadMapData()
+
         // Handle deep link from intent if app was opened via link
         intent?.data?.toString()?.let { url ->
             if (url.contains("reset-password")) {

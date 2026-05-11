@@ -68,14 +68,6 @@ class AuthViewModelPlatformAdminTest {
         unmockkAll()
     }
 
-    @Test
-    fun `prefillPlatformAdmin sets canonical email and clears password`() = runTest {
-        viewModel.prefillPlatformAdmin()
-        
-        val state = viewModel.state.value
-        assertEquals(PlatformAdminAuthPolicy.EMAIL, state.email)
-        assertEquals("", state.password)
-    }
 
     @Test
     fun `signIn as Platform Admin uses provided password directly`() = runTest {
@@ -102,5 +94,33 @@ class AuthViewModelPlatformAdminTest {
         advanceUntilIdle()
 
         assertEquals(UserRole.PLATFORM_ADMIN, viewModel.state.value.userRole)
+    }
+
+    @Test
+    fun `signIn normalizes email but preserves exact password`() = runTest {
+        val rawEmail = "  Admin@Example.com  "
+        val normalizedEmail = "admin@example.com"
+        val exactPassword = "  P@ssword With Spaces  "
+
+        viewModel.updateEmail(rawEmail)
+        viewModel.updatePasswordState(exactPassword)
+        coEvery { supabaseRepo.signIn(normalizedEmail, exactPassword) } returns Result.success(Unit)
+
+        viewModel.signIn()
+        advanceUntilIdle()
+
+        coVerify(exactly = 1) { supabaseRepo.signIn(normalizedEmail, exactPassword) }
+    }
+
+    @Test
+    fun `signIn with invalid email does not call repository`() = runTest {
+        viewModel.updateEmail("invalid_email")
+        viewModel.updatePasswordState("validPassword123")
+
+        viewModel.signIn()
+        advanceUntilIdle()
+
+        assertTrue(viewModel.state.value.error?.contains("valid email", ignoreCase = true) == true)
+        coVerify(exactly = 0) { supabaseRepo.signIn(any(), any()) }
     }
 }

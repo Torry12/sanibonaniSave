@@ -8,6 +8,7 @@ import com.sanibonani.save.domain.usecase.ProcessPayoutUseCase
 import io.mockk.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.*
 import org.junit.After
 import org.junit.Assert.*
@@ -23,7 +24,11 @@ class PlatformAdminViewModelTest {
 
     private val platformRepo = mockk<PlatformRepository>()
     private val payoutRepo = mockk<PayoutRepository>()
+    private val loanRepo = mockk<LoanRepository>()
     private val processPayoutUseCase = mockk<ProcessPayoutUseCase>()
+    private val claimRepo = mockk<BeneficiaryClaimRepository>(relaxed = true)
+    private val memberRepo = mockk<MemberRepository>()
+    private val notifRepo = mockk<NotificationRepository>(relaxed = true)
     private val supabaseRepo = mockk<SupabaseRepository>()
     
     private lateinit var viewModel: PlatformAdminViewModel
@@ -51,8 +56,12 @@ class PlatformAdminViewModelTest {
         coEvery { platformRepo.getAllGroups() } returns Result.success(emptyList())
         coEvery { platformRepo.getPlatformPayments() } returns Result.success(emptyList())
         coEvery { payoutRepo.getPendingPayouts() } returns Result.success(emptyList())
+        coEvery { platformRepo.getAuditLogs(any()) } returns Result.success(emptyList())
+        coEvery { platformRepo.getPlatformLedger() } returns Result.success(emptyList())
+        coEvery { platformRepo.getMemberBehaviorInsights() } returns Result.success(emptyList())
+        every { loanRepo.getGroupLoans(any()) } returns flowOf(Result.success(emptyList()))
 
-        viewModel = PlatformAdminViewModel(platformRepo, payoutRepo, processPayoutUseCase, supabaseRepo)
+        viewModel = PlatformAdminViewModel(platformRepo, payoutRepo, loanRepo, processPayoutUseCase, claimRepo, memberRepo, notifRepo, supabaseRepo)
         // NOTE: Do NOT call advanceUntilIdle() here — doing so outside runTest can leak
         // uncaught coroutine exceptions into subsequent test classes.
     }
@@ -142,7 +151,7 @@ class PlatformAdminViewModelTest {
             mapOf("monthly_per_member" to 15.0, "registration_fee" to 750.0)
         )
 
-        val freshVm = PlatformAdminViewModel(platformRepo, payoutRepo, processPayoutUseCase, supabaseRepo)
+        val freshVm = PlatformAdminViewModel(platformRepo, payoutRepo, loanRepo, processPayoutUseCase, claimRepo, memberRepo, notifRepo, supabaseRepo)
 
         // Drain init { loadData(); loadSettings() } so groups are populated
         advanceUntilIdle()
@@ -185,7 +194,7 @@ class PlatformAdminViewModelTest {
             mapOf("monthly_per_member" to 15.0, "registration_fee" to 750.0)
         )
 
-        val freshVm = PlatformAdminViewModel(platformRepo, payoutRepo, processPayoutUseCase, supabaseRepo)
+        val freshVm = PlatformAdminViewModel(platformRepo, payoutRepo, loanRepo, processPayoutUseCase, claimRepo, memberRepo, notifRepo, supabaseRepo)
         advanceUntilIdle()
 
         coEvery { platformRepo.unsuspendGroup(groupId) } returns Result.success(Unit)
@@ -203,5 +212,122 @@ class PlatformAdminViewModelTest {
             AdminFeeState.PAID,
             updatedGroup?.feeStatus
         )
+    }
+
+    @Test
+    fun `selectImpersonationGroup loads members for the group`() = runTest {
+        val groupId = "g1"
+        val members = listOf(Member(id = "m1", fullName = "Member 1", groupId = groupId))
+
+        coEvery { memberRepo.syncGroupMembers(groupId) } returns Result.success(members)
+
+        viewModel.selectImpersonationGroup(groupId)
+        advanceUntilIdle()
+
+        assertEquals(groupId, viewModel.state.value.impersonationGroupId)
+        assertEquals(members, viewModel.state.value.impersonationMembers)
+        assertFalse(viewModel.state.value.isLoadingImpersonationMembers)
+    }
+
+    @Test
+    fun `selectImpersonationGroup with empty id resets state`() = runTest {
+        viewModel.selectImpersonationGroup("")
+        advanceUntilIdle()
+
+        assertNull(viewModel.state.value.impersonationGroupId)
+        assertTrue(viewModel.state.value.impersonationMembers.isEmpty())
+    }
+
+    @Test
+    fun `selectImpersonationGroup forceReload refetches same group`() = runTest {
+        val groupId = "g1"
+        val firstLoad = listOf(Member(id = "m1", fullName = "Member 1", groupId = groupId))
+        val secondLoad = listOf(
+            Member(id = "m1", fullName = "Member 1", groupId = groupId),
+            Member(id = "m2", fullName = "Member 2", groupId = groupId)
+        )
+
+        coEvery { memberRepo.syncGroupMembers(groupId) } returnsMany listOf(
+            Result.success(firstLoad),
+            Result.success(secondLoad)
+        )
+
+        viewModel.selectImpersonationGroup(groupId)
+        advanceUntilIdle()
+
+        viewModel.selectImpersonationGroup(groupId, forceReload = true)
+        advanceUntilIdle()
+
+        assertEquals(secondLoad, viewModel.state.value.impersonationMembers)
+        coVerify(exactly = 2) { memberRepo.syncGroupMembers(groupId) }
+    }
+
+    @Test
+    fun `resetLocalData clears impersonation state and refreshes platform data`() = runTest {
+        val groupId = "g1"
+        val members = listOf(Member(id = "m1", fullName = "Member 1", groupId = groupId))
+        val refreshedGroups = listOf(Group(id = groupId, name = "Reloaded Group"))
+
+        coEvery { memberRepo.syncGroupMembers(groupId) } returns Result.success(members)
+        coEvery { supabaseRepo.resetLocalCache() } just Runs
+        coEvery { platformRepo.getAllGroups() } returns Result.success(refreshedGroups)
+
+        viewModel.selectImpersonationGroup(groupId)
+        advanceUntilIdle()
+        assertEquals(1, viewModel.state.value.impersonationMembers.size)
+
+        viewModel.resetLocalData()
+        advanceUntilIdle()
+
+        assertNull(viewModel.state.value.impersonationGroupId)
+        assertTrue(viewModel.state.value.impersonationMembers.isEmpty())
+        assertEquals(refreshedGroups, viewModel.state.value.groups)
+        coVerify(exactly = 1) { supabaseRepo.resetLocalCache() }
+    }
+
+    @Test
+    fun `refreshMaintenanceData clears impersonation state and reloads platform data`() = runTest {
+        val groupId = "g1"
+        val members = listOf(Member(id = "m1", fullName = "Member 1", groupId = groupId))
+        val refreshedGroups = listOf(Group(id = groupId, name = "Refreshed Group"))
+
+        coEvery { memberRepo.syncGroupMembers(groupId) } returns Result.success(members)
+        coEvery { platformRepo.getAllGroups() } returns Result.success(refreshedGroups)
+
+        viewModel.selectImpersonationGroup(groupId)
+        advanceUntilIdle()
+        assertEquals(1, viewModel.state.value.impersonationMembers.size)
+
+        viewModel.refreshMaintenanceData()
+        advanceUntilIdle()
+
+        assertNull(viewModel.state.value.impersonationGroupId)
+        assertTrue(viewModel.state.value.impersonationMembers.isEmpty())
+        assertEquals(refreshedGroups, viewModel.state.value.groups)
+    }
+
+    @Test
+    fun `logAudit surfaces repository failure`() = runTest {
+        every { supabaseRepo.currentUserId } returns "platform_admin"
+        coEvery { platformRepo.logAuditEvent(any()) } returns Result.failure(IllegalStateException("audit unavailable"))
+
+        viewModel.logAudit(action = "IMPERSONATE_MEMBER", targetMemberId = "m1", targetGroupId = "g1")
+        advanceUntilIdle()
+
+        assertTrue(viewModel.state.value.error?.contains("audit", ignoreCase = true) == true)
+        coVerify(exactly = 1) { platformRepo.logAuditEvent(any()) }
+    }
+
+    @Test
+    fun `approveBurialClaim without session shows auth error and does not call repository`() = runTest {
+        every { supabaseRepo.currentUserId } returns null
+
+        viewModel.approveBurialClaim("claim_1", "Approved")
+        advanceUntilIdle()
+
+        assertEquals("Your session has expired. Please log in again.", viewModel.state.value.error)
+        coVerify(exactly = 0) {
+            claimRepo.updateClaimStatus(any(), any(), any(), any(), any())
+        }
     }
 }
