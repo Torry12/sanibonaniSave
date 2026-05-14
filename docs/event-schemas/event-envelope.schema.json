@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "sanibonani/event-envelope.schema.json",
+  "title": "Sanibonani Event Envelope",
+  "type": "object",
+  "required": [
+    "event_id",
+    "event_type",
+    "occurred_at",
+    "aggregate_id",
+    "aggregate_type",
+    "version",
+    "payload"
+  ],
+  "properties": {
+    "event_id": { "type": "string", "description": "Globally unique event identifier." },
+    "event_type": { "type": "string", "description": "Dot-separated event name, e.g. payout.settled" },
+    "occurred_at": { "type": "string", "format": "date-time" },
+    "aggregate_id": { "type": "string" },
+    "aggregate_type": { "type": "string" },
+    "group_id": { "type": ["string", "null"] },
+    "correlation_id": { "type": ["string", "null"] },
+    "causation_id": { "type": ["string", "null"] },
+    "version": { "type": "integer", "minimum": 1 },
+    "idempotency_key": { "type": ["string", "null"] },
+    "payload": { "type": "object" },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    }
+  },
+  "additionalProperties": false
+}
+

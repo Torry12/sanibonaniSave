@@ -6,6 +6,8 @@ import com.sanibonani.save.analytics.AnalyticsTaxonomy
 import com.sanibonani.save.analytics.AppAnalytics
 import com.sanibonani.save.data.utils.PaymentCalculation
 import com.sanibonani.save.data.utils.PaymentCalculator
+import com.sanibonani.save.domain.utils.isPositiveMoneyAmount
+import com.sanibonani.save.domain.utils.toMoneyBigDecimal
 import com.sanibonani.save.data.utils.toUserMessage
 import com.sanibonani.save.domain.validation.ValidationResult
 import com.sanibonani.save.domain.validation.ValidationUtils
@@ -220,7 +222,7 @@ class PaymentViewModel @Inject constructor(
         cvv: String
     ) {
         // Validate input
-        if (amount <= 0) {
+        if (!amount.isPositiveMoneyAmount()) {
             _state.update { it.copy(error = "Amount must be positive") }
             return
         }
@@ -236,7 +238,7 @@ class PaymentViewModel @Inject constructor(
         val calc = _state.value.calculation
         if (type == "contribution" && group != null && calc != null && !group.allowPartialPayment) {
             val minRequired = calc.totalDueNow
-            if (amount < minRequired - 0.01) { // 1 cent tolerance for float precision
+            if (amount.toMoneyBigDecimal() < minRequired.toMoneyBigDecimal()) {
                 _state.update { it.copy(error = "This group does not allow partial payments. Min due: ${formatZAR(minRequired)}") }
                 return
             }
@@ -254,52 +256,40 @@ class PaymentViewModel @Inject constructor(
         }
 
         viewModelScope.launch {
-            try {
-                _state.update { it.copy(isProcessing = true, error = null) }
+            _state.update { it.copy(isProcessing = true, error = null) }
+            AppAnalytics.track(
+                AnalyticsTaxonomy.Events.PAYMENT_PROCESS_STARTED,
+                mapOf(
+                    AnalyticsTaxonomy.Params.GROUP_ID to groupId,
+                    AnalyticsTaxonomy.Params.PAYMENT_TYPE to paymentType.name.lowercase()
+                )
+            )
+            delay(2000) // Simulate YoCo
+
+            processPaymentUseCase(
+                type = paymentType,
+                amount = amount,
+                groupId = groupId,
+                member = _state.value.member,
+                group = _state.value.group,
+                calculation = _state.value.calculation
+            ).onSuccess { txId ->
+                _state.update { it.copy(isProcessing = false, isSuccess = true, transactionId = txId) }
                 AppAnalytics.track(
-                    AnalyticsTaxonomy.Events.PAYMENT_PROCESS_STARTED,
+                    AnalyticsTaxonomy.Events.PAYMENT_PROCESS_SUCCESS,
                     mapOf(
                         AnalyticsTaxonomy.Params.GROUP_ID to groupId,
                         AnalyticsTaxonomy.Params.PAYMENT_TYPE to paymentType.name.lowercase()
                     )
                 )
-                delay(2000) // Simulate YoCo
-
-                processPaymentUseCase(
-                    type = paymentType,
-                    amount = amount,
-                    groupId = groupId,
-                    member = _state.value.member,
-                    group = _state.value.group,
-                    calculation = _state.value.calculation
-                ).onSuccess { txId ->
-                    _state.update { it.copy(isProcessing = false, isSuccess = true, transactionId = txId) }
-                    AppAnalytics.track(
-                        AnalyticsTaxonomy.Events.PAYMENT_PROCESS_SUCCESS,
-                        mapOf(
-                            AnalyticsTaxonomy.Params.GROUP_ID to groupId,
-                            AnalyticsTaxonomy.Params.PAYMENT_TYPE to paymentType.name.lowercase()
-                        )
-                    )
-                }.onFailure { e ->
-                    _state.update { it.copy(isProcessing = false, error = e.toUserMessage()) }
-                    AppAnalytics.track(
-                        AnalyticsTaxonomy.Events.PAYMENT_PROCESS_FAILURE,
-                        mapOf(
-                            AnalyticsTaxonomy.Params.GROUP_ID to groupId,
-                            AnalyticsTaxonomy.Params.PAYMENT_TYPE to paymentType.name.lowercase(),
-                            AnalyticsTaxonomy.Params.ERROR_TYPE to "usecase"
-                        )
-                    )
-                }
-            } catch (e: Exception) {
+            }.onFailure { e ->
                 _state.update { it.copy(isProcessing = false, error = e.toUserMessage()) }
                 AppAnalytics.track(
                     AnalyticsTaxonomy.Events.PAYMENT_PROCESS_FAILURE,
                     mapOf(
                         AnalyticsTaxonomy.Params.GROUP_ID to groupId,
                         AnalyticsTaxonomy.Params.PAYMENT_TYPE to paymentType.name.lowercase(),
-                        AnalyticsTaxonomy.Params.ERROR_TYPE to "exception"
+                        AnalyticsTaxonomy.Params.ERROR_TYPE to "usecase"
                     )
                 )
             }

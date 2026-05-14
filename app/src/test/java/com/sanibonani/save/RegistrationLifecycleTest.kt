@@ -5,6 +5,7 @@ import com.sanibonani.save.domain.model.*
 import com.sanibonani.save.domain.repository.*
 import com.sanibonani.save.domain.usecase.*
 import com.sanibonani.save.data.remote.GeoapifyService
+import com.sanibonani.save.viewmodel.GroupFormEvent
 import com.sanibonani.save.viewmodel.GroupViewModel
 import com.sanibonani.save.viewmodel.RegisterGroupState
 import io.mockk.*
@@ -78,13 +79,13 @@ class RegistrationLifecycleTest {
     @Test
     fun `full registration and activation lifecycle audit`() = runTest {
         // 1. Setup Registration State (Step 5 completed, Payment confirmed)
-        viewModel.updateField("name", "Audit Group")
-        viewModel.updateField("adminEmail", "audit@test.com")
-        viewModel.updateField("adminPassword", "password123")
-        viewModel.updateField("adminFullName", "Audit Admin")
-        viewModel.updateField("adminPhone", "0712345678")
-        viewModel.updateField("adminIdNumber", "9001015000081")
-        viewModel.updateField("joiningFee", "50.0")
+        viewModel.onEvent(GroupFormEvent.NameChanged("Audit Group"))
+        viewModel.onEvent(GroupFormEvent.AdminEmailChanged("audit@test.com"))
+        viewModel.onEvent(GroupFormEvent.AdminPasswordChanged("password123"))
+        viewModel.onEvent(GroupFormEvent.AdminFullNameChanged("Audit Admin"))
+        viewModel.onEvent(GroupFormEvent.AdminPhoneChanged("0712345678"))
+        viewModel.onEvent(GroupFormEvent.AdminIdNumberChanged("9001015000081"))
+        viewModel.onEvent(GroupFormEvent.JoiningFeeChanged("50.0"))
 
         val groupId = "group_audit_123"
         val transactionId = "tx_audit_999"

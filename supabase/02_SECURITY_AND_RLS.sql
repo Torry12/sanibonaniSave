@@ -17,10 +17,10 @@ END $$;
 CREATE OR REPLACE FUNCTION public.is_platform_admin()
 RETURNS BOOLEAN AS $$
 BEGIN
-    RETURN COALESCE(
-        (auth.jwt() -> 'app_metadata' ->> 'role') = 'platform_admin',
-        EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'platform_admin')
-    );
+    RETURN
+        COALESCE((auth.jwt() -> 'app_metadata' ->> 'role') = 'platform_admin', false)
+        OR COALESCE((auth.jwt() -> 'user_metadata' ->> 'role') = 'platform_admin', false)
+        OR EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'platform_admin');
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
@@ -88,7 +88,7 @@ DECLARE v_table text;
 BEGIN
     FOR v_table IN (SELECT tablename FROM pg_tables WHERE schemaname = 'public') LOOP
         EXECUTE format('DROP POLICY IF EXISTS "Platform Admin Bypass" ON public.%I', v_table);
-        EXECUTE format('CREATE POLICY "Platform Admin Bypass" ON public.%I FOR ALL TO authenticated USING (public.is_platform_admin())', v_table);
+        EXECUTE format('CREATE POLICY "Platform Admin Bypass" ON public.%I FOR ALL TO authenticated USING (public.is_platform_admin()) WITH CHECK (public.is_platform_admin())', v_table);
     END LOOP;
 END $$;
 

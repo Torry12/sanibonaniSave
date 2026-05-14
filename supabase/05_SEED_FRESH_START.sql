@@ -45,4 +45,39 @@ BEGIN
     -- Investment Club
     INSERT INTO public.groups (id, name, type, province, city, admin_user_id, fee_status, registration_paid, balance, monthly_contribution)
     VALUES (gen_random_uuid(), 'Future Wealth Club', 'investment_club', 'Gauteng', 'Pretoria', v_admin_id, 'paid', true, 150000, 2000.0);
+pecific
+    -- Group admin must always exist as a member in each seeded group.
+    INSERT INTO public.members (
+        id,
+        group_id,
+        user_id,
+        full_name,
+        email,
+        phone,
+        status,
+        joined_at,
+        member_key
+    )
+    SELECT
+        gen_random_uuid(),
+        g.id,
+        v_admin_id,
+        'Seed Group Admin - ' || g.name,
+        format('fresh.admin.%s@seed.local', replace(lower(g.name), ' ', '_')),
+        '0733300000',
+        'active',
+        now() - interval '120 days',
+        format('FRESH_ADMIN_KEY_%s', replace(lower(g.name), ' ', '_'))
+    FROM public.groups g
+    WHERE g.admin_user_id = v_admin_id
+    ON CONFLICT (group_id, user_id) DO NOTHING;
+
+    UPDATE public.groups g
+    SET current_members = COALESCE(m.member_count, 0)
+    FROM (
+        SELECT group_id, COUNT(*)::int AS member_count
+        FROM public.members
+        GROUP BY group_id
+    ) m
+    WHERE g.id = m.group_id;
 END $$;

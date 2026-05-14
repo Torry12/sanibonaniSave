@@ -30,6 +30,7 @@ import android.location.Location
 import com.google.android.gms.location.LocationServices
 import android.Manifest
 import android.annotation.SuppressLint
+import com.sanibonani.save.domain.config.SaReferenceData
 import com.sanibonani.save.domain.model.*
 import com.sanibonani.save.ui.components.*
 import com.sanibonani.save.ui.theme.*
@@ -154,7 +155,7 @@ fun BrowseGroupsScreen(
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 SanibonaniDropdown(
                                     label = "Province",
-                                    options = listOf(null) + SA_PROVINCES,
+                                    options = listOf(null) + SaReferenceData.PROVINCES,
                                     selectedOption = state.provinceFilter,
                                     onOptionSelected = { vm.updateFilter(province = it) },
                                     optionToString = { it ?: "All Provinces" },

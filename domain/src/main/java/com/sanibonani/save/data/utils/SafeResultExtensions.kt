@@ -1,6 +1,7 @@
 package com.sanibonani.save.data.utils
 
 import com.sanibonani.save.data.logging.AppLogger
+import com.sanibonani.save.domain.model.WhatsAppSendException
 import kotlinx.coroutines.CancellationException
 
 /**
@@ -113,9 +114,23 @@ fun Throwable.toUserMessage(): String {
         // Schema mismatch often surfaces as "column ... does not exist"
         (msg.contains("column", ignoreCase = true) && msg.contains("does not exist", ignoreCase = true)) ->
             return "The server database schema is out of date. Please run the latest Supabase schema/migrations and try again."
+
+        // Missing table / stale PostgREST schema cache should not leak raw request URL/JWT headers.
+        msg.contains("could not find the table", ignoreCase = true) ||
+            (msg.contains("relation", ignoreCase = true) && msg.contains("does not exist", ignoreCase = true)) ->
+            return "Server database tables are not aligned with this app version. Please apply the latest backend migrations and refresh."
     }
 
     return when (this) {
+        is WhatsAppSendException -> {
+            // Surface debug codes so failures can be diagnosed without opening Edge Function logs.
+            val codeInfo = buildString {
+                append("HTTP $httpCode")
+                if (waErrorCode != null) append(" / WA-$waErrorCode")
+                if (!waErrorType.isNullOrBlank()) append(" $waErrorType")
+            }
+            "WhatsApp send failed ($codeInfo): ${apiMessage.ifBlank { "Unknown error" }}"
+        }
         is IllegalArgumentException -> msg.ifBlank { "Invalid input" }
         is NoSuchElementException -> "Data not found"
         is SecurityException -> "Permission denied"

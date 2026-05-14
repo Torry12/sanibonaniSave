@@ -3,7 +3,9 @@ package com.sanibonani.save.domain.usecase.rosca
 import com.sanibonani.save.domain.model.Group
 import com.sanibonani.save.domain.model.GroupType
 import com.sanibonani.save.domain.model.Member
+import com.sanibonani.save.domain.model.MemberStatus
 import java.time.LocalDate
+import java.time.temporal.ChronoUnit
 import javax.inject.Inject
 
 /**
@@ -32,16 +34,15 @@ class CalculateRoscaRotationUseCase @Inject constructor() {
             return Result.failure(IllegalArgumentException("Group is not a ROSCA group"))
         }
 
-        if (members.isEmpty()) {
-            return Result.failure(IllegalArgumentException("Group has no members"))
+        val participatingMembers = members.filter { it.status != MemberStatus.SUSPENDED }
+        if (participatingMembers.isEmpty()) {
+            return Result.failure(IllegalArgumentException("ROSCA has no participating members"))
         }
 
-        val totalPot = group.monthlyContribution * members.size
-        val cycleMonths = members.size
-        
-        // Sort members by joined date or some assigned index
-        // For simplicity, we'll use the ID or joinedAt
-        val sortedMembers = members.sortedBy { it.joinedAt ?: it.id }
+        val cycleMonths = participatingMembers.size
+        val totalPot = group.monthlyContribution * cycleMonths
+
+        val sortedMembers = sortRoscaParticipants(group, participatingMembers)
 
         // Start from group creation or current month
         val startDate = try {
@@ -50,12 +51,17 @@ class CalculateRoscaRotationUseCase @Inject constructor() {
             LocalDate.now().withDayOfMonth(group.paymentDueDay)
         }
 
-        val now = LocalDate.now()
+        val now = LocalDate.now().withDayOfMonth(1)
+        val scheduleStart = startDate.withDayOfMonth(1)
+        val elapsedMonths = ChronoUnit.MONTHS.between(scheduleStart, now).coerceAtLeast(0)
+        val currentIndex = (elapsedMonths % cycleMonths).toInt()
+        val cycleStartOffset = elapsedMonths - currentIndex
+        val currentCycleStart = scheduleStart.plusMonths(cycleStartOffset)
 
         val items = sortedMembers.mapIndexed { index, member ->
-            val payoutDate = startDate.plusMonths(index.toLong())
-            val isCurrent = payoutDate.month == now.month && payoutDate.year == now.year
-            val isCompleted = payoutDate.isBefore(now) && !isCurrent
+            val payoutDate = currentCycleStart.plusMonths(index.toLong())
+            val isCurrent = index == currentIndex
+            val isCompleted = index < currentIndex
 
             RoscaRotationItem(
                 memberId = member.id ?: "",

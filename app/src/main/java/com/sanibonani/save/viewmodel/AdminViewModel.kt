@@ -22,7 +22,7 @@ data class AdminUiState(
     val group: Group? = null,
     val members: List<Member> = emptyList(),
     val metrics: ActuarialMetrics = ActuarialMetrics(),
-    val businessInsight: GetGroupBusinessInsightsUseCase.GroupBusinessInsight = GetGroupBusinessInsightsUseCase.GroupBusinessInsight.None,
+    val businessInsight: GetGroupBusinessInsightsUseCase.GroupBusinessInsight = GetGroupBusinessInsightsUseCase.GroupBusinessInsight.Empty,
     val feeStatus: AdminFeeState = AdminFeeState.DUE,
     val settings: GroupSettings = GroupSettings(),
     val isLoading: Boolean = false,
@@ -188,7 +188,7 @@ class AdminViewModel @Inject constructor(
                     _state.update {
                         it.copy(
                             isLoading = false,
-                            error = e.toUserMessage() ?: "Failed to load groups"
+                            error = e.toUserMessage()
                         )
                     }
                 }
@@ -210,6 +210,7 @@ class AdminViewModel @Inject constructor(
         groupLoansJob?.cancel()
         calculationsJob?.cancel()
         burialClaimsJob?.cancel()
+        ledgerJob?.cancel()
         cancelMemberJobs()
     }
 
@@ -499,8 +500,93 @@ class AdminViewModel @Inject constructor(
         )
     }
 
+    private data class GroupSettingChange(
+        val label: String,
+        val from: String,
+        val to: String
+    )
+
+    private fun detectGroupSettingChanges(group: Group, settings: GroupSettings): List<GroupSettingChange> {
+        val changes = mutableListOf<GroupSettingChange>()
+
+        fun addDouble(label: String, oldValue: Double, rawNewValue: String) {
+            val newValue = rawNewValue.toDoubleOrNull() ?: oldValue
+            if (kotlin.math.abs(newValue - oldValue) > 0.0001) {
+                changes += GroupSettingChange(label, "R${"%.2f".format(oldValue)}", "R${"%.2f".format(newValue)}")
+            }
+        }
+
+        fun addInt(label: String, oldValue: Int, rawNewValue: String) {
+            val newValue = rawNewValue.toIntOrNull() ?: oldValue
+            if (newValue != oldValue) {
+                changes += GroupSettingChange(label, oldValue.toString(), newValue.toString())
+            }
+        }
+
+        fun addText(label: String, oldValue: String?, newValue: String) {
+            val normalizedOld = oldValue.orEmpty().trim()
+            val normalizedNew = newValue.trim()
+            if (normalizedOld != normalizedNew) {
+                changes += GroupSettingChange(label, normalizedOld.ifBlank { "(blank)" }, normalizedNew.ifBlank { "(blank)" })
+            }
+        }
+
+        fun addBoolean(label: String, oldValue: Boolean, newValue: Boolean) {
+            if (oldValue != newValue) {
+                changes += GroupSettingChange(label, oldValue.toString(), newValue.toString())
+            }
+        }
+
+        addDouble("Joining Fee", group.joiningFee, settings.joiningFee)
+        addDouble("Monthly Contribution", group.monthlyContribution, settings.monthlyContribution)
+        addDouble("Late Fee", group.lateFee, settings.lateFee)
+        addInt("Late Fee Grace Days", group.lateFeeGraceDays, settings.lateFeeGraceDays)
+        addInt("Probation Months", group.probationMonths, settings.probationMonths)
+        addInt("Payment Due Day", group.paymentDueDay, settings.paymentDueDay)
+        addInt("Max Members", group.maxMembers, settings.maxMembers)
+        addBoolean("Allow Partial Payment", group.allowPartialPayment, settings.allowPartialPayment)
+        addInt("Auto Suspend After", group.autoSuspendAfter, settings.autoSuspendAfter)
+        addText("Bank Name", group.bankName, settings.bankName)
+        addText("Account Number", group.accountNumber, settings.accountNumber)
+        addText("Branch Code", group.branchCode, settings.branchCode)
+        addText("Account Type", group.accountType, settings.accountType)
+        addInt("Max Beneficiaries", group.maxBeneficiaries ?: 0, settings.maxBeneficiaries)
+        addDouble("Beneficiary Increase %", group.beneficiaryIncreasePct ?: 0.0, settings.beneficiaryIncreasePct)
+        addDouble("Goal Amount", group.goalAmount, settings.goalAmount)
+        addInt("Period Months", group.periodMonths, settings.periodMonths)
+        addDouble("Loan Interest Rate", group.loanInterestRate ?: 0.0, settings.loanInterestRate)
+        addDouble("Loan Max Amount", group.loanMaxAmount ?: 0.0, settings.loanMaxAmount)
+        addInt("Loan Max Months", group.loanMaxMonths ?: 0, settings.loanMaxMonths)
+
+        return changes
+    }
+
+    private suspend fun broadcastSettingsChange(
+        groupId: String,
+        groupName: String,
+        changes: List<GroupSettingChange>
+    ): Result<Unit> {
+        val changedLines = changes.take(5).joinToString(separator = "; ") { change ->
+            "${change.label}: ${change.from} -> ${change.to}"
+        }
+        val extra = if (changes.size > 5) " (+${changes.size - 5} more)" else ""
+        val message = "Group settings updated for $groupName. Changes: $changedLines$extra"
+
+        return sendNotificationUseCase(
+            groupId = groupId,
+            memberId = null,
+            message = message,
+            triggerEvent = NotifEvent.FEE_SETTINGS_CHANGED,
+            channel = NotifChannel.BOTH
+        )
+    }
+
     fun requestRestore() {
-        val group = state.value.group ?: return
+        val group = state.value.group
+        if (group == null) {
+            _state.update { it.copy(error = "No group selected. Please select a group first.") }
+            return
+        }
         viewModelScope.launch {
             _state.update { it.copy(isLoading = true) }
             val message = "RESTORE REQUEST: Group '${group.name}' (ID: ${group.id}) has requested suspension lifting."
@@ -553,25 +639,46 @@ class AdminViewModel @Inject constructor(
         }
         val currentSettings = state.value.settings
 
+        val group = state.value.group
+        val previousMonthly = currentSettings.monthlyContribution.toDoubleOrNull()
+
         viewModelScope.launch {
             _state.update { it.copy(isSaving = true, error = null) }
 
-            applyViabilityPlanUseCase(groupId, plan)
-                .onSuccess {
-                    _state.update { it.copy(
-                        isSaving = false, 
-                        saveSuccess = true,
-                        successMessage = "Strategy applied! Monthly contribution updated to R${"%.2f".format(plan.suggestedMonthlyContribution)}",
-                        settings = currentSettings.copy(
-                            monthlyContribution = plan.suggestedMonthlyContribution.toString(),
-                            goalAmount = plan.goalAmount.toString(),
-                            periodMonths = plan.periodMonths.toString()
-                        )
-                    ) }
+            val applyResult = applyViabilityPlanUseCase(groupId, plan)
+            if (applyResult.isFailure) {
+                _state.update { it.copy(isSaving = false, error = applyResult.exceptionOrNull()?.toUserMessage()) }
+                return@launch
+            }
+
+            val settingsAfterApply = currentSettings.copy(
+                monthlyContribution = plan.suggestedMonthlyContribution.toString(),
+                goalAmount = plan.goalAmount.toString(),
+                periodMonths = plan.periodMonths.toString()
+            )
+
+            var warningMessage: String? = null
+            if (group != null) {
+                val changes = detectGroupSettingChanges(group, settingsAfterApply)
+                if (changes.isNotEmpty()) {
+                    broadcastSettingsChange(groupId, group.name, changes)
+                        .onFailure { e -> warningMessage = "Strategy applied, but broadcast failed: ${e.toUserMessage()}" }
                 }
-                .onFailure { e ->
-                    _state.update { it.copy(isSaving = false, error = e.toUserMessage()) }
-                }
+            }
+
+            _state.update {
+                it.copy(
+                    isSaving = false,
+                    saveSuccess = true,
+                    successMessage = "Strategy applied! Monthly contribution updated to R${"%.2f".format(plan.suggestedMonthlyContribution)}",
+                    settings = settingsAfterApply,
+                    error = warningMessage
+                )
+            }
+
+            if (previousMonthly != null && kotlin.math.abs(previousMonthly - plan.suggestedMonthlyContribution) > 0.0001) {
+                refreshMetrics(groupId)
+            }
         }
     }
 
@@ -736,23 +843,42 @@ class AdminViewModel @Inject constructor(
     }
 
     fun saveSettings() {
-        val groupId = state.value.group?.id ?: return
+        val groupId = state.value.group?.id
+        if (groupId.isNullOrBlank()) {
+            _state.update { it.copy(error = "No group selected. Please select a group first.") }
+            return
+        }
         val settings = state.value.settings
+        val group = state.value.group
+        val changes = if (group != null) detectGroupSettingChanges(group, settings) else emptyList()
         
         viewModelScope.launch {
             _state.update { it.copy(isSaving = true, error = null) }
-            
-            updateGroupSettingsUseCase(groupId, settings)
-                .onSuccess {
-                    _state.update { it.copy(
-                        isSaving = false, 
-                        saveSuccess = true,
-                        successMessage = "Settings saved successfully"
-                    ) }
-                }
-                .onFailure { e ->
-                    _state.update { it.copy(isSaving = false, error = e.toUserMessage()) }
-                }
+
+            val saveResult = updateGroupSettingsUseCase(groupId, settings)
+            if (saveResult.isFailure) {
+                _state.update { it.copy(isSaving = false, error = saveResult.exceptionOrNull()?.toUserMessage()) }
+                return@launch
+            }
+
+            var warningMessage: String? = null
+            if (group != null && changes.isNotEmpty()) {
+                broadcastSettingsChange(groupId, group.name, changes)
+                    .onFailure { e -> warningMessage = "Settings saved, but broadcast failed: ${e.toUserMessage()}" }
+            }
+
+            _state.update {
+                it.copy(
+                    isSaving = false,
+                    saveSuccess = true,
+                    successMessage = "Settings saved successfully",
+                    error = warningMessage
+                )
+            }
+
+            if (changes.isNotEmpty()) {
+                refreshMetrics(groupId)
+            }
         }
     }
 
@@ -767,8 +893,16 @@ class AdminViewModel @Inject constructor(
     fun exportGroupStatement() = performExport(pdf = false)
 
     fun exportMemberStatement(member: Member, pdf: Boolean = true) {
-        val group = state.value.group ?: return
-        val memberId = member.id ?: return
+        val group = state.value.group
+        if (group == null) {
+            _state.update { it.copy(error = "No group selected. Please select a group first.") }
+            return
+        }
+        val memberId = member.id
+        if (memberId.isNullOrBlank()) {
+            _state.update { it.copy(error = "Member data is invalid. Please refresh and try again.") }
+            return
+        }
 
         viewModelScope.launch {
             _state.update { it.copy(isExporting = true, error = null) }
@@ -798,15 +932,19 @@ class AdminViewModel @Inject constructor(
     }
 
     fun approveLoan(loanId: String) {
-        val group = state.value.group ?: return
-        
+        val group = state.value.group
+        if (group == null) {
+            _state.update { it.copy(error = "No group selected. Please select a group first.") }
+            return
+        }
+
         viewModelScope.launch {
             _state.update { it.copy(isProcessingLoan = true) }
             
             // 1. Approve the loan in DB
             val result = loanRepo.approveLoan(loanId)
             if (result.isFailure) {
-                _state.update { it.copy(isProcessingLoan = false, error = result.exceptionOrNull()?.message) }
+                _state.update { it.copy(isProcessingLoan = false, error = result.exceptionOrNull()?.toUserMessage()) }
                 return@launch
             }
 
@@ -840,7 +978,7 @@ class AdminViewModel @Inject constructor(
             _state.update { it.copy(
                 isProcessingLoan = false,
                 successMessage = if (result.isSuccess) "Loan disbursed and group balance updated" else null,
-                error = result.exceptionOrNull()?.message
+                error = result.exceptionOrNull()?.toUserMessage()
             ) }
             if (result.isSuccess) {
                 _state.value.currentGroupId?.let { gid ->
@@ -857,7 +995,7 @@ class AdminViewModel @Inject constructor(
             _state.update { it.copy(
                 isProcessingLoan = false,
                 successMessage = if (result.isSuccess) "Loan rejected" else null,
-                error = result.exceptionOrNull()?.message
+                error = result.exceptionOrNull()?.toUserMessage()
             ) }
         }
     }
@@ -869,8 +1007,12 @@ class AdminViewModel @Inject constructor(
     fun downloadPdfStatement() = performExport(pdf = true)
 
     fun downloadGroupConstitution() {
-        val group = state.value.group ?: return
-        
+        val group = state.value.group
+        if (group == null) {
+            _state.update { it.copy(error = "No group selected. Please select a group first.") }
+            return
+        }
+
         // Note: For official uploaded constitutions, the UI should use FileDownloader directly.
         // This function handles the generation fallback.
         viewModelScope.launch {
@@ -886,12 +1028,20 @@ class AdminViewModel @Inject constructor(
     }
 
     fun generateAndUploadStandardConstitution() {
-        val group = state.value.group ?: return
-        val groupId = group.id ?: return
-        
+        val group = state.value.group
+        if (group == null) {
+            _state.update { it.copy(error = "No group selected. Please select a group first.") }
+            return
+        }
+        val groupId = group.id
+        if (groupId.isNullOrBlank()) {
+            _state.update { it.copy(error = "Group data is invalid. Please refresh and try again.") }
+            return
+        }
+
         viewModelScope.launch {
             _state.update { it.copy(isUploading = true, uploadProgress = 0.0) }
-            
+
             exportRepo.exportGroupConstitution(group)
                 .onSuccess { file ->
                     groupRepo.uploadConstitution(groupId, file.readBytes(), "Constitution_${group.name.replace(" ", "_")}.pdf")
@@ -917,8 +1067,16 @@ class AdminViewModel @Inject constructor(
      * Shared implementation removes the duplicated fetch-then-export pattern.
      */
     private fun performExport(pdf: Boolean) {
-        val group = state.value.group ?: return
-        val groupId = group.id ?: return
+        val group = state.value.group
+        if (group == null) {
+            _state.update { it.copy(error = "No group selected. Please select a group first.") }
+            return
+        }
+        val groupId = group.id
+        if (groupId.isNullOrBlank()) {
+            _state.update { it.copy(error = "Group data is invalid. Please refresh and try again.") }
+            return
+        }
         val members = state.value.members
 
         viewModelScope.launch {
@@ -990,8 +1148,12 @@ class AdminViewModel @Inject constructor(
         cancelMemberJobs()
 
         if (member != null) {
-            val memberId = member.id ?: return
-            
+            val memberId = member.id
+            if (memberId.isNullOrBlank()) {
+                _state.update { it.copy(error = "Member data is invalid. Please refresh and try again.") }
+                return
+            }
+
             // Observe beneficiaries for this member
             memberBeneficiariesJob = viewModelScope.launch {
                 beneficiaryRepo.observeBeneficiaries(memberId).collect { result ->
@@ -1155,7 +1317,7 @@ class AdminViewModel @Inject constructor(
     fun updatePayoutBranch(v: String) { _state.update { it.copy(payoutBranchCode = v) } }
 
     fun cancelPayoutRequest(payoutId: String) {
-        val groupId = state.value.group?.id ?: return
+        if (state.value.group?.id == null) return
         viewModelScope.launch {
             _state.update { it.copy(isRequestingPayout = true) }
             payoutRepo.updatePayoutStatus(payoutId, PayoutStatus.CANCELLED)
@@ -1170,15 +1332,41 @@ class AdminViewModel @Inject constructor(
     }
 
     fun approveAndEscalatePayoutRequest(payoutId: String) {
-        val groupId = state.value.group?.id ?: return
+        val groupId = state.value.group?.id
+        if (groupId.isNullOrBlank()) {
+            _state.update { it.copy(error = "No group selected. Please select a group first.") }
+            return
+        }
+        val groupName = state.value.group?.name ?: "Group"
+        val payoutAmount = state.value.payouts.firstOrNull { it.id == payoutId }?.amount
         viewModelScope.launch {
             _state.update { it.copy(isRequestingPayout = true, error = null) }
             payoutRepo.updatePayoutStatus(payoutId, PayoutStatus.GROUP_APPROVED)
                 .onSuccess {
+                    AppLogger.i(
+                        tag = "AdminPayoutAudit",
+                        message = "PAYOUT_ESCALATED groupId=$groupId payoutId=$payoutId amount=${payoutAmount ?: 0.0}"
+                    )
+                    val notifyResult = sendNotificationUseCase.notifyPlatformAdmin(
+                        message = buildString {
+                            append("PAYOUT ESCALATION: ")
+                            append(groupName)
+                            append(" (")
+                            append(groupId)
+                            append(") escalated payout ")
+                            append(payoutId)
+                            payoutAmount?.let { append(" for R").append("%.2f".format(it)) }
+                            append(" for final platform approval.")
+                        }
+                    )
                     _state.update {
                         it.copy(
                             isRequestingPayout = false,
-                            successMessage = "Request validated and escalated to platform admin"
+                            successMessage = if (notifyResult.isSuccess) {
+                                "Request validated and escalated to platform admin"
+                            } else {
+                                "Request escalated. Platform admin notification will retry."
+                            }
                         )
                     }
                     refreshPayouts()
@@ -1189,11 +1377,16 @@ class AdminViewModel @Inject constructor(
         }
     }
 
-    private fun isValidAccount(acc: String) = acc.length in 7..13 && acc.all { it.isDigit() }
+    /** SA PASA standard: 7–11 numeric digits. Must match [RequestPayoutUseCase.ACCOUNT_NO_REGEX]. */
+    private fun isValidAccount(acc: String) = acc.length in 7..11 && acc.all { it.isDigit() }
     private fun isValidBranch(branch: String) = branch.length == 6 && branch.all { it.isDigit() }
 
     fun refreshPayouts() {
-        val group = state.value.group ?: return
+        val group = state.value.group
+        if (group == null) {
+            _state.update { it.copy(error = "No group selected. Please select a group first.") }
+            return
+        }
         viewModelScope.launch {
             _state.update { it.copy(isLoading = true) }
             // Small delay to ensure DB/Network consistency if called immediately after success
@@ -1208,8 +1401,16 @@ class AdminViewModel @Inject constructor(
 
     fun submitPayoutRequest() {
         val s = _state.value
-        val group = s.group ?: return
-        val groupId = group.id ?: return
+        val group = s.group
+        if (group == null) {
+            _state.update { it.copy(error = "No group selected. Please select a group first.") }
+            return
+        }
+        val groupId = group.id
+        if (groupId.isNullOrBlank()) {
+            _state.update { it.copy(error = "Group data is invalid. Please refresh and try again.") }
+            return
+        }
         val amount = s.payoutAmount.toDoubleOrNull() ?: 0.0
         val balance = group.balance
         
@@ -1217,7 +1418,7 @@ class AdminViewModel @Inject constructor(
             amount <= 0 -> "Amount must be greater than zero"
             amount > balance -> "Insufficient balance"
             s.payoutBankName.isBlank() -> "Bank Name is required"
-            !isValidAccount(s.payoutAccountNo) -> "Invalid Account Number (7-13 digits)"
+            !isValidAccount(s.payoutAccountNo) -> "Invalid Account Number (7–11 digits)"
             !isValidBranch(s.payoutBranchCode) -> "Invalid Branch Code (6 digits)"
             else -> null
         }
@@ -1231,11 +1432,31 @@ class AdminViewModel @Inject constructor(
             _state.update { it.copy(isRequestingPayout = true) }
             requestPayoutUseCase(groupId, amount, s.payoutBankName, s.payoutAccountNo, s.payoutBranchCode)
                 .onSuccess {
+                    AppLogger.i(
+                        tag = "AdminPayoutAudit",
+                        message = "PAYOUT_REQUEST_SUBMITTED groupId=$groupId groupType=${group.type.name} amount=$amount"
+                    )
+                    val notifyResult = if (group.type == GroupType.ROSCA) {
+                        sendNotificationUseCase(
+                            groupId = groupId,
+                            memberId = null,
+                            message = "New ROSCA payout request of R${"%.2f".format(amount)} requires group admin validation.",
+                            triggerEvent = NotifEvent.PAYOUT_REQUESTED,
+                            channel = NotifChannel.BOTH
+                        )
+                    } else {
+                        Result.success(Unit)
+                    }
+
                     _state.update { it.copy(
                         isRequestingPayout = false, 
                         payoutRequestSuccess = true,
                         payoutAmount = "",
-                        successMessage = "Request submitted for admin validation"
+                        successMessage = if (notifyResult.isSuccess) {
+                            "Request submitted for admin validation"
+                        } else {
+                            "Request submitted. Group admin notification will retry."
+                        }
                     ) }
                 }
                 .onFailure { e ->
@@ -1245,7 +1466,11 @@ class AdminViewModel @Inject constructor(
     }
 
     fun saveBeneficiary() {
-        val b = _state.value.editingBeneficiary ?: return
+        val b = _state.value.editingBeneficiary
+        if (b == null) {
+            _state.update { it.copy(error = "No beneficiary selected for editing.") }
+            return
+        }
         viewModelScope.launch {
             _state.update { it.copy(isSavingBeneficiary = true) }
             val result = if (b.id == null) {
@@ -1267,7 +1492,11 @@ class AdminViewModel @Inject constructor(
     // ══════════════════════════════════════════════════════════════════════════
 
     fun verifyClaim(claimId: String, approve: Boolean, adminNotes: String? = null) {
-        val adminId = supabaseRepo.currentUserId ?: return
+        val adminId = supabaseRepo.currentUserId
+        if (adminId.isNullOrBlank()) {
+            _state.update { it.copy(error = "You are not signed in. Please sign in and try again.") }
+            return
+        }
         val status = if (approve) BeneficiaryClaimStatus.UNDER_REVIEW else BeneficiaryClaimStatus.REJECTED
         
         viewModelScope.launch {

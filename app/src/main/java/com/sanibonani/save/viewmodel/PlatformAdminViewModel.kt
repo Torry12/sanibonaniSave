@@ -61,6 +61,8 @@ data class PlatformAdminUiState(
     val broadcastMessage: String = "",
     val isBroadcasting: Boolean = false,
     val broadcastSuccess: Boolean = false,
+    val whatsAppTestPhone: String = "",
+    val whatsAppTestMessage: String = "SanibonaniSave platform WhatsApp smoke test.",
     val isSendingWhatsAppTest: Boolean = false,
     val whatsAppTestResult: String? = null,
     val auditLogs: List<AuditLog> = emptyList(),
@@ -82,11 +84,14 @@ class PlatformAdminViewModel @Inject constructor(
     private val claimRepo: BeneficiaryClaimRepository,
     private val memberRepo: MemberRepository,
     private val notifRepo: NotificationRepository,
-    private val supabaseRepo: SupabaseRepository
+    private val supabaseRepo: SupabaseRepository,
+    private val platformConfigRepository: PlatformConfigRepository
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(PlatformAdminUiState())
     val state: StateFlow<PlatformAdminUiState> = _state.asStateFlow()
+    private var lastLoadedMemberCharge: Double = 10.0
+    private var lastLoadedRegistrationFee: Double = 700.0
 
     init {
         loadData()
@@ -155,10 +160,11 @@ class PlatformAdminViewModel @Inject constructor(
                 .onSuccess { settings ->
                     val mCharge = settings["monthly_member_fee"] ?: settings["monthly_per_member"] ?: 10.0
                     val rFee = settings["registration_fee"] ?: 700.0
-                    
-                    // Update global singleton for system-wide effect
-                    PlatformFees.MONTHLY_MEMBER_FEE = mCharge
-                    PlatformFees.REGISTRATION = rFee
+
+                    lastLoadedMemberCharge = mCharge
+                    lastLoadedRegistrationFee = rFee
+
+                    platformConfigRepository.update(mCharge, rFee)
 
                     _state.update { it.copy(
                         memberCharge = String.format(Locale.US, "%.2f", mCharge),
@@ -287,11 +293,27 @@ class PlatformAdminViewModel @Inject constructor(
             
             platformRepo.updateGlobalFees(charge, regFee)
                 .onSuccess {
-                    // Update global singleton for immediate effect across system
-                    PlatformFees.MONTHLY_MEMBER_FEE = charge
-                    PlatformFees.REGISTRATION = regFee
+                    platformConfigRepository.update(charge, regFee)
 
-                    _state.update { it.copy(isSaving = false, saveSuccess = true) }
+                    val changedSettings = mutableListOf<String>()
+                    if (kotlin.math.abs(charge - lastLoadedMemberCharge) > 0.0001) {
+                        changedSettings += "Monthly member fee: R${"%.2f".format(lastLoadedMemberCharge)} -> R${"%.2f".format(charge)}"
+                    }
+                    if (kotlin.math.abs(regFee - lastLoadedRegistrationFee) > 0.0001) {
+                        changedSettings += "Registration fee: R${"%.2f".format(lastLoadedRegistrationFee)} -> R${"%.2f".format(regFee)}"
+                    }
+
+                    var warningMessage: String? = null
+                    if (changedSettings.isNotEmpty()) {
+                        val message = "Platform fee settings updated. ${changedSettings.joinToString(separator = "; ")}."
+                        platformRepo.broadcastPlatformMessage(message)
+                            .onFailure { e -> warningMessage = "Fees saved, but broadcast failed: ${e.toUserMessage()}" }
+                    }
+
+                    lastLoadedMemberCharge = charge
+                    lastLoadedRegistrationFee = regFee
+
+                    _state.update { it.copy(isSaving = false, saveSuccess = true, error = warningMessage) }
                 }
                 .onFailure { e ->
                     _state.update { it.copy(isSaving = false, error = e.toUserMessage()) }
@@ -695,6 +717,26 @@ class PlatformAdminViewModel @Inject constructor(
         _state.update { it.copy(broadcastMessage = text) }
     }
 
+    fun updateWhatsAppTestPhone(phone: String) {
+        _state.update {
+            it.copy(
+                whatsAppTestPhone = phone,
+                whatsAppTestResult = null,
+                error = null
+            )
+        }
+    }
+
+    fun updateWhatsAppTestMessage(message: String) {
+        _state.update {
+            it.copy(
+                whatsAppTestMessage = message,
+                whatsAppTestResult = null,
+                error = null
+            )
+        }
+    }
+
     fun broadcastMessage() {
         val message = _state.value.broadcastMessage.trim()
         if (message.isBlank()) {
@@ -733,6 +775,56 @@ class PlatformAdminViewModel @Inject constructor(
                 _state.update { it.copy(isSendingWhatsAppTest = false, whatsAppTestResult = e.toUserMessage()) }
             }
         }
+    }
+
+    fun sendDirectWhatsAppTest() {
+        val rawPhone = _state.value.whatsAppTestPhone
+        val digitsOnly = rawPhone.filter(Char::isDigit)
+        if (!isValidSouthAfricanWhatsAppNumber(digitsOnly)) {
+            _state.update {
+                it.copy(error = "Enter a valid South African WhatsApp number, for example 0713459563 or 27713459563.")
+            }
+            return
+        }
+
+        val message = _state.value.whatsAppTestMessage.trim().ifBlank {
+            "SanibonaniSave platform WhatsApp smoke test at ${System.currentTimeMillis()}"
+        }
+
+        viewModelScope.launch {
+            _state.update { it.copy(isSendingWhatsAppTest = true, whatsAppTestResult = null, error = null) }
+            notifRepo.sendDirectWhatsAppMessage(phone = digitsOnly, message = message)
+                .onSuccess {
+                    _state.update {
+                        it.copy(
+                            isSendingWhatsAppTest = false,
+                            whatsAppTestResult = "WhatsApp test sent to $digitsOnly.",
+                            whatsAppTestPhone = digitsOnly,
+                            whatsAppTestMessage = message
+                        )
+                    }
+                }
+                .onFailure { e ->
+                    val userMessage = when (e) {
+                        is WhatsAppSendException -> e.toUserMessage()
+                        else -> e.toUserMessage().takeIf {
+                            it.isNotBlank() && !it.equals("An error occurred", ignoreCase = true)
+                        } ?: "Failed to send WhatsApp test. Please retry and check edge function logs."
+                    }
+                    _state.update {
+                        it.copy(
+                            isSendingWhatsAppTest = false,
+                            whatsAppTestResult = userMessage,
+                            error = null
+                        )
+                    }
+                }
+        }
+    }
+
+    private fun isValidSouthAfricanWhatsAppNumber(phone: String): Boolean {
+        return (phone.length == 10 && phone.startsWith("0")) ||
+            (phone.length == 11 && phone.startsWith("27"))
     }
 
     fun clearBroadcastSuccess() {

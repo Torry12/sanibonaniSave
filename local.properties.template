@@ -29,5 +29,9 @@ GEOAPIFY_API_KEY=dc6708382d514e71919342710f73b7c4
 # ── Release Keystore ─────────────────────────────────────────────────────────
 KEYSTORE_PATH=keystore/sanibonani-release.jks
 KEYSTORE_PASSWORD=your_keystore_password
-KEY_ALIAS=sanibonani
+KEY_ALIAS=sanibonani_release
 KEY_PASSWORD=your_key_password
+
+# ── Platform Admin ────────────────────────────────────────────────────────────
+PLATFORM_ADMIN_EMAIL=torrymsimango@gmail.com
+

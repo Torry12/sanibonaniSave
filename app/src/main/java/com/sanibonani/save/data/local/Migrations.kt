@@ -30,7 +30,7 @@ private fun SupportSQLiteDatabase.tableColumns(tableName: String): Set<String> {
     }
 }
 
-private fun SupportSQLiteDatabase.memberSelectExpr(
+private fun memberSelectExpr(
     columns: Set<String>,
     columnName: String,
     defaultSql: String,
@@ -180,10 +180,10 @@ val MIGRATION_8_9 = object : Migration(8, 9) {
         // Adding new fields to contributions table
         try {
             db.execSQL("ALTER TABLE contributions ADD COLUMN created_at TEXT")
-        } catch (e: Exception) { /* column may already exist */ }
+        } catch (_: Exception) { /* column may already exist */ }
         try {
             db.execSQL("ALTER TABLE contributions ADD COLUMN late_fees_applied BOOLEAN")
-        } catch (e: Exception) { /* column may already exist */ }
+        } catch (_: Exception) { /* column may already exist */ }
     }
 }
 
@@ -567,22 +567,16 @@ val MIGRATION_30_31 = object : Migration(30, 31) {
 
 val MIGRATION_31_32 = object : Migration(31, 32) {
     override fun migrate(db: SupportSQLiteDatabase) {
-        fun safeExec(sql: String) {
-            try { db.execSQL(sql) } catch (e: Exception) {}
-        }
         // Beneficiaries table: Add document fields for beneficiary document uploads
-        safeExec("ALTER TABLE beneficiaries ADD COLUMN document_url TEXT")
-        safeExec("ALTER TABLE beneficiaries ADD COLUMN document_status TEXT NOT NULL DEFAULT 'pending'")
+        db.safeExec("ALTER TABLE beneficiaries ADD COLUMN document_url TEXT")
+        db.safeExec("ALTER TABLE beneficiaries ADD COLUMN document_status TEXT NOT NULL DEFAULT 'pending'")
     }
 }
 
 val MIGRATION_32_33 = object : Migration(32, 33) {
     override fun migrate(db: SupportSQLiteDatabase) {
-        fun safeExec(sql: String) {
-            try { db.execSQL(sql) } catch (e: Exception) {}
-        }
         // Contributions table: Add payment_method column to match Supabase schema
-        safeExec("ALTER TABLE contributions ADD COLUMN payment_method TEXT NOT NULL DEFAULT 'yoco'")
+        db.safeExec("ALTER TABLE contributions ADD COLUMN payment_method TEXT NOT NULL DEFAULT 'yoco'")
     }
 }
 
@@ -593,11 +587,8 @@ val MIGRATION_32_33 = object : Migration(32, 33) {
 
 val MIGRATION_33_34 = object : Migration(33, 34) {
     override fun migrate(db: SupportSQLiteDatabase) {
-        fun safeExec(sql: String) {
-            try { db.execSQL(sql) } catch (e: Exception) {}
-        }
         // Add loans table (introduced for Smart Loan feature)
-        safeExec("""
+        db.safeExec("""
             CREATE TABLE IF NOT EXISTS `loans` (
                 `id` TEXT NOT NULL,
                 `member_id` TEXT NOT NULL,
@@ -617,12 +608,12 @@ val MIGRATION_33_34 = object : Migration(33, 34) {
                 PRIMARY KEY(`id`)
             )
         """.trimIndent())
-        safeExec("CREATE INDEX IF NOT EXISTS `index_loans_member_id` ON `loans` (`member_id`)")
-        safeExec("CREATE INDEX IF NOT EXISTS `index_loans_group_id` ON `loans` (`group_id`)")
-        safeExec("CREATE INDEX IF NOT EXISTS `index_loans_status` ON `loans` (`status`)")
+        db.safeExec("CREATE INDEX IF NOT EXISTS `index_loans_member_id` ON `loans` (`member_id`)")
+        db.safeExec("CREATE INDEX IF NOT EXISTS `index_loans_group_id` ON `loans` (`group_id`)")
+        db.safeExec("CREATE INDEX IF NOT EXISTS `index_loans_status` ON `loans` (`status`)")
 
         // Add loan_repayments table
-        safeExec("""
+        db.safeExec("""
             CREATE TABLE IF NOT EXISTS `loan_repayments` (
                 `id` TEXT NOT NULL,
                 `loan_id` TEXT NOT NULL,
@@ -637,9 +628,9 @@ val MIGRATION_33_34 = object : Migration(33, 34) {
                 PRIMARY KEY(`id`)
             )
         """.trimIndent())
-        safeExec("CREATE INDEX IF NOT EXISTS `index_loan_repayments_loan_id` ON `loan_repayments` (`loan_id`)")
-        safeExec("CREATE INDEX IF NOT EXISTS `index_loan_repayments_member_id` ON `loan_repayments` (`member_id`)")
-        safeExec("CREATE INDEX IF NOT EXISTS `index_loan_repayments_group_id` ON `loan_repayments` (`group_id`)")
+        db.safeExec("CREATE INDEX IF NOT EXISTS `index_loan_repayments_loan_id` ON `loan_repayments` (`loan_id`)")
+        db.safeExec("CREATE INDEX IF NOT EXISTS `index_loan_repayments_member_id` ON `loan_repayments` (`member_id`)")
+        db.safeExec("CREATE INDEX IF NOT EXISTS `index_loan_repayments_group_id` ON `loan_repayments` (`group_id`)")
     }
 }
 
@@ -668,11 +659,8 @@ val MIGRATION_34_35 = object : Migration(34, 35) {
 
 val MIGRATION_35_36 = object : Migration(35, 36) {
     override fun migrate(db: SupportSQLiteDatabase) {
-        fun safeExec(sql: String) {
-            try { db.execSQL(sql) } catch (e: Exception) {}
-        }
         // Create burial_claims table for beneficiary payout claims
-        safeExec("""
+        db.safeExec("""
             CREATE TABLE IF NOT EXISTS `burial_claims` (
                 `id` TEXT NOT NULL,
                 `group_id` TEXT NOT NULL,
@@ -697,10 +685,22 @@ val MIGRATION_35_36 = object : Migration(35, 36) {
                 PRIMARY KEY(`id`)
             )
         """.trimIndent())
-        safeExec("CREATE INDEX IF NOT EXISTS `index_burial_claims_group_id` ON `burial_claims` (`group_id`)")
-        safeExec("CREATE INDEX IF NOT EXISTS `index_burial_claims_member_id` ON `burial_claims` (`member_id`)")
-        safeExec("CREATE INDEX IF NOT EXISTS `index_burial_claims_beneficiary_id` ON `burial_claims` (`beneficiary_id`)")
-        safeExec("CREATE INDEX IF NOT EXISTS `index_burial_claims_status` ON `burial_claims` (`status`)")
+        db.safeExec("CREATE INDEX IF NOT EXISTS `index_burial_claims_group_id` ON `burial_claims` (`group_id`)")
+        db.safeExec("CREATE INDEX IF NOT EXISTS `index_burial_claims_member_id` ON `burial_claims` (`member_id`)")
+        db.safeExec("CREATE INDEX IF NOT EXISTS `index_burial_claims_beneficiary_id` ON `burial_claims` (`beneficiary_id`)")
+        db.safeExec("CREATE INDEX IF NOT EXISTS `index_burial_claims_status` ON `burial_claims` (`status`)")
+    }
+}
+
+val MIGRATION_36_37 = object : Migration(36, 37) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        // Reserved bridge migration for environments already at v36.
+    }
+}
+
+val MIGRATION_37_38 = object : Migration(37, 38) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.safeExec("ALTER TABLE `groups` ADD COLUMN `rosca_rotation_method` TEXT NOT NULL DEFAULT 'FIXED'")
     }
 }
 
@@ -739,6 +739,8 @@ val ALL_MIGRATIONS = arrayOf(
     MIGRATION_32_33,
     MIGRATION_33_34,
     MIGRATION_34_35,
-    MIGRATION_35_36
+    MIGRATION_35_36,
+    MIGRATION_36_37,
+    MIGRATION_37_38
 )
 

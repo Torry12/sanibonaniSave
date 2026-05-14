@@ -15,7 +15,8 @@ import java.time.format.DateTimeFormatter
 import javax.inject.Inject
 import javax.inject.Singleton
 
-private const val TABLE = "burial_claims"
+private const val PRIMARY_TABLE = "beneficiary_payout_claims"
+private const val LEGACY_TABLE = "burial_claims"
 
 private val CLAIM_COLUMNS = listOf(
     "id", "group_id", "member_id", "beneficiary_id", "beneficiary_name",
@@ -30,13 +31,35 @@ class BeneficiaryClaimRepositoryImpl @Inject constructor(
     private val db: SanibonaniDatabase
 ) : BaseRepository("BeneficiaryClaimRepository"), BeneficiaryClaimRepository {
 
+    private inline fun <T> withClaimsTable(block: (String) -> T): T {
+        return try {
+            block(PRIMARY_TABLE)
+        } catch (e: Exception) {
+            if (isMissingPrimaryTableError(e)) {
+                block(LEGACY_TABLE)
+            } else {
+                throw e
+            }
+        }
+    }
+
+    private fun isMissingPrimaryTableError(error: Throwable): Boolean {
+        val message = error.message?.lowercase().orEmpty()
+        return (
+            message.contains("could not find the table") ||
+                message.contains("does not exist")
+            ) && message.contains(PRIMARY_TABLE)
+    }
+
     override suspend fun submitClaim(claim: BeneficiaryPayoutClaim): Result<BeneficiaryPayoutClaim> =
         retryWithExponentialBackoff {
             runCatching {
-                val saved = supabase.postgrest[TABLE].upsert(claim) {
-                    onConflict = "id"
-                    select()
-                }.decodeSingle<BeneficiaryPayoutClaim>()
+                val saved = withClaimsTable { table ->
+                    supabase.postgrest[table].upsert(claim) {
+                        onConflict = "id"
+                        select()
+                    }.decodeSingle<BeneficiaryPayoutClaim>()
+                }
                 db.beneficiaryClaimDao().upsertClaim(saved.toEntity())
                 saved
             }
@@ -50,13 +73,15 @@ class BeneficiaryClaimRepositoryImpl @Inject constructor(
         mapper = { it.toModel() },
         toEntity = { it.toEntity() },
         networkFetch = {
-            supabase.postgrest[TABLE]
-                .select(columns = Columns.raw(CLAIM_COLUMNS)) {
-                    filter {
-                        eq("member_id", memberId)
-                        eq("group_id", groupId)
-                    }
-                }.decodeList<BeneficiaryPayoutClaim>()
+            withClaimsTable { table ->
+                supabase.postgrest[table]
+                    .select(columns = Columns.raw(CLAIM_COLUMNS)) {
+                        filter {
+                            eq("member_id", memberId)
+                            eq("group_id", groupId)
+                        }
+                    }.decodeList<BeneficiaryPayoutClaim>()
+            }
         },
         cacheSync = { list -> db.beneficiaryClaimDao().syncForMember(memberId, groupId, list) }
     )
@@ -67,10 +92,12 @@ class BeneficiaryClaimRepositoryImpl @Inject constructor(
             mapper = { it.toModel() },
             toEntity = { it.toEntity() },
             networkFetch = {
-                supabase.postgrest[TABLE]
-                    .select(columns = Columns.raw(CLAIM_COLUMNS)) {
-                        filter { eq("group_id", groupId) }
-                    }.decodeList<BeneficiaryPayoutClaim>()
+                withClaimsTable { table ->
+                    supabase.postgrest[table]
+                        .select(columns = Columns.raw(CLAIM_COLUMNS)) {
+                            filter { eq("group_id", groupId) }
+                        }.decodeList<BeneficiaryPayoutClaim>()
+                }
             },
             cacheSync = { list -> db.beneficiaryClaimDao().syncForGroup(groupId, list) }
         )
@@ -83,21 +110,25 @@ class BeneficiaryClaimRepositoryImpl @Inject constructor(
         rejectionReason: String?
     ): Result<Unit> = retryWithExponentialBackoff {
         runCatching {
-            supabase.postgrest[TABLE].update(buildJsonObject {
-                put("status", status.name.lowercase())
-                reviewedBy?.let { put("reviewed_by", it) }
-                adminNotes?.let { put("admin_notes", it) }
-                rejectionReason?.let { put("rejection_reason", it) }
-                put("reviewed_at", OffsetDateTime.now().format(DateTimeFormatter.ISO_OFFSET_DATE_TIME))
-            }) {
-                filter { eq("id", claimId) }
+            withClaimsTable { table ->
+                supabase.postgrest[table].update(buildJsonObject {
+                    put("status", status.name.lowercase())
+                    reviewedBy?.let { put("reviewed_by", it) }
+                    adminNotes?.let { put("admin_notes", it) }
+                    rejectionReason?.let { put("rejection_reason", it) }
+                    put("reviewed_at", OffsetDateTime.now().format(DateTimeFormatter.ISO_OFFSET_DATE_TIME))
+                }) {
+                    filter { eq("id", claimId) }
+                }
             }
             // Refresh local cache
-            supabase.postgrest[TABLE]
-                .select(columns = Columns.raw(CLAIM_COLUMNS)) {
-                    filter { eq("id", claimId) }
-                }.decodeSingleOrNull<BeneficiaryPayoutClaim>()?.let {
-                    db.beneficiaryClaimDao().upsertClaim(it.toEntity())
+            withClaimsTable { table ->
+                supabase.postgrest[table]
+                    .select(columns = Columns.raw(CLAIM_COLUMNS)) {
+                        filter { eq("id", claimId) }
+                    }.decodeSingleOrNull<BeneficiaryPayoutClaim>()?.let {
+                        db.beneficiaryClaimDao().upsertClaim(it.toEntity())
+                    }
                 }
             Unit
         }
@@ -109,10 +140,12 @@ class BeneficiaryClaimRepositoryImpl @Inject constructor(
             mapper = { it.toModel() },
             toEntity = { it.toEntity() },
             networkFetch = {
-                supabase.postgrest[TABLE]
-                    .select(columns = Columns.raw(CLAIM_COLUMNS)) {
-                        filter { eq("status", "escalated") }
-                    }.decodeList<BeneficiaryPayoutClaim>()
+                withClaimsTable { table ->
+                    supabase.postgrest[table]
+                        .select(columns = Columns.raw(CLAIM_COLUMNS)) {
+                            filter { eq("status", "escalated") }
+                        }.decodeList<BeneficiaryPayoutClaim>()
+                }
             },
             cacheSync = { list ->
                 // Only upsert escalated ones – don't wipe other statuses

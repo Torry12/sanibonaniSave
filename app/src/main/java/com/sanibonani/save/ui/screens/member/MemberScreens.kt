@@ -63,6 +63,7 @@ import coil.compose.AsyncImage
 import coil.request.CachePolicy
 import coil.request.ImageRequest
 import com.sanibonani.save.domain.config.FileUploadLimits
+import com.sanibonani.save.domain.config.SaReferenceData
 import com.sanibonani.save.data.utils.PaymentCalculation
 import com.sanibonani.save.data.utils.PaymentCalculator
 import com.sanibonani.save.domain.model.*
@@ -758,7 +759,7 @@ fun LoanItem(loan: Loan, repayments: List<LoanRepayment>, onDownloadContract: ((
         Column(Modifier.padding(16.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text("R${loan.amount} Loan", fontWeight = FontWeight.Bold)
+                    Text("${formatZAR(loan.amount)} Loan", fontWeight = FontWeight.Bold)
                     Text("Requested on ${loan.createdAt?.substringBefore("T") ?: "N/A"}", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
                 }
                 
@@ -1048,7 +1049,7 @@ fun RegisterMemberScreen(
                         modifier = Modifier.fillMaxWidth()
                     )
                     DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-                        SA_PROVINCES.forEach { p ->
+                        SaReferenceData.PROVINCES.forEach { p ->
                             DropdownMenuItem(text = { Text(p) }, onClick = { vm.onFieldChange("province", p); expanded = false })
                         }
                     }

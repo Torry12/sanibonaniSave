@@ -14,11 +14,9 @@ class CalculateViabilityUseCase @Inject constructor(
         groupId: String,
         goalAmount: Double,
         periodMonths: Int
-    ): Result<ViabilityPlan> {
-        return try {
-            actuarialRepository.calculateViabilityPlan(groupId, goalAmount, periodMonths)
-        } catch (e: Exception) {
-            Result.failure(e)
-        }
+    ): Result<ViabilityPlan> = runCatching {
+        require(goalAmount > 0) { "Goal amount must be greater than zero." }
+        require(periodMonths > 0) { "Period must be at least 1 month." }
+        actuarialRepository.calculateViabilityPlan(groupId, goalAmount, periodMonths).getOrThrow()
     }
 }

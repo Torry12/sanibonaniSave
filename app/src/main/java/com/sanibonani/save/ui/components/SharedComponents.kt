@@ -8,6 +8,7 @@ import androidx.compose.foundation.shape.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
@@ -50,6 +51,7 @@ import coil.compose.AsyncImage
 import coil.request.CachePolicy
 import coil.request.ImageRequest
 import com.sanibonani.save.domain.model.*
+import com.sanibonani.save.domain.utils.roundMoneyToTwoDecimals
 import com.sanibonani.save.ui.theme.*
 import org.osmdroid.tileprovider.tilesource.TileSourceFactory
 import org.osmdroid.util.BoundingBox
@@ -60,6 +62,7 @@ import org.osmdroid.config.Configuration
 import android.preference.PreferenceManager
 
 import java.util.Locale
+import java.math.BigDecimal
 import java.text.NumberFormat
 import java.util.Currency
 import java.time.Instant
@@ -73,17 +76,24 @@ private val zarFormatter: NumberFormat = NumberFormat.getCurrencyInstance(Locale
     maximumFractionDigits = 2
 }
 
-fun formatZAR(amount: Double): String = zarFormatter.format(amount)
+fun formatZAR(amount: Double): String =
+    if (!amount.isFinite()) zarFormatter.format(BigDecimal.ZERO)
+    else zarFormatter.format(BigDecimal.valueOf(amount).setScale(2, java.math.RoundingMode.HALF_UP))
 
-fun formatDecimal(value: Double): String = String.format(Locale("en", "ZA"), "%.2f", value)
+fun formatZAR(amount: BigDecimal): String = zarFormatter.format(amount.setScale(2, java.math.RoundingMode.HALF_UP))
+
+fun formatDecimal(value: Double): String =
+    if (!value.isFinite()) "0.00"
+    else BigDecimal.valueOf(value).setScale(2, java.math.RoundingMode.HALF_UP).toPlainString()
 
 fun formatPct(value: Double): String = "${formatDecimal(value)}%"
 
 fun formatZARShort(amount: Double): String =
     when {
-        amount >= 1_000_000 -> "R ${String.format(Locale.US, "%.1f", amount / 1_000_000)}M"
-        amount >= 1_000     -> "R ${String.format(Locale.US, "%.1f", amount / 1_000)}k"
-        else                -> "R ${String.format(Locale.US, "%.0f", amount)}"
+        !amount.isFinite() -> "R 0.00"
+        amount >= 1_000_000 -> "R ${String.format(Locale.US, "%.2f", amount / 1_000_000)}M"
+        amount >= 1_000     -> "R ${String.format(Locale.US, "%.2f", amount / 1_000)}k"
+        else                -> "R ${String.format(Locale.US, "%.2f", amount.roundMoneyToTwoDecimals())}"
     }
 
 // ── Visual Transformations (Type Masking) ──────────────────────────────────────
@@ -1032,13 +1042,13 @@ fun DashboardHeaderWithNotif(
                         }
 
                         HorizontalDivider(color = Cream)
-                        DropdownMenuItem(
-                            text = { Text("Log Out", color = ErrorRed) },
+                        LogoutButton(
                             onClick = {
                                 showMenu = false
                                 onLogoutClick()
                             },
-                            leadingIcon = { Icon(Icons.Default.ExitToApp, null, tint = ErrorRed) }
+                            style = LogoutButtonStyle.MenuItem,
+                            showIcon = true
                         )
                     }
                 }
@@ -1754,4 +1764,59 @@ fun SanibonaniDatePickerField(
             }
         )
     }
+}
+
+@Composable
+fun LogoutButton(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    style: LogoutButtonStyle = LogoutButtonStyle.Filled,
+    showIcon: Boolean = true
+) {
+    when (style) {
+        LogoutButtonStyle.Filled -> {
+            SanibonaniButton(
+                text = "Log out",
+                onClick = onClick,
+                modifier = modifier.fillMaxWidth(),
+                containerColor = Color.Transparent,
+                contentColor = ErrorRed,
+                textStyle = MaterialTheme.typography.labelLarge
+            )
+        }
+        LogoutButtonStyle.Outlined -> {
+            OutlinedButton(
+                onClick = onClick,
+                modifier = modifier.fillMaxWidth().height(48.dp),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = ErrorRed),
+                border = BorderStroke(1.dp, ErrorRed),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                if (showIcon) {
+                    Icon(Icons.AutoMirrored.Filled.ExitToApp, null, tint = ErrorRed, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                }
+                Text("Log out", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+            }
+        }
+        LogoutButtonStyle.MenuItem -> {
+            DropdownMenuItem(
+                text = { Text("Log out", color = ErrorRed, fontWeight = FontWeight.SemiBold) },
+                onClick = onClick,
+                leadingIcon = if (showIcon) {
+                    { Icon(Icons.AutoMirrored.Filled.ExitToApp, null, tint = ErrorRed) }
+                } else null
+            )
+        }
+    }
+}
+
+/**
+ * Defines the visual style for the logout button.
+ * - [Filled]: Full-width filled button with transparent container (primary action)
+ * - [Outlined]: Full-width outlined button with red border (secondary action)
+ * - [MenuItem]: Dropdown menu item (used in profile menus)
+ */
+enum class LogoutButtonStyle {
+    Filled, Outlined, MenuItem
 }

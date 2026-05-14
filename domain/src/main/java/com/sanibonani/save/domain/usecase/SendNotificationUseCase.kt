@@ -20,7 +20,12 @@ class SendNotificationUseCase @Inject constructor(
         triggerEvent: NotifEvent = NotifEvent.CUSTOM,
         channel: NotifChannel = NotifChannel.BOTH
     ): Result<Unit> {
-        if (message.isBlank()) return Result.failure(Exception("Message cannot be empty"))
+        if (message.isBlank()) return Result.failure(Exception("Message cannot be empty."))
+        if (message.length > MAX_MESSAGE_LENGTH) {
+            return Result.failure(
+                Exception("Message is too long (${message.length} chars). Maximum is $MAX_MESSAGE_LENGTH characters.")
+            )
+        }
 
         val notification = AppNotification(
             groupId = groupId,
@@ -35,5 +40,10 @@ class SendNotificationUseCase @Inject constructor(
 
     suspend fun notifyPlatformAdmin(message: String): Result<Unit> {
         return notificationRepository.notifyPlatformAdmin(message)
+    }
+
+    companion object {
+        /** Safe cross-channel message cap (WhatsApp: 4096, Email: effectively unlimited; we cap at 2000). */
+        const val MAX_MESSAGE_LENGTH = 2000
     }
 }

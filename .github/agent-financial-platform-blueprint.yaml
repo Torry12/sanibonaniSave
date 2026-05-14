@@ -1,0 +1,83 @@
+version: "2026.05.13"
+purpose: "Machine-readable architecture context for coding agents and service scaffolding"
+models:
+  - id: rosca
+    backend_functions: [calculate_rotation, apply_payout]
+    database_tables: [groups, payouts, group_ledger]
+    api_surface: [rosca.getSchedule, rosca.rotate]
+    workflows: [monthly_rotation]
+    ai_agents: [defaulter_pressure_predictor]
+  - id: asca
+    backend_functions: [calculate_share_value, allocate_surplus]
+    database_tables: [group_ledger, contributions]
+    api_surface: [asca.getSharebook, asca.closePeriod]
+    workflows: [quarterly_distribution]
+    ai_agents: [surplus_projection]
+  - id: investment_group
+    backend_functions: [mark_to_market, compute_nav]
+    database_tables: [groups, group_health_scores]
+    api_surface: [invest.nav, invest.rebalance]
+    workflows: [rebalance_loop]
+    ai_agents: [portfolio_policy_copilot]
+  - id: emergency_fund
+    backend_functions: [reserve_coverage, incident_disbursement]
+    database_tables: [burial_claims, payments]
+    api_surface: [emergency.coverage, emergency.request]
+    workflows: [emergency_payout]
+    ai_agents: [coverage_early_warning]
+  - id: burial_society
+    backend_functions: [claim_assessment, solvency_check]
+    database_tables: [burial_claims, beneficiaries]
+    api_surface: [burial.claim.submit, burial.solvency]
+    workflows: [claim_lifecycle]
+    ai_agents: [claim_triage_agent]
+  - id: grocery_group
+    backend_functions: [bulk_order_plan, supplier_settlement]
+    database_tables: [payments, notifications]
+    api_surface: [grocery.window.open, grocery.allocate]
+    workflows: [bulk_buy_cycle]
+    ai_agents: [demand_forecaster]
+  - id: business_capital_group
+    backend_functions: [deal_scoring, milestone_release]
+    database_tables: [loans, loan_repayments]
+    api_surface: [capital.proposal.submit, capital.tranche.release]
+    workflows: [capital_lifecycle]
+    ai_agents: [proposal_risk_copilot]
+  - id: education_savings_group
+    backend_functions: [tuition_projection, term_disbursement]
+    database_tables: [groups, contributions]
+    api_surface: [education.forecast, education.payout.schedule]
+    workflows: [term_funding]
+    ai_agents: [fee_inflation_planner]
+  - id: social_credit_system
+    backend_functions: [credit_score_update, incentive_allocation]
+    database_tables: [members, notifications]
+    api_surface: [social.score.get, social.policy.update]
+    workflows: [trust_cycle]
+    ai_agents: [behavior_anomaly_detector]
+  - id: hybrid_financial_group
+    backend_functions: [policy_router, composite_settlement]
+    database_tables: [groups, group_ledger]
+    api_surface: [hybrid.policy.compose, hybrid.snapshot]
+    workflows: [hybrid_close]
+    ai_agents: [hybrid_optimizer]
+cross_cutting:
+  event_driven_architecture:
+    bus: "Outbox + Supabase Realtime + Worker consumers"
+    guarantees: "At-least-once + idempotent handlers"
+  treasury:
+    ledger_model: "Double-entry compatible event-sourced ledger"
+    controls: [reserve_thresholds, dual_control, payout_gatekeeping]
+  governance:
+    controls: [rbac, policy_as_code, immutable_audit_log]
+  risk:
+    categories: [liquidity, credit, fraud, operational, compliance]
+  payments:
+    rails: [YoCo, EFT, cash_capture_with_dual_confirmation]
+  recommended_microservices:
+    - group_policy_service
+    - treasury_ledger_service
+    - payout_service
+    - risk_scoring_service
+    - notification_service
+

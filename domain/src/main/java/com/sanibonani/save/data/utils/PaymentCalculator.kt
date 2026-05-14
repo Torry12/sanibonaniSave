@@ -5,9 +5,12 @@ import com.sanibonani.save.domain.model.ContributionStatus
 import com.sanibonani.save.domain.model.Group
 import com.sanibonani.save.domain.model.GroupType
 import com.sanibonani.save.domain.model.Member
+import com.sanibonani.save.domain.utils.roundMoneyToTwoDecimals
+import com.sanibonani.save.domain.utils.toMoneyBigDecimal
+import java.math.BigDecimal
+import java.math.RoundingMode
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
-import kotlin.math.roundToInt
 
 data class PaymentCalculation(
     val shortfall: Double,
@@ -18,7 +21,15 @@ data class PaymentCalculation(
     val isOverdue: Boolean = false
 )
 
-fun Double.roundToTwoDecimals(): Double = (this * 100.0).roundToInt().toDouble() / 100.0
+private val MONEY_ZERO: BigDecimal = BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP)
+private val MONEY_CENT: BigDecimal = BigDecimal("0.01")
+private val MONEY_HUNDRED: BigDecimal = BigDecimal("100")
+
+private fun BigDecimal.money(): BigDecimal = setScale(2, RoundingMode.HALF_UP)
+
+private fun BigDecimal.moneyDouble(): Double = money().toDouble()
+
+private fun Double.money(): BigDecimal = toMoneyBigDecimal()
 
 /**
  * Provides a system-synchronized current date.
@@ -36,19 +47,24 @@ object PaymentCalculator {
 
     fun calculateMonthlyContribution(group: Group, member: Member): Double {
         if (group.type != GroupType.BURIAL_SOCIETY) {
-            return group.monthlyContribution.roundToTwoDecimals()
+            return group.monthlyContribution.roundMoneyToTwoDecimals()
         }
 
         // Use override if available (manually set by admin)
-        member.monthlyContributionOverride?.let { return it.roundToTwoDecimals() }
+        member.monthlyContributionOverride?.let { return it.roundMoneyToTwoDecimals() }
 
-        val baseContribution = group.monthlyContribution
+        val baseContribution = group.monthlyContribution.money()
         val over65Count = member.beneficiaryOver65Count ?: 0
-        val increasePct = (group.beneficiaryIncreasePct?.div(100.0)) ?: 0.0
+        val increasePct = group.beneficiaryIncreasePct
+            ?.money()
+            ?.divide(MONEY_HUNDRED, 6, RoundingMode.HALF_UP)
+            ?: BigDecimal.ZERO
 
         // Calculation: Base + (Base * increasePct * no_of_beneficiaries_over_65)
-        val increase = baseContribution * increasePct * over65Count.toDouble()
-        return (baseContribution + increase).roundToTwoDecimals()
+        val increase = baseContribution
+            .multiply(increasePct)
+            .multiply(BigDecimal.valueOf(over65Count.toLong()))
+        return baseContribution.add(increase).moneyDouble()
     }
 
     fun calculateStatus(
@@ -70,13 +86,16 @@ object PaymentCalculator {
         }
 
         val totalPaid = contributions
+            .asSequence()
             .filter { it.status == ContributionStatus.PAID || it.status == ContributionStatus.PARTIAL }
-            .sumOf { it.amount }
+            .map { it.amount.money() }
+            .fold(BigDecimal.ZERO) { acc, amount -> acc.add(amount) }
 
         // 1. Calculate total expected up to now
-        var totalExpectedNow = 0.0
+        var totalExpectedNow = BigDecimal.ZERO
         var tempDate = joinedDate.withDayOfMonth(1)
         val endLimit = currentDate.withDayOfMonth(1)
+        val monthlyAmountMoney = monthlyAmount.money()
 
         while (!tempDate.isAfter(endLimit)) {
              val dueDayThisMonth = try {
@@ -86,19 +105,19 @@ object PaymentCalculator {
             }
 
             if (!currentDate.isBefore(dueDayThisMonth)) {
-                totalExpectedNow += monthlyAmount
+                totalExpectedNow = totalExpectedNow.add(monthlyAmountMoney)
             } else if (tempDate.isBefore(endLimit)) {
-                totalExpectedNow += monthlyAmount
+                totalExpectedNow = totalExpectedNow.add(monthlyAmountMoney)
             }
             tempDate = tempDate.plusMonths(1)
         }
 
-        val balance = (totalPaid - totalExpectedNow).roundToTwoDecimals()
-        val shortfall = (if (balance < 0) -balance else 0.0).roundToTwoDecimals()
-        val overpayment = (if (balance > 0) balance else 0.0).roundToTwoDecimals()
-        
+        val balance = totalPaid.subtract(totalExpectedNow).money()
+        val shortfall = if (balance.signum() < 0) balance.abs().moneyDouble() else MONEY_ZERO.moneyDouble()
+        val overpayment = if (balance.signum() > 0) balance.moneyDouble() else MONEY_ZERO.moneyDouble()
+
         // 2. Calculate the next due date (the first month that is not fully paid)
-        val nextDueDate = calculateNextDueDate(group, joinedDate, monthlyAmount, totalPaid)
+        val nextDueDate = calculateNextDueDate(group, joinedDate, monthlyAmount, totalPaid.moneyDouble())
 
         // Overdue logic:
         // A member is overdue if they still have a shortfall AND the first unpaid due date
@@ -111,7 +130,7 @@ object PaymentCalculator {
 
         // Late Fee logic
         val lateFeeToAdd = if (isCurrentlyOverdue && shortfall > 0) group.lateFee else 0.0
-        val totalDueNow = (shortfall + lateFeeToAdd).roundToTwoDecimals()
+        val totalDueNow = (shortfall + lateFeeToAdd).roundMoneyToTwoDecimals()
 
         return PaymentCalculation(
             shortfall = shortfall,
@@ -131,16 +150,18 @@ object PaymentCalculator {
         monthlyAmount: Double,
         totalPaid: Double
     ): String {
-        var cumulativeExpected = 0.0
+        var cumulativeExpected = BigDecimal.ZERO
         var tempDate = joinedDate.withDayOfMonth(1)
-        
+        val monthlyAmountMoney = monthlyAmount.money()
+        val totalPaidMoney = totalPaid.money()
+
         // We iterate until we find a month that isn't fully paid for
         // or we reach a reasonable future limit (e.g. 2 years ahead)
         val limit = DateProvider.getCurrentDate().plusYears(2)
 
         while (tempDate.isBefore(limit)) {
-            cumulativeExpected += monthlyAmount
-            if (cumulativeExpected > totalPaid + 0.01) { // 1 cent tolerance
+            cumulativeExpected = cumulativeExpected.add(monthlyAmountMoney)
+            if (cumulativeExpected > totalPaidMoney.add(MONEY_CENT)) {
                 val dueDayThisMonth = try {
                     tempDate.withDayOfMonth(group.paymentDueDay)
                 } catch (_: Exception) {
@@ -159,7 +180,9 @@ object PaymentCalculator {
      */
     fun calculateMemberSharePercentage(groupBalance: Double, memberTotalPaid: Double): Double {
         if (groupBalance <= 0) return 0.0
-        return (memberTotalPaid / groupBalance * 100.0).roundToTwoDecimals()
+        val share = memberTotalPaid.money().divide(groupBalance.money(), 6, RoundingMode.HALF_UP)
+            .multiply(MONEY_HUNDRED)
+        return share.moneyDouble()
     }
 
     /**
@@ -172,14 +195,15 @@ object PaymentCalculator {
         currentDate: LocalDate = DateProvider.getCurrentDate()
     ): Double {
         val joinedDate = try {
-            LocalDate.parse(member.joinedAt?.substringBefore("T"))
+            val dateStr = member.joinedAt?.substringBefore("T") ?: currentDate.toString()
+            LocalDate.parse(dateStr)
         } catch (_: Exception) {
             currentDate
         }
 
         val monthsMembership = ChronoUnit.MONTHS.between(joinedDate, currentDate)
         return if (monthsMembership < 12) {
-            (amountToWithdraw * 0.10).roundToTwoDecimals()
+            amountToWithdraw.money().multiply(BigDecimal("0.10")).moneyDouble()
         } else {
             0.0
         }
@@ -196,18 +220,18 @@ object PaymentCalculator {
         totalPaidBefore: Double
     ): Triple<Double, Double, String> {
         // Subtract late fee from input amount first if they are overdue
-        val netAmountForBalance = (inputAmount - lateFee).coerceAtLeast(0.0)
-        
+        val netAmountForBalance = (inputAmount.money() - lateFee.money()).max(MONEY_ZERO).moneyDouble()
+
         // New Balance = (Net Amount) + (Existing Overpayment) - (Existing Shortfall)
-        val newBalance = (netAmountForBalance + currentOverpayment - currentShortfall).roundToTwoDecimals()
-        
+        val newBalance = (netAmountForBalance.money() + currentOverpayment.money() - currentShortfall.money()).moneyDouble()
+
         val newShortfall = if (newBalance < 0) -newBalance else 0.0
         val newOverpayment = if (newBalance > 0) newBalance else 0.0
         
-        val newTotalPaid = totalPaidBefore + netAmountForBalance
+        val newTotalPaid = totalPaidBefore.money().add(netAmountForBalance.money()).moneyDouble()
         val nextDate = calculateNextDueDate(group, joinedDate, monthlyContribution, newTotalPaid)
         
-        return Triple(newShortfall.roundToTwoDecimals(), newOverpayment.roundToTwoDecimals(), nextDate)
+        return Triple(newShortfall.roundMoneyToTwoDecimals(), newOverpayment.roundMoneyToTwoDecimals(), nextDate)
     }
 
 }

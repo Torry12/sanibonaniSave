@@ -11,6 +11,8 @@ import com.sanibonani.save.domain.repository.CredentialsRepository
 import com.sanibonani.save.domain.repository.SupabaseRepository
 import com.sanibonani.save.domain.utils.AuthIdentityUtils
 import com.sanibonani.save.domain.utils.UserRoleMapper
+import com.sanibonani.save.domain.validation.ValidationResult
+import com.sanibonani.save.domain.validation.ValidationUtils
 import com.sanibonani.save.service.AdminGroupContextCacheService
 import com.sanibonani.save.service.MemberGroupContextCacheService
 import com.sanibonani.save.service.UserProfileCacheService
@@ -317,6 +319,12 @@ class AuthViewModel @Inject constructor(
             return
         }
 
+        val passwordValidation = ValidationUtils.validatePasswordField(s.password)
+        if (passwordValidation !is ValidationResult.Valid) {
+            _state.update { it.copy(error = passwordValidation.getErrorMessage()) }
+            return
+        }
+
         if (s.password != s.confirmPw) {
             _state.update { it.copy(error = "Passwords do not match") }
             return
@@ -379,6 +387,12 @@ class AuthViewModel @Inject constructor(
         val s = _state.value
         if (s.password.isBlank() || s.confirmPw.isBlank()) {
             _state.update { it.copy(error = "Please fill in all fields") }
+            return
+        }
+
+        val passwordValidation = ValidationUtils.validatePasswordField(s.password)
+        if (passwordValidation !is ValidationResult.Valid) {
+            _state.update { it.copy(error = passwordValidation.getErrorMessage()) }
             return
         }
 

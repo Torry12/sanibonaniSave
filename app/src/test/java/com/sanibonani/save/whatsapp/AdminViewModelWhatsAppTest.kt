@@ -305,6 +305,46 @@ class AdminViewModelWhatsAppTest {
         )
     }
 
+    @Test
+    fun `saveSettings broadcasts fee settings change to affected group members`() = runTest {
+        injectMemberAndGroup(groupId = "g_settings")
+        coEvery { updateGroupSettings("g_settings", any()) } returns Result.success(Unit)
+        coEvery { sendNotification(any(), any(), anyNullable(), any(), any()) } returns Result.success(Unit)
+
+        viewModel.updateSetting("monthlyContribution", "450")
+        viewModel.saveSettings()
+        advanceUntilIdle()
+
+        coVerify(exactly = 1) {
+            sendNotification(
+                groupId = "g_settings",
+                memberId = null,
+                message = match { it.contains("Group settings updated") && it.contains("Monthly Contribution") },
+                triggerEvent = NotifEvent.FEE_SETTINGS_CHANGED,
+                channel = NotifChannel.BOTH
+            )
+        }
+    }
+
+    @Test
+    fun `saveSettings without changes does not broadcast settings notification`() = runTest {
+        injectMemberAndGroup(groupId = "g_nochange")
+        coEvery { updateGroupSettings("g_nochange", any()) } returns Result.success(Unit)
+
+        viewModel.saveSettings()
+        advanceUntilIdle()
+
+        coVerify(exactly = 0) {
+            sendNotification(
+                groupId = "g_nochange",
+                memberId = null,
+                message = any(),
+                triggerEvent = NotifEvent.FEE_SETTINGS_CHANGED,
+                channel = NotifChannel.BOTH
+            )
+        }
+    }
+
     // ══════════════════════════════════════════════════════════════════════
     // Helper
     // ══════════════════════════════════════════════════════════════════════

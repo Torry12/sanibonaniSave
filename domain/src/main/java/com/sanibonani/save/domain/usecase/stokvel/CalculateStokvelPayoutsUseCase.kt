@@ -31,10 +31,28 @@ class CalculateStokvelPayoutsUseCase @Inject constructor() {
             return Result.failure(IllegalArgumentException("Group is not a Stokvel"))
         }
 
-        // Typically Stokvels run for a 12-month period (Jan to Dec)
         val now = LocalDate.now()
-        val yearEnd = now.withMonth(12).withDayOfMonth(31)
-        val monthsRemaining = ChronoUnit.MONTHS.between(now, yearEnd).toInt().coerceAtLeast(0)
+
+        // Derive the cycle start month from group.createdAt; fall back to January.
+        // A stokvel starting in March runs March→February (12-month cycle).
+        val cycleStartMonth = try {
+            LocalDate.parse(group.createdAt?.substringBefore("T")).monthValue
+        } catch (_: Exception) {
+            1 // Default: January (NASASA standard Jan–Dec cycle)
+        }
+
+        // Determine the payout month: last month of the 12-month cycle
+        // e.g. start=March → payout=February (month 2 of next year)
+        val payoutMonth = if (cycleStartMonth == 1) 12 else cycleStartMonth - 1
+
+        // Calculate months remaining to the payout month within the current 12-month window
+        val cycleEndThisYear = if (payoutMonth >= now.monthValue) {
+            now.withMonth(payoutMonth).withDayOfMonth(now.withMonth(payoutMonth).lengthOfMonth())
+        } else {
+            now.withYear(now.year + 1).withMonth(payoutMonth)
+                .withDayOfMonth(now.withMonth(payoutMonth).lengthOfMonth())
+        }
+        val monthsRemaining = ChronoUnit.MONTHS.between(now, cycleEndThisYear).toInt().coerceAtLeast(0)
 
         val totalCurrentSavings = group.balance
         val expectedFutureMonthlyTotal = members.size * group.monthlyContribution
@@ -43,7 +61,7 @@ class CalculateStokvelPayoutsUseCase @Inject constructor() {
         val memberProjections = members.map { member ->
             val currentMemberSavings = member.totalPaid ?: 0.0
             val projectedFutureMemberSavings = monthsRemaining * group.monthlyContribution
-            
+
             MemberPayoutProjection(
                 memberId = member.id ?: "",
                 memberName = member.fullName,

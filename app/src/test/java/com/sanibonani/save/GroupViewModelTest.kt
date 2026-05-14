@@ -12,6 +12,7 @@ import com.sanibonani.save.domain.repository.ExportRepository
 import com.sanibonani.save.domain.repository.GroupRepository
 import com.sanibonani.save.domain.usecase.CreateGroupUseCase
 import com.sanibonani.save.domain.usecase.GetPublicGroupsUseCase
+import com.sanibonani.save.viewmodel.GroupFormEvent
 import com.sanibonani.save.viewmodel.GroupViewModel
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -89,8 +90,8 @@ class GroupViewModelTest {
         )
         coEvery { geoapifyService.autocomplete(any(), any(), any(), any()) } returns mockResponse
 
-        viewModel.updateField("city", "Sow")
-        
+        viewModel.onEvent(GroupFormEvent.CityChanged("Sow"))
+
         // Advance time to account for debounce (500ms)
         advanceTimeBy(600)
         
@@ -100,8 +101,8 @@ class GroupViewModelTest {
 
     @Test
     fun `searchAddress clears suggestions when query is less than 3 characters`() = runTest {
-        viewModel.updateField("city", "So")
-        
+        viewModel.onEvent(GroupFormEvent.CityChanged("So"))
+
         assertEquals(0, viewModel.registerState.value.addressSuggestions.size)
     }
 
@@ -129,8 +130,8 @@ class GroupViewModelTest {
         viewModel.onAddressSelected(feature)
         
         // 2. Manually edit the city
-        viewModel.updateField("city", "Pretoria West")
-        
+        viewModel.onEvent(GroupFormEvent.CityChanged("Pretoria West"))
+
         // 3. Verify coordinates are cleared
         assertNull(viewModel.registerState.value.latitude)
         assertNull(viewModel.registerState.value.longitude)
@@ -140,14 +141,14 @@ class GroupViewModelTest {
     @Test
     fun `finalizeRegistrationAfterPayment calls createGroup and activateGroup`() = runTest {
         // 1. Setup state
-        viewModel.updateField("name", "Test Group")
-        viewModel.updateField("type", GroupType.BURIAL_SOCIETY)
-        viewModel.updateField("province", "Gauteng")
-        viewModel.updateField("city", "Soweto")
-        viewModel.updateField("adminEmail", "admin@test.com")
-        viewModel.updateField("adminPassword", "password123")
-        viewModel.updateField("adminFullName", "Test Admin")
-        viewModel.updateField("adminIdNumber", "9001015000081")
+        viewModel.onEvent(GroupFormEvent.NameChanged("Test Group"))
+        viewModel.onEvent(GroupFormEvent.TypeSelected(GroupType.BURIAL_SOCIETY))
+        viewModel.onEvent(GroupFormEvent.ProvinceSelected("Gauteng"))
+        viewModel.onEvent(GroupFormEvent.CityChanged("Soweto"))
+        viewModel.onEvent(GroupFormEvent.AdminEmailChanged("admin@test.com"))
+        viewModel.onEvent(GroupFormEvent.AdminPasswordChanged("password123"))
+        viewModel.onEvent(GroupFormEvent.AdminFullNameChanged("Test Admin"))
+        viewModel.onEvent(GroupFormEvent.AdminIdNumberChanged("9001015000081"))
 
         coEvery { createGroupUseCase(any(), any(), any(), any(), any(), any()) } returns Result.success("group-123")
         coEvery { groupRepo.activateGroup(any(), any()) } returns Result.success(Unit)

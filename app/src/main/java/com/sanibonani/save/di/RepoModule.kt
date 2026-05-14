@@ -83,6 +83,12 @@ abstract class RepoModule {
 
     @Binds
     @Singleton
+    abstract fun bindPlatformConfigRepository(
+        platformConfigRepositoryImpl: PlatformConfigRepositoryImpl
+    ): PlatformConfigRepository
+
+    @Binds
+    @Singleton
     abstract fun bindInvestmentRepository(
         investmentRepositoryImpl: InvestmentRepositoryImpl
     ): InvestmentRepository

@@ -1,5 +1,6 @@
 package com.sanibonani.save.data.validation
 
+import com.sanibonani.save.domain.validation.InputValidator
 import com.sanibonani.save.domain.validation.ValidationUtils
 import org.junit.Assert.*
 import org.junit.Test
@@ -342,6 +343,20 @@ class ValidationUtilsTest {
     @Test
     fun `validateAmount - very large amount returns true`() {
         assertTrue("Large amount should pass", ValidationUtils.isValidAmount(9999999.99))
+    }
+
+    @Test
+    fun `validateAmount - NaN and infinity fail`() {
+        assertFalse("NaN should fail", ValidationUtils.isValidAmount(Double.NaN))
+        assertFalse("Positive infinity should fail", ValidationUtils.isValidAmount(Double.POSITIVE_INFINITY))
+        assertFalse("Negative infinity should fail", ValidationUtils.isValidAmount(Double.NEGATIVE_INFINITY))
+    }
+
+    @Test
+    fun `validateMonetaryAmount - accepts exact currency strings and rejects malformed values`() {
+        assertTrue(InputValidator.validateMonetaryAmount("100.50").isValid())
+        assertFalse(InputValidator.validateMonetaryAmount("100.505").isValid())
+        assertFalse(InputValidator.validateMonetaryAmount("0").isValid())
     }
 
     // ══════════════════════════════════════════════════════════════════════════

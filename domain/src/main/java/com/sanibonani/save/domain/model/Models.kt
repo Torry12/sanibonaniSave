@@ -18,6 +18,38 @@ import kotlinx.serialization.encoding.Encoder
 
 
 // ─────────────────────────────────────────────────────────────────────────────
+//  ROSCA ROTATION METHOD
+// ─────────────────────────────────────────────────────────────────────────────
+/**
+ * How payout rotation order is determined in a ROSCA group.
+ * Stored as a snake_case string in both Supabase and Room.
+ */
+@Serializable
+enum class RoscaRotationMethod {
+    /** Order is fixed by join date (default). */
+    @SerialName("fixed")        FIXED,
+    /** Order is randomised once per cycle using a deterministic seed. */
+    @SerialName("random_draw")  RANDOM_DRAW,
+    /** Admin assigns position based on member need/hardship. */
+    @SerialName("need_based")   NEED_BASED,
+    /** Members bid for early payout positions each cycle. */
+    @SerialName("auction")      AUCTION;
+
+    val displayName: String get() = when (this) {
+        FIXED       -> "Fixed (join date)"
+        RANDOM_DRAW -> "Random draw"
+        NEED_BASED  -> "Need-based"
+        AUCTION     -> "Auction"
+    }
+    val description: String get() = when (this) {
+        FIXED       -> "Rotation order is set once at the start, by the date each member joined."
+        RANDOM_DRAW -> "Each cycle a fair draw determines who receives the pot first."
+        NEED_BASED  -> "The admin assigns slots based on financial hardship or urgency."
+        AUCTION     -> "Members bid for early slots; highest bid wins earlier payout."
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 //  GROUP
 // ─────────────────────────────────────────────────────────────────────────────
 @Serializable
@@ -55,6 +87,9 @@ data class Group(
     @SerialName("fee_status")             val feeStatus: AdminFeeState = AdminFeeState.DUE,
     @SerialName("registration_paid")      val registrationPaid: Boolean = false,
 
+    // ROSCA specific
+    @SerialName("rosca_rotation_method")  val rotationMethod: RoscaRotationMethod = RoscaRotationMethod.FIXED,
+
     // Burial Society specific
     @SerialName("max_beneficiaries")      val maxBeneficiaries: Int? = null,
     @SerialName("beneficiary_increase_pct") val beneficiaryIncreasePct: Double? = null,
@@ -87,16 +122,40 @@ data class Group(
 /**
  * Central constants for the SanibonaniSave platform.
  * Moved from :data to :domain to break circular dependency.
+ *
+ * ### Design Note — Global Mutable State
+ * `PlatformFees` uses a mutable singleton so that runtime values fetched from
+ * Supabase `platform_settings` are visible app-wide without threading the config
+ * through every constructor.
+ *
+ * **Known limitation**: mutable global state makes unit tests order-dependent.
+ * **Migration path**: use the injectable `PlatformConfigRepository` as the primary
+ * source of truth (`StateFlow<PlatformConfig>`). `PlatformFees` is retained as a
+ * compatibility bridge for existing read sites during rollout.
+ *
+ * Until that migration is complete, use [PlatformFees.update] as the **single**
+ * write site; never assign to the properties directly.
  */
 object PlatformFees {
     // Member-level monthly platform fee configured by platform admin.
     var MONTHLY_PER_MEMBER = 0.0   // Backward-compatible alias (set from platform settings)
     var MONTHLY_MEMBER_FEE: Double
         get() = MONTHLY_PER_MEMBER
-        set(value) {
-            MONTHLY_PER_MEMBER = value
-        }
+        set(value) { MONTHLY_PER_MEMBER = value }
     var REGISTRATION = 700.0       // One-time R700 registration fee (Dynamic)
+
+    /**
+     * Single write-site for updating platform fee configuration.
+     * Prefer this over direct property assignment to make mutation explicit and
+     * easily searchable.
+     *
+     * @param monthlyPerMember Monthly fee charged per active member (can be zero).
+     * @param registrationFee  One-time group registration fee.
+     */
+    fun update(monthlyPerMember: Double, registrationFee: Double) {
+        MONTHLY_PER_MEMBER = monthlyPerMember
+        REGISTRATION = registrationFee
+    }
 }
 
 
@@ -455,9 +514,136 @@ enum class NotifEvent {
 // ─────────────────────────────────────────────────────────────────────────────
 //  ACTUARIAL MODELS
 // ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Risk classification aligned with FSCA / SA prudential standards.
+ *
+ * Only domain-meaningful state is kept here.  UI colour mappings live in the
+ * presentation layer (see `RiskLevelUiExt.kt` in the app module).
+ */
+@Serializable
+enum class RiskLevel(val displayName: String) {
+    @SerialName("low")      LOW("Low Risk"),
+    @SerialName("moderate") MODERATE("Moderate Risk"),
+    @SerialName("high")     HIGH("High Risk"),
+    @SerialName("critical") CRITICAL("Critical Risk")
+}
+
+/**
+ * Single month cash-flow projection point for charting / forecasting.
+ */
+@Serializable
+@Parcelize
+data class MonthlyProjection(
+    val month: Int = 0,
+    val label: String = "",
+    @SerialName("projected_balance") val projectedBalance: Double = 0.0,
+    val inflow: Double = 0.0,
+    val outflow: Double = 0.0,
+    @SerialName("net_flow")   val netFlow: Double = 0.0,
+    @SerialName("risk_flag")  val riskFlag: Boolean = false
+) : Parcelable
+
+/**
+ * Industry benchmark data per group type.
+ * Sources: NASASA (2024), FSCA, StatsSA, JSE Investment Club guidelines.
+ */
+@Serializable
+@Parcelize
+data class IndustryBenchmark(
+    @SerialName("benchmark_type")              val benchmarkType: String = "",
+    @SerialName("industry_avg_contribution")   val industryAvgContribution: Double = 0.0,
+    @SerialName("industry_avg_balance")        val industryAvgBalance: Double = 0.0,
+    @SerialName("industry_payment_rate_pct")   val industryPaymentRatePct: Double = 0.0,
+    @SerialName("group_vs_benchmark_pct")      val groupVsBenchmarkPct: Double = 0.0,
+    @SerialName("benchmark_notes")             val benchmarkNotes: String = ""
+) : Parcelable
+
+/**
+ * Comprehensive group-type-specific financial insight.
+ * Aggregates all industry-standard actuarial analytics for each group type.
+ * Produced by the `ActuarialRepository` implementation.
+ */
+@Serializable
+@Parcelize
+data class GroupFinancialInsight(
+    @SerialName("group_id")          val groupId: String = "",
+    @SerialName("group_type")        val groupType: GroupType = GroupType.OTHER,
+    @SerialName("risk_level")        val riskLevel: RiskLevel = RiskLevel.MODERATE,
+    @SerialName("status_summary")    val statusSummary: String = "",
+    val recommendations: List<String> = emptyList(),
+    @SerialName("key_findings")      val keyFindings: List<String> = emptyList(),
+    @SerialName("monthly_projections") val monthlyProjections: List<MonthlyProjection> = emptyList(),
+    @SerialName("industry_benchmark") val industryBenchmark: IndustryBenchmark = IndustryBenchmark(),
+
+    // ── Burial Society (FSCA Friendly Societies Act) ───────────────────────
+    @EncodeDefault(EncodeDefault.Mode.NEVER) @SerialName("expected_annual_claims_count") val expectedAnnualClaimsCount: Double = 0.0,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) @SerialName("solvency_ratio")              val solvencyRatio: Double = 0.0,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) @SerialName("capital_adequacy_pct")        val capitalAdequacyPct: Double = 0.0,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) @SerialName("required_reserve_amount")     val requiredReserveAmount: Double = 0.0,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) @SerialName("reserve_coverage_months")     val reserveCoverageMonths: Double = 0.0,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) @SerialName("benefit_adequacy_pct")        val benefitAdequacyPct: Double = 0.0,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) @SerialName("is_solvent")                  val isSolvent: Boolean = true,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) @SerialName("is_capital_adequate")         val isCapitalAdequate: Boolean = true,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) @SerialName("years_to_insolvency")         val yearsToInsolvency: Double = -1.0,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) @SerialName("pure_premium")                val purePremiumInsight: Double = 0.0,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) @SerialName("gross_premium")               val grossPremiumInsight: Double = 0.0,
+
+    // ── Investment Club (JSE / NASAA) ──────────────────────────────────────
+    @EncodeDefault(EncodeDefault.Mode.NEVER) @SerialName("nav_per_unit")                val navPerUnit: Double = 0.0,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) @SerialName("total_return_pct")            val totalReturn: Double = 0.0,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) @SerialName("annualised_return_pct")       val annualisedReturn: Double = 0.0,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) @SerialName("projected_cagr_pct")          val projectedCagr: Double = 0.0,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) @SerialName("capital_at_risk_per_member")  val capitalAtRiskPerMember: Double = 0.0,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) @SerialName("sharpe_ratio")                val sharpeRatio: Double = 0.0,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) @SerialName("projected_fv")                val projectedFv: Double = 0.0,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) @SerialName("requires_return_pct")         val requiresReturnPct: Double = 0.0,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) @SerialName("is_on_track_for_goal")        val isOnTrackForGoal: Boolean = false,
+
+    // ── ROSCA (Besley-Coate-Loury model) ──────────────────────────────────
+    @EncodeDefault(EncodeDefault.Mode.NEVER) @SerialName("monthly_pot")                 val monthlyPot: Double = 0.0,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) @SerialName("cycle_length")                val cycleLength: Int = 0,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) @SerialName("current_cycle_month")         val currentCycleMonth: Int = 0,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) @SerialName("pot_completion_pct")          val potCompletionPct: Double = 0.0,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) @SerialName("default_risk_score")          val defaultRiskScore: Int = 0,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) @SerialName("cycle_completion_probability") val cycleCompletionProbability: Double = 0.0,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) @SerialName("current_payout_member")       val currentPayoutMember: String = "",
+    @EncodeDefault(EncodeDefault.Mode.NEVER) @SerialName("next_payout_member")          val nextPayoutMember: String = "",
+    @EncodeDefault(EncodeDefault.Mode.NEVER) @SerialName("welfare_gain_early_receiver") val welfareGainEarlyReceiver: Double = 0.0,
+
+    // ── Stokvel (NASASA standard) ──────────────────────────────────────────
+    @EncodeDefault(EncodeDefault.Mode.NEVER) @SerialName("total_projected_fund")        val totalProjectedFund: Double = 0.0,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) @SerialName("projected_payout_per_member") val projectedPayoutPerMember: Double = 0.0,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) @SerialName("pot_milestone_pct")           val potMilestonePct: Double = 0.0,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) @SerialName("payment_compliance_pct")      val paymentCompliancePct: Double = 0.0,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) @SerialName("benchmark_vs_nasasa_avg")     val benchmarkVsNasasaAvg: Double = 0.0,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) @SerialName("savings_efficiency_score")    val savingsEfficiencyScore: Int = 0,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) @SerialName("annual_contribution_target")  val annualContributionTarget: Double = 0.0,
+
+    // ── Emergency Fund (SA Financial Planning standard) ────────────────────
+    @EncodeDefault(EncodeDefault.Mode.NEVER) @SerialName("coverage_months")             val coverageMonths: Double = 0.0,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) @SerialName("target_coverage_months")      val targetCoverageMonths: Double = 0.0,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) @SerialName("coverage_gap")                val coverageGap: Double = 0.0,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) @SerialName("is_meeting_target")           val isMeetingTarget: Boolean = false,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) @SerialName("months_to_emergency_target")  val monthsToEmergencyTarget: Int = 0,
+
+    // ── Tontine ────────────────────────────────────────────────────────────
+    @EncodeDefault(EncodeDefault.Mode.NEVER) @SerialName("current_share_per_member")    val currentSharePerMember: Double = 0.0,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) @SerialName("projected_share_at_end")      val projectedShareAtEnd: Double = 0.0,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) @SerialName("expected_survivors")          val expectedSurvivors: Int = 0,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) @SerialName("mortality_adjusted_yield")    val mortalityAdjustedYield: Double = 0.0,
+
+    // ── Community Savings / Other ──────────────────────────────────────────
+    @EncodeDefault(EncodeDefault.Mode.NEVER) @SerialName("savings_per_member")          val savingsPerMember: Double = 0.0,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) @SerialName("annual_dividend_projection")  val annualDividendProjection: Double = 0.0,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) @SerialName("growth_rate_pct")             val growthRatePct: Double = 0.0,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) @SerialName("goal_progress_pct")           val goalProgressPct: Double = 0.0
+) : Parcelable
+
 @Serializable
 @Parcelize
 data class ActuarialMetrics(
+    // ── Core insurance / savings metrics ─────────────────────────────────
     @SerialName("pure_premium")                 val purePremium: Double = 0.0,
     @SerialName("gross_premium")                val grossPremium: Double = 0.0,
     @SerialName("reserve_adequacy_pct")         val reserveAdequacyPct: Double = 0.0,
@@ -470,7 +656,15 @@ data class ActuarialMetrics(
     @SerialName("payment_rate_pct")             val paymentRatePct: Double = 0.0,
     @SerialName("composite_risk_score")         val compositeRiskScore: Int = 0,
     @SerialName("insolvency_months")            val insolvencyMonths: Int = 0,
-    @SerialName("expected_annual_claims")       val expectedAnnualClaims: Double = 0.0
+    @SerialName("expected_annual_claims")       val expectedAnnualClaims: Double = 0.0,
+    // ── Extended cross-cutting analytics (backward-compatible) ────────────
+    @EncodeDefault(EncodeDefault.Mode.NEVER) @SerialName("risk_level")               val riskLevel: RiskLevel = RiskLevel.MODERATE,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) @SerialName("cash_flow_risk_score")     val cashFlowRiskScore: Int = 0,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) @SerialName("collection_efficiency_pct") val collectionEfficiencyPct: Double = 0.0,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) @SerialName("projected_balance_m3")     val projectedBalanceM3: Double = 0.0,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) @SerialName("projected_balance_m6")     val projectedBalanceM6: Double = 0.0,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) @SerialName("projected_balance_m12")    val projectedBalanceM12: Double = 0.0,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) @SerialName("type_specific_warnings")   val typeSpecificWarnings: List<String> = emptyList()
 ) : Parcelable
 
 @Serializable
@@ -482,7 +676,33 @@ data class ViabilityPlan(
     val isViable: Boolean,
     val goalAmount: Double = 0.0,
     val periodMonths: Int = 12,
-    val messages: List<String> = emptyList()
+    val messages: List<String> = emptyList(),
+    // ── Extended viability analytics ─────────────────────────────────────
+    @EncodeDefault(EncodeDefault.Mode.NEVER) @SerialName("required_monthly_to_meet_goal")  val requiredMonthlyToMeetGoal: Double = 0.0,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) @SerialName("shortfall_amount")                val shortfallAmount: Double = 0.0,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) @SerialName("break_even_months")               val breakEvenMonths: Int = 0,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) @SerialName("compounded_projected_value")      val compoundedProjectedValue: Double = 0.0,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) @SerialName("optimistic_projected_value")      val optimisticProjectedValue: Double = 0.0,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) @SerialName("pessimistic_projected_value")     val pessimisticProjectedValue: Double = 0.0,
+    // ── Explicit viability factors for charting / diagnostics ─────────────
+    @EncodeDefault(EncodeDefault.Mode.NEVER) @SerialName("active_member_ratio")              val activeMemberRatio: Double = 1.0,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) @SerialName("inflation_adjustment_factor")      val inflationAdjustmentFactor: Double = 1.0,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) @SerialName("projection_retention_factor")      val projectionRetentionFactor: Double = 1.0,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) @SerialName("claim_readiness_factor")           val claimReadinessFactor: Double = 1.0,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) @SerialName("mortality_buffer_factor")          val mortalityBufferFactor: Double = 1.0,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) @SerialName("reserve_adequacy_factor")          val reserveAdequacyFactor: Double = 1.0,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) @SerialName("market_return_premium_factor")     val marketReturnPremiumFactor: Double = 1.0,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) @SerialName("volatility_haircut_factor")        val volatilityHaircutFactor: Double = 1.0,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) @SerialName("collection_efficiency_factor")     val collectionEfficiencyFactor: Double = 1.0,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) @SerialName("festive_payout_pressure_factor")   val festivePayoutPressureFactor: Double = 1.0,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) @SerialName("default_risk_factor")              val defaultRiskFactor: Double = 1.0,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) @SerialName("cycle_slippage_factor")            val cycleSlippageFactor: Double = 1.0,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) @SerialName("withdrawal_pressure_factor")       val withdrawalPressureFactor: Double = 1.0,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) @SerialName("inflation_safety_factor")          val inflationSafetyFactor: Double = 1.0,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) @SerialName("survivor_uncertainty_factor")      val survivorUncertaintyFactor: Double = 1.0,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) @SerialName("horizon_compounding_factor")       val horizonCompoundingFactor: Double = 1.0,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) @SerialName("goal_stretch_ratio")               val goalStretchRatio: Double = 1.0,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) @SerialName("growth_conservatism_factor")       val growthConservatismFactor: Double = 1.0
 ) : Parcelable
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -664,8 +884,31 @@ data class AuditLog(
     @SerialName("created_at") val createdAt: String? = null
 ) : Parcelable
 
-val SA_PROVINCES = listOf("Gauteng", "Western Cape", "KwaZulu-Natal", "Eastern Cape", "Limpopo", "Mpumalanga", "North West", "Free State", "Northern Cape")
-val SA_BANKS = listOf("ABSA", "African Bank", "Capitec", "FNB", "Nedbank", "Postbank", "Standard Bank", "TymeBank")
+/**
+ * @deprecated Use [com.sanibonani.save.domain.config.SaReferenceData.PROVINCES] instead.
+ *             This alias will be removed in a future release.
+ */
+@Deprecated(
+    message = "Use SaReferenceData.PROVINCES",
+    replaceWith = ReplaceWith(
+        "SaReferenceData.PROVINCES",
+        "com.sanibonani.save.domain.config.SaReferenceData"
+    )
+)
+val SA_PROVINCES get() = com.sanibonani.save.domain.config.SaReferenceData.PROVINCES
+
+/**
+ * @deprecated Use [com.sanibonani.save.domain.config.SaReferenceData.BANKS] instead.
+ *             This alias will be removed in a future release.
+ */
+@Deprecated(
+    message = "Use SaReferenceData.BANKS",
+    replaceWith = ReplaceWith(
+        "SaReferenceData.BANKS",
+        "com.sanibonani.save.domain.config.SaReferenceData"
+    )
+)
+val SA_BANKS get() = com.sanibonani.save.domain.config.SaReferenceData.BANKS
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  BURIAL SOCIETY CLAIM

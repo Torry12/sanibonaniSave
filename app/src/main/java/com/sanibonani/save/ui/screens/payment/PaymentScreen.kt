@@ -86,7 +86,7 @@ fun PaymentScreen(
                     InfoType.INFO
                 )
                 "admin_fee" -> InfoBox(
-                    "Monthly platform fee: ${formatZAR(PlatformFees.MONTHLY_PER_MEMBER)} × ${(amount / PlatformFees.MONTHLY_PER_MEMBER).toInt()} members = ${formatZAR(amount)}. " +
+                    "Monthly platform fee: ${formatZAR(PlatformFees.MONTHLY_PER_MEMBER)} × ${if (PlatformFees.MONTHLY_PER_MEMBER > 0.0) (amount / PlatformFees.MONTHLY_PER_MEMBER).toInt() else 0} members = ${formatZAR(amount)}. " +
                     "Due on the 1st of each month. Unpaid after 7 days suspends the group.",
                     InfoType.WARNING
                 )
@@ -152,7 +152,7 @@ fun PaymentScreen(
                 amount      = amount,
                 description = when (paymentType) {
                     "registration" -> "Group Registration — SanibonaniSave"
-                    "admin_fee"    -> "Monthly Platform Fee — ${(amount / PlatformFees.MONTHLY_PER_MEMBER).toInt()} members"
+                    "admin_fee"    -> "Monthly Platform Fee — ${if (PlatformFees.MONTHLY_PER_MEMBER > 0.0) (amount / PlatformFees.MONTHLY_PER_MEMBER).toInt() else 0} members"
                     "joining_fee"  -> "Member Joining Fee"
                     else           -> "Monthly Contribution"
                 },

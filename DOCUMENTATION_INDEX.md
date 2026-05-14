@@ -1,7 +1,7 @@
 # 📖 SanibonaniSave Documentation Index
 
-**Last Updated**: May 12, 2026  
-**Total Documentation**: 12 markdown files (~118 KB)
+**Last Updated**: May 14, 2026  
+**Total Documentation**: 14+ markdown files (index not exhaustive)
 
 ---
 
@@ -129,6 +129,9 @@ Focus on testing and verification:
 | Document | Content | Size |
 |----------|---------|------|
 | **CONTEXT.md** | Project summary & context | 3 KB |
+| **docs/APP_STRUCTURE_BUSINESS_LOGIC_DEEP_ANALYSIS_2026-05-14.md** | Deep architecture/business logic analysis + hardening addendum | ~9 KB |
+| **.github/AGENT_CONTEXT.md** | Operational context for coding agents | ~2 KB |
+| **.github/AGENT_MEMORY.md** | Rolling memory of decisions and invariants | ~2 KB |
 
 ---
 
@@ -188,6 +191,7 @@ Most Practical:     MCP_AGENT_IMPLEMENTATION_GUIDE.md (code examples)
 
 ### Version History
 - **v1.0** (May 12, 2026): Initial comprehensive documentation + MCP/agent roadmap
+- **v1.1** (May 14, 2026): Added deep analysis addendum and agent context/memory references
 
 ---
 

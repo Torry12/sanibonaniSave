@@ -149,6 +149,21 @@ class WhatsAppNotificationTest {
         assertEquals("Network timeout", result.exceptionOrNull()?.message)
     }
 
+    @Test
+    fun `sendDirectWhatsAppMessage uses general notification template payload`() = runTest {
+        repo.sendDirectWhatsAppMessage("0713459563", "Edge smoke test")
+        advanceUntilIdle()
+
+        val sentPhone = (payloadSlot.captured["to"] as? JsonPrimitive)?.content
+        val sentMessage = (payloadSlot.captured["message"] as? JsonPrimitive)?.content
+        val templateObj = payloadSlot.captured["template"] as? JsonObject
+        val templateName = (templateObj?.get("name") as? JsonPrimitive)?.content
+
+        assertEquals("0713459563", sentPhone)
+        assertEquals("Edge smoke test", sentMessage)
+        assertEquals("general_notification", templateName)
+    }
+
     // ══════════════════════════════════════════════════════════════════════
     // 2. Phone number normalisation expectations
     //    (The Edge Function handles 0→27 conversion; Kotlin forwards raw phone)

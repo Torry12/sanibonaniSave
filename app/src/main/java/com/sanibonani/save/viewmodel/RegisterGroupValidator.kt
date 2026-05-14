@@ -1,7 +1,6 @@
 package com.sanibonani.save.viewmodel
 
 import com.sanibonani.save.domain.model.Group
-import com.sanibonani.save.domain.model.GroupType
 
 /**
  * Centralized parsing + validation for registration form numeric fields.
@@ -39,13 +38,11 @@ object RegisterGroupValidator {
             require(it >= 0.0) { "Beneficiary increase percent cannot be negative." }
         }
 
-        if (state.type == GroupType.BURIAL_SOCIETY) {
-            require((maxBeneficiaries ?: 0) > 0) { "Burial societies require at least 1 beneficiary." }
-        }
 
         Group(
             name = state.name.trim(),
             type = state.type,
+            rotationMethod = state.rotationMethod,
             province = state.province.trim(),
             city = state.city.trim(),
             township = state.township.trim(),

@@ -1,4 +1,4 @@
--- -----------------------------------------------------------------------------
+e-- -----------------------------------------------------------------------------
 -- SanibonaniSave - DEBUG LOGIC SEED (Deterministic Scenario Pack)
 -- Purpose: seed focused data for business rules + programmatic flow debugging.
 -- Idempotent: re-running replaces only DBG-* groups and DBG_* audit markers.
@@ -256,8 +256,42 @@ BEGIN
                 CASE WHEN v_group_index IN (1, 2) THEN format('dbg_monthly_%s', v_group_index) ELSE NULL END
             );
 
-        -- Six members per group with deterministic statuses.
-        FOR v_member_index IN 1..6 LOOP
+cecessary        -- Group admin is always a member by default.
+        INSERT INTO public.members (
+            group_id,
+            user_id,
+            full_name,
+            phone,
+            email,
+            notification_pref,
+            status,
+            joined_at,
+            probation_end_at,
+            beneficiary_count,
+            beneficiary_over_65_count,
+            total_contributions,
+            total_paid,
+            member_key
+        ) VALUES (
+            v_group_id,
+            v_admin_id,
+            format('Debug Admin %s', lpad(v_group_index::text, 2, '0')),
+            format('07777%s', lpad(v_group_index::text, 5, '0')),
+            format('debug.admin.%s@example.com', lpad(v_group_index::text, 2, '0')),
+            'both',
+            'active',
+            now() - interval '120 days',
+            now() + interval '45 days',
+            CASE WHEN v_group_type = 'burial_society' THEN 2 ELSE 0 END,
+            0,
+            0,
+            0,
+            format('DBG_ADMIN_KEY_%s', lpad(v_group_index::text, 2, '0'))
+        )
+        ON CONFLICT (group_id, user_id) DO NOTHING;
+
+        -- Keep deterministic total at 6 members per group (1 admin + 5 generated members).
+        FOR v_member_index IN 1..5 LOOP
             INSERT INTO public.members (
                 group_id,
                 user_id,
@@ -291,8 +325,8 @@ BEGIN
                 v_group_province,
                 CASE WHEN v_member_index % 2 = 0 THEN 'both' ELSE 'whatsapp' END,
                 CASE
-                    WHEN v_member_index <= 4 THEN 'active'
-                    WHEN v_member_index = 5 THEN 'probation'
+                    WHEN v_member_index <= 3 THEN 'active'
+                    WHEN v_member_index = 4 THEN 'probation'
                     ELSE 'pending_payment'
                 END,
                 now() - ((v_member_index + 10) || ' days')::interval,
@@ -339,11 +373,11 @@ BEGIN
                 'bank',
                 NULL,
                 CASE
-                    WHEN v_member_index IN (2, 5) THEN 'due'
-                    WHEN v_member_index IN (3, 6) THEN 'overdue'
+                    WHEN v_member_index IN (2, 4) THEN 'due'
+                    WHEN v_member_index IN (3, 5) THEN 'overdue'
                     ELSE 'partial'
                 END,
-                (v_member_index IN (3, 6))
+                (v_member_index IN (3, 5))
             );
 
             INSERT INTO public.payments (
@@ -565,6 +599,10 @@ BEGIN
             format('DBG platform fee snapshot for %s', v_group_name),
             'debug_seed'
         );
+
+        UPDATE public.groups
+        SET current_members = 6
+        WHERE id = v_group_id;
 
         INSERT INTO public.audit_logs (actor_id, target_group_id, action, details)
         VALUES (

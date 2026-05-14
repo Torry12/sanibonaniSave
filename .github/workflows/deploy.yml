@@ -1,0 +1,136 @@
+name: Build & Deploy
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+  workflow_dispatch:
+    inputs:
+      track:
+        description: 'Play Store track (internal / alpha / beta / production)'
+        required: true
+        default: 'internal'
+
+jobs:
+  test:
+    name: Run Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: gradle
+
+      - name: Decode google-services.json
+        run: echo "${{ secrets.FIREBASE_CONFIG_JSON }}" | base64 -d > app/google-services.json
+
+      - name: Create local.properties
+        run: |
+          cat > local.properties <<EOF
+          sdk.dir=$ANDROID_HOME
+          SUPABASE_URL=${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }}
+          YOCO_PUBLIC_KEY=${{ secrets.YOCO_PUBLIC_KEY }}
+          WHATSAPP_PHONE_NUMBER_ID=${{ secrets.WHATSAPP_PHONE_NUMBER_ID }}
+          GEOAPIFY_API_KEY=${{ secrets.GEOAPIFY_API_KEY }}
+          PLATFORM_ADMIN_EMAIL=${{ secrets.PLATFORM_ADMIN_EMAIL }}
+          EOF
+
+      - name: Run Unit Tests
+        run: ./gradlew test --continue
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: '**/build/reports/tests/'
+
+  build:
+    name: Build Release Bundle
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: gradle
+
+      - name: Decode Keystore
+        run: echo "${{ secrets.KEYSTORE_B64 }}" | base64 -d > release.keystore
+
+      - name: Decode google-services.json
+        run: echo "${{ secrets.FIREBASE_CONFIG_JSON }}" | base64 -d > app/google-services.json
+
+      - name: Create local.properties
+        run: |
+          cat > local.properties <<EOF
+          sdk.dir=$ANDROID_HOME
+          SUPABASE_URL=${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }}
+          YOCO_PUBLIC_KEY=${{ secrets.YOCO_PUBLIC_KEY }}
+          WHATSAPP_PHONE_NUMBER_ID=${{ secrets.WHATSAPP_PHONE_NUMBER_ID }}
+          GEOAPIFY_API_KEY=${{ secrets.GEOAPIFY_API_KEY }}
+          PLATFORM_ADMIN_EMAIL=${{ secrets.PLATFORM_ADMIN_EMAIL }}
+          KEYSTORE_PATH=../release.keystore
+          KEYSTORE_PASSWORD=${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS=sanibonani_release
+          KEY_PASSWORD=${{ secrets.KEY_PASSWORD }}
+          EOF
+
+      - name: Build Release Bundle
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: ./gradlew bundleRelease
+
+      - name: Upload AAB artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-bundle
+          path: app/build/outputs/bundle/release/app-release.aab
+
+      - name: Upload to Play Store
+        uses: r0adkll/upload-google-play@v1
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.GOOGLE_PLAY_KEY_JSON }}
+          packageName: com.sanibonani.save
+          releaseFiles: app/build/outputs/bundle/release/app-release.aab
+          track: ${{ github.event.inputs.track || 'internal' }}
+          status: completed
+          releaseName: ${{ github.ref_name }}
+
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download AAB
+        uses: actions/download-artifact@v4
+        with:
+          name: release-bundle
+          path: release/
+
+      - name: Check for exposed secrets in AAB
+        run: |
+          echo "🔍 Scanning AAB for secrets..."
+          # Unzip AAB and scan dex/resources
+          unzip -o release/app-release.aab -d release/aab_contents || true
+          FOUND=$(grep -rliE "(supabase|ANON_KEY|yoco|sk_live|whatsapp_token)" release/aab_contents/ 2>/dev/null || true)
+          if [ -n "$FOUND" ]; then
+            echo "⚠️  Potential secrets found in: $FOUND"
+            exit 1
+          else
+            echo "✅ No secrets detected in AAB"
+          fi
+

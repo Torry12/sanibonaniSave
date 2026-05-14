@@ -29,10 +29,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.ChevronRight
-import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Map
@@ -56,6 +55,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.MenuAnchorType
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -84,11 +84,11 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.sanibonani.save.domain.config.SaReferenceData
 import com.sanibonani.save.domain.model.Group
 import com.sanibonani.save.domain.model.GroupType
 import com.sanibonani.save.domain.model.PlatformFees
-import com.sanibonani.save.domain.model.SA_BANKS
-import com.sanibonani.save.domain.model.SA_PROVINCES
+import com.sanibonani.save.domain.model.RoscaRotationMethod
 import com.sanibonani.save.ui.components.AutoCompleteTextField
 import com.sanibonani.save.ui.components.DocumentUploadCard
 import com.sanibonani.save.ui.components.EmptyState
@@ -116,6 +116,7 @@ import com.sanibonani.save.ui.theme.Gold
 import com.sanibonani.save.ui.theme.LightGray
 import com.sanibonani.save.ui.theme.MidGray
 import com.sanibonani.save.ui.utils.ToastUtils
+import com.sanibonani.save.viewmodel.GroupFormEvent
 import com.sanibonani.save.viewmodel.GroupViewModel
 import com.sanibonani.save.viewmodel.PaymentViewModel
 import com.sanibonani.save.viewmodel.RegisterGroupState
@@ -140,7 +141,7 @@ fun GroupListScreen(vm: GroupViewModel, onGroupClick: (String) -> Unit) {
                 actions = {
                     IconButton(onClick = { showMapView = !showMapView }) {
                         Icon(
-                            imageVector = if (showMapView) Icons.Default.List else Icons.Default.Map,
+                            imageVector = if (showMapView) Icons.AutoMirrored.Filled.List else Icons.Default.Map,
                             contentDescription = if (showMapView) "Show List View" else "Show Map View",
                             tint = Forest
                         )
@@ -518,7 +519,7 @@ fun GroupRegistrationScreen(
             onPaymentComplete = { 
                 vm.finalizeRegistrationAfterPayment(payState.transactionId) 
             },
-            onBack = { vm.updateField("needsPayment", false) },
+            onBack = { vm.onEvent(GroupFormEvent.DismissPayment) },
             vm = payVm
         )
     } else {
@@ -613,15 +614,15 @@ private fun RegStep1(s: RegisterGroupState, vm: GroupViewModel) {
     Text("Tell us the name and type of your group.", style = MaterialTheme.typography.bodySmall, color = MidGray)
     Spacer(Modifier.height(16.dp))
     
-    SanibonaniTextField(s.name, { vm.updateField("name", it) }, "Group Name *")
+    SanibonaniTextField(s.name, { vm.onEvent(GroupFormEvent.NameChanged(it)) }, "Group Name *")
     Spacer(Modifier.height(16.dp))
     
-    SanibonaniTextField(s.adminEmail, { vm.updateField("adminEmail", it) }, "Group Email *")
+    SanibonaniTextField(s.adminEmail, { vm.onEvent(GroupFormEvent.AdminEmailChanged(it)) }, "Group Email *")
     Spacer(Modifier.height(16.dp))
 
     SanibonaniTextField(
         value = s.adminPhone,
-        onValueChange = { if (it.length <= 10) vm.updateField("adminPhone", it) },
+        onValueChange = { if (it.length <= 10) vm.onEvent(GroupFormEvent.AdminPhoneChanged(it)) },
         label = "WhatsApp Number *",
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
         visualTransformation = PhoneNumberTransformation()
@@ -632,10 +633,10 @@ private fun RegStep1(s: RegisterGroupState, vm: GroupViewModel) {
     Spacer(Modifier.height(8.dp))
     GroupType.entries.forEach { type ->
         Row(
-            Modifier.fillMaxWidth().clickable { vm.updateField("type", type) }.padding(vertical = 4.dp),
+            Modifier.fillMaxWidth().clickable { vm.onEvent(GroupFormEvent.TypeSelected(type)) }.padding(vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            RadioButton(selected = s.type == type, onClick = { vm.updateField("type", type) })
+            RadioButton(selected = s.type == type, onClick = { vm.onEvent(GroupFormEvent.TypeSelected(type)) })
             Spacer(Modifier.width(8.dp))
             Column {
                 Text(type.displayName, fontWeight = FontWeight.Medium)
@@ -643,7 +644,32 @@ private fun RegStep1(s: RegisterGroupState, vm: GroupViewModel) {
             }
         }
     }
-    
+
+    if (s.type == GroupType.ROSCA) {
+        Spacer(Modifier.height(12.dp))
+        Text("ROSCA Rotation Method", style = MaterialTheme.typography.labelLarge)
+        Spacer(Modifier.height(8.dp))
+        RoscaRotationMethod.entries.forEach { method ->
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .clickable { vm.onEvent(GroupFormEvent.RoscaRotationMethodSelected(method)) }
+                    .padding(vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                RadioButton(
+                    selected = s.rotationMethod == method,
+                    onClick = { vm.onEvent(GroupFormEvent.RoscaRotationMethodSelected(method)) }
+                )
+                Spacer(Modifier.width(8.dp))
+                Column {
+                    Text(method.displayName, fontWeight = FontWeight.Medium)
+                    Text(method.description, style = MaterialTheme.typography.bodySmall, color = MidGray)
+                }
+            }
+        }
+    }
+
     Spacer(Modifier.height(24.dp))
     Text("Group Icon", style = MaterialTheme.typography.labelLarge)
     Text("Choose an emoji to represent your group.", style = MaterialTheme.typography.bodySmall, color = MidGray)
@@ -664,7 +690,7 @@ private fun RegStep1(s: RegisterGroupState, vm: GroupViewModel) {
         FlowRow(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             listOf("🤝", "💰", "🏠", "📈", "🕊️", "🛡️", "🇿🇦", "🔥", "💎", "🌟").forEach { emoji ->
                 Box(
-                    Modifier.size(40.dp).clip(CircleShape).clickable { vm.updateField("logoEmoji", emoji) }
+                    Modifier.size(40.dp).clip(CircleShape).clickable { vm.onEvent(GroupFormEvent.LogoEmojiSelected(emoji)) }
                         .background(if (s.logoEmoji == emoji) Forest.copy(alpha = 0.2f) else Color.Transparent),
                     contentAlignment = Alignment.Center
                 ) {
@@ -695,7 +721,7 @@ private fun RegStep2(s: RegisterGroupState, vm: GroupViewModel) {
 
     AutoCompleteTextField(
         value = s.city,
-        onValueChange = { vm.updateField("city", it) },
+        onValueChange = { vm.onEvent(GroupFormEvent.CityChanged(it)) },
         label = "City / Town / Township *",
         suggestions = s.addressSuggestions,
         onSuggestionClick = { vm.onAddressSelected(it) },
@@ -706,10 +732,10 @@ private fun RegStep2(s: RegisterGroupState, vm: GroupViewModel) {
     Text("Province *", style = MaterialTheme.typography.labelLarge)
     Spacer(Modifier.height(8.dp))
     FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        SA_PROVINCES.forEach { p ->
+        SaReferenceData.PROVINCES.forEach { p ->
             FilterChip(
                 selected = s.province == p,
-                onClick = { vm.updateField("province", p) },
+                onClick = { vm.onEvent(GroupFormEvent.ProvinceSelected(p)) },
                 label = { Text(p) }
             )
         }
@@ -724,7 +750,7 @@ private fun RegStep3(s: RegisterGroupState, vm: GroupViewModel) {
 
     SanibonaniTextField(
         value = s.joiningFee,
-        onValueChange = { if (it.isEmpty() || it.toDoubleOrNull() != null || it.endsWith(".")) vm.updateField("joiningFee", it) },
+        onValueChange = { if (it.isEmpty() || it.toDoubleOrNull() != null || it.endsWith(".")) vm.onEvent(GroupFormEvent.JoiningFeeChanged(it)) },
         label = "Registration / Joining Fee *",
         placeholder = "e.g. 500.00",
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal)
@@ -733,7 +759,7 @@ private fun RegStep3(s: RegisterGroupState, vm: GroupViewModel) {
     
     SanibonaniTextField(
         value = s.monthlyContribution,
-        onValueChange = { if (it.isEmpty() || it.toDoubleOrNull() != null || it.endsWith(".")) vm.updateField("monthlyContribution", it) },
+        onValueChange = { if (it.isEmpty() || it.toDoubleOrNull() != null || it.endsWith(".")) vm.onEvent(GroupFormEvent.MonthlyContributionChanged(it)) },
         label = "Monthly Contribution *",
         placeholder = "e.g. 200.00",
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal)
@@ -742,7 +768,7 @@ private fun RegStep3(s: RegisterGroupState, vm: GroupViewModel) {
 
     SanibonaniTextField(
         value = s.maxMembers,
-        onValueChange = { vm.updateField("maxMembers", it.filter { c -> c.isDigit() }) },
+        onValueChange = { vm.onEvent(GroupFormEvent.MaxMembersChanged(it.filter { c -> c.isDigit() })) },
         label = "Maximum Members *",
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
     )
@@ -750,7 +776,7 @@ private fun RegStep3(s: RegisterGroupState, vm: GroupViewModel) {
     
     SanibonaniTextField(
         value = s.lateFee,
-        onValueChange = { if (it.isEmpty() || it.toDoubleOrNull() != null || it.endsWith(".")) vm.updateField("lateFee", it) },
+        onValueChange = { if (it.isEmpty() || it.toDoubleOrNull() != null || it.endsWith(".")) vm.onEvent(GroupFormEvent.LateFeeChanged(it)) },
         label = "Late Payment Fine",
         placeholder = "e.g. 50.00",
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal)
@@ -759,7 +785,7 @@ private fun RegStep3(s: RegisterGroupState, vm: GroupViewModel) {
 
     SanibonaniTextField(
         value = s.lateFeeGraceDays,
-        onValueChange = { vm.updateField("lateFeeGraceDays", it.filter { c -> c.isDigit() }) },
+        onValueChange = { vm.onEvent(GroupFormEvent.LateFeeGraceDaysChanged(it.filter { c -> c.isDigit() })) },
         label = "Grace Period (Days)",
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
     )
@@ -767,7 +793,7 @@ private fun RegStep3(s: RegisterGroupState, vm: GroupViewModel) {
 
     SanibonaniTextField(
         value = s.probationMonths,
-        onValueChange = { vm.updateField("probationMonths", it.filter { c -> c.isDigit() }) },
+        onValueChange = { vm.onEvent(GroupFormEvent.ProbationMonthsChanged(it.filter { c -> c.isDigit() })) },
         label = "Probation Period (Months)",
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
     )
@@ -775,7 +801,7 @@ private fun RegStep3(s: RegisterGroupState, vm: GroupViewModel) {
 
     SanibonaniTextField(
         value = s.paymentDueDay,
-        onValueChange = { vm.updateField("paymentDueDay", it.filter { c -> c.isDigit() }) },
+        onValueChange = { vm.onEvent(GroupFormEvent.PaymentDueDayChanged(it.filter { c -> c.isDigit() })) },
         label = "Payment Due Day of Month",
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
     )
@@ -784,7 +810,7 @@ private fun RegStep3(s: RegisterGroupState, vm: GroupViewModel) {
     if (s.type == GroupType.STOKVEL || s.type == GroupType.INVESTMENT_CLUB) {
         SanibonaniTextField(
             value = s.goalAmount,
-            onValueChange = { if (it.isEmpty() || it.toDoubleOrNull() != null || it.endsWith(".")) vm.updateField("goalAmount", it) },
+            onValueChange = { if (it.isEmpty() || it.toDoubleOrNull() != null || it.endsWith(".")) vm.onEvent(GroupFormEvent.GoalAmountChanged(it)) },
             label = "Total Savings Goal (R)",
             placeholder = "e.g. 50000.00",
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal)
@@ -793,7 +819,7 @@ private fun RegStep3(s: RegisterGroupState, vm: GroupViewModel) {
 
         SanibonaniTextField(
             value = s.periodMonths,
-            onValueChange = { vm.updateField("periodMonths", it.filter { c -> c.isDigit() }) },
+            onValueChange = { vm.onEvent(GroupFormEvent.PeriodMonthsChanged(it.filter { c -> c.isDigit() })) },
             label = "Savings Period (Months)",
             placeholder = "e.g. 12",
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
@@ -804,7 +830,7 @@ private fun RegStep3(s: RegisterGroupState, vm: GroupViewModel) {
     if (s.type == GroupType.BURIAL_SOCIETY) {
         SanibonaniTextField(
             value = s.maxBeneficiaries,
-            onValueChange = { vm.updateField("maxBeneficiaries", it.filter { c -> c.isDigit() }) },
+            onValueChange = { vm.onEvent(GroupFormEvent.MaxBeneficiariesChanged(it.filter { c -> c.isDigit() })) },
             label = "Max Beneficiaries per Member *",
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
         )
@@ -812,7 +838,7 @@ private fun RegStep3(s: RegisterGroupState, vm: GroupViewModel) {
 
         SanibonaniTextField(
             value = s.beneficiaryIncreasePct,
-            onValueChange = { if (it.isEmpty() || it.toDoubleOrNull() != null || it.endsWith(".")) vm.updateField("beneficiaryIncreasePct", it) },
+            onValueChange = { if (it.isEmpty() || it.toDoubleOrNull() != null || it.endsWith(".")) vm.onEvent(GroupFormEvent.BeneficiaryIncreasePctChanged(it)) },
             label = "Monthly Increase % per Extra Beneficiary",
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal)
         )
@@ -822,7 +848,7 @@ private fun RegStep3(s: RegisterGroupState, vm: GroupViewModel) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Checkbox(
             checked = s.allowPartialPayment,
-            onCheckedChange = { vm.updateField("allowPartialPayment", it) }
+            onCheckedChange = { vm.onEvent(GroupFormEvent.AllowPartialPaymentToggled(it)) }
         )
         Column {
             Text("Allow Partial Payments", style = MaterialTheme.typography.bodyLarge)
@@ -836,7 +862,7 @@ private fun RegStep3(s: RegisterGroupState, vm: GroupViewModel) {
     Spacer(Modifier.height(16.dp))
     
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Checkbox(checked = s.termsAccepted, onCheckedChange = { vm.updateField("termsAccepted", it) })
+        Checkbox(checked = s.termsAccepted, onCheckedChange = { vm.onEvent(GroupFormEvent.TermsAcceptedToggled(it)) })
         Text("I accept the terms and conditions.")
     }
 }
@@ -855,18 +881,31 @@ private fun RegStep4(s: RegisterGroupState, vm: GroupViewModel) {
             readOnly = true,
             label = { Text("Bank Name *") },
             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
-            modifier = Modifier.fillMaxWidth().menuAnchor()
+            modifier = Modifier.fillMaxWidth().menuAnchor(type = MenuAnchorType.PrimaryNotEditable)
         )
         ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            SA_BANKS.forEach { b ->
-                DropdownMenuItem(text = { Text(b) }, onClick = { vm.updateField("bankName", b); expanded = false })
+            SaReferenceData.BANKS.forEach { b ->
+                DropdownMenuItem(text = { Text(b) }, onClick = {
+                    vm.onEvent(GroupFormEvent.BankNameSelected(b))
+                    expanded = false
+                })
             }
         }
     }
     Spacer(Modifier.height(12.dp))
-    SanibonaniTextField(s.accountNumber, { vm.updateField("accountNumber", it.filter { c -> c.isDigit() }) }, "Account Number *", keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
+    SanibonaniTextField(
+        s.accountNumber,
+        { vm.onEvent(GroupFormEvent.AccountNumberChanged(it.filter { c -> c.isDigit() })) },
+        "Account Number *",
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+    )
     Spacer(Modifier.height(12.dp))
-    SanibonaniTextField(s.branchCode, { vm.updateField("branchCode", it.filter { c -> c.isDigit() }) }, "Branch Code *", keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
+    SanibonaniTextField(
+        s.branchCode,
+        { vm.onEvent(GroupFormEvent.BranchCodeChanged(it.filter { c -> c.isDigit() })) },
+        "Branch Code *",
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+    )
 }
 
 @Composable
@@ -891,8 +930,8 @@ private fun RegStepConstitution(s: RegisterGroupState, vm: GroupViewModel) {
                         vm.uploadConstitution(bytes, fileName)
                     }
                 }
-            } catch (e: Exception) {
-                ToastUtils.showError(context, "Failed to read file: ${e.message}")
+            } catch (_: Exception) {
+                ToastUtils.showError(context, "Failed to read the selected file. Please try another PDF.")
             }
         }
     }
@@ -907,7 +946,7 @@ private fun RegStepConstitution(s: RegisterGroupState, vm: GroupViewModel) {
     Spacer(Modifier.height(16.dp))
     
     Surface(
-        onClick = { vm.updateField("useStandardConstitution", !s.useStandardConstitution) },
+        onClick = { vm.onEvent(GroupFormEvent.UseStandardConstitutionToggled(!s.useStandardConstitution)) },
         shape = RoundedCornerShape(8.dp),
         color = Forest.copy(alpha = 0.05f)
     ) {
@@ -917,7 +956,7 @@ private fun RegStepConstitution(s: RegisterGroupState, vm: GroupViewModel) {
         ) {
             Checkbox(
                 checked = s.useStandardConstitution,
-                onCheckedChange = { vm.updateField("useStandardConstitution", it) },
+                onCheckedChange = { vm.onEvent(GroupFormEvent.UseStandardConstitutionToggled(it)) },
                 colors = CheckboxDefaults.colors(checkedColor = Forest)
             )
             Spacer(Modifier.width(8.dp))
@@ -949,7 +988,7 @@ private fun RegStep5(s: RegisterGroupState, vm: GroupViewModel) {
 
     SanibonaniTextField(
         value = s.adminFullName,
-        onValueChange = { vm.updateField("adminFullName", it) },
+        onValueChange = { vm.onEvent(GroupFormEvent.AdminFullNameChanged(it)) },
         label = "Admin Full Name *",
         keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words)
     )
@@ -957,7 +996,7 @@ private fun RegStep5(s: RegisterGroupState, vm: GroupViewModel) {
 
     SanibonaniTextField(
         value = s.adminIdNumber,
-        onValueChange = { if (it.length <= 13 && it.all { c -> c.isDigit() }) vm.updateField("adminIdNumber", it) },
+        onValueChange = { if (it.length <= 13 && it.all { c -> c.isDigit() }) vm.onEvent(GroupFormEvent.AdminIdNumberChanged(it)) },
         label = "SA ID Number *",
         placeholder = "13-digit SA ID",
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
@@ -969,8 +1008,8 @@ private fun RegStep5(s: RegisterGroupState, vm: GroupViewModel) {
 
     SanibonaniTextField(
         value = s.adminEmail, 
-        onValueChange = { vm.updateField("adminEmail", it) }, 
-        label = "Admin Email (Primary Login) *", 
+        onValueChange = { vm.onEvent(GroupFormEvent.AdminEmailChanged(it)) },
+        label = "Admin Email (Primary Login) *",
         enabled = !s.isLoggedIn
     )
     Spacer(Modifier.height(12.dp))
@@ -979,7 +1018,7 @@ private fun RegStep5(s: RegisterGroupState, vm: GroupViewModel) {
         var passwordVisible by remember { mutableStateOf(false) }
         SanibonaniTextField(
             value = s.adminPassword,
-            onValueChange = { vm.updateField("adminPassword", it) },
+            onValueChange = { vm.onEvent(GroupFormEvent.AdminPasswordChanged(it)) },
             label = "Admin Password *",
             visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),

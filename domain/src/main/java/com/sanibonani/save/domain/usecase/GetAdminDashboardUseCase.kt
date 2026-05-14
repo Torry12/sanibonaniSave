@@ -26,12 +26,11 @@ class GetAdminDashboardUseCase @Inject constructor(
             groupRepository.observeGroup(groupId),
             memberRepository.getGroupMembers(groupId)
         ) { groupResult, membersResult ->
-            try {
-                val group = groupResult.getOrThrow() ?: throw Exception("Group not found")
+            runCatching {
+                val group = groupResult.getOrThrow()
+                    ?: error("Group '$groupId' not found.")
                 val members = membersResult.getOrThrow()
-                Result.success(AdminDashboardData(group, members))
-            } catch (e: Exception) {
-                Result.failure(e)
+                AdminDashboardData(group, members)
             }
         }
     }

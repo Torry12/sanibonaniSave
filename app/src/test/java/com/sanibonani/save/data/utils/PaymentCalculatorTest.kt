@@ -1,6 +1,7 @@
 package com.sanibonani.save.data.utils
 
 import com.sanibonani.save.domain.model.*
+import com.sanibonani.save.domain.utils.roundMoneyToTwoDecimals
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
@@ -399,9 +400,16 @@ class PaymentCalculatorTest {
     @Test
     fun `roundToTwoDecimals - handles floating point correctly`() {
         val value = 123.456789
-        val rounded = value.roundToTwoDecimals()
+        val rounded = value.roundMoneyToTwoDecimals()
 
         assertEquals("Should round to two decimals", 123.46, rounded, 0.001)
+    }
+
+    @Test
+    fun `roundToTwoDecimals - rounds half cents using bankers safe money math`() {
+        val rounded = 1.005.roundMoneyToTwoDecimals()
+
+        assertEquals("Should round 1.005 to 1.01", 1.01, rounded, 0.0001)
     }
 }
 

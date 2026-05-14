@@ -23,8 +23,11 @@
  */
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const GRAPH_API_VERSION = "v21.0";
+const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
+const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
@@ -78,10 +81,6 @@ serve(async (req) => {
     return json({ error: "Unauthorized" }, 401);
   }
 
-  const serviceClient = createClient(SUPABASE_URL ?? "", SUPABASE_SERVICE_ROLE_KEY ?? "", {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
-
   // ── Normalise phone number to E.164 (digits only, SA starts with 27) ────
   const normalised = body.to
     .replace(/\D/g, "")
@@ -89,19 +88,30 @@ serve(async (req) => {
 
   // ── Password Reset Link Generation ──────────────────────────────────────
   if (isPasswordResetTemplate) {
+    if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+      console.error("Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY for password reset lookup.");
+      return json({ error: "Password recovery is temporarily unavailable. Please try again later." }, 500);
+    }
+
+    const serviceClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+
     console.log(`Generating password reset link for phone: ${normalised}`);
 
     // 1. Find the user by phone number in the members table to get their email.
     // (Supabase Auth doesn't support generateLink by phone if they registered with email).
-    const { data: member, error: memberError } = await serviceClient
+    const phoneCandidates = buildPhoneLookupCandidates(body.to, normalised);
+    const { data: members, error: memberError } = await serviceClient
       .from("members")
-      .select("email")
-      .eq("phone", normalised)
-      .limit(1)
-      .single();
+      .select("email, phone")
+      .in("phone", phoneCandidates)
+      .limit(5);
+
+    const member = members?.find((item) => !!item.email) ?? null;
 
     if (memberError || !member?.email) {
-      console.error("Member not found for phone:", normalised, memberError);
+      console.error("Member not found for phones:", phoneCandidates, memberError);
       return json({ error: "No account found with this WhatsApp number." }, 404);
     }
 
@@ -197,5 +207,31 @@ function json(data: unknown, status = 200): Response {
     status,
     headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
   });
+}
+
+function buildPhoneLookupCandidates(rawInput: string, normalised: string): string[] {
+  const candidates = new Set<string>();
+  const rawTrimmed = rawInput.trim();
+  const digitsOnly = rawTrimmed.replace(/\D/g, "");
+
+  if (rawTrimmed) candidates.add(rawTrimmed);
+  if (digitsOnly) candidates.add(digitsOnly);
+  if (normalised) {
+    candidates.add(normalised);
+    candidates.add(`+${normalised}`);
+  }
+
+  if (digitsOnly.startsWith("27") && digitsOnly.length === 11) {
+    const local = `0${digitsOnly.slice(2)}`;
+    candidates.add(local);
+  }
+
+  if (digitsOnly.startsWith("0") && digitsOnly.length === 10) {
+    const e164 = `27${digitsOnly.slice(1)}`;
+    candidates.add(e164);
+    candidates.add(`+${e164}`);
+  }
+
+  return Array.from(candidates);
 }
 

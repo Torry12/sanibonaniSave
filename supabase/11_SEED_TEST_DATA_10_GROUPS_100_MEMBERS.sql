@@ -239,7 +239,42 @@ BEGIN
             );
         END IF;
 
-        FOR m IN 1..10 LOOP
+ia        -- Group admin is always a member by default.
+        INSERT INTO public.members (
+            group_id,
+            user_id,
+            full_name,
+            phone,
+            email,
+            notification_pref,
+            status,
+            joined_at,
+            probation_end_at,
+            beneficiary_count,
+            beneficiary_over_65_count,
+            total_contributions,
+            total_paid,
+            member_key
+        ) VALUES (
+            v_group_id,
+            v_admin_id,
+            format('Seed Admin %s', lpad(g::text, 2, '0')),
+            format('07888%s', lpad(g::text, 5, '0')),
+            format('seed.admin.%s@example.com', lpad(g::text, 2, '0')),
+            'both',
+            'active',
+            now() - interval '120 days',
+            now() + interval '60 days',
+            CASE WHEN v_group_type = 'burial_society' THEN 2 ELSE 0 END,
+            0,
+            0,
+            0,
+            format('SEED_ADMIN_KEY_%s', lpad(g::text, 2, '0'))
+        )
+        ON CONFLICT (group_id, user_id) DO NOTHING;
+
+        -- Keep deterministic total at 10 members per group (1 admin + 9 generated members).
+        FOR m IN 1..9 LOOP
             INSERT INTO public.members (
                 group_id,
                 user_id,
@@ -272,7 +307,7 @@ BEGIN
                 v_city,
                 v_province,
                 CASE WHEN m % 3 = 0 THEN 'email' WHEN m % 3 = 1 THEN 'whatsapp' ELSE 'both' END,
-                CASE WHEN m <= 8 THEN 'active' WHEN m = 9 THEN 'probation' ELSE 'pending_payment' END,
+                CASE WHEN m <= 7 THEN 'active' WHEN m = 8 THEN 'probation' ELSE 'pending_payment' END,
                 now() - ((m + g) || ' days')::interval,
                 now() + interval '60 days',
                 CASE WHEN v_group_type = 'burial_society' THEN 2 ELSE 0 END,
@@ -462,6 +497,10 @@ BEGIN
             format('SEED opening balance for group %s', g),
             'opening_balance'
         );
+
+        UPDATE public.groups
+        SET current_members = 10
+        WHERE id = v_group_id;
 
         INSERT INTO public.audit_logs (actor_id, target_group_id, action, details)
         VALUES (

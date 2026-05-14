@@ -1,0 +1,46 @@
+{
+  "version": "2026.05.13",
+  "events": [
+    {
+      "event_type": "contribution.posted",
+      "aggregate_type": "contribution",
+      "payload_fields": ["contribution_id", "group_id", "member_id", "amount", "status"]
+    },
+    {
+      "event_type": "payout.requested",
+      "aggregate_type": "payout",
+      "payload_fields": ["payout_id", "group_id", "amount", "requested_by", "status"]
+    },
+    {
+      "event_type": "payout.settled",
+      "aggregate_type": "payout",
+      "payload_fields": ["payout_id", "group_id", "amount", "status", "settled_at", "transaction_id"]
+    },
+    {
+      "event_type": "claim.submitted",
+      "aggregate_type": "claim",
+      "payload_fields": ["claim_id", "group_id", "member_id", "claim_amount", "status"]
+    },
+    {
+      "event_type": "claim.approved",
+      "aggregate_type": "claim",
+      "payload_fields": ["claim_id", "group_id", "reviewed_by", "approved_amount", "status"]
+    },
+    {
+      "event_type": "ledger.entry.posted",
+      "aggregate_type": "ledger_entry",
+      "payload_fields": ["entry_id", "group_id", "category", "amount", "balance_after", "created_at"]
+    },
+    {
+      "event_type": "risk.alert.raised",
+      "aggregate_type": "risk_alert",
+      "payload_fields": ["alert_id", "group_id", "risk_type", "severity", "signal", "raised_at"]
+    }
+  ],
+  "consumer_guidance": {
+    "delivery": "at_least_once",
+    "idempotency": "deduplicate by event_id and ignore already-applied events",
+    "ordering": "best effort by aggregate_id, not globally ordered"
+  }
+}
+

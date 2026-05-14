@@ -48,7 +48,8 @@ fun Group.toEntity() = GroupEntity(
     createdAt = createdAt, 
     latitude = latitude, 
     longitude = longitude, 
-    geohash = geohash
+    geohash = geohash,
+    rotationMethod = rotationMethod
 )
 
 fun GroupEntity.toModel() = Group(
@@ -92,7 +93,8 @@ fun GroupEntity.toModel() = Group(
     createdAt = createdAt, 
     latitude = latitude, 
     longitude = longitude, 
-    geohash = geohash
+    geohash = geohash,
+    rotationMethod = rotationMethod
 )
 
 // ─────────────────────────────────────────────────────────────────────────────

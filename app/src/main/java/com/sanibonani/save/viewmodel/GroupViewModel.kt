@@ -8,6 +8,7 @@ import com.sanibonani.save.data.logging.AppLogger
 import com.sanibonani.save.domain.model.Group
 import com.sanibonani.save.domain.model.GroupType
 import com.sanibonani.save.domain.model.DocumentStatus
+import com.sanibonani.save.domain.model.RoscaRotationMethod
 import com.sanibonani.save.data.remote.Feature
 import com.sanibonani.save.data.remote.GeoapifyService
 import com.sanibonani.save.domain.repository.ExportRepository
@@ -48,6 +49,7 @@ data class RegisterGroupState(
     val city: String = "",
     val township: String = "",
     val description: String = "",
+    val rotationMethod: RoscaRotationMethod = RoscaRotationMethod.FIXED,
     val joiningFee: String = "200",
     val monthlyContribution: String = "500",
     val lateFee: String = "50",
@@ -86,10 +88,22 @@ data class RegisterGroupState(
     val isLoggedIn: Boolean = false,
     val constitutionUrl: String? = null,
     val constitutionStatus: DocumentStatus = DocumentStatus.PENDING,
-    val pendingConstitutionBytes: ByteArray? = null,
     val pendingConstitutionName: String? = null,
     val useStandardConstitution: Boolean = false
 )
+
+private data class PendingConstitutionUpload(
+    val bytes: ByteArray,
+    val fileName: String
+) {
+    override fun equals(other: Any?): Boolean {
+        if (this === other) return true
+        if (other !is PendingConstitutionUpload) return false
+        return fileName == other.fileName && bytes.contentEquals(other.bytes)
+    }
+
+    override fun hashCode(): Int = 31 * bytes.contentHashCode() + fileName.hashCode()
+}
 
 @HiltViewModel
 class GroupViewModel @Inject constructor(
@@ -99,6 +113,8 @@ class GroupViewModel @Inject constructor(
     private val getPublicGroupsUseCase: GetPublicGroupsUseCase,
     private val geoapifyService: GeoapifyService
 ) : ViewModel() {
+
+    private var pendingConstitutionUpload: PendingConstitutionUpload? = null
 
     private val _listState = MutableStateFlow(GroupListState())
     val listState: StateFlow<GroupListState> = _listState
@@ -124,6 +140,8 @@ class GroupViewModel @Inject constructor(
     private val _registerState = MutableStateFlow(RegisterGroupState())
     val registerState: StateFlow<RegisterGroupState> = _registerState.asStateFlow()
 
+    private var loadGroupsJob: Job? = null
+    private var geocodeBatchJob: Job? = null
     private var searchJob: Job? = null
 
     init {
@@ -139,10 +157,11 @@ class GroupViewModel @Inject constructor(
     }
 
     fun loadGroups() {
-        viewModelScope.launch {
+        loadGroupsJob?.cancel()
+        loadGroupsJob = viewModelScope.launch {
             _listState.update { it.copy(isLoading = true, error = null) }
-            getPublicGroupsUseCase().collect { res ->
-                res.onSuccess { list -> 
+            getPublicGroupsUseCase().collectLatest { res ->
+                res.onSuccess { list ->
                     _listState.update { it.copy(rawGroups = list, isLoading = false, error = null) }
                     // Background geocode groups without coordinates
                     geocodeGroupsWithoutCoordinates(list)
@@ -166,8 +185,9 @@ class GroupViewModel @Inject constructor(
     private fun geocodeGroupsWithoutCoordinates(groups: List<Group>) {
         val groupsNeedingGeocoding = groups.filter { it.latitude == null || it.longitude == null }
         if (groupsNeedingGeocoding.isEmpty()) return
-        
-        viewModelScope.launch {
+
+        geocodeBatchJob?.cancel()
+        geocodeBatchJob = viewModelScope.launch {
             groupsNeedingGeocoding.forEach { group ->
                 attemptGeocodeGroup(group)
                 delay(200) // Rate limit API calls
@@ -256,64 +276,58 @@ class GroupViewModel @Inject constructor(
         }
     }
 
-    fun updateField(field: String, value: Any) {
-        val cleanValue = if (value is String) value.trimEnd() else value
-        _registerState.update {
-            when (field) {
-                "name" -> it.copy(name = cleanValue.toString())
-                "description" -> it.copy(description = cleanValue.toString())
-                "city" -> it.copy(city = cleanValue.toString(), latitude = null, longitude = null, geohash = null)
-                "township" -> it.copy(township = cleanValue.toString(), latitude = null, longitude = null, geohash = null)
-                "joiningFee" -> it.copy(joiningFee = cleanValue.toString())
-                "monthlyContribution" -> it.copy(monthlyContribution = cleanValue.toString())
-                "lateFee" -> it.copy(lateFee = cleanValue.toString())
-                "maxMembers" -> it.copy(maxMembers = cleanValue.toString())
-                "adminEmail" -> it.copy(adminEmail = cleanValue.toString())
-                "adminFullName" -> it.copy(adminFullName = cleanValue.toString())
-                "adminPhone" -> it.copy(adminPhone = cleanValue.toString())
-                "adminIdNumber" -> it.copy(adminIdNumber = cleanValue.toString())
-                "adminPassword" -> it.copy(adminPassword = cleanValue.toString())
-                "accountNumber" -> it.copy(accountNumber = cleanValue.toString())
-                "branchCode" -> it.copy(branchCode = cleanValue.toString())
-                "logoEmoji" -> it.copy(logoEmoji = cleanValue.toString())
-                "termsAccepted" -> it.copy(termsAccepted = cleanValue.toString().toBoolean())
-                "type" -> {
-                    when (value) {
-                        is GroupType -> it.copy(type = value)
-                        is String -> {
-                           val matched = GroupType.entries.find { t -> t.name == value }
-                           if (matched != null) it.copy(type = matched) else it
-                        }
-                        else -> it
-                    }
-                }
-                "province" -> it.copy(province = cleanValue.toString(), latitude = null, longitude = null, geohash = null)
-                "bankName" -> it.copy(bankName = cleanValue.toString())
-                "maxBeneficiaries" -> it.copy(maxBeneficiaries = cleanValue.toString())
-                "beneficiaryIncreasePct" -> it.copy(beneficiaryIncreasePct = cleanValue.toString())
-                "lateFeeGraceDays" -> it.copy(lateFeeGraceDays = cleanValue.toString())
-                "probationMonths" -> it.copy(probationMonths = cleanValue.toString())
-                "paymentDueDay" -> it.copy(paymentDueDay = cleanValue.toString())
-                "goalAmount" -> it.copy(goalAmount = cleanValue.toString())
-                "periodMonths" -> it.copy(periodMonths = cleanValue.toString())
-                "allowPartialPayment" -> {
-                    when (value) {
-                        is Boolean -> it.copy(allowPartialPayment = value)
-                        is String -> it.copy(allowPartialPayment = value.toBoolean())
-                        else -> it
-                    }
-                }
-                "needsPayment" -> it.copy(needsPayment = cleanValue.toString().toBoolean())
-                "constitutionUrl" -> it.copy(constitutionUrl = cleanValue as? String)
-                "constitutionStatus" -> it.copy(constitutionStatus = value as DocumentStatus)
-                else -> it
+    // ── Type-safe event handler (preferred API) ───────────────────────────
+
+    /**
+     * Handles a [GroupFormEvent], providing compile-time safety for all form
+     * field updates.  Composables should call this instead of passing raw strings.
+     */
+    fun onEvent(event: GroupFormEvent) {
+        _registerState.update { s ->
+            when (event) {
+                is GroupFormEvent.NameChanged                   -> s.copy(name = event.name.trimEnd())
+                is GroupFormEvent.AdminEmailChanged             -> s.copy(adminEmail = event.email.trimEnd())
+                is GroupFormEvent.AdminPhoneChanged             -> s.copy(adminPhone = event.phone)
+                is GroupFormEvent.TypeSelected                  -> s.copy(type = event.type)
+                is GroupFormEvent.RoscaRotationMethodSelected   -> s.copy(rotationMethod = event.method)
+                is GroupFormEvent.LogoEmojiSelected             -> s.copy(logoEmoji = event.emoji)
+                is GroupFormEvent.CityChanged                   -> s.copy(city = event.city.trimEnd(), latitude = null, longitude = null, geohash = null)
+                is GroupFormEvent.TownshipChanged               -> s.copy(township = event.township.trimEnd(), latitude = null, longitude = null, geohash = null)
+                is GroupFormEvent.ProvinceSelected              -> s.copy(province = event.province, latitude = null, longitude = null, geohash = null)
+                is GroupFormEvent.DescriptionChanged            -> s.copy(description = event.description.trimEnd())
+                is GroupFormEvent.JoiningFeeChanged             -> s.copy(joiningFee = event.value)
+                is GroupFormEvent.MonthlyContributionChanged    -> s.copy(monthlyContribution = event.value)
+                is GroupFormEvent.LateFeeChanged                -> s.copy(lateFee = event.value)
+                is GroupFormEvent.LateFeeGraceDaysChanged       -> s.copy(lateFeeGraceDays = event.value)
+                is GroupFormEvent.ProbationMonthsChanged        -> s.copy(probationMonths = event.value)
+                is GroupFormEvent.PaymentDueDayChanged          -> s.copy(paymentDueDay = event.value)
+                is GroupFormEvent.MaxMembersChanged             -> s.copy(maxMembers = event.value)
+                is GroupFormEvent.GoalAmountChanged             -> s.copy(goalAmount = event.value)
+                is GroupFormEvent.PeriodMonthsChanged           -> s.copy(periodMonths = event.value)
+                is GroupFormEvent.MaxBeneficiariesChanged       -> s.copy(maxBeneficiaries = event.value)
+                is GroupFormEvent.BeneficiaryIncreasePctChanged -> s.copy(beneficiaryIncreasePct = event.value)
+                is GroupFormEvent.AllowPartialPaymentToggled    -> s.copy(allowPartialPayment = event.allow)
+                is GroupFormEvent.TermsAcceptedToggled          -> s.copy(termsAccepted = event.accepted)
+                is GroupFormEvent.BankNameSelected              -> s.copy(bankName = event.bank)
+                is GroupFormEvent.AccountNumberChanged          -> s.copy(accountNumber = event.value)
+                is GroupFormEvent.BranchCodeChanged             -> s.copy(branchCode = event.value)
+                is GroupFormEvent.UseStandardConstitutionToggled-> s.copy(useStandardConstitution = event.use)
+                is GroupFormEvent.ConstitutionStatusChanged     -> s.copy(constitutionUrl = event.url, constitutionStatus = event.status)
+                is GroupFormEvent.AdminFullNameChanged          -> s.copy(adminFullName = event.name.trimEnd())
+                is GroupFormEvent.AdminIdNumberChanged          -> s.copy(adminIdNumber = event.id.trimEnd())
+                is GroupFormEvent.AdminPasswordChanged          -> s.copy(adminPassword = event.password)
+                is GroupFormEvent.DismissPayment                -> s.copy(needsPayment = false)
             }
         }
-        
-        if (field == "city" || field == "township") {
-            searchAddress(cleanValue.toString())
+
+        // Side-effect: trigger address autocomplete when location fields change
+        when (event) {
+            is GroupFormEvent.CityChanged     -> searchAddress(event.city.trimEnd())
+            is GroupFormEvent.TownshipChanged -> searchAddress(event.township.trimEnd())
+            else -> Unit
         }
     }
+
 
     private fun searchAddress(query: String) {
         searchJob?.cancel()
@@ -349,6 +363,15 @@ class GroupViewModel @Inject constructor(
             addressSuggestions = emptyList()
         ) }
     }
+
+    // ── Private helper: build a Group domain model from current form state ─
+
+    /**
+     * Converts the mutable UI form state into an immutable [Group] domain object.
+     * Single source of truth — call this instead of duplicating the mapping.
+     */
+    private fun buildGroupFromState(s: RegisterGroupState): Result<Group> =
+        RegisterGroupValidator.toGroupDraft(s)
 
     fun submitGroup() {
         val s = _registerState.value
@@ -386,35 +409,11 @@ class GroupViewModel @Inject constructor(
                 }
             }
 
-            val group = Group(
-                name = finalState.name.trim(),
-                type = finalState.type,
-                province = finalState.province.trim(),
-                city = finalState.city.trim(),
-                township = finalState.township.trim(),
-                description = finalState.description.trim(),
-                logoEmoji = finalState.logoEmoji,
-                joiningFee = finalState.joiningFee.toDoubleOrNull() ?: 0.0,
-                monthlyContribution = finalState.monthlyContribution.toDoubleOrNull() ?: 0.0,
-                lateFee = finalState.lateFee.toDoubleOrNull() ?: 0.0,
-                maxMembers = finalState.maxMembers.toIntOrNull() ?: 50,
-                bankName = finalState.bankName.trim(),
-                accountNumber = finalState.accountNumber.trim(),
-                branchCode = finalState.branchCode.trim(),
-                maxBeneficiaries = finalState.maxBeneficiaries.toIntOrNull()?.takeIf { it > 0 },
-                beneficiaryIncreasePct = finalState.beneficiaryIncreasePct.toDoubleOrNull()?.takeIf { it > 0.0 },
-                latitude = finalState.latitude,
-                longitude = finalState.longitude,
-                geohash = finalState.geohash,
-                lateFeeGraceDays = finalState.lateFeeGraceDays.toIntOrNull() ?: 5,
-                probationMonths = finalState.probationMonths.toIntOrNull() ?: 3,
-                paymentDueDay = finalState.paymentDueDay.toIntOrNull() ?: 28,
-                allowPartialPayment = finalState.allowPartialPayment,
-                goalAmount = finalState.goalAmount.toDoubleOrNull() ?: 10000.0,
-                periodMonths = finalState.periodMonths.toIntOrNull() ?: 12,
-                constitutionUrl = finalState.constitutionUrl,
-                constitutionStatus = finalState.constitutionStatus
-            )
+            val group = buildGroupFromState(finalState).getOrElse { e ->
+                val message = e.message?.takeIf { it.isNotBlank() } ?: e.toUserMessage()
+                _registerState.update { it.copy(isSubmitting = false, error = message) }
+                return@launch
+            }
 
             createGroupUseCase(
                 group, 
@@ -483,35 +482,12 @@ class GroupViewModel @Inject constructor(
             // without first calling `submitGroup()`.
             // If we don't yet have a groupId, create the group first, then activate it.
             val groupId = snapshot.createdGroupId ?: run {
-                val group = Group(
-                    name = snapshot.name.trim(),
-                    type = snapshot.type,
-                    province = snapshot.province.trim(),
-                    city = snapshot.city.trim(),
-                    township = snapshot.township.trim(),
-                    description = snapshot.description.trim(),
-                    logoEmoji = snapshot.logoEmoji,
-                    joiningFee = snapshot.joiningFee.toDoubleOrNull() ?: 0.0,
-                    monthlyContribution = snapshot.monthlyContribution.toDoubleOrNull() ?: 0.0,
-                    lateFee = snapshot.lateFee.toDoubleOrNull() ?: 0.0,
-                    maxMembers = snapshot.maxMembers.toIntOrNull() ?: 50,
-                    bankName = snapshot.bankName.trim(),
-                    accountNumber = snapshot.accountNumber.trim(),
-                    branchCode = snapshot.branchCode.trim(),
-                    maxBeneficiaries = snapshot.maxBeneficiaries.toIntOrNull()?.takeIf { it > 0 },
-                    beneficiaryIncreasePct = snapshot.beneficiaryIncreasePct.toDoubleOrNull()?.takeIf { it > 0.0 },
-                    latitude = snapshot.latitude,
-                    longitude = snapshot.longitude,
-                    geohash = snapshot.geohash,
-                    lateFeeGraceDays = snapshot.lateFeeGraceDays.toIntOrNull() ?: 5,
-                    probationMonths = snapshot.probationMonths.toIntOrNull() ?: 3,
-                    paymentDueDay = snapshot.paymentDueDay.toIntOrNull() ?: 28,
-                    allowPartialPayment = snapshot.allowPartialPayment,
-                    goalAmount = snapshot.goalAmount.toDoubleOrNull() ?: 10000.0,
-                    periodMonths = snapshot.periodMonths.toIntOrNull() ?: 12,
-                    constitutionUrl = snapshot.constitutionUrl,
-                    constitutionStatus = snapshot.constitutionStatus
-                )
+                val group = buildGroupFromState(snapshot).getOrElse { e ->
+                    _registerState.update {
+                        it.copy(isSubmitting = false, error = e.message?.takeIf(String::isNotBlank) ?: e.toUserMessage())
+                    }
+                    return@launch
+                }
 
                 createGroupUseCase(
                     group,
@@ -531,9 +507,13 @@ class GroupViewModel @Inject constructor(
             AppLogger.d("GroupViewModel", "📍 Starting group activation after payment: $groupId")
 
             // Upload constitution if pending
-            val latest = _registerState.value
-            if (latest.pendingConstitutionBytes != null && latest.pendingConstitutionName != null) {
-                groupRepo.uploadConstitution(groupId, latest.pendingConstitutionBytes, latest.pendingConstitutionName)
+            val pendingUpload = pendingConstitutionUpload
+            if (pendingUpload != null) {
+                groupRepo.uploadConstitution(groupId, pendingUpload.bytes, pendingUpload.fileName)
+                    .onSuccess {
+                        pendingConstitutionUpload = null
+                        _registerState.update { it.copy(pendingConstitutionName = null) }
+                    }
                     .onFailure { e ->
                         // Don't block activation, but inform the user so they can retry later.
                         AppLogger.w("GroupViewModel", "⚠️ Constitution upload failed during activation: ${e.message}")
@@ -628,8 +608,8 @@ class GroupViewModel @Inject constructor(
         
         if (groupId == null) {
             // New registration flow - store for later upload
+            pendingConstitutionUpload = PendingConstitutionUpload(fileBytes, fileName)
             _registerState.update { it.copy(
-                pendingConstitutionBytes = fileBytes,
                 pendingConstitutionName = fileName,
                 constitutionUrl = "pending_local_upload", // Temporary flag for UI
                 constitutionStatus = DocumentStatus.PENDING
@@ -641,9 +621,11 @@ class GroupViewModel @Inject constructor(
             _registerState.update { it.copy(isLoading = true, error = null) }
             groupRepo.uploadConstitution(groupId, fileBytes, fileName)
                 .onSuccess { url ->
+                    pendingConstitutionUpload = null
                     _registerState.update { it.copy(
                         constitutionUrl = url,
                         constitutionStatus = DocumentStatus.PENDING,
+                        pendingConstitutionName = null,
                         isLoading = false
                     ) }
                 }
@@ -663,6 +645,7 @@ class GroupViewModel @Inject constructor(
     }
 
     fun resetNavigation() {
-        _registerState.update { it.copy(success = false, createdGroupId = null) }
+        pendingConstitutionUpload = null
+        _registerState.update { it.copy(success = false, createdGroupId = null, pendingConstitutionName = null) }
     }
 }

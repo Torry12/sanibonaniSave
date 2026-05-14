@@ -1,13 +1,19 @@
 package com.sanibonani.save.viewmodel
 
 /**
- * Legacy ViewModel container. 
- * All specific ViewModels have been moved to individual files in this package:
- * - AuthViewModel.kt
- * - GroupViewModel.kt
- * - MemberViewModel.kt
- * - AdminViewModel.kt
- * - PolicyViewModel.kt
- * - PaymentViewModel.kt
- * - PlatformAdminViewModel.kt
+ * Legacy ViewModel container file — **empty by design**.
+ *
+ * All ViewModels have been extracted to their own files:
+ *  - [AuthViewModel]
+ *  - [GroupViewModel]         (uses [GroupFormEvent] for type-safe form dispatch)
+ *  - [MemberViewModel]
+ *  - [AdminViewModel]
+ *  - [PaymentViewModel]
+ *  - [PlatformAdminViewModel]
+ *  - [AgentViewModel]
+ *  - [CreatePlatformAdminViewModel]
+ *  - [PasswordRecoveryViewModel]
+ *
+ * This file is kept to avoid breaking any IDE import caches.
+ * It may be deleted once all references are confirmed absent.
  */

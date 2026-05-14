@@ -30,6 +30,9 @@ class ValidateBurialClaimEligibilityUseCase @Inject constructor() {
         if (member.status == MemberStatus.SUSPENDED) {
             return EligibilityResult.Ineligible("Membership is suspended. Claims are not permitted.")
         }
+        if (member.status == MemberStatus.PENDING_PAYMENT) {
+            return EligibilityResult.Ineligible("Membership has outstanding payments. Claims are not permitted.")
+        }
 
         // 3. Waiting period check
         val joinedDate = try {
@@ -45,8 +48,7 @@ class ValidateBurialClaimEligibilityUseCase @Inject constructor() {
         }
 
         val monthsSinceJoining = ChronoUnit.MONTHS.between(joinedDate, deathDate)
-        val isAccidental = causeOfDeath.contains("accidental", ignoreCase = true) || 
-                           causeOfDeath.contains("accident", ignoreCase = true)
+        val isAccidental = ACCIDENTAL_PATTERNS.any { causeOfDeath.contains(it, ignoreCase = true) }
 
         if (!isAccidental) {
             val requiredMonths = group.probationMonths
@@ -58,11 +60,21 @@ class ValidateBurialClaimEligibilityUseCase @Inject constructor() {
         }
 
         // 4. Suicide check (Special industry standard: 12 months)
-        val isSuicide = causeOfDeath.contains("suicide", ignoreCase = true)
+        val isSuicide = SUICIDE_PATTERNS.any { causeOfDeath.contains(it, ignoreCase = true) }
         if (isSuicide && monthsSinceJoining < 12) {
             return EligibilityResult.Ineligible("Claims for suicide have a 12-month waiting period.")
         }
 
         return EligibilityResult.Eligible
+    }
+
+    companion object {
+        /** Patterns that qualify a death as accidental for waiting-period bypass. */
+        private val ACCIDENTAL_PATTERNS = listOf(
+            "accidental", "accident", "motor vehicle", "mvt", "drowning",
+            "electrocution", "fire", "fall", "struck by"
+        )
+        /** Patterns that trigger the 12-month suicide exclusion. */
+        private val SUICIDE_PATTERNS = listOf("suicide", "self-inflicted", "self inflicted")
     }
 }

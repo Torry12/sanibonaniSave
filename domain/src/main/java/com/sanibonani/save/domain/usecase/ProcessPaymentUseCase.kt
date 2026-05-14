@@ -19,10 +19,12 @@ import com.sanibonani.save.domain.repository.MemberRepository
 import com.sanibonani.save.domain.repository.NotificationRepository
 import com.sanibonani.save.domain.repository.PaymentRepository
 import com.sanibonani.save.domain.repository.PlatformRepository
+import com.sanibonani.save.domain.utils.isPositiveMoneyAmount
+import com.sanibonani.save.domain.utils.toMoneyBigDecimal
 import com.sanibonani.save.domain.utils.OperationKeys
 import com.sanibonani.save.domain.utils.formatZAR
 import javax.inject.Inject
-import kotlin.math.max
+import java.math.BigDecimal
 
 /**
  * Orchestrates payment processing across different payment types.
@@ -41,6 +43,13 @@ class ProcessPaymentUseCase @Inject constructor(
     private val notificationRepository: NotificationRepository,
     private val platformRepository: PlatformRepository
 ) {
+    companion object {
+        /**
+         * Sentinel group ID used during ad-hoc registration flow
+         * before a real group ID has been assigned.
+         */
+        const val NEW_GROUP_SENTINEL = "new_group"
+    }
     suspend operator fun invoke(
         type: PaymentType,
         amount: Double,
@@ -49,6 +58,8 @@ class ProcessPaymentUseCase @Inject constructor(
         group: Group? = null,
         calculation: com.sanibonani.save.data.utils.PaymentCalculation? = null
     ): Result<String> = runCatching {
+        require(amount.isPositiveMoneyAmount()) { "Payment amount must be greater than zero." }
+
         // Generate deterministic transaction ID
         val dueKey = when (type) {
             PaymentType.CONTRIBUTION -> calculation?.nextDueDate.orEmpty()
@@ -70,7 +81,7 @@ class ProcessPaymentUseCase @Inject constructor(
             PaymentType.PLATFORM_FEE -> processPlatformFeePayment(txId, amount, groupId, group, member, timestampStr)
             PaymentType.JOINING_FEE -> processJoiningFeePayment(txId, amount, groupId, member, timestampStr)
             PaymentType.CONTRIBUTION -> processContributionPayment(txId, amount, groupId, member, group, calculation, timestampStr)
-            else -> throw Exception("Unsupported payment type: $type")
+            else -> throw IllegalArgumentException("Payment type '${type.name}' is not supported in this flow.")
         }
         
         txId
@@ -84,7 +95,7 @@ class ProcessPaymentUseCase @Inject constructor(
         member: Member?,
         timestampStr: String
     ) {
-        if (groupId == "new_group") {
+        if (groupId == NEW_GROUP_SENTINEL) {
             // Handled by registration flow in GroupViewModel
             return
         }
@@ -158,10 +169,11 @@ class ProcessPaymentUseCase @Inject constructor(
         
         val memberId = targetMember.id ?: throw IllegalStateException("Member ID missing")
         val memberMonthlyContribution = PaymentCalculator.calculateMonthlyContribution(targetGroup, targetMember)
-        val monthlyMemberFee = PlatformFees.MONTHLY_MEMBER_FEE.coerceAtLeast(0.0)
-        val feeComponent = if (amount + 0.01 >= monthlyMemberFee) monthlyMemberFee else 0.0
-        val contributionComponent = (amount - feeComponent).coerceAtLeast(0.0)
-        val contributionDueExcludingFee = max(0.0, memberMonthlyContribution - monthlyMemberFee)
+        val amountMoney = amount.toMoneyBigDecimal()
+        val monthlyMemberFee = PlatformFees.MONTHLY_MEMBER_FEE.coerceAtLeast(0.0).toMoneyBigDecimal()
+        val feeComponentMoney = if (amountMoney >= monthlyMemberFee) monthlyMemberFee else BigDecimal.ZERO
+        val contributionComponentMoney = amountMoney.subtract(feeComponentMoney)
+        val contributionDueExcludingFeeMoney = memberMonthlyContribution.toMoneyBigDecimal().subtract(monthlyMemberFee).max(BigDecimal.ZERO)
 
         recordPayment(txId, amount, groupId, PaymentType.CONTRIBUTION, timestampStr, memberId)
             .onFailure { throw it }
@@ -172,9 +184,9 @@ class ProcessPaymentUseCase @Inject constructor(
             Contribution(
                 memberId = memberId,
                 groupId = groupId,
-                amount = contributionComponent,
+                amount = contributionComponentMoney.toDouble(),
                 type = "contribution",
-                status = if (contributionComponent >= contributionDueExcludingFee - 0.01) ContributionStatus.PAID else ContributionStatus.PARTIAL,
+                status = if (contributionComponentMoney >= contributionDueExcludingFeeMoney) ContributionStatus.PAID else ContributionStatus.PARTIAL,
                 dueDate = calc.nextDueDate,
                 paidAt = timestampStr,
                 yocoTransactionId = txId
@@ -183,12 +195,12 @@ class ProcessPaymentUseCase @Inject constructor(
             .getOrThrow()
 
         // Record member fee ledger if applicable
-        if (feeComponent > 0.0) {
+        if (feeComponentMoney > BigDecimal.ZERO) {
             memberRepository.recordContribution(
                 Contribution(
                     memberId = memberId,
                     groupId = groupId,
-                    amount = feeComponent,
+                    amount = feeComponentMoney.toDouble(),
                     type = "member_fee_ledger",
                     status = ContributionStatus.PAID,
                     dueDate = calc.nextDueDate,

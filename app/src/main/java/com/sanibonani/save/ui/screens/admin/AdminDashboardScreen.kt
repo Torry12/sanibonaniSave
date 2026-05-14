@@ -16,6 +16,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.automirrored.filled.Login
+import androidx.compose.material.icons.automirrored.outlined.HelpOutline
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
@@ -49,9 +50,19 @@ import com.sanibonani.save.domain.usecase.stokvel.CalculateStokvelPayoutsUseCase
 import com.sanibonani.save.domain.usecase.groups.GetGroupBusinessInsightsUseCase
 import com.sanibonani.save.ui.components.*
 import com.sanibonani.save.ui.theme.*
+import com.sanibonani.save.ui.utils.ViabilityFactorTrend
+import com.sanibonani.save.ui.utils.ViabilityFactorUi
+import com.sanibonani.save.ui.utils.ViabilityPanelUi
+import com.sanibonani.save.ui.utils.description
+import com.sanibonani.save.ui.utils.trend
+import com.sanibonani.save.ui.utils.toViabilityFactors
+import com.sanibonani.save.ui.utils.toViabilityPanels
+import com.sanibonani.save.ui.utils.uiLabel
 import com.sanibonani.save.ui.utils.ToastUtils
 import com.sanibonani.save.viewmodel.AdminUiState
 import com.sanibonani.save.viewmodel.AdminViewModel
+import java.util.Locale
+import kotlin.math.abs
 
 data class AdminMemberPortalAccess(
     val enabled: Boolean,
@@ -720,13 +731,25 @@ fun ViabilityPlanningTab(state: AdminUiState, vm: AdminViewModel) {
         }
 
         state.viabilityPlan?.let { plan ->
-            ViabilityResultCard(plan, onApply = { vm.applySuggestedContribution() })
+            ViabilityResultCard(
+                plan = plan,
+                groupType = state.group?.type ?: GroupType.OTHER,
+                onApply = { vm.applySuggestedContribution() }
+            )
         }
     }
 }
 
 @Composable
-fun ViabilityResultCard(plan: ViabilityPlan, onApply: () -> Unit) {
+fun ViabilityResultCard(plan: ViabilityPlan, groupType: GroupType, onApply: () -> Unit) {
+    var showAllFactors by remember(plan) { mutableStateOf(false) }
+    var explainFactor by remember(plan) { mutableStateOf<ViabilityFactorUi?>(null) }
+    val factors = remember(plan, showAllFactors, groupType) {
+        plan.toViabilityFactors(groupType = groupType, includeNeutral = showAllFactors)
+    }
+    val panels = remember(plan, showAllFactors, groupType) {
+        plan.toViabilityPanels(groupType = groupType, includeNeutral = showAllFactors)
+    }
     Card(
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = Forest.copy(0.05f)),
@@ -738,6 +761,85 @@ fun ViabilityResultCard(plan: ViabilityPlan, onApply: () -> Unit) {
             DetailRow("Required Monthly Contribution", formatZAR(plan.suggestedMonthlyContribution))
             DetailRow("Initial Upfront Payment", formatZAR(plan.initialContribution))
             DetailRow("Projected Value", formatZAR(plan.projectedValue))
+
+            if (panels.isNotEmpty()) {
+                HorizontalDivider(color = Forest.copy(0.1f), modifier = Modifier.padding(vertical = 8.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Projection Factors", style = MaterialTheme.typography.titleSmall, color = Forest, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            text = if (showAllFactors) {
+                                "Showing all ${factors.size} factors, including neutral multipliers."
+                            } else {
+                                "Showing ${factors.size} active factors for ${groupType.displayName}. Neutral multipliers are hidden."
+                            },
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MidGray
+                        )
+                    }
+                    FilterChip(
+                        selected = showAllFactors,
+                        onClick = { showAllFactors = !showAllFactors },
+                        label = {
+                            Text(if (showAllFactors) "All Factors" else "Active Only")
+                        }
+                    )
+                }
+                panels.forEach { panel ->
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(
+                            panel.title,
+                            style = MaterialTheme.typography.labelLarge,
+                            color = Forest,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Text(
+                            panel.subtitle,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MidGray
+                        )
+                        panel.factors.forEach { factor ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(
+                                    modifier = Modifier.weight(1f),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(factor.label, style = MaterialTheme.typography.bodyMedium, color = MidGray)
+                                    IconButton(
+                                        onClick = { explainFactor = factor },
+                                        modifier = Modifier.size(24.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.AutoMirrored.Outlined.HelpOutline,
+                                            contentDescription = "Explain ${factor.label}",
+                                            tint = MidGray,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+                                }
+                                Text(
+                                    text = formatFactorMultiplier(factor.value),
+                                    color = viabilityFactorColor(factor.trend()),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                    }
+                    if (panel != panels.last()) {
+                        HorizontalDivider(color = Forest.copy(0.08f), modifier = Modifier.padding(vertical = 4.dp))
+                    }
+                }
+                ViabilityFactorsBarChart(factors = factors)
+            }
             
             if (plan.messages.isNotEmpty()) {
                 HorizontalDivider(color = Forest.copy(0.1f), modifier = Modifier.padding(vertical = 8.dp))
@@ -755,33 +857,232 @@ fun ViabilityResultCard(plan: ViabilityPlan, onApply: () -> Unit) {
             }
         }
     }
+
+    explainFactor?.let { factor ->
+        AlertDialog(
+            onDismissRequest = { explainFactor = null },
+            title = { Text(factor.label) },
+            text = {
+                Text(
+                    "${factor.description()}\n\nCurrent multiplier: ${formatFactorMultiplier(factor.value)} (${factor.trend().name.lowercase(Locale.US)})."
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { explainFactor = null }) {
+                    Text("Got it")
+                }
+            }
+        )
+    }
+}
+
+private fun formatFactorMultiplier(value: Double): String {
+    return "x${String.format(Locale.US, "%.2f", value)}"
+}
+
+private fun viabilityFactorColor(trend: ViabilityFactorTrend): Color {
+    return when (trend) {
+        ViabilityFactorTrend.LIFT -> SuccessGreen
+        ViabilityFactorTrend.HAIRCUT -> ErrorRed
+        ViabilityFactorTrend.NEUTRAL -> MidGray
+    }
+}
+
+@Composable
+private fun ViabilityFactorsBarChart(factors: List<ViabilityFactorUi>) {
+    val maxDistance = remember(factors) {
+        factors.maxOfOrNull { abs(it.value - 1.0) }?.coerceAtLeast(0.05) ?: 0.05
+    }
+    var selectedTrend by remember { mutableStateOf<ViabilityFactorTrend?>(ViabilityFactorTrend.LIFT) }
+    var selectedFactorKey by remember(factors) { mutableStateOf(factors.firstOrNull()?.key) }
+    val selectedFactor = factors.firstOrNull { it.key == selectedFactorKey }
+
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 6.dp)) {
+        Text(
+            "Factor Impact Chart",
+            style = MaterialTheme.typography.labelMedium,
+            color = MidGray,
+            fontWeight = FontWeight.SemiBold
+        )
+
+        factors.forEach { factor ->
+            val trend = factor.trend()
+            val intensity = (abs(factor.value - 1.0) / maxDistance).coerceIn(0.0, 1.0).toFloat()
+            val isSelected = selectedFactorKey == factor.key
+
+            Surface(
+                onClick = { selectedFactorKey = factor.key },
+                shape = RoundedCornerShape(12.dp),
+                color = if (isSelected) viabilityFactorColor(trend).copy(alpha = 0.08f) else Color.Transparent,
+                border = if (isSelected) BorderStroke(1.dp, viabilityFactorColor(trend).copy(alpha = 0.3f)) else null
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 10.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            factor.label,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (isSelected) viabilityFactorColor(trend) else MidGray,
+                            modifier = Modifier.weight(1f),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            formatFactorMultiplier(factor.value),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = viabilityFactorColor(trend),
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+
+                    LinearProgressIndicator(
+                        progress = { intensity },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(6.dp)
+                            .clip(RoundedCornerShape(999.dp)),
+                        color = viabilityFactorColor(trend),
+                        trackColor = LightGray.copy(alpha = 0.35f)
+                    )
+                }
+            }
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            ViabilityLegendItem(
+                label = "Lift",
+                color = viabilityFactorColor(ViabilityFactorTrend.LIFT),
+                isSelected = selectedTrend == ViabilityFactorTrend.LIFT,
+                onClick = {
+                    selectedTrend = if (selectedTrend == ViabilityFactorTrend.LIFT) null else ViabilityFactorTrend.LIFT
+                }
+            )
+            ViabilityLegendItem(
+                label = "Haircut",
+                color = viabilityFactorColor(ViabilityFactorTrend.HAIRCUT),
+                isSelected = selectedTrend == ViabilityFactorTrend.HAIRCUT,
+                onClick = {
+                    selectedTrend = if (selectedTrend == ViabilityFactorTrend.HAIRCUT) null else ViabilityFactorTrend.HAIRCUT
+                }
+            )
+            ViabilityLegendItem(
+                label = "Neutral",
+                color = viabilityFactorColor(ViabilityFactorTrend.NEUTRAL),
+                isSelected = selectedTrend == ViabilityFactorTrend.NEUTRAL,
+                onClick = {
+                    selectedTrend = if (selectedTrend == ViabilityFactorTrend.NEUTRAL) null else ViabilityFactorTrend.NEUTRAL
+                }
+            )
+        }
+
+        selectedTrend?.let { trend ->
+            Text(
+                text = trend.description(),
+                style = MaterialTheme.typography.labelSmall,
+                color = MidGray
+            )
+        }
+
+        selectedFactor?.let { factor ->
+            Text(
+                text = "${factor.label}: ${factor.description()} Currently ${factor.trend().name.lowercase(Locale.US)} at ${formatFactorMultiplier(factor.value)}.",
+                style = MaterialTheme.typography.labelSmall,
+                color = MidGray
+            )
+        }
+    }
+}
+
+@Composable
+private fun ViabilityLegendItem(
+    label: String,
+    color: Color,
+    isSelected: Boolean,
+    onClick: () -> Unit
+) {
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(999.dp),
+        color = if (isSelected) color.copy(alpha = 0.12f) else Color.White,
+        border = BorderStroke(1.dp, if (isSelected) color.copy(alpha = 0.45f) else LightGray.copy(alpha = 0.5f))
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Surface(
+                modifier = Modifier.size(8.dp),
+                shape = CircleShape,
+                color = color
+            ) {}
+            Spacer(Modifier.width(6.dp))
+            Text(
+                label,
+                style = MaterialTheme.typography.labelSmall,
+                color = if (isSelected) color else MidGray
+            )
+        }
+    }
 }
 
 @Composable
 fun AdminFeeBanner(group: Group, status: AdminFeeState, daysOverdue: Int, onPayClick: () -> Unit) {
+    val monthlyFee = if (group.platformFeeAmount > 0.0) group.platformFeeAmount else 150.0
+    val formattedMonthlyFee = formatZAR(monthlyFee)
+    val isActionable = status != AdminFeeState.PAID
     val (bgColor, textColor, message) = when (status) {
         AdminFeeState.PAID -> Triple(Forest, Color.White, "✅ Platform fee paid — next due soon")
-        AdminFeeState.DUE -> Triple(WarningYellow, Color.Black, "⚠️ Platform fee due — please pay R150.00")
-        AdminFeeState.OVERDUE -> Triple(ErrorRed, Color.White, "🚨 Platform fee overdue ($daysOverdue days)!")
-        AdminFeeState.WARNING -> Triple(WarningYellow, Color.Black, "⚠️ Platform fee due soon — please pay R150.00")
-        AdminFeeState.SUSPENDED -> Triple(Color.Black, Color.White, "🚫 Account Suspended — Pay R150.00 to restore access")
-        AdminFeeState.PENDING_ACTIVATION -> Triple(ForestMid, Color.White, "🚀 Onboarding — Pay R${group.registrationFee.toInt()} to activate group")
+        AdminFeeState.DUE -> Triple(WarningYellow, Color.Black, "⚠️ Platform fee due — please pay $formattedMonthlyFee")
+        AdminFeeState.OVERDUE -> Triple(ErrorRed, Color.White, "🚨 Platform fee overdue ($daysOverdue days) — $formattedMonthlyFee due")
+        AdminFeeState.WARNING -> Triple(WarningYellow, Color.Black, "⚠️ Platform fee due soon — please pay $formattedMonthlyFee")
+        AdminFeeState.SUSPENDED -> Triple(Color.Black, Color.White, "🚫 Account suspended — pay $formattedMonthlyFee to restore access")
+        AdminFeeState.PENDING_ACTIVATION -> Triple(ForestMid, Color.White, "🚀 Onboarding — Pay ${formatZAR(group.registrationFee)} to activate group")
     }
 
     Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(if (isActionable) Modifier.clickable(onClick = onPayClick) else Modifier),
         color = bgColor,
-        onClick = if (status != AdminFeeState.PAID) onPayClick else ({})
+        shape = RoundedCornerShape(12.dp),
+        tonalElevation = if (isActionable) 2.dp else 0.dp,
+        border = BorderStroke(1.dp, textColor.copy(alpha = 0.18f))
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 8.dp),
+                .padding(horizontal = 16.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Text(message, color = textColor, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
-            if (status != AdminFeeState.PAID) {
-                Text("PAY NOW", color = textColor, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.ExtraBold)
+            Text(
+                text = message,
+                color = textColor,
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.weight(1f)
+            )
+            if (isActionable) {
+                Text(
+                    "Pay now",
+                    color = textColor,
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.ExtraBold,
+                    modifier = Modifier.padding(start = 12.dp)
+                )
             }
         }
     }
@@ -830,7 +1131,7 @@ private fun OverviewTab(
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(12.dp)
                     ) {
-                        Text("Pay Registration Fee (R${state.group?.registrationFee?.toInt() ?: 700})")
+                        Text("Pay Registration Fee (${formatZAR(state.group?.registrationFee ?: 700.0)})")
                     }
                 }
             }
@@ -1815,14 +2116,10 @@ fun AccountTab(state: AdminUiState, group: Group?, onLogout: () -> Unit) {
         }
         
         Spacer(Modifier.height(24.dp))
-        OutlinedButton(
+        LogoutButton(
             onClick = onLogout,
-            modifier = Modifier.fillMaxWidth(),
-            colors = ButtonDefaults.outlinedButtonColors(contentColor = ErrorRed),
-            border = BorderStroke(1.dp, ErrorRed)
-        ) {
-            Text("Log Out")
-        }
+            style = LogoutButtonStyle.Outlined
+        )
     }
 }
 
@@ -2250,12 +2547,12 @@ fun PayoutTab(state: AdminUiState, vm: AdminViewModel) {
                     if (state.isRequestingPayout) {
                         CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Color.White)
                     } else {
-                        Text("Submit Request")
+                        Text("Submit to Group Admin")
                     }
                 }
                 
                 if (state.payoutRequestSuccess) {
-                    Text("Request submitted successfully!", color = Forest, modifier = Modifier.padding(top = 8.dp))
+                    Text("Request submitted and routed for admin validation.", color = Forest, modifier = Modifier.padding(top = 8.dp))
                 }
             }
         }
@@ -2286,7 +2583,7 @@ fun PayoutTab(state: AdminUiState, vm: AdminViewModel) {
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
-                            Text("R${payout.amount}", fontWeight = FontWeight.Bold)
+                            Text(formatZAR(payout.amount), fontWeight = FontWeight.Bold)
                             Text("Requested: ${payout.createdAt}", style = MaterialTheme.typography.labelSmall)
                         }
                         
@@ -2306,7 +2603,7 @@ fun PayoutTab(state: AdminUiState, vm: AdminViewModel) {
                                 shape = RoundedCornerShape(16.dp)
                             ) {
                                 Text(
-                                    payout.status.name,
+                                    payout.status.uiLabel,
                                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                                     color = statusColor,
                                     style = MaterialTheme.typography.labelSmall
@@ -2320,7 +2617,7 @@ fun PayoutTab(state: AdminUiState, vm: AdminViewModel) {
                                             onClick = { vm.approveAndEscalatePayoutRequest(payout.id ?: "") },
                                             contentPadding = PaddingValues(0.dp)
                                         ) {
-                                            Text("Approve & Escalate", color = Forest, style = MaterialTheme.typography.labelSmall)
+                                            Text("Validate & Escalate", color = Forest, style = MaterialTheme.typography.labelSmall)
                                         }
                                         TextButton(
                                             onClick = { vm.cancelPayoutRequest(payout.id ?: "") },
@@ -2332,7 +2629,7 @@ fun PayoutTab(state: AdminUiState, vm: AdminViewModel) {
                                 }
                                 PayoutStatus.GROUP_APPROVED -> {
                                     Text(
-                                        "Escalated to platform",
+                                        "Awaiting platform admin final approval",
                                         color = InfoBlue,
                                         style = MaterialTheme.typography.labelSmall
                                     )
@@ -2417,7 +2714,7 @@ fun LoanRequestCard(loan: Loan, state: AdminUiState, vm: AdminViewModel) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text(member?.fullName ?: "Unknown Member", fontWeight = FontWeight.Bold)
-                    Text("Requested R${loan.amount}", style = MaterialTheme.typography.titleMedium, color = Forest)
+                    Text("Requested ${formatZAR(loan.amount)}", style = MaterialTheme.typography.titleMedium, color = Forest)
                 }
                 Surface(
                     color = Forest.copy(0.1f),
@@ -2433,8 +2730,8 @@ fun LoanRequestCard(loan: Loan, state: AdminUiState, vm: AdminViewModel) {
             }
             
             Spacer(Modifier.height(8.dp))
-            InfoRow("Total Repayable", "R${loan.totalToRepay}")
-            InfoRow("Monthly Repayment", "R${loan.monthlyRepayment}")
+            InfoRow("Total Repayable", formatZAR(loan.totalToRepay))
+            InfoRow("Monthly Repayment", formatZAR(loan.monthlyRepayment))
             InfoRow("Purpose", loan.purpose ?: "Not specified")
             InfoRow("Date", loan.createdAt?.take(10) ?: "")
 
@@ -2520,7 +2817,7 @@ fun ActiveLoanCard(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text(member?.fullName ?: "Unknown Member", fontWeight = FontWeight.Bold)
-                    Text("Balance: R${loan.balanceRemaining}", style = MaterialTheme.typography.titleMedium, color = Forest)
+                    Text("Balance: ${formatZAR(loan.balanceRemaining)}", style = MaterialTheme.typography.titleMedium, color = Forest)
                 }
                 
                 if (!loan.contractUrl.isNullOrBlank()) {
@@ -2557,7 +2854,7 @@ fun ActiveLoanCard(
                 trackColor = LightGray,
             )
             Spacer(Modifier.height(4.dp))
-            Text("Repaid: R${loan.totalRepaid} / R${loan.totalToRepay}", style = MaterialTheme.typography.labelSmall, color = MidGray)
+            Text("Repaid: ${formatZAR(loan.totalRepaid)} / ${formatZAR(loan.totalToRepay)}", style = MaterialTheme.typography.labelSmall, color = MidGray)
         }
     }
 }
@@ -2572,7 +2869,7 @@ fun HistoryLoanCard(loan: Loan, state: AdminUiState) {
         Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text(member?.fullName ?: "Unknown Member", style = MaterialTheme.typography.bodyMedium)
-                Text("R${loan.amount} - ${loan.status.displayName}", style = MaterialTheme.typography.labelSmall, color = MidGray)
+                Text("${formatZAR(loan.amount)} - ${loan.status.displayName}", style = MaterialTheme.typography.labelSmall, color = MidGray)
             }
             Text(loan.createdAt?.take(10) ?: "", style = MaterialTheme.typography.labelSmall, color = MidGray)
         }

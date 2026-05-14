@@ -75,6 +75,11 @@ class Converters {
     @TypeConverter fun toBeneficiaryClaimStatus(v: String): BeneficiaryClaimStatus = try {
         BeneficiaryClaimStatus.entries.find { it.name.equals(v, ignoreCase = true) } ?: BeneficiaryClaimStatus.SUBMITTED
     } catch (e: Exception) { BeneficiaryClaimStatus.SUBMITTED }
+
+    @TypeConverter fun fromRoscaRotationMethod(v: RoscaRotationMethod): String = v.name
+    @TypeConverter fun toRoscaRotationMethod(v: String): RoscaRotationMethod = try {
+        RoscaRotationMethod.entries.find { it.name.equals(v, ignoreCase = true) } ?: RoscaRotationMethod.FIXED
+    } catch (e: Exception) { RoscaRotationMethod.FIXED }
 }
 
 // ── Room Entities (mirrors Supabase tables for offline use) ──────────────────
@@ -131,6 +136,7 @@ data class GroupEntity(
     val latitude: Double? = null,
     val longitude: Double? = null,
     val geohash: String? = null,
+    @ColumnInfo(name = "rosca_rotation_method") val rotationMethod: RoscaRotationMethod = RoscaRotationMethod.FIXED,
     @ColumnInfo(name = "updated_at") val updatedAt: Long = System.currentTimeMillis()
 )
 
@@ -714,6 +720,7 @@ interface GroupHealthScoreDao {
 
 // ── Database ──────────────────────────────────────────────────────────────────
 
+
 // ── BeneficiaryClaimEntity ────────────────────────────────────────────────────
 @Entity(
     tableName = "burial_claims",
@@ -840,7 +847,7 @@ interface LedgerDao {
         BeneficiaryClaimEntity::class,
         LedgerEntryEntity::class
     ],
-    version  = 37,
+    version  = 38,
     exportSchema = true
 )
 @TypeConverters(Converters::class)

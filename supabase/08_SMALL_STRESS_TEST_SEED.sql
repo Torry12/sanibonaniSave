@@ -13,15 +13,38 @@ BEGIN
     SELECT id INTO v_admin_id FROM auth.users WHERE email = 'torrymsimango@gmail.com' LIMIT 1;
     IF v_admin_id IS NULL THEN RAISE EXCEPTION 'Admin not found. Run 03_PLATFORM_ADMIN_SETUP.sql first.'; END IF;
 
-    -- Create 5 groups (30 members per group = 150 total)
+    -- Create 5 groups (30 members per group = 150 total; includes admin member)
     FOR i IN 1..5 LOOP
         v_g_type := v_group_types[1 + (i % 4)];
         INSERT INTO public.groups (id, name, type, province, city, admin_user_id, balance)
         VALUES (gen_random_uuid(), 'Stress Test Group ' || i, v_g_type, 'Gauteng', 'Pretoria', v_admin_id, (random()*50000)::numeric)
         RETURNING id INTO v_group_id;
 
-            -- Create 30 members per group
-        FOR j IN 1..30 LOOP
+        INSERT INTO public.members (
+            id,
+            group_id,
+            user_id,
+            full_name,
+            email,
+            phone,
+            status,
+            joined_at,
+            member_key
+        ) VALUES (
+            gen_random_uuid(),
+            v_group_id,
+            v_admin_id,
+            'Stress Admin ' || i,
+            'stress.admin.' || i || '@example.com',
+            '0766600' || lpad(i::text, 3, '0'),
+            'active',
+            now() - interval '180 days',
+            'STRESS_ADMIN_KEY_' || i
+        )
+        ON CONFLICT (group_id, user_id) DO NOTHING;
+
+        -- Create 29 additional members per group (admin + 29 = 30)
+        FOR j IN 1..29 LOOP
             INSERT INTO public.members (id, group_id, full_name, email, status, joined_at)
             VALUES (gen_random_uuid(), v_group_id, 'Test Member ' || (i*30 + j), 'member' || (i*30 + j) || '@test.com', 'active', now() - (random() * interval '180 days'))
             RETURNING id INTO v_member_id;
@@ -38,6 +61,10 @@ BEGIN
                 VALUES (v_group_id, v_member_id, 1000.0, 1000.0, 100.0, 'active');
             END IF;
         END LOOP;
+
+        UPDATE public.groups
+        SET current_members = 30
+        WHERE id = v_group_id;
     END LOOP;
     RAISE NOTICE 'Seed generation complete: 150 members across 5 groups created.';
 END $$;

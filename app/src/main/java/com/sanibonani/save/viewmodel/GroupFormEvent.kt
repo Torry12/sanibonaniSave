@@ -2,6 +2,7 @@ package com.sanibonani.save.viewmodel
 
 import com.sanibonani.save.domain.model.DocumentStatus
 import com.sanibonani.save.domain.model.GroupType
+import com.sanibonani.save.domain.model.RoscaRotationMethod
 
 /**
  * Type-safe, compile-verified events for the group registration form.
@@ -23,6 +24,7 @@ sealed class GroupFormEvent {
     data class AdminEmailChanged(val email: String)            : GroupFormEvent()
     data class AdminPhoneChanged(val phone: String)            : GroupFormEvent()
     data class TypeSelected(val type: GroupType)               : GroupFormEvent()
+    data class RoscaRotationMethodSelected(val method: RoscaRotationMethod) : GroupFormEvent()
     data class LogoEmojiSelected(val emoji: String)            : GroupFormEvent()
 
     // ── Step 2 – Location ─────────────────────────────────────────────────

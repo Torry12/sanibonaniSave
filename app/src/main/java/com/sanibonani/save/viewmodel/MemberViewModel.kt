@@ -364,7 +364,7 @@ class MemberViewModel @Inject constructor(
                 } else {
                     // Initial member fetch to get memberId for dependent flows.
                     val initialMember = if (isImpersonating) {
-                        memberRepo.getMemberById(targetMemberId!!).getOrNull()?.takeIf { it.groupId == groupId }
+                        memberRepo.getMemberById(targetMemberId).getOrNull()?.takeIf { it.groupId == groupId }
                     } else {
                         memberRepo.getMemberByUserId(userId, groupId).getOrNull()
                     }
@@ -382,7 +382,7 @@ class MemberViewModel @Inject constructor(
                     flow {
                         emit(
                             runCatching {
-                                memberRepo.getMemberById(targetMemberId!!).getOrThrow().takeIf { it.groupId == groupId }
+                                memberRepo.getMemberById(targetMemberId).getOrThrow().takeIf { it.groupId == groupId }
                             }
                         )
                     }
@@ -778,9 +778,17 @@ class MemberViewModel @Inject constructor(
         dob: String?,
         isOver65: Boolean = false
     ) {
-        val memberId = _uiState.value.member?.id ?: return
-        val groupId = _uiState.value.group?.id ?: return
-        
+        val memberId = _uiState.value.member?.id
+        if (memberId.isNullOrBlank()) {
+            _uiState.update { it.copy(error = "Membership context not loaded. Please try again.") }
+            return
+        }
+        val groupId = _uiState.value.group?.id
+        if (groupId.isNullOrBlank()) {
+            _uiState.update { it.copy(error = "Group context not loaded. Please try again.") }
+            return
+        }
+
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, error = null) }
 
@@ -1380,14 +1388,22 @@ class MemberViewModel @Inject constructor(
      * Requests a new loan.
      */
     fun requestLoan(amount: Double, months: Int, purpose: String) {
-        val member = _uiState.value.member ?: return
-        val group = _uiState.value.group ?: return
+        val member = _uiState.value.member
+        if (member == null) {
+            _uiState.update { it.copy(error = "Membership context not loaded. Please try again.") }
+            return
+        }
+        val group = _uiState.value.group
+        if (group == null) {
+            _uiState.update { it.copy(error = "Group context not loaded. Please try again.") }
+            return
+        }
 
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, error = null) }
 
-            // Validate eligibility
-            val eligibility = validateLoanEligibilityUseCase(member, group)
+            // Validate eligibility (includes max-loan cap check via requestedAmount)
+            val eligibility = validateLoanEligibilityUseCase(member, group, requestedAmount = amount)
             if (eligibility is ValidateLoanEligibilityUseCase.EligibilityResult.Ineligible) {
                 _uiState.update { it.copy(isLoading = false, error = eligibility.reason) }
                 return@launch
@@ -1462,8 +1478,16 @@ class MemberViewModel @Inject constructor(
         accountHolder: String,
         notes: String?
     ) {
-        val member = _uiState.value.member ?: return
-        val group = _uiState.value.group ?: return
+        val member = _uiState.value.member
+        if (member == null) {
+            _uiState.update { it.copy(error = "Membership context not loaded. Please try again.") }
+            return
+        }
+        val group = _uiState.value.group
+        if (group == null) {
+            _uiState.update { it.copy(error = "Group context not loaded. Please try again.") }
+            return
+        }
 
         viewModelScope.launch {
             _uiState.update { it.copy(isSubmittingClaim = true, error = null) }
@@ -1478,6 +1502,17 @@ class MemberViewModel @Inject constructor(
 
             if (eligibility is ValidateBurialClaimEligibilityUseCase.EligibilityResult.Ineligible) {
                 _uiState.update { it.copy(isSubmittingClaim = false, error = eligibility.reason) }
+                return@launch
+            }
+
+            // Validate banking details before building the claim
+            val bankingValidation = ValidationUtils.validateGroupStep4(bankName, accountNo, branchCode)
+            if (bankingValidation !is ValidationResult.Valid) {
+                _uiState.update { it.copy(isSubmittingClaim = false, error = bankingValidation.getErrorMessage()) }
+                return@launch
+            }
+            if (accountHolder.isBlank()) {
+                _uiState.update { it.copy(isSubmittingClaim = false, error = "Account holder name is required.") }
                 return@launch
             }
 

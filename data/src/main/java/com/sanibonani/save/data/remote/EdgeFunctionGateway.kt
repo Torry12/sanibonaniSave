@@ -1,13 +1,17 @@
 package com.sanibonani.save.data.remote
 
 import com.sanibonani.save.data.logging.AppLogger
+import com.sanibonani.save.domain.model.WhatsAppSendException
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.auth.auth
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.int
+import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -31,8 +35,9 @@ class EdgeFunctionGateway @Inject constructor(
             throw IllegalStateException("You need to sign in again before retrying this action.")
         }
 
+        val baseUrl = normalizeSupabaseUrl(supabaseClient.supabaseUrl)
         val requestBuilder = Request.Builder()
-            .url("${supabaseClient.supabaseUrl.trimEnd('/')}/functions/v1/$functionName")
+            .url("${baseUrl.trimEnd('/')}/functions/v1/$functionName")
             .post(json.encodeToString(JsonObject.serializer(), payload).toRequestBody(JSON_MEDIA_TYPE))
             .header("Content-Type", "application/json")
 
@@ -43,15 +48,48 @@ class EdgeFunctionGateway @Inject constructor(
         okHttpClient.newCall(requestBuilder.build()).execute().use { response ->
             val bodyString = response.body?.string().orEmpty().trim()
             if (!response.isSuccessful) {
-                val parsedError = runCatching {
+                // Parse the top-level "error" field from the response JSON.
+                val parsedBody = runCatching {
                     if (bodyString.isBlank()) null
-                    else json.parseToJsonElement(bodyString).jsonObject["error"]?.let {
-                        (it as? JsonPrimitive)?.content ?: it.toString().trim('"')
-                    }
+                    else json.parseToJsonElement(bodyString).jsonObject
                 }.getOrNull()
-                val message = parsedError
+
+                val errorNode = parsedBody?.get("error")
+                val parsedErrorMessage: String? = when {
+                    errorNode is JsonPrimitive -> errorNode.content
+                    errorNode is JsonObject -> {
+                        // WhatsApp Cloud API nested error object: { "error": { "message": "...", "code": 131030, "type": "..." } }
+                        errorNode["message"]?.jsonPrimitive?.content
+                    }
+                    else -> null
+                }
+
+                val message = parsedErrorMessage
                     ?: bodyString.takeIf { it.isNotBlank() }
                     ?: "Edge function $functionName failed with HTTP ${response.code}."
+
+                // For WhatsApp send failures, throw a richer exception with debug codes.
+                if (functionName == "send-whatsapp") {
+                    val waCode = runCatching {
+                        when (errorNode) {
+                            is JsonObject -> errorNode["code"]?.jsonPrimitive?.intOrNull
+                            else -> parsedBody?.get("code")?.jsonPrimitive?.intOrNull
+                        }
+                    }.getOrNull()
+                    val waType = runCatching {
+                        when (errorNode) {
+                            is JsonObject -> errorNode["type"]?.jsonPrimitive?.content
+                            else -> parsedBody?.get("type")?.jsonPrimitive?.content
+                        }
+                    }.getOrNull()
+                    throw WhatsAppSendException(
+                        httpCode = response.code,
+                        waErrorCode = waCode,
+                        waErrorType = waType,
+                        apiMessage = message
+                    )
+                }
+
                 throw IllegalStateException(message)
             }
 
@@ -70,6 +108,23 @@ class EdgeFunctionGateway @Inject constructor(
     }
 
     companion object {
+        internal fun normalizeSupabaseUrl(rawUrl: String): String {
+            val trimmed = rawUrl.trim().trimEnd('/')
+            if (trimmed.isBlank()) {
+                throw IllegalStateException("Supabase URL is empty. Check your configuration.")
+            }
+
+            if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+                return trimmed
+            }
+
+            return if (trimmed.contains('.')) {
+                "https://$trimmed"
+            } else {
+                "https://$trimmed.supabase.co"
+            }
+        }
+
         private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
     }
 }

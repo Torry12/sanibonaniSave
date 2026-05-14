@@ -6,9 +6,9 @@ import com.sanibonani.save.analytics.AnalyticsTaxonomy
 import com.sanibonani.save.analytics.AppAnalytics
 import com.sanibonani.save.data.utils.toUserMessage
 import com.sanibonani.save.domain.model.Group
-import com.sanibonani.save.domain.model.PlatformFees
 import com.sanibonani.save.domain.model.PlatformAnalytics
 import com.sanibonani.save.domain.model.UserRole
+import com.sanibonani.save.domain.repository.PlatformConfigRepository
 import com.sanibonani.save.domain.repository.GroupRepository
 import com.sanibonani.save.domain.repository.MemberRepository
 import com.sanibonani.save.domain.repository.PlatformRepository
@@ -38,7 +38,8 @@ class LandingViewModel @Inject constructor(
     private val platformRepository: PlatformRepository,
     private val memberRepository: MemberRepository,
     private val groupRepository: GroupRepository,
-    private val supabaseRepository: SupabaseRepository
+    private val supabaseRepository: SupabaseRepository,
+    private val platformConfigRepository: PlatformConfigRepository
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(LandingUiState())
@@ -126,10 +127,12 @@ class LandingViewModel @Inject constructor(
                 analyticsResult.isSuccess && settingsResult.isSuccess -> {
                     val settings = settingsResult.getOrThrow()
 
-                    // Update global singleton for consistency across the app
-                    settings["registration_fee"]?.let { PlatformFees.REGISTRATION = it }
-                    (settings["monthly_member_fee"] ?: settings["monthly_per_member"])
-                        ?.let { PlatformFees.MONTHLY_MEMBER_FEE = it }
+                    val currentConfig = platformConfigRepository.current()
+                    val regFee = settings["registration_fee"] ?: currentConfig.registrationFee
+                    val monthlyFee = settings["monthly_member_fee"]
+                        ?: settings["monthly_per_member"]
+                        ?: currentConfig.monthlyMemberFee
+                    platformConfigRepository.update(monthlyFee, regFee)
 
                     _uiState.update {
                         LandingUiState(

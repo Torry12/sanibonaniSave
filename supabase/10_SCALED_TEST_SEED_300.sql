@@ -44,8 +44,29 @@ BEGIN
         )
         RETURNING id INTO v_group_id;
 
-        -- 3. Create 30 Members per group (Total 300)
-        FOR j IN 1..30 LOOP
+levant        -- 3. Add group admin as default member, then create 29 additional members (Total 300).
+        INSERT INTO public.members (
+            id,
+            group_id,
+            user_id,
+            full_name,
+            email,
+            phone,
+            status,
+            joined_at
+        ) VALUES (
+            gen_random_uuid(),
+            v_group_id,
+            v_admin_id,
+            'Scaled Seed Admin ' || i,
+            'scaled.seed.admin.' || i || '@example.com',
+            '0744400' || lpad(i::text, 3, '0'),
+            'active',
+            now() - interval '365 days'
+        )
+        ON CONFLICT (group_id, user_id) DO NOTHING;
+
+        FOR j IN 1..29 LOOP
             v_full_name := v_names[1 + (floor(random()*12))::int] || ' ' || v_surnames[1 + (floor(random()*11))::int];
             -- Use unique email to avoid constraint violations
             v_email := lower(replace(v_full_name, ' ', '.')) || '.' || i || '.' || j || '@example.com';
@@ -130,6 +151,10 @@ BEGIN
             INSERT INTO public.group_ledger (id, group_id, amount, balance_after, description, category, created_at)
             VALUES (gen_random_uuid(), v_group_id, -1000.0 * p, 15000.0, 'Periodic Payout ' || p, 'withdrawal', now() - (p * interval '2 months'));
         END LOOP;
+
+        UPDATE public.groups
+        SET current_members = 30
+        WHERE id = v_group_id;
 
     END LOOP;
 

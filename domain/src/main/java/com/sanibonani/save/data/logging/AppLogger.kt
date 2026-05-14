@@ -1,5 +1,6 @@
 package com.sanibonani.save.data.logging
 
+import com.sanibonani.save.domain.BuildConfig
 import android.util.Log
 
 /**
@@ -12,6 +13,7 @@ import android.util.Log
  */
 object AppLogger {
     private const val DEFAULT_TAG = "SanibonaniSave"
+    private val debugLoggingEnabled: Boolean = BuildConfig.DEBUG
 
     private inline fun runLogSafely(fallback: () -> Unit, block: () -> Unit) {
         try {
@@ -23,6 +25,7 @@ object AppLogger {
     }
 
     fun d(tag: String = DEFAULT_TAG, message: String) {
+        if (!debugLoggingEnabled) return
         runLogSafely(
             fallback = { println("D/$tag: $message") },
             block = { Log.d(tag, message) }
@@ -30,6 +33,7 @@ object AppLogger {
     }
 
     fun i(tag: String = DEFAULT_TAG, message: String) {
+        if (!debugLoggingEnabled) return
         runLogSafely(
             fallback = { println("I/$tag: $message") },
             block = { Log.i(tag, message) }

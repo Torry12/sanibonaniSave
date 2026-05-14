@@ -1,5 +1,8 @@
 package com.sanibonani.save.domain.validation
 
+import com.sanibonani.save.domain.utils.isPositiveMoneyAmount
+import com.sanibonani.save.domain.utils.parseMoneyAmountOrNull
+import java.math.BigDecimal
 import java.util.Calendar
 
 /**
@@ -8,8 +11,10 @@ import java.util.Calendar
 object ValidationUtils {
 
     private val strictSaPhoneRegex = "^0(6|7)[0-9]{8}$".toRegex()
-    private val bankAccountRegex = "^[0-9]{7,13}$".toRegex()
+    // SA PASA standard: 7–11 digit account numbers (aligns with RequestPayoutUseCase)
+    private val bankAccountRegex = "^[0-9]{7,11}$".toRegex()
     private val branchCodeRegex = "^[0-9]{6}$".toRegex()
+    private val minimumMonthlyContribution = BigDecimal("10.00")
 
     // ──────────────────────────────────────────────────────────────────────────
     // EMAIL VALIDATION
@@ -140,7 +145,7 @@ object ValidationUtils {
 
     fun isValidName(name: String): Boolean = InputValidator.isValidName(name)
 
-    fun isValidAmount(amount: Double): Boolean = amount > 0.0
+    fun isValidAmount(amount: Double): Boolean = amount.isPositiveMoneyAmount()
 
     fun isValidBankingDetails(accountNumber: String, branchCode: String): Boolean {
         return isValidBankAccount(accountNumber) && isValidBranchCode(branchCode)
@@ -182,13 +187,13 @@ object ValidationUtils {
     }
 
     fun validateGroupStep3(joining: String, contribution: String, maxMembers: String): ValidationResult {
-        val joiningFee = joining.toDoubleOrNull()
-        val monthlyContrib = contribution.toDoubleOrNull()
+        val joiningFee = joining.parseMoneyAmountOrNull()
+        val monthlyContrib = contribution.parseMoneyAmountOrNull()
         val maxMem = maxMembers.toIntOrNull()
 
         return when {
-            joiningFee == null || joiningFee < 0 -> ValidationResult.Error("Joining fee must be a valid amount")
-            monthlyContrib == null || monthlyContrib < 10 -> ValidationResult.Error("Monthly contribution must be at least R10")
+            joiningFee == null -> ValidationResult.Error("Joining fee must be a valid amount")
+            monthlyContrib == null || monthlyContrib < minimumMonthlyContribution -> ValidationResult.Error("Monthly contribution must be at least R10")
             maxMem == null || maxMem < 2 -> ValidationResult.Error("Maximum members must be at least 2")
             else -> ValidationResult.Valid
         }
@@ -197,8 +202,8 @@ object ValidationUtils {
     fun validateGroupStep4(bankName: String, accountNumber: String, branchCode: String): ValidationResult {
         return when {
             bankName.isBlank() -> ValidationResult.Error("Bank name is required")
-            accountNumber.length !in 7..13 || !accountNumber.all { it.isDigit() } -> 
-                ValidationResult.Error("Account number must be 7-13 digits")
+            accountNumber.length !in 7..11 || !accountNumber.all { it.isDigit() } -> 
+                ValidationResult.Error("Account number must be 7–11 digits (SA PASA standard)")
             branchCode.length != 6 || !branchCode.all { it.isDigit() } -> 
                 ValidationResult.Error("Branch code must be 6 digits")
             else -> ValidationResult.Valid
@@ -213,7 +218,7 @@ object ValidationUtils {
             !isValidSAID(idNumber) -> ValidationResult.Error("Invalid SA ID Number. Please enter a valid 13-digit ID.")
             !isLoggedIn && email.isBlank() -> ValidationResult.Error("Admin email is required")
             !isLoggedIn && !isValidEmail(email) -> ValidationResult.Error("Invalid email format")
-            !isLoggedIn && password.length < 8 -> ValidationResult.Error("Password must be at least 8 characters")
+            !isLoggedIn && password.length < 10 -> ValidationResult.Error("Password must be at least 10 characters")
             else -> ValidationResult.Valid
         }
     }

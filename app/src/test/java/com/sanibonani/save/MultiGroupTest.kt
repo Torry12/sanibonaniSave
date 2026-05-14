@@ -12,6 +12,7 @@ import com.sanibonani.save.domain.usecase.*
 import com.sanibonani.save.domain.usecase.groups.GetGroupBusinessInsightsUseCase
 import com.sanibonani.save.service.AdminGroupContextCacheService
 import com.sanibonani.save.viewmodel.AdminViewModel
+import com.sanibonani.save.viewmodel.GroupFormEvent
 import com.sanibonani.save.viewmodel.GroupViewModel
 import io.mockk.coEvery
 import io.mockk.every
@@ -194,11 +195,11 @@ class MultiGroupTest {
         )
         
         // Simulate a logged-in user filling the form
-        groupViewModel.updateField("name", "New Managed Group")
-        groupViewModel.updateField("adminEmail", "existing@test.com")
-        groupViewModel.updateField("adminPassword", "password123")
-        groupViewModel.updateField("adminFullName", "Admin Name")
-        groupViewModel.updateField("adminIdNumber", "9001015000081")
+        groupViewModel.onEvent(GroupFormEvent.NameChanged("New Managed Group"))
+        groupViewModel.onEvent(GroupFormEvent.AdminEmailChanged("existing@test.com"))
+        groupViewModel.onEvent(GroupFormEvent.AdminPasswordChanged("password123"))
+        groupViewModel.onEvent(GroupFormEvent.AdminFullNameChanged("Admin Name"))
+        groupViewModel.onEvent(GroupFormEvent.AdminIdNumberChanged("9001015000081"))
 
         // Execute registration
         groupViewModel.finalizeRegistrationAfterPayment("tx_123")

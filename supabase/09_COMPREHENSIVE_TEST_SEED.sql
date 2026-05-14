@@ -45,8 +45,29 @@ BEGIN
         )
         RETURNING id INTO v_group_id;
 
-        -- 3. Create 10 Members per group
-        FOR j IN 1..10 LOOP
+        -- 3. Add group admin as default member, then generate 9 additional members.
+        INSERT INTO public.members (
+            id,
+            group_id,
+            user_id,
+            full_name,
+            email,
+            phone,
+            status,
+            joined_at
+        ) VALUES (
+            gen_random_uuid(),
+            v_group_id,
+            v_admin_id,
+            'Comprehensive Seed Admin ' || i,
+            'comprehensive.seed.admin.' || i || '@example.com',
+            '0755500' || lpad(i::text, 3, '0'),
+            'active',
+            now() - interval '365 days'
+        )
+        ON CONFLICT (group_id, user_id) DO NOTHING;
+
+        FOR j IN 1..9 LOOP
             v_full_name := v_names[1 + (floor(random()*8))::int] || ' ' || v_surnames[1 + (floor(random()*8))::int];
             v_email := lower(replace(v_full_name, ' ', '.')) || j || '@example.com';
 
@@ -140,6 +161,10 @@ BEGIN
         -- 8. Add some Ledger entries
         INSERT INTO public.group_ledger (id, group_id, amount, balance_after, description, category, created_at)
         VALUES (gen_random_uuid(), v_group_id, -2500.0, 10000.0, 'Monthly Payout', 'withdrawal', now() - interval '5 days');
+
+        UPDATE public.groups
+        SET current_members = 10
+        WHERE id = v_group_id;
 
     END LOOP;
 

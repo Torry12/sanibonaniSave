@@ -5,6 +5,7 @@ import com.sanibonani.save.data.local.SanibonaniDatabase
 import com.sanibonani.save.data.logging.AppLogger
 import com.sanibonani.save.domain.model.*
 import com.sanibonani.save.data.remote.EdgeFunctionGateway
+import com.sanibonani.save.domain.model.WhatsAppSendException
 import com.sanibonani.save.domain.repository.*
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.postgrest.postgrest
@@ -16,7 +17,6 @@ import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 import kotlinx.serialization.json.addJsonObject
 import javax.inject.Inject
-import javax.inject.Singleton
 import java.text.NumberFormat
 import java.util.Locale
 
@@ -55,7 +55,7 @@ class NotificationRepositoryImpl @Inject constructor(
                 filter { eq("id", notificationId) }
             }.decodeSingleOrNull<AppNotification>()?.let { existing ->
                 db.notificationDao().upsertNotifications(listOf(existing.toEntity()))
-                return@runCatching Unit
+                    return@runCatching
             }
         }
 
@@ -84,8 +84,8 @@ class NotificationRepositoryImpl @Inject constructor(
 
         if (notification.channel == NotifChannel.WHATSAPP || notification.channel == NotifChannel.BOTH) {
             val memberId = notification.memberId
-            if (notification.triggerEvent == NotifEvent.MEMBER_MESSAGE || notification.triggerEvent == NotifEvent.LOAN_REQUESTED) {
-                // Member inquiry or loan request: Send WhatsApp to group administrator
+            if (routesToGroupAdmin(notification.triggerEvent)) {
+                // Member inquiry, loan request, or payout request: send WhatsApp to group admin.
                 val group = supabase.postgrest["groups"].select(columns = Columns.list("admin_user_id")) {
                     filter { eq("id", notification.groupId) }
                 }.decodeSingle<Group>()
@@ -99,7 +99,7 @@ class NotificationRepositoryImpl @Inject constructor(
                         }
                     }.decodeSingleOrNull<Member>()
 
-                    admin?.phone?.let { if (it.isNotBlank()) sendWhatsAppViaEdge(it, notification.message) }
+                    admin?.phone?.takeIf { it.isNotBlank() }?.let { sendWhatsAppViaEdge(it, notification.message) }
                 }
             } else if (memberId != null) {
                 // Direct notification to a specific member
@@ -107,7 +107,7 @@ class NotificationRepositoryImpl @Inject constructor(
                     filter { eq("id", memberId) }
                 }.decodeSingleOrNull<Member>()
 
-                member?.phone?.let { if (it.isNotBlank()) sendWhatsAppViaEdge(it, notification.message) }
+                member?.phone?.takeIf { it.isNotBlank() }?.let { sendWhatsAppViaEdge(it, notification.message) }
             } else {
                 // Broadcast to all members in the group
                 val members = supabase.postgrest["members"].select(columns = Columns.list("phone", "notification_pref")) {
@@ -116,12 +116,12 @@ class NotificationRepositoryImpl @Inject constructor(
 
                 supervisorScope {
                     members.filter {
-                        !it.phone.isNullOrBlank() &&
+                                it.phone.isNotBlank() &&
                         (it.notificationPref == NotificationPref.WHATSAPP || it.notificationPref == NotificationPref.BOTH)
                     }.forEach { m ->
                         launch(Dispatchers.IO) {
                             try {
-                                sendWhatsAppViaEdge(m.phone!!, notification.message)
+                                sendWhatsAppViaEdge(m.phone, notification.message)
                             } catch (e: Exception) {
                                 AppLogger.e("NotificationRepo", "Failed broadcast to ${m.phone}: ${e.message}")
                             }
@@ -130,33 +130,13 @@ class NotificationRepositoryImpl @Inject constructor(
                 }
             }
         }
-        Unit
     }
 
     /**
      * Sends a WhatsApp message by proxying through the [send-whatsapp] Supabase Edge Function.
      * The WHATSAPP_TOKEN never leaves the server — it is stored as a Supabase secret.
      */
-    private suspend fun sendWhatsAppViaEdge(phone: String, message: String) {
-        val payload = buildJsonObject {
-            put("to", phone)
-            put("message", message)
-            // Optionally add a template; for now we rely on the fallback text message path
-            // in the Edge Function (template required for business-initiated conversations).
-            putJsonArray("template_components") {
-                addJsonObject {
-                    put("type", "body")
-                    putJsonArray("parameters") {
-                        addJsonObject {
-                            put("type", "text")
-                            put("text", message)
-                        }
-                    }
-                }
-            }
-        }
-
-        // Build proper template payload so the Edge Function uses template mode
+    internal suspend fun sendWhatsAppViaEdge(phone: String, message: String) {
         val templatePayload = buildJsonObject {
             put("to", phone)
             put("message", message)
@@ -177,7 +157,54 @@ class NotificationRepositoryImpl @Inject constructor(
             })
         }
 
-        edgeFunctionGateway.invoke("send-whatsapp", templatePayload).getOrThrow()
+        val textPayload = buildJsonObject {
+            put("to", phone)
+            put("message", message)
+        }
+
+        val templateResult = edgeFunctionGateway.invoke("send-whatsapp", templatePayload)
+        if (templateResult.isSuccess) return
+
+        val templateError = templateResult.exceptionOrNull()
+        if (templateError == null || !isTemplateDeliveryFailure(templateError)) {
+            // Tag the exception attemptType for clearer debug messages in the UI.
+            val richError = when (templateError) {
+                is WhatsAppSendException -> templateError.copy(attemptType = "template")
+                else -> templateError
+            }
+            throw richError ?: IllegalStateException("Failed to send WhatsApp template message.")
+        }
+
+        AppLogger.w(
+            "NotificationRepo",
+            "Template delivery failed for $phone. Retrying as plain text: ${templateError.message}"
+        )
+
+        val textResult = edgeFunctionGateway.invoke("send-whatsapp", textPayload)
+        if (textResult.isFailure) {
+            val textError = textResult.exceptionOrNull()
+            val richError = when (textError) {
+                is WhatsAppSendException -> textError.copy(attemptType = "text-fallback")
+                else -> textError
+            }
+            throw richError ?: IllegalStateException("Failed to send WhatsApp text-fallback message.")
+        }
+    }
+
+    private fun isTemplateDeliveryFailure(error: Throwable): Boolean {
+        val message = error.message?.lowercase() ?: return false
+        return message.contains("template") ||
+            message.contains("parameter") ||
+            message.contains("language") ||
+            message.contains("not found") ||
+            message.contains("unapproved") ||
+            message.contains("rejected")
+    }
+
+    internal fun routesToGroupAdmin(event: NotifEvent): Boolean {
+        return event == NotifEvent.MEMBER_MESSAGE ||
+            event == NotifEvent.LOAN_REQUESTED ||
+            event == NotifEvent.PAYOUT_REQUESTED
     }
 
     override suspend fun sendFeeEnforcementNotification(
@@ -186,7 +213,10 @@ class NotificationRepositoryImpl @Inject constructor(
         memberCount: Int,
         amountDue: Double
     ): Result<Unit> = runCatching {
-        val formattedAmount = NumberFormat.getCurrencyInstance(Locale("en", "ZA")).format(amountDue)
+        val formattedAmount = NumberFormat.getCurrencyInstance(Locale("en", "ZA")).apply {
+            minimumFractionDigits = 2
+            maximumFractionDigits = 2
+        }.format(amountDue)
         val message = when (event) {
             NotifEvent.PLATFORM_FEE_DUE -> "Monthly platform fee of $formattedAmount for $memberCount members is now due."
             NotifEvent.PLATFORM_FEE_WARNING -> "URGENT: Platform fee of $formattedAmount is overdue. 48h until suspension."
@@ -215,8 +245,8 @@ class NotificationRepositoryImpl @Inject constructor(
         ).getOrThrow()
 
         // PLATFORM_FEE_DUE has an additional dedicated template, sent best-effort.
-        if (event == NotifEvent.PLATFORM_FEE_DUE && admin != null && !admin.phone.isNullOrBlank()) {
-            val phone = admin.phone!!
+        if (event == NotifEvent.PLATFORM_FEE_DUE && admin != null && admin.phone.isNotBlank()) {
+            val phone = admin.phone
             val feeDuePayload = buildJsonObject {
                 put("to", phone)
                 put("template", buildJsonObject {
@@ -254,6 +284,12 @@ class NotificationRepositoryImpl @Inject constructor(
                 groupId = "platform"
             ))
         }
+    }
+
+    override suspend fun sendDirectWhatsAppMessage(phone: String, message: String): Result<Unit> = runCatching {
+        require(phone.isNotBlank()) { "Please enter a WhatsApp number." }
+        require(message.isNotBlank()) { "Please enter a message to send." }
+        sendWhatsAppViaEdge(phone = phone, message = message)
     }
 
     override suspend fun sendPasswordResetWhatsApp(phone: String): Result<Unit> = runCatching {

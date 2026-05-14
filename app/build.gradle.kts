@@ -73,12 +73,18 @@ android {
     }
 
     // ── Signing configs ───────────────────────────────────────────────────────
+    // Reads from local.properties for local builds; falls back to env vars for CI/CD.
     signingConfigs {
         create("release") {
-            storeFile      = localProps.getProperty("KEYSTORE_PATH")?.let { rootProject.file(it) }
-            storePassword  = localProps.getProperty("KEYSTORE_PASSWORD", "")
-            keyAlias       = localProps.getProperty("KEY_ALIAS", "sanibonani")
-            keyPassword    = localProps.getProperty("KEY_PASSWORD", "")
+            val keystorePath = localProps.getProperty("KEYSTORE_PATH")
+                ?: System.getenv("KEYSTORE_PATH")
+            storeFile      = keystorePath?.let { rootProject.file(it) }
+            storePassword  = localProps.getProperty("KEYSTORE_PASSWORD")
+                ?: System.getenv("KEYSTORE_PASSWORD") ?: ""
+            keyAlias       = localProps.getProperty("KEY_ALIAS")
+                ?: System.getenv("KEY_ALIAS") ?: "sanibonani_release"
+            keyPassword    = localProps.getProperty("KEY_PASSWORD")
+                ?: System.getenv("KEY_PASSWORD") ?: ""
         }
     }
 
@@ -98,7 +104,12 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            buildConfigField("boolean", "RELEASE_BUILD", "true")
             resValue("string", "app_name", "SanibonaniSave")
+        }
+        debug {
+            // already declared above; ensure RELEASE_BUILD is false in debug
+            buildConfigField("boolean", "RELEASE_BUILD", "false")
         }
     }
 

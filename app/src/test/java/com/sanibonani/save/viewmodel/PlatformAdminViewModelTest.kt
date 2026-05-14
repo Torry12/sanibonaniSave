@@ -30,7 +30,8 @@ class PlatformAdminViewModelTest {
     private val memberRepo = mockk<MemberRepository>()
     private val notifRepo = mockk<NotificationRepository>(relaxed = true)
     private val supabaseRepo = mockk<SupabaseRepository>()
-    
+    private val platformConfigRepo = mockk<PlatformConfigRepository>(relaxed = true)
+
     private lateinit var viewModel: PlatformAdminViewModel
     private val testDispatcher = StandardTestDispatcher()
 
@@ -61,7 +62,22 @@ class PlatformAdminViewModelTest {
         coEvery { platformRepo.getMemberBehaviorInsights() } returns Result.success(emptyList())
         every { loanRepo.getGroupLoans(any()) } returns flowOf(Result.success(emptyList()))
 
-        viewModel = PlatformAdminViewModel(platformRepo, payoutRepo, loanRepo, processPayoutUseCase, claimRepo, memberRepo, notifRepo, supabaseRepo)
+        every { platformConfigRepo.current() } returns PlatformConfig(
+            monthlyMemberFee = PlatformFees.MONTHLY_PER_MEMBER,
+            registrationFee = PlatformFees.REGISTRATION
+        )
+
+        viewModel = PlatformAdminViewModel(
+            platformRepo,
+            payoutRepo,
+            loanRepo,
+            processPayoutUseCase,
+            claimRepo,
+            memberRepo,
+            notifRepo,
+            supabaseRepo,
+            platformConfigRepo
+        )
         // NOTE: Do NOT call advanceUntilIdle() here — doing so outside runTest can leak
         // uncaught coroutine exceptions into subsequent test classes.
     }
@@ -101,19 +117,39 @@ class PlatformAdminViewModelTest {
     }
 
     @Test
-    fun `saveGlobalFees updates persistence and global singleton`() = runTest {
+    fun `saveGlobalFees updates persistence and platform config repository`() = runTest {
         viewModel.updateMemberCharge("20.0")
         viewModel.updateRegistrationFee("800.0")
         
         coEvery { platformRepo.updateGlobalFees(20.0, 800.0) } returns Result.success(Unit)
+        coEvery { platformRepo.broadcastPlatformMessage(any()) } returns Result.success(Unit)
 
         viewModel.saveGlobalFees()
         advanceUntilIdle()
 
         assertTrue(viewModel.state.value.saveSuccess)
-        assertEquals(20.0, PlatformFees.MONTHLY_PER_MEMBER, 0.01)
-        assertEquals(800.0, PlatformFees.REGISTRATION, 0.01)
         coVerify { platformRepo.updateGlobalFees(20.0, 800.0) }
+        coVerify {
+            platformRepo.broadcastPlatformMessage(match {
+                it.contains("Platform fee settings updated") &&
+                    it.contains("Monthly member fee") &&
+                    it.contains("Registration fee")
+            })
+        }
+        verify { platformConfigRepo.update(20.0, 800.0) }
+    }
+
+    @Test
+    fun `saveGlobalFees does not broadcast when values are unchanged`() = runTest {
+        viewModel.updateMemberCharge("15.0")
+        viewModel.updateRegistrationFee("750.0")
+
+        coEvery { platformRepo.updateGlobalFees(15.0, 750.0) } returns Result.success(Unit)
+
+        viewModel.saveGlobalFees()
+        advanceUntilIdle()
+
+        coVerify(exactly = 0) { platformRepo.broadcastPlatformMessage(any()) }
     }
 
     @Test
@@ -151,7 +187,17 @@ class PlatformAdminViewModelTest {
             mapOf("monthly_per_member" to 15.0, "registration_fee" to 750.0)
         )
 
-        val freshVm = PlatformAdminViewModel(platformRepo, payoutRepo, loanRepo, processPayoutUseCase, claimRepo, memberRepo, notifRepo, supabaseRepo)
+        val freshVm = PlatformAdminViewModel(
+            platformRepo,
+            payoutRepo,
+            loanRepo,
+            processPayoutUseCase,
+            claimRepo,
+            memberRepo,
+            notifRepo,
+            supabaseRepo,
+            platformConfigRepo
+        )
 
         // Drain init { loadData(); loadSettings() } so groups are populated
         advanceUntilIdle()
@@ -194,7 +240,17 @@ class PlatformAdminViewModelTest {
             mapOf("monthly_per_member" to 15.0, "registration_fee" to 750.0)
         )
 
-        val freshVm = PlatformAdminViewModel(platformRepo, payoutRepo, loanRepo, processPayoutUseCase, claimRepo, memberRepo, notifRepo, supabaseRepo)
+        val freshVm = PlatformAdminViewModel(
+            platformRepo,
+            payoutRepo,
+            loanRepo,
+            processPayoutUseCase,
+            claimRepo,
+            memberRepo,
+            notifRepo,
+            supabaseRepo,
+            platformConfigRepo
+        )
         advanceUntilIdle()
 
         coEvery { platformRepo.unsuspendGroup(groupId) } returns Result.success(Unit)
@@ -328,6 +384,39 @@ class PlatformAdminViewModelTest {
         assertEquals("Your session has expired. Please log in again.", viewModel.state.value.error)
         coVerify(exactly = 0) {
             claimRepo.updateClaimStatus(any(), any(), any(), any(), any())
+        }
+    }
+
+    @Test
+    fun `sendDirectWhatsAppTest validates south african phone number before sending`() = runTest {
+        viewModel.updateWhatsAppTestPhone("12345")
+
+        viewModel.sendDirectWhatsAppTest()
+        advanceUntilIdle()
+
+        assertTrue(viewModel.state.value.error?.contains("valid South African WhatsApp number", ignoreCase = true) == true)
+        coVerify(exactly = 0) { notifRepo.sendDirectWhatsAppMessage(any(), any()) }
+    }
+
+    @Test
+    fun `sendDirectWhatsAppTest sends trimmed digits to notification repository`() = runTest {
+        coEvery {
+            notifRepo.sendDirectWhatsAppMessage(
+                "0713459563",
+                "Edge function smoke test"
+            )
+        } returns Result.success(Unit)
+
+        viewModel.updateWhatsAppTestPhone("071 345 9563")
+        viewModel.updateWhatsAppTestMessage("Edge function smoke test")
+
+        viewModel.sendDirectWhatsAppTest()
+        advanceUntilIdle()
+
+        assertEquals("WhatsApp test sent to 0713459563.", viewModel.state.value.whatsAppTestResult)
+        assertFalse(viewModel.state.value.isSendingWhatsAppTest)
+        coVerify(exactly = 1) {
+            notifRepo.sendDirectWhatsAppMessage("0713459563", "Edge function smoke test")
         }
     }
 }

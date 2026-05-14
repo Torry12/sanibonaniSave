@@ -1,27 +1,38 @@
 package com.sanibonani.save.domain.usecase.emergency
 
 import com.sanibonani.save.domain.model.*
+import com.sanibonani.save.domain.repository.GroupRepository
 import javax.inject.Inject
 
 /**
  * Emergency Fund specific logic.
  * Validates and processes emergency fund withdrawal requests.
+ *
+ * Business rules:
+ *  1. Group must be EMERGENCY_FUND type.
+ *  2. Only ACTIVE members may withdraw.
+ *  3. Requested amount must not exceed the current group balance.
+ *  4. Single-transaction limit: max 50% of total fund.
+ *
+ * On success, the group balance is decremented via [GroupRepository].
  */
-class ProcessEmergencyWithdrawalUseCase @Inject constructor() {
+class ProcessEmergencyWithdrawalUseCase @Inject constructor(
+    private val groupRepository: GroupRepository
+) {
 
     sealed class WithdrawalResult {
         data class Success(val amount: Double, val balanceRemaining: Double) : WithdrawalResult()
         data class Failure(val reason: String) : WithdrawalResult()
     }
 
-    operator fun invoke(
+    suspend operator fun invoke(
         group: Group,
         member: Member,
         amount: Double,
         purpose: String
     ): WithdrawalResult {
         if (group.type != GroupType.EMERGENCY_FUND) {
-            return WithdrawalResult.Failure("Group is not an Emergency Fund")
+            return WithdrawalResult.Failure("Group is not an Emergency Fund.")
         }
 
         // 1. Check Member Standing
@@ -31,20 +42,26 @@ class ProcessEmergencyWithdrawalUseCase @Inject constructor() {
 
         // 2. Liquidity Check
         if (amount > group.balance) {
-            return WithdrawalResult.Failure("Insufficient funds in group account. Requested: R$amount, Available: R${group.balance}")
+            return WithdrawalResult.Failure(
+                "Insufficient funds in group account. Requested: R$amount, Available: R${group.balance}."
+            )
         }
 
-        // 3. Limit Check (Optional - e.g. cannot withdraw more than 50% of fund)
+        // 3. Single-transaction limit: max 50% of fund
         val maxWithdrawal = group.balance * 0.5
         if (amount > maxWithdrawal) {
-            return WithdrawalResult.Failure("Withdrawal exceeds single-transaction limit of 50% of the total fund (R$maxWithdrawal).")
+            return WithdrawalResult.Failure(
+                "Withdrawal exceeds single-transaction limit of 50% of the total fund (R%.2f).".format(maxWithdrawal)
+            )
         }
 
-        // In a real implementation, we would call a repository to update the balance.
-        // For this domain logic module, we just return the calculation.
-        return WithdrawalResult.Success(
-            amount = amount,
-            balanceRemaining = group.balance - amount
-        )
+        // 4. Persist the balance change
+        val newBalance = group.balance - amount
+        val updateResult = groupRepository.updateGroupBalance(group.id ?: return WithdrawalResult.Failure("Group ID missing."), newBalance)
+        if (updateResult.isFailure) {
+            return WithdrawalResult.Failure("Failed to update group balance. Please try again.")
+        }
+
+        return WithdrawalResult.Success(amount = amount, balanceRemaining = newBalance)
     }
 }

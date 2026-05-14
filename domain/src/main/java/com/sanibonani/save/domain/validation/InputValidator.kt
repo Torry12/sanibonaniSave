@@ -2,6 +2,7 @@ package com.sanibonani.save.domain.validation
 
 import com.sanibonani.save.domain.config.BankAccountValidation
 import com.sanibonani.save.domain.config.MemberValidation
+import com.sanibonani.save.domain.utils.parseMoneyAmountOrNull
 
 /**
  * Input validation utilities for member data, group settings, and payment info.
@@ -154,11 +155,11 @@ object InputValidator {
 
     // ── Monetary Amount Validation ─────────────────────────────────────────
     fun validateMonetaryAmount(amount: String, fieldName: String = "Amount"): ValidationResult {
+        val parsed = amount.parseMoneyAmountOrNull()
         return when {
             amount.isBlank() -> ValidationResult.Error("$fieldName is required")
-            !amount.matches(Regex("^[0-9]+(\\.[0-9]{1,2})?$")) -> 
-                ValidationResult.Error("$fieldName must be a valid currency amount")
-            amount.toDoubleOrNull()?.let { it <= 0 } == true -> 
+            parsed == null -> ValidationResult.Error("$fieldName must be a valid currency amount")
+            parsed <= java.math.BigDecimal.ZERO ->
                 ValidationResult.Error("$fieldName must be greater than 0")
             else -> ValidationResult.Valid
         }

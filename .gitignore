@@ -15,7 +15,23 @@
 local.properties
 .idea/shelf
 *.log
-*.txt
+# Exclude generic .txt logs but keep release-notes.txt and other committed text files
+build_check*.txt
+compile_out.txt
+platform_admin_vm_run.log
+admin_viability_broadcast_tests.log
+clean-compile-mapfix.log
+compile-mapfix.log
+test_actuarial.log
+test_platform_admin_vm.log
+
+# Release keystore — NEVER commit to git
+*.keystore
+*.jks
+keystore/
+release.keystore
+keystore.b64
+
 *.vsix
 *.archimate
 

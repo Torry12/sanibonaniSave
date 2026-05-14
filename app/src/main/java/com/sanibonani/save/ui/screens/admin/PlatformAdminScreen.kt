@@ -24,6 +24,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.sanibonani.save.domain.model.*
 import com.sanibonani.save.ui.components.*
 import com.sanibonani.save.ui.theme.*
+import com.sanibonani.save.ui.utils.uiLabel
 import com.sanibonani.save.viewmodel.PlatformAdminUiState
 import com.sanibonani.save.viewmodel.PlatformAdminViewModel
 
@@ -54,8 +55,22 @@ fun PlatformAdminScreen(
             SanibonaniTopBar(
                 title = "Platform Administration",
                 actions = {
-                    IconButton(onClick = onLogout) {
-                        Icon(Icons.AutoMirrored.Filled.ExitToApp, "Logout", tint = Forest)
+                    OutlinedButton(
+                        onClick = onLogout,
+                        shape = RoundedCornerShape(10.dp),
+                        border = BorderStroke(1.dp, LightGray.copy(alpha = 0.7f)),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MidGray),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                        modifier = Modifier.height(38.dp)
+                    ) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.ExitToApp,
+                            contentDescription = "Logout",
+                            tint = MidGray,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text("Log out", style = MaterialTheme.typography.labelMedium)
                     }
                 }
             )
@@ -407,7 +422,7 @@ private fun DisbursementsTab(
     ) {
         item {
             Text("Escalated Disbursements", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-            Text("Validated payout requests escalated by group admins.", style = MaterialTheme.typography.labelSmall, color = MidGray)
+            Text("Validated payout requests escalated by group admins for final platform approval.", style = MaterialTheme.typography.labelSmall, color = MidGray)
         }
         
         items(payouts) { payout ->
@@ -426,7 +441,7 @@ private fun DisbursementsTab(
                     ) {
                         Column(Modifier.weight(1f)) {
                             Text(groupName, fontWeight = FontWeight.Bold)
-                            Text("Amount: R${payout.amount}", color = Forest, fontWeight = FontWeight.ExtraBold)
+                            Text("Amount: ${formatZAR(payout.amount)}", color = Forest, fontWeight = FontWeight.ExtraBold)
                             Text("Requested: ${payout.createdAt}", style = MaterialTheme.typography.labelSmall, color = MidGray)
                         }
                         
@@ -444,7 +459,7 @@ private fun DisbursementsTab(
                             shape = RoundedCornerShape(16.dp)
                         ) {
                             Text(
-                                payout.status.name,
+                                payout.status.uiLabel,
                                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                                 color = statusColor,
                                 style = MaterialTheme.typography.labelSmall
@@ -492,7 +507,7 @@ private fun DisbursementsTab(
                                     modifier = Modifier.weight(1f),
                                     shape = RoundedCornerShape(8.dp)
                                 ) {
-                                    Text("Approve")
+                                    Text("Approve Final")
                                 }
                                 
                                 Button(
@@ -739,7 +754,7 @@ private fun DisbursementsTab(
                         Column {
                             Text(groupName, style = MaterialTheme.typography.labelSmall, color = MidGray)
                             Text("For: ${claim.beneficiaryName}", fontWeight = FontWeight.Bold)
-                            Text("Claim: R${claim.claimAmount}", color = Color.Red, fontWeight = FontWeight.ExtraBold)
+                            Text("Claim: ${formatZAR(claim.claimAmount)}", color = Color.Red, fontWeight = FontWeight.ExtraBold)
                         }
                         Surface(
                             color = Forest.copy(0.1f),
@@ -923,6 +938,53 @@ private fun MaintenanceTab(
 
                     state.error?.let { error ->
                         InfoBox(error, InfoType.ERROR)
+                    }
+
+                    Text(
+                        "🧪 Direct WhatsApp Smoke Test",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = Forest,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        "Send a live message through the deployed `send-whatsapp` edge function to verify Meta delivery.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MidGray
+                    )
+
+                    SanibonaniTextField(
+                        value = state.whatsAppTestPhone,
+                        onValueChange = vm::updateWhatsAppTestPhone,
+                        label = "WhatsApp Number",
+                        placeholder = "0713459563",
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                        visualTransformation = PhoneNumberTransformation()
+                    )
+
+                    SanibonaniTextField(
+                        value = state.whatsAppTestMessage,
+                        onValueChange = vm::updateWhatsAppTestMessage,
+                        label = "Test Message",
+                        placeholder = "Enter the WhatsApp message to send...",
+                        singleLine = false,
+                        modifier = Modifier.height(110.dp)
+                    )
+
+                    Button(
+                        onClick = { vm.sendDirectWhatsAppTest() },
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = state.whatsAppTestPhone.isNotBlank() && !state.isSendingWhatsAppTest,
+                        colors = ButtonDefaults.buttonColors(containerColor = Forest)
+                    ) {
+                        if (state.isSendingWhatsAppTest) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(18.dp),
+                                strokeWidth = 2.dp,
+                                color = Color.White
+                            )
+                        } else {
+                            Text("Send WhatsApp Test")
+                        }
                     }
 
                     OutlinedButton(
@@ -1199,14 +1261,6 @@ private fun MaintenanceTab(
         }
 
         item {
-            Spacer(Modifier.height(16.dp))
-            SanibonaniButton(
-                text = "LOGOUT",
-                onClick = onLogout,
-                modifier = Modifier.fillMaxWidth(),
-                containerColor = Color.Transparent,
-                contentColor = ErrorRed
-            )
             Spacer(Modifier.height(32.dp))
         }
     }
