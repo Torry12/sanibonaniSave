@@ -12,10 +12,14 @@ DECLARE
     v_group_name TEXT;
     v_member_index INT;
     v_member_id UUID;
+    v_extra_admin_id UUID;
+    v_member_email TEXT;
+    v_member_full_name TEXT;
     v_group_balance NUMERIC(12,2);
     v_contribution_amount NUMERIC(10,2);
     v_disbursement_amount NUMERIC(12,2);
     v_disbursement_status TEXT;
+    v_extra_admin_password TEXT := 'Seed100@12345';
 
     v_types TEXT[] := ARRAY[
         'stokvel',
@@ -143,7 +147,7 @@ BEGIN
             (g % 2 = 0),
             2,
             'FNB',
-            format('6200777%03s', g),
+            '6200777' || lpad(g::text, 3, '0'),
             '250655',
             'Savings',
             v_group_balance,
@@ -213,8 +217,17 @@ BEGIN
             now() - interval '90 days'
         );
 
-        -- Keep deterministic total at 10 members per group (1 admin + 9 generated members).
+        -- Keep deterministic total at 10 members per group (1 primary admin + 2 extra admins + 7 regular members).
         FOR v_member_index IN 1..9 LOOP
+            v_member_email := CASE
+                WHEN v_member_index IN (1, 2) THEN format('seed100.groupadmin.%s.%s@example.com', lpad(g::text, 2, '0'), lpad(v_member_index::text, 2, '0'))
+                ELSE format('seed100.member.%s.%s@example.com', lpad(g::text, 2, '0'), lpad(v_member_index::text, 2, '0'))
+            END;
+            v_member_full_name := CASE
+                WHEN v_member_index IN (1, 2) THEN format('Seed100 Extra Admin %s-%s', lpad(g::text, 2, '0'), lpad(v_member_index::text, 2, '0'))
+                ELSE format('Seed100 Member %s-%s', lpad(g::text, 2, '0'), lpad(v_member_index::text, 2, '0'))
+            END;
+
             INSERT INTO public.members (
                 group_id,
                 user_id,
@@ -238,10 +251,10 @@ BEGIN
             ) VALUES (
                 v_group_id,
                 NULL,
-                format('Seed100 Member %s-%s', lpad(g::text, 2, '0'), lpad(v_member_index::text, 2, '0')),
+                v_member_full_name,
                 lpad((9200000000000 + (g * 100) + v_member_index)::text, 13, '0'),
                 format('07%s', lpad((g * 100 + v_member_index)::text, 8, '0')),
-                format('seed100.member.%s.%s@example.com', lpad(g::text, 2, '0'), lpad(v_member_index::text, 2, '0')),
+                v_member_email,
                 format('%s Seed100 Street', v_member_index),
                 v_townships[g],
                 v_cities[g],
@@ -258,8 +271,71 @@ BEGIN
                 CASE WHEN v_types[g] = 'burial_society' AND v_member_index % 4 = 0 THEN 1 ELSE 0 END,
                 0,
                 0,
-                format('SEED100_KEY_%s_%s', lpad(g::text, 2, '0'), lpad(v_member_index::text, 2, '0'))
+                CASE
+                    WHEN v_member_index IN (1, 2) THEN format('SEED100_EXTRA_ADMIN_KEY_%s_%s', lpad(g::text, 2, '0'), lpad(v_member_index::text, 2, '0'))
+                    ELSE format('SEED100_KEY_%s_%s', lpad(g::text, 2, '0'), lpad(v_member_index::text, 2, '0'))
+                END
             ) RETURNING id INTO v_member_id;
+
+            IF v_member_index IN (1, 2) THEN
+                SELECT id INTO v_extra_admin_id
+                FROM auth.users
+                WHERE lower(email) = lower(v_member_email)
+                LIMIT 1;
+
+                IF v_extra_admin_id IS NULL THEN
+                    v_extra_admin_id := gen_random_uuid();
+                    INSERT INTO auth.users (
+                        id, aud, role, email, encrypted_password, email_confirmed_at,
+                        raw_app_meta_data, raw_user_meta_data, created_at, updated_at
+                    )
+                    VALUES (
+                        v_extra_admin_id,
+                        'authenticated',
+                        'authenticated',
+                        v_member_email,
+                        crypt(v_extra_admin_password, gen_salt('bf')),
+                        now(),
+                        '{"provider":"email","providers":["email"],"role":"group_admin"}'::jsonb,
+                        jsonb_build_object('full_name', v_member_full_name, 'role', 'group_admin'),
+                        now(),
+                        now()
+                    );
+                ELSE
+                    UPDATE auth.users
+                    SET encrypted_password = crypt(v_extra_admin_password, gen_salt('bf')),
+                        email_confirmed_at = COALESCE(email_confirmed_at, now()),
+                        raw_app_meta_data = COALESCE(raw_app_meta_data, '{}'::jsonb) || '{"provider":"email","providers":["email"],"role":"group_admin"}'::jsonb,
+                        raw_user_meta_data = COALESCE(raw_user_meta_data, '{}'::jsonb) || jsonb_build_object('full_name', v_member_full_name, 'role', 'group_admin'),
+                        updated_at = now()
+                    WHERE id = v_extra_admin_id;
+                END IF;
+
+                INSERT INTO auth.identities (id, user_id, provider, provider_id, identity_data, created_at, updated_at)
+                VALUES (
+                    gen_random_uuid(),
+                    v_extra_admin_id,
+                    'email',
+                    v_member_email,
+                    jsonb_build_object('sub', v_extra_admin_id::text, 'email', v_member_email),
+                    now(), now()
+                )
+                ON CONFLICT (provider, provider_id) DO UPDATE
+                SET user_id = EXCLUDED.user_id,
+                    identity_data = EXCLUDED.identity_data,
+                    updated_at = now();
+
+                INSERT INTO public.profiles (id, full_name, email, role)
+                VALUES (v_extra_admin_id, v_member_full_name, v_member_email, 'group_admin')
+                ON CONFLICT (id) DO UPDATE
+                    SET full_name = EXCLUDED.full_name,
+                        email = EXCLUDED.email,
+                        role = 'group_admin';
+
+                UPDATE public.members
+                SET user_id = v_extra_admin_id
+                WHERE id = v_member_id;
+            END IF;
 
             -- Mock member transaction history (paid + pending/overdue contribution).
             INSERT INTO public.contributions (
@@ -348,7 +424,7 @@ BEGIN
             v_group_id,
             v_disbursement_amount,
             'Standard Bank',
-            format('1234500%03s', g),
+            '1234500' || lpad(g::text, 3, '0'),
             '051001',
             v_disbursement_status,
             CASE WHEN v_disbursement_status = 'pending' THEN NULL ELSE v_admin_id END,
@@ -407,6 +483,6 @@ BEGIN
         );
     END LOOP;
 
-    RAISE NOTICE 'Safe seed complete: 10 groups + 100 members + mock transactions/disbursements/ledger.';
+    RAISE NOTICE 'Safe seed complete: 10 groups + 100 members + primary/admin-linked extra admins + mock transactions/disbursements/ledger.';
 END $$;
 

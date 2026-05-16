@@ -15,6 +15,10 @@
 local.properties
 .idea/shelf
 *.log
+*.exit
+runtime_signal*
+build_output_latest.txt
+docker_server_check.txt
 # Exclude generic .txt logs but keep release-notes.txt and other committed text files
 build_check*.txt
 compile_out.txt

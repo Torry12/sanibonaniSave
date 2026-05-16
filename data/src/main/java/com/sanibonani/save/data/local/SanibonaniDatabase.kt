@@ -845,9 +845,12 @@ interface LedgerDao {
         LoanRepaymentEntity::class,
         GroupHealthScoreEntity::class,
         BeneficiaryClaimEntity::class,
-        LedgerEntryEntity::class
+        LedgerEntryEntity::class,
+        MemberBehaviorTrackEntity::class,
+        FraudDetectionEventEntity::class,
+        BehaviorAnalyticsSummaryEntity::class
     ],
-    version  = 38,
+    version  = 39,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -864,6 +867,10 @@ abstract class SanibonaniDatabase : RoomDatabase() {
     abstract fun groupHealthScoreDao(): GroupHealthScoreDao
     abstract fun beneficiaryClaimDao(): BeneficiaryClaimDao
     abstract fun ledgerDao(): LedgerDao
+    // Behavior tracking DAOs
+    abstract fun memberBehaviorTrackDao(): MemberBehaviorTrackDao
+    abstract fun fraudDetectionEventDao(): FraudDetectionEventDao
+    abstract fun behaviorAnalyticsSummaryDao(): BehaviorAnalyticsSummaryDao
 
     suspend fun clearAllData() {
         groupDao().clearAll()
@@ -879,5 +886,8 @@ abstract class SanibonaniDatabase : RoomDatabase() {
         groupHealthScoreDao().clearAll()
         beneficiaryClaimDao().clearAll()
         ledgerDao().clearAll()
+        memberBehaviorTrackDao().deleteAll()
+        fraudDetectionEventDao().deleteAll()
+        behaviorAnalyticsSummaryDao().deleteAll()
     }
 }

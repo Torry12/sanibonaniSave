@@ -1402,8 +1402,19 @@ class MemberViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, error = null) }
 
-            // Validate eligibility (includes max-loan cap check via requestedAmount)
-            val eligibility = validateLoanEligibilityUseCase(member, group, requestedAmount = amount)
+            val maxLoan = group.loanMaxAmount
+            if (maxLoan != null && maxLoan > 0.0 && amount > maxLoan) {
+                _uiState.update {
+                    it.copy(
+                        isLoading = false,
+                        error = "Requested amount R$amount exceeds the group's maximum loan of R$maxLoan."
+                    )
+                }
+                return@launch
+            }
+
+            // Validate member eligibility for the loan request.
+            val eligibility = validateLoanEligibilityUseCase(member, group)
             if (eligibility is ValidateLoanEligibilityUseCase.EligibilityResult.Ineligible) {
                 _uiState.update { it.copy(isLoading = false, error = eligibility.reason) }
                 return@launch

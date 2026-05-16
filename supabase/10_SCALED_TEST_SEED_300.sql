@@ -44,7 +44,7 @@ BEGIN
         )
         RETURNING id INTO v_group_id;
 
-levant        -- 3. Add group admin as default member, then create 29 additional members (Total 300).
+        -- 3. Add group admin as default member, then create 29 additional members (Total 300).
         INSERT INTO public.members (
             id,
             group_id,

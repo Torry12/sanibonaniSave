@@ -95,14 +95,14 @@ BEGIN
 
                     -- Create an occasional claim
                     IF random() > 0.95 THEN
-                        INSERT INTO public.burial_claims (
+                        INSERT INTO public.beneficiary_payout_claims (
                             id, group_id, member_id, beneficiary_id, beneficiary_name,
                             cause_of_death, date_of_death, claim_amount, status,
                             bank_name, account_no, branch_code, account_holder
                         )
                         VALUES (
                             gen_random_uuid(), v_group_id, v_member_id, v_beneficiary_id, v_full_name || ' relative ' || b,
-                            'Natural Causes', now() - interval '10 days', 10000.0, 'SUBMITTED',
+                            'Natural Causes', now() - interval '10 days', 10000.0, 'submitted',
                             'FNB', '62000000000', '250655', v_full_name
                         );
                     END IF;

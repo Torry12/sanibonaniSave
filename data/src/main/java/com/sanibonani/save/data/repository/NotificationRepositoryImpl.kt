@@ -69,17 +69,22 @@ class NotificationRepositoryImpl @Inject constructor(
         }
 
         try {
-            if (notificationId.isNullOrBlank()) {
-                supabase.postgrest["notifications"].insert(insertData)
+            val serverNotification = if (notificationId.isNullOrBlank()) {
+                supabase.postgrest["notifications"].insert(insertData) {
+                    select()
+                }.decodeSingle<AppNotification>()
             } else {
                 supabase.postgrest["notifications"].upsert(insertData) {
                     onConflict = "id"
-                }
+                    select()
+                }.decodeSingle<AppNotification>()
             }
-            db.notificationDao().upsertNotifications(listOf(notification.toEntity()))
+            db.notificationDao().upsertNotifications(listOf(serverNotification.toEntity()))
         } catch (e: Exception) {
             AppLogger.e("NotificationRepo", "Postgrest insert failed: ${e.message}")
             if (notification.channel == NotifChannel.EMAIL) throw e
+            // For other channels, we still want to proceed with WhatsApp if possible,
+            // but the local DB won't have the notification yet.
         }
 
         if (notification.channel == NotifChannel.WHATSAPP || notification.channel == NotifChannel.BOTH) {

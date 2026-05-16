@@ -4,6 +4,7 @@ import android.util.Log
 import androidx.arch.core.executor.testing.InstantTaskExecutorRule
 import com.sanibonani.save.domain.model.*
 import com.sanibonani.save.domain.repository.*
+import com.sanibonani.save.domain.usecase.ProcessBurialClaimUseCase
 import com.sanibonani.save.domain.usecase.ProcessPayoutUseCase
 import io.mockk.*
 import kotlinx.coroutines.Dispatchers
@@ -26,6 +27,7 @@ class PlatformAdminViewModelTest {
     private val payoutRepo = mockk<PayoutRepository>()
     private val loanRepo = mockk<LoanRepository>()
     private val processPayoutUseCase = mockk<ProcessPayoutUseCase>()
+    private val processBurialClaimUseCase = mockk<ProcessBurialClaimUseCase>()
     private val claimRepo = mockk<BeneficiaryClaimRepository>(relaxed = true)
     private val memberRepo = mockk<MemberRepository>()
     private val notifRepo = mockk<NotificationRepository>(relaxed = true)
@@ -51,7 +53,11 @@ class PlatformAdminViewModelTest {
         // Default success for all parallel calls made by init { loadData(); loadSettings() }
         coEvery { platformRepo.getPlatformSettings() } returns Result.success(mapOf(
             "monthly_per_member" to 15.0,
-            "registration_fee" to 750.0
+            "registration_fee" to 750.0,
+            "payout_fee" to 5.0,
+            "whatsapp_fee" to 0.50,
+            "late_fee_percent" to 10.0,
+            "auto_suspension_days" to 30.0
         ))
         coEvery { platformRepo.getPlatformAnalytics() } returns Result.success(PlatformAnalytics())
         coEvery { platformRepo.getAllGroups() } returns Result.success(emptyList())
@@ -63,8 +69,12 @@ class PlatformAdminViewModelTest {
         every { loanRepo.getGroupLoans(any()) } returns flowOf(Result.success(emptyList()))
 
         every { platformConfigRepo.current() } returns PlatformConfig(
-            monthlyMemberFee = PlatformFees.MONTHLY_PER_MEMBER,
-            registrationFee = PlatformFees.REGISTRATION
+            monthlyMemberFee = 15.0,
+            registrationFee = 750.0,
+            payoutFee = 5.0,
+            whatsappFee = 0.50,
+            lateFeePercent = 10.0,
+            autoSuspensionDays = 30
         )
 
         viewModel = PlatformAdminViewModel(
@@ -73,6 +83,7 @@ class PlatformAdminViewModelTest {
             loanRepo,
             processPayoutUseCase,
             claimRepo,
+            processBurialClaimUseCase,
             memberRepo,
             notifRepo,
             supabaseRepo,
@@ -120,31 +131,40 @@ class PlatformAdminViewModelTest {
     fun `saveGlobalFees updates persistence and platform config repository`() = runTest {
         viewModel.updateMemberCharge("20.0")
         viewModel.updateRegistrationFee("800.0")
+        viewModel.updatePayoutFee("10.0")
+        viewModel.updateWhatsappFee("1.0")
+        viewModel.updateLateFeePercent("15.0")
+        viewModel.updateAutoSuspensionDays("45")
         
-        coEvery { platformRepo.updateGlobalFees(20.0, 800.0) } returns Result.success(Unit)
+        coEvery { platformRepo.updateGlobalFees(20.0, 800.0, 10.0, 1.0, 15.0, 45) } returns Result.success(Unit)
         coEvery { platformRepo.broadcastPlatformMessage(any()) } returns Result.success(Unit)
 
         viewModel.saveGlobalFees()
         advanceUntilIdle()
 
         assertTrue(viewModel.state.value.saveSuccess)
-        coVerify { platformRepo.updateGlobalFees(20.0, 800.0) }
+        coVerify { platformRepo.updateGlobalFees(20.0, 800.0, 10.0, 1.0, 15.0, 45) }
         coVerify {
             platformRepo.broadcastPlatformMessage(match {
-                it.contains("Platform fee settings updated") &&
-                    it.contains("Monthly member fee") &&
-                    it.contains("Registration fee")
+                it.contains("Platform settings updated") &&
+                    it.contains("Monthly fee: R20.0") &&
+                    it.contains("Reg fee: R800.0")
             })
         }
-        verify { platformConfigRepo.update(20.0, 800.0) }
+        verify { platformConfigRepo.update(20.0, 800.0, 10.0, 1.0, 15.0, 45) }
     }
 
     @Test
     fun `saveGlobalFees does not broadcast when values are unchanged`() = runTest {
+        // Values from setup() mock settings
         viewModel.updateMemberCharge("15.0")
         viewModel.updateRegistrationFee("750.0")
+        viewModel.updatePayoutFee("5.0")
+        viewModel.updateWhatsappFee("0.50")
+        viewModel.updateLateFeePercent("10.0")
+        viewModel.updateAutoSuspensionDays("30")
 
-        coEvery { platformRepo.updateGlobalFees(15.0, 750.0) } returns Result.success(Unit)
+        coEvery { platformRepo.updateGlobalFees(15.0, 750.0, 5.0, 0.5, 10.0, 30) } returns Result.success(Unit)
 
         viewModel.saveGlobalFees()
         advanceUntilIdle()
@@ -166,6 +186,67 @@ class PlatformAdminViewModelTest {
     }
 
     @Test
+    fun `completePayout triggers processPayoutUseCase with COMPLETED status`() = runTest {
+        val payoutId = "payout_123"
+        val groupId = "group_456"
+
+        coEvery { processPayoutUseCase(payoutId, groupId, PayoutStatus.COMPLETED) } returns Result.success(Unit)
+
+        viewModel.completePayout(payoutId, groupId)
+        advanceUntilIdle()
+
+        coVerify { processPayoutUseCase(payoutId, groupId, PayoutStatus.COMPLETED) }
+    }
+
+    @Test
+    fun `rejectPayout triggers processPayoutUseCase with FAILED status`() = runTest {
+        val payoutId = "payout_123"
+        val groupId = "group_456"
+
+        coEvery { processPayoutUseCase(payoutId, groupId, PayoutStatus.FAILED) } returns Result.success(Unit)
+
+        viewModel.rejectPayout(payoutId, groupId)
+        advanceUntilIdle()
+
+        coVerify { processPayoutUseCase(payoutId, groupId, PayoutStatus.FAILED) }
+    }
+
+    @Test
+    fun `approveLoanRequest updates loan status and logs audit`() = runTest {
+        val loan = Loan(id = "l1", memberId = "m1", groupId = "g1", amount = 500.0)
+        coEvery { loanRepo.approveLoan("l1") } returns Result.success(Unit)
+        coEvery { platformRepo.logAuditEvent(any()) } returns Result.success(Unit)
+
+        viewModel.approveLoanRequest(loan)
+        advanceUntilIdle()
+
+        coVerify { loanRepo.approveLoan("l1") }
+        coVerify { 
+            platformRepo.logAuditEvent(match { 
+                it.action == "PLATFORM_APPROVE_LOAN_REQUEST" && it.targetMemberId == "m1" 
+            }) 
+        }
+        assertTrue(viewModel.state.value.saveSuccess)
+    }
+
+    @Test
+    fun `rejectLoanRequest updates loan status with reason and logs audit`() = runTest {
+        val loan = Loan(id = "l1", memberId = "m1", groupId = "g1", amount = 500.0)
+        coEvery { loanRepo.rejectLoan("l1", "Credit check failed") } returns Result.success(Unit)
+        coEvery { platformRepo.logAuditEvent(any()) } returns Result.success(Unit)
+
+        viewModel.rejectLoanRequest(loan, "Credit check failed")
+        advanceUntilIdle()
+
+        coVerify { loanRepo.rejectLoan("l1", "Credit check failed") }
+        coVerify { 
+            platformRepo.logAuditEvent(match { 
+                it.action == "PLATFORM_REJECT_LOAN_REQUEST" && it.details?.get("reason") == "Credit check failed"
+            }) 
+        }
+    }
+
+    @Test
     fun `suspendGroup updates group list status immediately`() = runTest {
         val groupId = "g1"
         val groups = listOf(
@@ -184,7 +265,14 @@ class PlatformAdminViewModelTest {
         coEvery { platformRepo.getPlatformPayments() } returns Result.success(emptyList())
         coEvery { payoutRepo.getPendingPayouts() } returns Result.success(emptyList())
         coEvery { platformRepo.getPlatformSettings() } returns Result.success(
-            mapOf("monthly_per_member" to 15.0, "registration_fee" to 750.0)
+            mapOf(
+                "monthly_per_member" to 15.0,
+                "registration_fee" to 750.0,
+                "payout_fee" to 5.0,
+                "whatsapp_fee" to 0.50,
+                "late_fee_percent" to 10.0,
+                "auto_suspension_days" to 30.0
+            )
         )
 
         val freshVm = PlatformAdminViewModel(
@@ -237,7 +325,14 @@ class PlatformAdminViewModelTest {
         coEvery { platformRepo.getPlatformPayments() } returns Result.success(emptyList())
         coEvery { payoutRepo.getPendingPayouts() } returns Result.success(emptyList())
         coEvery { platformRepo.getPlatformSettings() } returns Result.success(
-            mapOf("monthly_per_member" to 15.0, "registration_fee" to 750.0)
+            mapOf(
+                "monthly_per_member" to 15.0,
+                "registration_fee" to 750.0,
+                "payout_fee" to 5.0,
+                "whatsapp_fee" to 0.50,
+                "late_fee_percent" to 10.0,
+                "auto_suspension_days" to 30.0
+            )
         )
 
         val freshVm = PlatformAdminViewModel(
@@ -385,6 +480,59 @@ class PlatformAdminViewModelTest {
         coVerify(exactly = 0) {
             claimRepo.updateClaimStatus(any(), any(), any(), any(), any())
         }
+    }
+
+    @Test
+    fun `payBurialClaim updates claim status to PAID`() = runTest {
+        val claimId = "claim_1"
+        every { supabaseRepo.currentUserId } returns "admin_user"
+        coEvery { processBurialClaimUseCase(claimId, BeneficiaryClaimStatus.PAID, "admin_user", any(), any()) } returns Result.success(Unit)
+
+        viewModel.payBurialClaim(claimId, "Paid via EFT")
+        advanceUntilIdle()
+
+        coVerify { processBurialClaimUseCase(claimId, BeneficiaryClaimStatus.PAID, "admin_user", "Paid via EFT", null) }
+        assertTrue(viewModel.state.value.saveSuccess)
+    }
+
+    @Test
+    fun `rejectBurialClaim updates claim status to REJECTED with reason`() = runTest {
+        val claimId = "claim_1"
+        every { supabaseRepo.currentUserId } returns "admin_user"
+        coEvery { processBurialClaimUseCase(claimId, BeneficiaryClaimStatus.REJECTED, "admin_user", any(), any()) } returns Result.success(Unit)
+
+        viewModel.rejectBurialClaim(claimId, "Invalid documents")
+        advanceUntilIdle()
+
+        coVerify { processBurialClaimUseCase(claimId, BeneficiaryClaimStatus.REJECTED, "admin_user", null, "Invalid documents") }
+        assertTrue(viewModel.state.value.saveSuccess)
+    }
+
+    @Test
+    fun `broadcastMessage calls repository and logs audit`() = runTest {
+        viewModel.updateBroadcastMessage("Hello groups!")
+        coEvery { platformRepo.broadcastPlatformMessage("Hello groups!") } returns Result.success(Unit)
+        coEvery { platformRepo.logAuditEvent(any()) } returns Result.success(Unit)
+
+        viewModel.broadcastMessage()
+        advanceUntilIdle()
+
+        coVerify { platformRepo.broadcastPlatformMessage("Hello groups!") }
+        coVerify { platformRepo.logAuditEvent(match { it.action == "PLATFORM_BROADCAST" }) }
+        assertTrue(viewModel.state.value.broadcastSuccess)
+        assertEquals("", viewModel.state.value.broadcastMessage)
+    }
+
+    @Test
+    fun `sendWhatsAppTestToAdmin calls notification repository`() = runTest {
+        val groupId = "g1"
+        coEvery { notifRepo.sendNotification(any()) } returns Result.success(Unit)
+
+        viewModel.sendWhatsAppTestToAdmin(groupId)
+        advanceUntilIdle()
+
+        coVerify { notifRepo.sendNotification(match { it.groupId == groupId && it.channel == NotifChannel.WHATSAPP }) }
+        assertEquals("Test message sent to group admin.", viewModel.state.value.whatsAppTestResult)
     }
 
     @Test

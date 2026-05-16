@@ -4,6 +4,8 @@ import com.sanibonani.save.data.logging.AppLogger
 import com.sanibonani.save.domain.model.WhatsAppSendException
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.auth.auth
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -29,82 +31,84 @@ class EdgeFunctionGateway @Inject constructor(
         functionName: String,
         payload: JsonObject = buildJsonObject { },
         requireAuth: Boolean = true
-    ): Result<JsonObject> = runCatching {
-        val token = supabaseClient.auth.currentSessionOrNull()?.accessToken
-        if (requireAuth && token.isNullOrBlank()) {
-            throw IllegalStateException("You need to sign in again before retrying this action.")
-        }
+    ): Result<JsonObject> = withContext(Dispatchers.IO) {
+        runCatching {
+            val token = supabaseClient.auth.currentSessionOrNull()?.accessToken
+            if (requireAuth && token.isNullOrBlank()) {
+                throw IllegalStateException("You need to sign in again before retrying this action.")
+            }
 
-        val baseUrl = normalizeSupabaseUrl(supabaseClient.supabaseUrl)
-        val requestBuilder = Request.Builder()
-            .url("${baseUrl.trimEnd('/')}/functions/v1/$functionName")
-            .post(json.encodeToString(JsonObject.serializer(), payload).toRequestBody(JSON_MEDIA_TYPE))
-            .header("Content-Type", "application/json")
+            val baseUrl = normalizeSupabaseUrl(supabaseClient.supabaseUrl)
+            val requestBuilder = Request.Builder()
+                .url("${baseUrl.trimEnd('/')}/functions/v1/$functionName")
+                .post(json.encodeToString(JsonObject.serializer(), payload).toRequestBody(JSON_MEDIA_TYPE))
+                .header("Content-Type", "application/json")
 
-        if (!token.isNullOrBlank()) {
-            requestBuilder.header("Authorization", "Bearer $token")
-        }
+            if (!token.isNullOrBlank()) {
+                requestBuilder.header("Authorization", "Bearer $token")
+            }
 
-        okHttpClient.newCall(requestBuilder.build()).execute().use { response ->
-            val bodyString = response.body?.string().orEmpty().trim()
-            if (!response.isSuccessful) {
-                // Parse the top-level "error" field from the response JSON.
-                val parsedBody = runCatching {
-                    if (bodyString.isBlank()) null
-                    else json.parseToJsonElement(bodyString).jsonObject
-                }.getOrNull()
+            okHttpClient.newCall(requestBuilder.build()).execute().use { response ->
+                val bodyString = response.body?.string().orEmpty().trim()
+                if (!response.isSuccessful) {
+                    // Parse the top-level "error" field from the response JSON.
+                    val parsedBody = runCatching {
+                        if (bodyString.isBlank()) null
+                        else json.parseToJsonElement(bodyString).jsonObject
+                    }.getOrNull()
 
-                val errorNode = parsedBody?.get("error")
-                val parsedErrorMessage: String? = when {
-                    errorNode is JsonPrimitive -> errorNode.content
-                    errorNode is JsonObject -> {
-                        // WhatsApp Cloud API nested error object: { "error": { "message": "...", "code": 131030, "type": "..." } }
-                        errorNode["message"]?.jsonPrimitive?.content
+                    val errorNode = parsedBody?.get("error")
+                    val parsedErrorMessage: String? = when {
+                        errorNode is JsonPrimitive -> errorNode.content
+                        errorNode is JsonObject -> {
+                            // WhatsApp Cloud API nested error object: { "error": { "message": "...", "code": 131030, "type": "..." } }
+                            errorNode["message"]?.jsonPrimitive?.content
+                        }
+                        else -> null
                     }
-                    else -> null
+
+                    val message = parsedErrorMessage
+                        ?: bodyString.takeIf { it.isNotBlank() }
+                        ?: "Edge function $functionName failed with HTTP ${response.code}."
+
+                    // For WhatsApp send failures, throw a richer exception with debug codes.
+                    if (functionName == "send-whatsapp") {
+                        val waCode = runCatching {
+                            when (errorNode) {
+                                is JsonObject -> errorNode["code"]?.jsonPrimitive?.intOrNull
+                                else -> parsedBody?.get("code")?.jsonPrimitive?.intOrNull
+                            }
+                        }.getOrNull()
+                        val waType = runCatching {
+                            when (errorNode) {
+                                is JsonObject -> errorNode["type"]?.jsonPrimitive?.content
+                                else -> parsedBody?.get("type")?.jsonPrimitive?.content
+                            }
+                        }.getOrNull()
+                        throw WhatsAppSendException(
+                            httpCode = response.code,
+                            waErrorCode = waCode,
+                            waErrorType = waType,
+                            apiMessage = message
+                        )
+                    }
+
+                    throw IllegalStateException(message)
                 }
 
-                val message = parsedErrorMessage
-                    ?: bodyString.takeIf { it.isNotBlank() }
-                    ?: "Edge function $functionName failed with HTTP ${response.code}."
-
-                // For WhatsApp send failures, throw a richer exception with debug codes.
-                if (functionName == "send-whatsapp") {
-                    val waCode = runCatching {
-                        when (errorNode) {
-                            is JsonObject -> errorNode["code"]?.jsonPrimitive?.intOrNull
-                            else -> parsedBody?.get("code")?.jsonPrimitive?.intOrNull
-                        }
-                    }.getOrNull()
-                    val waType = runCatching {
-                        when (errorNode) {
-                            is JsonObject -> errorNode["type"]?.jsonPrimitive?.content
-                            else -> parsedBody?.get("type")?.jsonPrimitive?.content
-                        }
-                    }.getOrNull()
-                    throw WhatsAppSendException(
-                        httpCode = response.code,
-                        waErrorCode = waCode,
-                        waErrorType = waType,
-                        apiMessage = message
-                    )
+                if (bodyString.isBlank()) {
+                    return@use buildJsonObject { }
                 }
 
-                throw IllegalStateException(message)
+                val parsed = json.parseToJsonElement(bodyString)
+                when {
+                    parsed is JsonObject -> parsed
+                    else -> buildJsonObject { put("value", JsonPrimitive(parsed.toString())) }
+                }
             }
-
-            if (bodyString.isBlank()) {
-                return@use buildJsonObject { }
-            }
-
-            val parsed = json.parseToJsonElement(bodyString)
-            when {
-                parsed is JsonObject -> parsed
-                else -> buildJsonObject { put("value", JsonPrimitive(parsed.toString())) }
-            }
+        }.onFailure { throwable ->
+            AppLogger.e("EdgeFunctionGateway", "Edge function invocation failed: $functionName", throwable)
         }
-    }.onFailure { throwable ->
-        AppLogger.e("EdgeFunctionGateway", "Edge function invocation failed: $functionName", throwable)
     }
 
     companion object {

@@ -150,7 +150,7 @@ BEGIN
             (g % 2 = 0),
             2,
             'FNB',
-            format('6200000%03s', g),
+            '6200000' || lpad(g::text, 3, '0'),
             '250655',
             'Savings',
             5000.00 + (g * 1500),
@@ -239,7 +239,7 @@ BEGIN
             );
         END IF;
 
-ia        -- Group admin is always a member by default.
+        -- Group admin is always a member by default.
         INSERT INTO public.members (
             group_id,
             user_id,

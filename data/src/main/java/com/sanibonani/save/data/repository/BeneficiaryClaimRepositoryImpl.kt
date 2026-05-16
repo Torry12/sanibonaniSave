@@ -134,6 +134,27 @@ class BeneficiaryClaimRepositoryImpl @Inject constructor(
         }
     }
 
+    override suspend fun payClaimAtomic(
+        claimId: String,
+        adminId: String,
+        notes: String?
+    ): Result<Unit> = retryWithExponentialBackoff {
+        runCatching {
+            val rpcParams = buildJsonObject {
+                put("p_claim_id", claimId)
+                put("p_admin_id", adminId)
+                notes?.let { put("p_notes", it) }
+            }
+            supabase.postgrest.rpc("pay_burial_claim_v1", rpcParams)
+
+            // Refresh local cache for this claim
+            getClaimById(claimId).onSuccess { updated ->
+                db.beneficiaryClaimDao().upsertClaim(updated.toEntity())
+            }
+            Unit
+        }
+    }
+
     override fun observeEscalatedClaims(): Flow<Result<List<BeneficiaryPayoutClaim>>> =
         observeAndSync(
             dbFlow = db.beneficiaryClaimDao().observeEscalatedClaims(),
@@ -152,5 +173,19 @@ class BeneficiaryClaimRepositoryImpl @Inject constructor(
                 db.beneficiaryClaimDao().upsertClaims(list)
             }
         )
+
+    override suspend fun getClaimById(claimId: String): Result<BeneficiaryPayoutClaim> = retryWithExponentialBackoff {
+        runCatching {
+            val claim = withClaimsTable { table ->
+                supabase.postgrest[table]
+                    .select(columns = Columns.raw(CLAIM_COLUMNS)) {
+                        filter { eq("id", claimId) }
+                    }.decodeSingleOrNull<BeneficiaryPayoutClaim>()
+            } ?: throw Exception("Claim not found: $claimId")
+            
+            db.beneficiaryClaimDao().upsertClaim(claim.toEntity())
+            claim
+        }
+    }
 }
 

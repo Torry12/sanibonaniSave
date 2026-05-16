@@ -12,17 +12,17 @@ import androidx.compose.ui.unit.sp
 // ─────────────────────────────────────────────────────────────────────────────
 //  BRAND COLOURS
 // ─────────────────────────────────────────────────────────────────────────────
-val Forest       = Color(0xFF1A3A2A)
-val ForestMid    = Color(0xFF2D5A3D)
-val ForestLight  = Color(0xFF4A8560)
-val Gold         = Color(0xFFD4A017)
-val GoldLight    = Color(0xFFF2C94C)
-val Terra        = Color(0xFFC2612A)
-val Cream        = Color(0xFFFEF8F0)
-val Cream2       = Color(0xFFFAF0E0)
-val Charcoal     = Color(0xFF2C2C2C)
-val MidGray      = Color(0xFF6B7280)
-val LightGray    = Color(0xFFE5DDD0)
+val Forest       = Color(0xFF1E3A1A)
+val ForestMid    = Color(0xFF345A2D)
+val ForestLight  = Color(0xFF56854A)
+val Gold         = Color(0xFFE19E00)
+val GoldLight    = Color(0xFFFFD54F)
+val Terra        = Color(0xFFD35400)
+val Cream        = Color(0xFFFDF5E6)
+val Cream2       = Color(0xFFFAF0DC)
+val Charcoal     = Color(0xFF332D2D)
+val MidGray      = Color(0xFF7D746D)
+val LightGray    = Color(0xFFE5DED0)
 
 val SuccessGreen = Color(0xFF16A34A)
 val SuccessBg    = Color(0xFFD1FAE5)

@@ -363,13 +363,6 @@ class MemberRepositoryImpl @Inject constructor(
 
             db.contributionDao().upsertContributions(listOf(ledgerRow.toEntity()))
 
-            // Charge the group account by the member-fee ledger amount.
-            val chargedBalance = group.balance - contribution.amount
-            supabase.postgrest["groups"].update(buildJsonObject { put("balance", chargedBalance) }) {
-                filter { eq("id", group.id ?: contribution.groupId) }
-            }
-
-            db.groupDao().upsertGroup(group.copy(balance = chargedBalance).toEntity())
             return@runCatching
         }
 

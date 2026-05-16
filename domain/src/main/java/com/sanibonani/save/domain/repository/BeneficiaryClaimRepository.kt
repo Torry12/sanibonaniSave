@@ -28,7 +28,19 @@ interface BeneficiaryClaimRepository {
         rejectionReason: String? = null
     ): Result<Unit>
 
+    /**
+     * Atomically pays a burial claim: updates status to PAID AND decrements group balance AND logs to ledger.
+     */
+    suspend fun payClaimAtomic(
+        claimId: String,
+        adminId: String,
+        notes: String? = null
+    ): Result<Unit>
+
     /** Platform Admin: observe all claims that have been escalated for platform review. */
     fun observeEscalatedClaims(): Flow<Result<List<BeneficiaryPayoutClaim>>>
+
+    /** Get a specific claim by its ID. */
+    suspend fun getClaimById(claimId: String): Result<BeneficiaryPayoutClaim>
 }
 

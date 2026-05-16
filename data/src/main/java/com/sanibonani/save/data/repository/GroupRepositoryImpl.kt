@@ -250,18 +250,47 @@ class GroupRepositoryImpl @Inject constructor(
         createdGroupId
     }
 
-    override suspend fun updateGroupBalance(groupId: String, newBalance: Double): Result<Unit> = runCatching {
-        supabase.postgrest["groups"].update(buildJsonObject { put("balance", newBalance) }) {
-            filter { eq("id", groupId) }
+    override suspend fun incrementGroupBalance(groupId: String, amount: Double): Result<Double> = retryWithExponentialBackoff {
+        runCatching {
+            val rpcParams = buildJsonObject {
+                put("p_group_id", groupId)
+                put("p_amount", amount)
+            }
+            val newBalance = supabase.postgrest.rpc("increment_group_balance", rpcParams)
+                .decodeAs<Double>()
+            
+            // Update local Room cache
+            db.groupDao().getGroupById(groupId)?.let { local ->
+                db.groupDao().upsertGroup(local.copy(balance = newBalance))
+            }
+            newBalance
         }
-        val group = getGroupById(groupId).getOrThrow()
-        db.groupDao().upsertGroup(group.copy(balance = newBalance).toEntity())
     }
 
-    override suspend fun incrementGroupBalance(groupId: String, amount: Double): Result<Unit> = runCatching {
-        if (amount <= 0) throw IllegalArgumentException("Increment amount must be positive, got: $amount")
-        val group = getGroupById(groupId).getOrThrow()
-        updateGroupBalance(groupId, group.balance + amount).getOrThrow()
+    override suspend fun recordDisbursement(
+        groupId: String,
+        amount: Double,
+        description: String,
+        category: String,
+        transactionId: String?
+    ): Result<Double> = retryWithExponentialBackoff {
+        runCatching {
+            val rpcParams = buildJsonObject {
+                put("p_group_id", groupId)
+                put("p_amount", amount)
+                put("p_description", description)
+                put("p_category", category)
+                transactionId?.let { put("p_transaction_id", it) }
+            }
+            val newBalance = supabase.postgrest.rpc("record_disbursement_v1", rpcParams)
+                .decodeAs<Double>()
+
+            // Update local Room cache
+            db.groupDao().getGroupById(groupId)?.let { local ->
+                db.groupDao().upsertGroup(local.copy(balance = newBalance))
+            }
+            newBalance
+        }
     }
 
     override suspend fun updateGroupSettings(groupId: String, settings: GroupSettings): Result<Unit> = runCatching {

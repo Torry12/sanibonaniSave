@@ -139,14 +139,20 @@ class LoanRepositoryImpl @Inject constructor(
     }
 
     override suspend fun recordRepayment(repayment: LoanRepayment): Result<Unit> = runCatching {
-        val inserted = supabase.postgrest["loan_repayments"].insert(repayment) {
-            select(columns = Columns.raw(REPAYMENT_COLUMNS))
-        }.decodeSingle<LoanRepayment>()
+        val rpcParams = buildJsonObject {
+            put("p_loan_id", repayment.loanId)
+            put("p_member_id", repayment.memberId)
+            put("p_group_id", repayment.groupId)
+            put("p_amount", repayment.amount)
+            put("p_payment_method", repayment.paymentMethod.name.lowercase())
+        }
+        
+        val inserted = supabase.postgrest.rpc("record_loan_repayment_v1", rpcParams)
+            .decodeAs<LoanRepayment>()
         
         db.loanDao().upsertRepayment(inserted.toEntity())
         
-        // The balance update on the loan itself should ideally be handled by a DB trigger,
-        // but let's sync the loan record too.
+        // Refresh local loan record to reflect new balance/status
         getLoanById(repayment.loanId)
         Unit
     }

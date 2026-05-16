@@ -7,11 +7,15 @@ import com.sanibonani.save.analytics.AppAnalytics
 import com.sanibonani.save.data.utils.toUserMessage
 import com.sanibonani.save.domain.model.*
 import com.sanibonani.save.domain.repository.*
+import com.sanibonani.save.domain.usecase.ProcessBurialClaimUseCase
 import com.sanibonani.save.domain.usecase.ProcessPayoutUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.coroutineScope
 import java.util.Locale
 import javax.inject.Inject
 
@@ -33,6 +37,10 @@ data class PlatformAdminUiState(
     // Global Settings
     val memberCharge: String = "10.0",
     val registrationFee: String = "700.0",
+    val payoutFee: String = "5.0",
+    val whatsappFee: String = "0.50",
+    val lateFeePercent: String = "10.0",
+    val autoSuspensionDays: String = "30",
     // Group Management
     val selectedGroupMetrics: ActuarialMetrics? = null,
     val isSuspending: Boolean = false,
@@ -82,6 +90,7 @@ class PlatformAdminViewModel @Inject constructor(
     private val loanRepo: LoanRepository,
     private val processPayoutUseCase: ProcessPayoutUseCase,
     private val claimRepo: BeneficiaryClaimRepository,
+    private val processBurialClaimUseCase: ProcessBurialClaimUseCase,
     private val memberRepo: MemberRepository,
     private val notifRepo: NotificationRepository,
     private val supabaseRepo: SupabaseRepository,
@@ -90,8 +99,9 @@ class PlatformAdminViewModel @Inject constructor(
 
     private val _state = MutableStateFlow(PlatformAdminUiState())
     val state: StateFlow<PlatformAdminUiState> = _state.asStateFlow()
-    private var lastLoadedMemberCharge: Double = 10.0
-    private var lastLoadedRegistrationFee: Double = 700.0
+    
+    private var lastLoadedConfig: PlatformConfig = PlatformConfig()
+    private var loanRequestsJob: Job? = null
 
     init {
         loadData()
@@ -160,15 +170,36 @@ class PlatformAdminViewModel @Inject constructor(
                 .onSuccess { settings ->
                     val mCharge = settings["monthly_member_fee"] ?: settings["monthly_per_member"] ?: 10.0
                     val rFee = settings["registration_fee"] ?: 700.0
+                    val pFee = settings["payout_fee"] ?: 5.0
+                    val wFee = settings["whatsapp_fee"] ?: 0.50
+                    val lFee = settings["late_fee_percent"] ?: 10.0
+                    val aDays = settings["auto_suspension_days"]?.toInt() ?: 30
 
-                    lastLoadedMemberCharge = mCharge
-                    lastLoadedRegistrationFee = rFee
+                    lastLoadedConfig = PlatformConfig(
+                        monthlyMemberFee = mCharge,
+                        registrationFee = rFee,
+                        payoutFee = pFee,
+                        whatsappFee = wFee,
+                        lateFeePercent = lFee,
+                        autoSuspensionDays = aDays
+                    )
 
-                    platformConfigRepository.update(mCharge, rFee)
+                    platformConfigRepository.update(
+                        monthlyMemberFee = mCharge,
+                        registrationFee = rFee,
+                        payoutFee = pFee,
+                        whatsappFee = wFee,
+                        lateFeePercent = lFee,
+                        autoSuspensionDays = aDays
+                    )
 
                     _state.update { it.copy(
                         memberCharge = String.format(Locale.US, "%.2f", mCharge),
-                        registrationFee = String.format(Locale.US, "%.2f", rFee)
+                        registrationFee = String.format(Locale.US, "%.2f", rFee),
+                        payoutFee = String.format(Locale.US, "%.2f", pFee),
+                        whatsappFee = String.format(Locale.US, "%.2f", wFee),
+                        lateFeePercent = String.format(Locale.US, "%.2f", lFee),
+                        autoSuspensionDays = aDays.toString()
                     ) }
                 }
                 .onFailure { e ->
@@ -276,48 +307,84 @@ class PlatformAdminViewModel @Inject constructor(
         _state.update { it.copy(registrationFee = value) }
     }
 
+    fun updatePayoutFee(value: String) {
+        _state.update { it.copy(payoutFee = value) }
+    }
+
+    fun updateWhatsappFee(value: String) {
+        _state.update { it.copy(whatsappFee = value) }
+    }
+
+    fun updateLateFeePercent(value: String) {
+        _state.update { it.copy(lateFeePercent = value) }
+    }
+
+    fun updateAutoSuspensionDays(value: String) {
+        _state.update { it.copy(autoSuspensionDays = value) }
+    }
+
     fun saveGlobalFees() {
         viewModelScope.launch {
-            val charge = state.value.memberCharge.toDoubleOrNull()
-            if (charge == null) {
-                _state.update { it.copy(error = "Please enter a valid monthly charge.") }
-                return@launch
-            }
-            val regFee = state.value.registrationFee.toDoubleOrNull()
-            if (regFee == null) {
-                _state.update { it.copy(error = "Please enter a valid registration fee.") }
+            val s = _state.value
+            val charge = s.memberCharge.toDoubleOrNull()
+            val regFee = s.registrationFee.toDoubleOrNull()
+            val pFee = s.payoutFee.toDoubleOrNull()
+            val wFee = s.whatsappFee.toDoubleOrNull()
+            val lFee = s.lateFeePercent.toDoubleOrNull()
+            val aDays = s.autoSuspensionDays.toIntOrNull()
+
+            if (charge == null || regFee == null || pFee == null || wFee == null || lFee == null || aDays == null) {
+                _state.update { it.copy(error = "Please enter valid numeric values for all fields.") }
                 return@launch
             }
 
             _state.update { it.copy(isSaving = true, saveSuccess = false) }
             
-            platformRepo.updateGlobalFees(charge, regFee)
-                .onSuccess {
-                    platformConfigRepository.update(charge, regFee)
+            platformRepo.updateGlobalFees(
+                memberCharge = charge,
+                registrationFee = regFee,
+                payoutFee = pFee,
+                whatsappFee = wFee,
+                lateFeePercent = lFee,
+                autoSuspensionDays = aDays
+            ).onSuccess {
+                platformConfigRepository.update(
+                    monthlyMemberFee = charge,
+                    registrationFee = regFee,
+                    payoutFee = pFee,
+                    whatsappFee = wFee,
+                    lateFeePercent = lFee,
+                    autoSuspensionDays = aDays
+                )
 
-                    val changedSettings = mutableListOf<String>()
-                    if (kotlin.math.abs(charge - lastLoadedMemberCharge) > 0.0001) {
-                        changedSettings += "Monthly member fee: R${"%.2f".format(lastLoadedMemberCharge)} -> R${"%.2f".format(charge)}"
-                    }
-                    if (kotlin.math.abs(regFee - lastLoadedRegistrationFee) > 0.0001) {
-                        changedSettings += "Registration fee: R${"%.2f".format(lastLoadedRegistrationFee)} -> R${"%.2f".format(regFee)}"
-                    }
+                val changedSettings = mutableListOf<String>()
+                if (kotlin.math.abs(charge - lastLoadedConfig.monthlyMemberFee) > 0.0001) changedSettings += "Monthly fee: R$charge"
+                if (kotlin.math.abs(regFee - lastLoadedConfig.registrationFee) > 0.0001) changedSettings += "Reg fee: R$regFee"
+                if (kotlin.math.abs(pFee - lastLoadedConfig.payoutFee) > 0.0001) changedSettings += "Payout fee: R$pFee"
+                if (kotlin.math.abs(wFee - lastLoadedConfig.whatsappFee) > 0.0001) changedSettings += "WhatsApp fee: R$wFee"
+                if (kotlin.math.abs(lFee - lastLoadedConfig.lateFeePercent) > 0.0001) changedSettings += "Late fee: $lFee%"
+                if (aDays != lastLoadedConfig.autoSuspensionDays) changedSettings += "Suspension: ${aDays} days"
 
-                    var warningMessage: String? = null
-                    if (changedSettings.isNotEmpty()) {
-                        val message = "Platform fee settings updated. ${changedSettings.joinToString(separator = "; ")}."
-                        platformRepo.broadcastPlatformMessage(message)
-                            .onFailure { e -> warningMessage = "Fees saved, but broadcast failed: ${e.toUserMessage()}" }
-                    }
-
-                    lastLoadedMemberCharge = charge
-                    lastLoadedRegistrationFee = regFee
-
-                    _state.update { it.copy(isSaving = false, saveSuccess = true, error = warningMessage) }
+                var warningMessage: String? = null
+                if (changedSettings.isNotEmpty()) {
+                    val message = "Platform settings updated: ${changedSettings.joinToString()}"
+                    platformRepo.broadcastPlatformMessage(message)
+                        .onFailure { e -> warningMessage = "Fees saved, but broadcast failed: ${e.toUserMessage()}" }
                 }
-                .onFailure { e ->
-                    _state.update { it.copy(isSaving = false, error = e.toUserMessage()) }
-                }
+
+                lastLoadedConfig = PlatformConfig(
+                    monthlyMemberFee = charge,
+                    registrationFee = regFee,
+                    payoutFee = pFee,
+                    whatsappFee = wFee,
+                    lateFeePercent = lFee,
+                    autoSuspensionDays = aDays
+                )
+
+                _state.update { it.copy(isSaving = false, saveSuccess = true, error = warningMessage) }
+            }.onFailure { e ->
+                _state.update { it.copy(isSaving = false, error = e.toUserMessage()) }
+            }
         }
     }
 
@@ -342,7 +409,8 @@ class PlatformAdminViewModel @Inject constructor(
     }
 
     fun refreshLoanRequests() {
-        viewModelScope.launch {
+        loanRequestsJob?.cancel()
+        loanRequestsJob = viewModelScope.launch {
             loadLoanRequests(_state.value.groups)
         }
     }
@@ -401,7 +469,7 @@ class PlatformAdminViewModel @Inject constructor(
         }
     }
 
-    private suspend fun loadLoanRequests(groups: List<Group>) {
+    private suspend fun loadLoanRequests(groups: List<Group>) = coroutineScope {
         if (groups.isEmpty()) {
             _state.update {
                 it.copy(
@@ -412,36 +480,41 @@ class PlatformAdminViewModel @Inject constructor(
                     isLoadingLoanRequests = false
                 )
             }
-            return
+            return@coroutineScope
         }
 
         _state.update { it.copy(isLoadingLoanRequests = true) }
 
-        val grouped = groups.mapNotNull { group ->
-            val groupId = group.id?.takeIf(String::isNotBlank) ?: return@mapNotNull null
-            val loans = runCatching {
-                loanRepo.getGroupLoans(groupId)
-                    .first()
-                    .getOrElse { emptyList() }
-                    .filter { loan ->
-                        loan.status == LoanStatus.PENDING ||
-                            loan.status == LoanStatus.APPROVED ||
-                            loan.status == LoanStatus.ACTIVE ||
-                            loan.status == LoanStatus.PARTIALLY_PAID ||
-                            loan.status == LoanStatus.OVERDUE
-                    }
-                    .sortedByDescending { it.createdAt ?: "" }
-            }.getOrElse { emptyList() }
+        val grouped = groups.map { group ->
+            async {
+                val groupId = group.id?.takeIf(String::isNotBlank) ?: return@async null
+                val loans = runCatching {
+                    loanRepo.getGroupLoans(groupId)
+                        .first()
+                        .getOrElse { emptyList() }
+                        .filter { loan ->
+                            loan.status == LoanStatus.PENDING ||
+                                loan.status == LoanStatus.APPROVED ||
+                                loan.status == LoanStatus.ACTIVE ||
+                                loan.status == LoanStatus.PARTIALLY_PAID ||
+                                loan.status == LoanStatus.OVERDUE
+                        }
+                        .sortedByDescending { it.createdAt ?: "" }
+                }.getOrElse { emptyList() }
 
-            if (loans.isEmpty()) null else groupId to loans
-        }.toMap()
+                if (loans.isEmpty()) null else groupId to loans
+            }
+        }.awaitAll().filterNotNull().toMap()
 
         val memberNameById = grouped.keys
-            .flatMap { groupId ->
-                runCatching {
-                    memberRepo.syncGroupMembers(groupId).getOrElse { emptyList() }
-                }.getOrElse { emptyList() }
-            }
+            .map { groupId ->
+                async {
+                    runCatching {
+                        memberRepo.syncGroupMembers(groupId).getOrElse { emptyList() }
+                    }.getOrElse { emptyList() }
+                }
+            }.awaitAll()
+            .flatten()
             .mapNotNull { member ->
                 val memberId = member.id ?: return@mapNotNull null
                 memberId to member.fullName
@@ -486,11 +559,7 @@ class PlatformAdminViewModel @Inject constructor(
             )
 
         val serverInsights = platformRepo.getMemberBehaviorInsights().getOrElse { emptyList() }
-        val insights = if (serverInsights.isNotEmpty()) {
-            serverInsights
-        } else {
-            localInsights
-        }
+        val insights = serverInsights.ifEmpty { localInsights }
         val selectedRiskFilter = _state.value.selectedRiskFilter
 
         _state.update {
@@ -662,32 +731,15 @@ class PlatformAdminViewModel @Inject constructor(
         }
     }
 
-    fun approveBurialClaim(claimId: String, notes: String) {
-        updateClaimStatus(claimId, BeneficiaryClaimStatus.APPROVED, notes)
-    }
-
     fun payBurialClaim(claimId: String, notes: String) {
-        updateClaimStatus(claimId, BeneficiaryClaimStatus.PAID, notes)
-    }
-
-    fun rejectBurialClaim(claimId: String, reason: String) {
-        updateClaimStatus(claimId, BeneficiaryClaimStatus.REJECTED, reason)
-    }
-
-    private fun updateClaimStatus(claimId: String, status: BeneficiaryClaimStatus, notes: String) {
-        val adminId = supabaseRepo.currentUserId
-        if (adminId == null) {
-            _state.update { it.copy(isProcessingClaim = false, error = "Your session has expired. Please log in again.") }
-            return
-        }
+        val adminId = supabaseRepo.currentUserId ?: return
         viewModelScope.launch {
             _state.update { it.copy(isProcessingClaim = true) }
-            claimRepo.updateClaimStatus(
+            processBurialClaimUseCase(
                 claimId = claimId,
-                status = status,
+                status = BeneficiaryClaimStatus.PAID,
                 reviewedBy = adminId,
-                adminNotes = if (status != BeneficiaryClaimStatus.REJECTED) notes else null,
-                rejectionReason = if (status == BeneficiaryClaimStatus.REJECTED) notes else null
+                adminNotes = notes
             ).onSuccess {
                 _state.update { it.copy(isProcessingClaim = false, saveSuccess = true) }
             }.onFailure { e ->
@@ -695,6 +747,42 @@ class PlatformAdminViewModel @Inject constructor(
             }
         }
     }
+
+    fun approveBurialClaim(claimId: String, notes: String) {
+        val adminId = supabaseRepo.currentUserId ?: return
+        viewModelScope.launch {
+            _state.update { it.copy(isProcessingClaim = true) }
+            processBurialClaimUseCase(
+                claimId = claimId,
+                status = BeneficiaryClaimStatus.APPROVED,
+                reviewedBy = adminId,
+                adminNotes = notes
+            ).onSuccess {
+                _state.update { it.copy(isProcessingClaim = false, saveSuccess = true) }
+            }.onFailure { e ->
+                _state.update { it.copy(isProcessingClaim = false, error = e.toUserMessage()) }
+            }
+        }
+    }
+
+    fun rejectBurialClaim(claimId: String, reason: String) {
+        val adminId = supabaseRepo.currentUserId ?: return
+        viewModelScope.launch {
+            _state.update { it.copy(isProcessingClaim = true) }
+            processBurialClaimUseCase(
+                claimId = claimId,
+                status = BeneficiaryClaimStatus.REJECTED,
+                reviewedBy = adminId,
+                rejectionReason = reason
+            ).onSuccess {
+                _state.update { it.copy(isProcessingClaim = false, saveSuccess = true) }
+            }.onFailure { e ->
+                _state.update { it.copy(isProcessingClaim = false, error = e.toUserMessage()) }
+            }
+        }
+    }
+
+    // Removed updateClaimStatus as it's now handled by the UseCase
 
     fun logAudit(action: String, targetMemberId: String? = null, targetGroupId: String? = null, details: Map<String, Any>? = null) {
         viewModelScope.launch {

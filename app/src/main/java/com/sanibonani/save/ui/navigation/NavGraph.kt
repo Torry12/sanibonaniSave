@@ -24,6 +24,7 @@ import com.sanibonani.save.ui.screens.auth.NewUserOnboardingScreen
 import com.sanibonani.save.ui.screens.auth.RegisterScreen
 import com.sanibonani.save.ui.screens.browse.BrowseGroupsScreen
 import com.sanibonani.save.ui.screens.group.GroupProfileScreen
+import com.sanibonani.save.ui.screens.group.GroupVotingScreen
 import com.sanibonani.save.ui.screens.group.RegisterGroupScreen
 import com.sanibonani.save.ui.screens.landing.LandingScreen
 import com.sanibonani.save.ui.screens.member.MemberDashboardScreen
@@ -31,6 +32,7 @@ import com.sanibonani.save.ui.screens.member.RegisterMemberScreen
 import com.sanibonani.save.ui.screens.payment.PaymentScreen
 import com.sanibonani.save.viewmodel.AdminViewModel
 import com.sanibonani.save.viewmodel.AuthViewModel
+import com.sanibonani.save.viewmodel.GroupVotingViewModel
 import com.sanibonani.save.viewmodel.MemberViewModel
 import com.sanibonani.save.service.UserProfileCacheService
 
@@ -66,6 +68,11 @@ sealed class Screen(val route: String) {
     }
     data object RegisterMember : Screen("join/{groupId}") {
         fun withId(id: String) = "join/$id"
+    }
+    data object GroupVoting : Screen("group_voting?groupId={groupId}&memberId={memberId}") {
+        fun withParams(groupId: String, memberId: String? = null): String {
+            return "group_voting?groupId=$groupId" + (if (memberId != null) "&memberId=$memberId" else "")
+        }
     }
     data object Payment : Screen("payment/{type}/{amount}/{groupId}") {
         fun build(type: String, amount: String, groupId: String) =
@@ -540,6 +547,24 @@ fun SanibonaniNavGraph(
 
         composable(Screen.CreatePlatformAdmin.route) {
             com.sanibonani.save.ui.screens.admin.CreatePlatformAdminScreen(
+                onBack = { navController.popBackStack() }
+            )
+        }
+
+        composable(
+            route = Screen.GroupVoting.route,
+            arguments = listOf(
+                navArgument("groupId") { type = NavType.StringType },
+                navArgument("memberId") { type = NavType.StringType; nullable = true; defaultValue = null }
+            )
+        ) { back ->
+            val groupId = back.arguments?.getString("groupId") ?: return@composable
+            val memberId = back.arguments?.getString("memberId")
+            val votingViewModel: GroupVotingViewModel = hiltViewModel()
+            GroupVotingScreen(
+                groupId = groupId,
+                memberId = memberId,
+                vm = votingViewModel,
                 onBack = { navController.popBackStack() }
             )
         }

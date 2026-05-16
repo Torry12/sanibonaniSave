@@ -61,6 +61,14 @@ class PayoutRepositoryImpl @Inject constructor(
         }
     }
 
+    override suspend fun getPayoutById(payoutId: String): Result<PayoutRequest> = retryWithExponentialBackoff {
+        runCatching {
+            supabase.postgrest["payouts"].select(columns = Columns.raw(PAYOUT_COLUMNS_SAFE)) {
+                filter { eq("id", payoutId) }
+            }.decodeSingle<PayoutRequest>()
+        }
+    }
+
     override suspend fun updatePayoutStatus(payoutId: String, status: PayoutStatus, yocoPayoutId: String?): Result<Unit> = retryWithExponentialBackoff {
         runCatching {
             val existing = supabase.postgrest["payouts"].select(columns = Columns.raw(PAYOUT_COLUMNS_SAFE)) {
@@ -86,6 +94,29 @@ class PayoutRepositoryImpl @Inject constructor(
             }.decodeSingleOrNull<PayoutRequest>()?.let {
                 db.payoutDao().upsertPayout(it.toEntity())
             }
+            Unit
+        }
+    }
+
+    override suspend fun completePayoutAtomic(
+        payoutId: String,
+        adminId: String,
+        yocoPayoutId: String?
+    ): Result<Unit> = retryWithExponentialBackoff {
+        runCatching {
+            val rpcParams = buildJsonObject {
+                put("p_payout_id", payoutId)
+                put("p_admin_id", adminId)
+                yocoPayoutId?.let { put("p_yoco_payout_id", it) }
+            }
+            supabase.postgrest.rpc("complete_payout_v1", rpcParams)
+
+            // Refresh local cache for this payout
+            getPayoutById(payoutId).onSuccess { updated ->
+                db.payoutDao().upsertPayout(updated.toEntity())
+            }
+            // Note: Group balance in Room will be updated when the next group sync occurs,
+            // or we could manually trigger a group refresh here.
             Unit
         }
     }

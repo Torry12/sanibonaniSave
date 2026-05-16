@@ -55,12 +55,17 @@ class ProcessEmergencyWithdrawalUseCase @Inject constructor(
             )
         }
 
-        // 4. Persist the balance change
-        val newBalance = group.balance - amount
-        val updateResult = groupRepository.updateGroupBalance(group.id ?: return WithdrawalResult.Failure("Group ID missing."), newBalance)
+        // 4. Persist the balance change (Atomic with Ledger)
+        val updateResult = groupRepository.recordDisbursement(
+            groupId = group.id ?: return WithdrawalResult.Failure("Group ID missing."),
+            amount = amount,
+            description = "Emergency Withdrawal: $purpose",
+            category = "emergency_withdrawal"
+        )
         if (updateResult.isFailure) {
             return WithdrawalResult.Failure("Failed to update group balance. Please try again.")
         }
+        val newBalance = updateResult.getOrThrow()
 
         return WithdrawalResult.Success(amount = amount, balanceRemaining = newBalance)
     }

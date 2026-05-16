@@ -1,4 +1,4 @@
-e-- -----------------------------------------------------------------------------
+-- -----------------------------------------------------------------------------
 -- SanibonaniSave - DEBUG LOGIC SEED (Deterministic Scenario Pack)
 -- Purpose: seed focused data for business rules + programmatic flow debugging.
 -- Idempotent: re-running replaces only DBG-* groups and DBG_* audit markers.
@@ -187,7 +187,7 @@ BEGIN
             TRUE,
             2,
             'FNB',
-            format('6200999%03s', v_group_index),
+            '6200999' || lpad(v_group_index::text, 3, '0'),
             '250655',
             'Savings',
             CASE WHEN v_group_index = 4 THEN 1200.00 ELSE 8500.00 - (v_group_index * 500) END,
@@ -256,7 +256,7 @@ BEGIN
                 CASE WHEN v_group_index IN (1, 2) THEN format('dbg_monthly_%s', v_group_index) ELSE NULL END
             );
 
-cecessary        -- Group admin is always a member by default.
+        -- Group admin is always a member by default.
         INSERT INTO public.members (
             group_id,
             user_id,
@@ -538,7 +538,7 @@ cecessary        -- Group admin is always a member by default.
                     current_date - 4,
                     CASE WHEN v_member_index = 2 THEN 9500.00 ELSE 12000.00 END,
                     'FNB',
-                    format('6200888%03s', v_member_index),
+                    '6200888' || lpad(v_member_index::text, 3, '0'),
                     '250655',
                     format('Debug Member %s-%s', lpad(v_group_index::text, 2, '0'), lpad(v_member_index::text, 2, '0')),
                     'DBG burial claim scenario',

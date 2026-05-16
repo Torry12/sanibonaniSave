@@ -140,4 +140,16 @@ abstract class RepoModule {
     abstract fun bindBeneficiaryClaimRepository(
         beneficiaryClaimRepositoryImpl: BeneficiaryClaimRepositoryImpl
     ): BeneficiaryClaimRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindVotingRepository(
+        votingRepositoryImpl: VotingRepositoryImpl
+    ): VotingRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindBehaviorTrackingRepository(
+        behaviorTrackingRepositoryImpl: BehaviorTrackingRepositoryImpl
+    ): BehaviorTrackingRepository
 }

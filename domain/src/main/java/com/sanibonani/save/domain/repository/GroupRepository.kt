@@ -13,8 +13,20 @@ interface GroupRepository {
     suspend fun createGroup(
         group: Group
     ): Result<String>
-    suspend fun updateGroupBalance(groupId: String, newBalance: Double): Result<Unit>
-    suspend fun incrementGroupBalance(groupId: String, amount: Double): Result<Unit>
+    /** Atomically updates group balance by adding the specified amount (can be negative). */
+    suspend fun incrementGroupBalance(groupId: String, amount: Double): Result<Double>
+
+    /**
+     * Atomically records a disbursement (outflow).
+     * Decrements group balance and records a ledger entry.
+     */
+    suspend fun recordDisbursement(
+        groupId: String,
+        amount: Double,
+        description: String,
+        category: String,
+        transactionId: String? = null
+    ): Result<Double>
     suspend fun updateGroupSettings(groupId: String, settings: GroupSettings): Result<Unit>
     suspend fun updateGroupSettings(groupId: String, settings: Map<String, Any>): Result<Unit>
     fun observeGroupFeeStatus(groupId: String): Flow<AdminFeeState>

@@ -509,10 +509,12 @@ class AdminViewModel @Inject constructor(
     private fun detectGroupSettingChanges(group: Group, settings: GroupSettings): List<GroupSettingChange> {
         val changes = mutableListOf<GroupSettingChange>()
 
-        fun addDouble(label: String, oldValue: Double, rawNewValue: String) {
+        fun addDouble(label: String, oldValue: Double, rawNewValue: String, formatAsCurrency: Boolean = true) {
             val newValue = rawNewValue.toDoubleOrNull() ?: oldValue
             if (kotlin.math.abs(newValue - oldValue) > 0.0001) {
-                changes += GroupSettingChange(label, "R${"%.2f".format(oldValue)}", "R${"%.2f".format(newValue)}")
+                val fromStr = if (formatAsCurrency) "R${"%.2f".format(oldValue)}" else "${"%.2f".format(oldValue)}%"
+                val toStr = if (formatAsCurrency) "R${"%.2f".format(newValue)}" else "${"%.2f".format(newValue)}%"
+                changes += GroupSettingChange(label, fromStr, toStr)
             }
         }
 
@@ -551,10 +553,10 @@ class AdminViewModel @Inject constructor(
         addText("Branch Code", group.branchCode, settings.branchCode)
         addText("Account Type", group.accountType, settings.accountType)
         addInt("Max Beneficiaries", group.maxBeneficiaries ?: 0, settings.maxBeneficiaries)
-        addDouble("Beneficiary Increase %", group.beneficiaryIncreasePct ?: 0.0, settings.beneficiaryIncreasePct)
+        addDouble("Beneficiary Increase %", group.beneficiaryIncreasePct ?: 0.0, settings.beneficiaryIncreasePct, formatAsCurrency = false)
         addDouble("Goal Amount", group.goalAmount, settings.goalAmount)
         addInt("Period Months", group.periodMonths, settings.periodMonths)
-        addDouble("Loan Interest Rate", group.loanInterestRate ?: 0.0, settings.loanInterestRate)
+        addDouble("Loan Interest Rate", group.loanInterestRate ?: 0.0, settings.loanInterestRate, formatAsCurrency = false)
         addDouble("Loan Max Amount", group.loanMaxAmount ?: 0.0, settings.loanMaxAmount)
         addInt("Loan Max Months", group.loanMaxMonths ?: 0, settings.loanMaxMonths)
 
@@ -1377,8 +1379,8 @@ class AdminViewModel @Inject constructor(
         }
     }
 
-    /** SA PASA standard: 7–11 numeric digits. Must match [RequestPayoutUseCase.ACCOUNT_NO_REGEX]. */
-    private fun isValidAccount(acc: String) = acc.length in 7..11 && acc.all { it.isDigit() }
+    /** SA bank account numbers are accepted in the 7–13 digit range. */
+    private fun isValidAccount(acc: String) = acc.length in 7..13 && acc.all { it.isDigit() }
     private fun isValidBranch(branch: String) = branch.length == 6 && branch.all { it.isDigit() }
 
     fun refreshPayouts() {

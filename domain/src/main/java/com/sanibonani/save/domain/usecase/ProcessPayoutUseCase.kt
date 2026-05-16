@@ -22,7 +22,20 @@ class ProcessPayoutUseCase @Inject constructor(
         status: PayoutStatus,
         yocoPayoutId: String? = null
     ): Result<Unit> {
-        val updateResult = payoutRepository.updatePayoutStatus(payoutId, status, yocoPayoutId)
+        // 1. Get current payout data to know the amount if completing
+        val payoutResult = payoutRepository.getPayoutById(payoutId)
+        val payout = payoutResult.getOrNull()
+
+        if (status == PayoutStatus.COMPLETED && (payoutResult.isFailure || payout == null)) {
+            return Result.failure(payoutResult.exceptionOrNull() ?: Exception("Failed to retrieve payout details for completion"))
+        }
+
+        // 2. Update status and balance atomically if completing
+        val updateResult = if (status == PayoutStatus.COMPLETED) {
+            payoutRepository.completePayoutAtomic(payoutId, "PLATFORM_ADMIN", yocoPayoutId)
+        } else {
+            payoutRepository.updatePayoutStatus(payoutId, status, yocoPayoutId)
+        }
         
         if (updateResult.isSuccess) {
             val message = when (status) {

@@ -45,7 +45,6 @@ BEGIN
     -- Investment Club
     INSERT INTO public.groups (id, name, type, province, city, admin_user_id, fee_status, registration_paid, balance, monthly_contribution)
     VALUES (gen_random_uuid(), 'Future Wealth Club', 'investment_club', 'Gauteng', 'Pretoria', v_admin_id, 'paid', true, 150000, 2000.0);
-pecific
     -- Group admin must always exist as a member in each seeded group.
     INSERT INTO public.members (
         id,

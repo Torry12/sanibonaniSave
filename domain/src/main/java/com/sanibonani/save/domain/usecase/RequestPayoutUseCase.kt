@@ -10,7 +10,7 @@ import javax.inject.Inject
  *
  * Validates:
  *  - Amount > 0
- *  - SA bank account number (7–11 numeric digits)
+ *  - SA bank account number (7–13 numeric digits)
  *  - SA branch code (6 numeric digits)
  *  - Bank name is not blank
  */
@@ -27,7 +27,7 @@ class RequestPayoutUseCase @Inject constructor(
         if (amount <= 0) return Result.failure(Exception("Amount must be greater than zero."))
         if (bankName.isBlank()) return Result.failure(Exception("Bank name is required."))
         if (!ACCOUNT_NO_REGEX.matches(accountNo.trim())) {
-            return Result.failure(Exception("Invalid SA bank account number. Must be 7–11 numeric digits."))
+            return Result.failure(Exception("Invalid SA bank account number. Must be 7–13 numeric digits."))
         }
         if (!BRANCH_CODE_REGEX.matches(branchCode.trim())) {
             return Result.failure(Exception("Invalid SA branch code. Must be exactly 6 numeric digits."))
@@ -46,8 +46,8 @@ class RequestPayoutUseCase @Inject constructor(
     }
 
     companion object {
-        /** SA bank account numbers are 7–11 numeric digits. */
-        private val ACCOUNT_NO_REGEX = Regex("^\\d{7,11}$")
+        /** SA bank account numbers are 7–13 numeric digits. */
+        private val ACCOUNT_NO_REGEX = Regex("^\\d{7,13}$")
         /** SA branch codes are exactly 6 numeric digits. */
         private val BRANCH_CODE_REGEX = Regex("^\\d{6}$")
     }

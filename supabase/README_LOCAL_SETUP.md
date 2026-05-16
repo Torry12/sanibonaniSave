@@ -21,6 +21,8 @@ The local migration folder includes the project’s schema, security, admin, and
 - `20260514000800_architecture_model_schema_templates.sql`
 - `20260514000900_align_validation_constraints_with_app.sql`
 - `20260515000000_consolidated_rls_alignment.sql`
+- `20260515000100_atomic_balance_updates.sql`
+- `20260515000200_group_voting_and_multi_admin.sql`
 
 ## How to apply locally
 Once Docker Desktop is running and the Linux engine is available:

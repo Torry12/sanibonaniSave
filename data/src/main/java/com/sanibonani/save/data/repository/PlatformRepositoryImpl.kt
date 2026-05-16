@@ -116,32 +116,54 @@ class PlatformRepositoryImpl @Inject constructor(
         }
     }
 
-    override suspend fun updateGlobalFees(memberCharge: Double, registrationFee: Double): Result<Unit> = retryWithExponentialBackoff {
+    override suspend fun updateGlobalFees(
+        memberCharge: Double,
+        registrationFee: Double,
+        payoutFee: Double,
+        whatsappFee: Double,
+        lateFeePercent: Double,
+        autoSuspensionDays: Int
+    ): Result<Unit> = retryWithExponentialBackoff {
         runCatching {
             // Upsert monthly member fee (new canonical key)
             supabase.postgrest["platform_settings"].upsert(buildJsonObject {
                 put("key", "monthly_member_fee")
                 put("value", memberCharge)
-            }) {
-                onConflict = "key"
-                select()
-            }
+            }) { onConflict = "key"; select() }
+            
             // Keep legacy key in sync for backward compatibility.
             supabase.postgrest["platform_settings"].upsert(buildJsonObject {
                 put("key", "monthly_per_member")
                 put("value", memberCharge)
-            }) {
-                onConflict = "key"
-                select()
-            }
+            }) { onConflict = "key"; select() }
+            
             // Upsert registration_fee
             supabase.postgrest["platform_settings"].upsert(buildJsonObject {
                 put("key", "registration_fee")
                 put("value", registrationFee)
-            }) {
-                onConflict = "key"
-                select()
-            }
+            }) { onConflict = "key"; select() }
+
+            // New settings
+            supabase.postgrest["platform_settings"].upsert(buildJsonObject {
+                put("key", "payout_fee")
+                put("value", payoutFee)
+            }) { onConflict = "key"; select() }
+
+            supabase.postgrest["platform_settings"].upsert(buildJsonObject {
+                put("key", "whatsapp_fee")
+                put("value", whatsappFee)
+            }) { onConflict = "key"; select() }
+
+            supabase.postgrest["platform_settings"].upsert(buildJsonObject {
+                put("key", "late_fee_percent")
+                put("value", lateFeePercent)
+            }) { onConflict = "key"; select() }
+
+            supabase.postgrest["platform_settings"].upsert(buildJsonObject {
+                put("key", "auto_suspension_days")
+                put("value", autoSuspensionDays.toDouble())
+            }) { onConflict = "key"; select() }
+
             Unit
         }
     }
@@ -155,8 +177,14 @@ class PlatformRepositoryImpl @Inject constructor(
                 emptyList<PlatformSetting>()
             }
             val settingsMap = settings.associate { it.key to it.value }.toMutableMap()
+            
             // Provide defaults if table is empty or missing keys
             if (!settingsMap.containsKey("registration_fee")) settingsMap["registration_fee"] = 700.0
+            if (!settingsMap.containsKey("payout_fee")) settingsMap["payout_fee"] = 5.0
+            if (!settingsMap.containsKey("whatsapp_fee")) settingsMap["whatsapp_fee"] = 0.50
+            if (!settingsMap.containsKey("late_fee_percent")) settingsMap["late_fee_percent"] = 10.0
+            if (!settingsMap.containsKey("auto_suspension_days")) settingsMap["auto_suspension_days"] = 30.0
+
             val monthlyMemberFee = settingsMap["monthly_member_fee"]
                 ?: settingsMap["monthly_per_member"]
                 ?: 10.0

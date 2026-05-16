@@ -142,7 +142,7 @@ SELECT
 FROM public.groups g
 WHERE g.name LIKE 'E2E-SEED-%'
   AND g.account_number IS NOT NULL
-  AND g.account_number !~ '^[0-9]{7,11}$';
+  AND g.account_number !~ '^[0-9]{7,13}$';
 
 -- 11c) Group branch code must be 6 digits when present
 SELECT
@@ -163,7 +163,7 @@ SELECT
 FROM public.beneficiary_payout_claims c
 WHERE c.group_id IN (SELECT id FROM public.groups WHERE name LIKE 'E2E-SEED-%')
   AND (
-      c.account_no !~ '^[0-9]{7,11}$'
+      c.account_no !~ '^[0-9]{7,13}$'
       OR c.branch_code !~ '^[0-9]{6}$'
   );
 

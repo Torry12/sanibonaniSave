@@ -279,7 +279,7 @@ class AdminMultiGroupIntegrationTest {
             adminPhone = "0111111111"
         ).getOrThrow()
 
-        groupRepository.updateGroupBalance(groupId, 1000.0).getOrThrow()
+        groupRepository.incrementGroupBalance(groupId, 1000.0).getOrThrow()
         viewModel.selectGroup(groupId)
         val state1 = awaitState("group data with seeded balance") {
             it.group?.id == groupId &&

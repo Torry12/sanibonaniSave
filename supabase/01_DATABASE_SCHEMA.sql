@@ -79,11 +79,11 @@ CREATE TABLE public.groups (
     allow_partial_payment  BOOLEAN DEFAULT FALSE,
     auto_suspend_after     INTEGER DEFAULT 2 CHECK (auto_suspend_after > 0),
     bank_name              TEXT,
-    account_number         TEXT CHECK (account_number IS NULL OR account_number ~ '^[0-9]{7,11}$'),
+    account_number         TEXT CHECK (account_number IS NULL OR account_number ~ '^[0-9]{7,13}$'),
     branch_code            TEXT CHECK (branch_code IS NULL OR branch_code ~ '^[0-9]{6}$'),
     account_type           TEXT DEFAULT 'Savings',
     yoco_public_key        TEXT,
-    balance                NUMERIC(12,2) DEFAULT 0 CHECK (balance >= 0),
+    balance                NUMERIC(12,2) DEFAULT 0,
     admin_user_id          UUID REFERENCES auth.users(id) NOT NULL,
     fee_status             TEXT DEFAULT 'due' CHECK (fee_status IN ('paid', 'due', 'warning', 'suspended', 'pending_activation')),
     registration_paid      BOOLEAN DEFAULT FALSE,
@@ -97,6 +97,7 @@ CREATE TABLE public.groups (
     beneficiary_increase_pct NUMERIC(5,2) DEFAULT 0 CHECK (beneficiary_increase_pct >= 0),
     goal_amount            NUMERIC(12,2) DEFAULT 0 CHECK (goal_amount >= 0),
     period_months          INTEGER DEFAULT 12 CHECK (period_months > 0),
+    rosca_rotation_method  TEXT NOT NULL DEFAULT 'fixed' CHECK (rosca_rotation_method IN ('fixed', 'random_draw', 'need_based', 'auction')),
     loan_interest_rate     NUMERIC(5,2) DEFAULT 0 CHECK (loan_interest_rate >= 0),
     loan_max_amount        NUMERIC(12,2) DEFAULT 0 CHECK (loan_max_amount >= 0),
     loan_max_months        INTEGER DEFAULT 12 CHECK (loan_max_months > 0),
@@ -263,7 +264,7 @@ CREATE TABLE public.payouts (
     group_id          UUID REFERENCES public.groups(id) ON DELETE CASCADE NOT NULL,
     amount            NUMERIC(12,2) NOT NULL CHECK (amount > 0),
     bank_name         TEXT NOT NULL,
-    account_no        TEXT NOT NULL CHECK (account_no ~ '^[0-9]{7,11}$'),
+    account_no        TEXT NOT NULL CHECK (account_no ~ '^[0-9]{7,13}$'),
     branch_code       TEXT NOT NULL CHECK (branch_code ~ '^[0-9]{6}$'),
     status            TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'processing', 'completed', 'failed', 'cancelled')),
     processed_by      UUID REFERENCES auth.users(id),
@@ -354,7 +355,7 @@ CREATE TABLE public.beneficiary_payout_claims (
     date_of_death     DATE NOT NULL,
     claim_amount      NUMERIC(12,2) NOT NULL CHECK (claim_amount > 0),
     bank_name         TEXT NOT NULL,
-    account_no        TEXT NOT NULL CHECK (account_no ~ '^[0-9]{7,11}$'),
+    account_no        TEXT NOT NULL CHECK (account_no ~ '^[0-9]{7,13}$'),
     branch_code       TEXT NOT NULL CHECK (branch_code ~ '^[0-9]{6}$'),
     account_holder    TEXT NOT NULL,
     notes             TEXT,
@@ -502,6 +503,32 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 CREATE TRIGGER trigger_log_platform_revenue
     AFTER UPDATE ON public.platform_fees
     FOR EACH ROW EXECUTE PROCEDURE public.log_platform_revenue();
+
+-- Atomically increments or decrements a group's balance.
+CREATE OR REPLACE FUNCTION public.increment_group_balance(
+    p_group_id UUID,
+    p_amount NUMERIC
+) RETURNS NUMERIC
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+    v_new_balance NUMERIC;
+BEGIN
+    UPDATE public.groups
+    SET balance = balance + p_amount
+    WHERE id = p_group_id
+    RETURNING balance INTO v_new_balance;
+
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Group not found';
+    END IF;
+
+    RETURN v_new_balance;
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.increment_group_balance(UUID, NUMERIC) TO authenticated, service_role;
 
 -- Initial settings
 INSERT INTO public.platform_settings (key, value) VALUES ('monthly_per_member', 10.0), ('registration_fee', 700.0) ON CONFLICT DO NOTHING;

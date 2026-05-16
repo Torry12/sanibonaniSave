@@ -704,6 +704,115 @@ val MIGRATION_37_38 = object : Migration(37, 38) {
     }
 }
 
+val MIGRATION_38_39 = object : Migration(38, 39) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        // Create member_behavior_track table
+        db.safeExec("""
+            CREATE TABLE IF NOT EXISTS `member_behavior_track` (
+                `id` TEXT NOT NULL,
+                `member_id` TEXT NOT NULL,
+                `member_id_number` TEXT NOT NULL,
+                `group_id` TEXT NOT NULL,
+                `total_contributions` INTEGER NOT NULL,
+                `on_time_contributions` INTEGER NOT NULL,
+                `late_contributions` INTEGER NOT NULL,
+                `overdue_count` INTEGER NOT NULL,
+                `missed_contributions` INTEGER NOT NULL,
+                `payment_consistency_score` REAL NOT NULL,
+                `average_days_late` REAL NOT NULL,
+                `current_payment_streak` INTEGER NOT NULL,
+                `longest_payment_streak` INTEGER NOT NULL,
+                `has_broken_streak_recently` INTEGER NOT NULL,
+                `total_amount_contributed` REAL NOT NULL,
+                `total_late_fees_paid` REAL NOT NULL,
+                `pending_late_fees` REAL NOT NULL,
+                `total_outstanding_amount` REAL NOT NULL,
+                `total_loans_requested` INTEGER NOT NULL,
+                `total_loans_approved` INTEGER NOT NULL,
+                `total_loans_completed` INTEGER NOT NULL,
+                `active_loans` INTEGER NOT NULL,
+                `overdue_loans` INTEGER NOT NULL,
+                `loan_default_count` INTEGER NOT NULL,
+                `loan_completion_rate` REAL NOT NULL,
+                `duplicate_transaction_count` INTEGER NOT NULL,
+                `suspicious_activity_count` INTEGER NOT NULL,
+                `unusual_payment_patterns` INTEGER NOT NULL,
+                `multiple_accounts_detected` INTEGER NOT NULL,
+                `velocity_check_failed` INTEGER NOT NULL,
+                `rapid_disbursement_attempts` INTEGER NOT NULL,
+                `member_status` TEXT NOT NULL,
+                `fraud_risk_level` TEXT NOT NULL,
+                `fraud_score` REAL NOT NULL,
+                `behavior_score` REAL NOT NULL,
+                `is_flagged_for_review` INTEGER NOT NULL,
+                `is_suspended` INTEGER NOT NULL,
+                `suspension_reason` TEXT,
+                `review_notes` TEXT,
+                `months_in_group` INTEGER NOT NULL,
+                `joined_at` TEXT,
+                `last_activity_at` TEXT,
+                `last_contribution_at` TEXT,
+                `admin_notes` TEXT,
+                `last_reviewed_at` TEXT,
+                `reviewed_by` TEXT,
+                `created_at` TEXT,
+                `updated_at` TEXT,
+                PRIMARY KEY(`id`)
+            )
+        """.trimIndent())
+
+        db.safeExec("CREATE UNIQUE INDEX IF NOT EXISTS `index_member_behavior_track_member_id` ON `member_behavior_track` (`member_id`)")
+        db.safeExec("CREATE INDEX IF NOT EXISTS `index_member_behavior_track_member_id_number` ON `member_behavior_track` (`member_id_number`)")
+        db.safeExec("CREATE INDEX IF NOT EXISTS `index_member_behavior_track_group_id` ON `member_behavior_track` (`group_id`)")
+        db.safeExec("CREATE INDEX IF NOT EXISTS `index_member_behavior_track_fraud_risk_level` ON `member_behavior_track` (`fraud_risk_level`)")
+        db.safeExec("CREATE INDEX IF NOT EXISTS `index_member_behavior_track_is_flagged_for_review` ON `member_behavior_track` (`is_flagged_for_review`)")
+
+        // Create fraud_detection_events table
+        db.safeExec("""
+            CREATE TABLE IF NOT EXISTS `fraud_detection_events` (
+                `id` TEXT NOT NULL,
+                `member_id` TEXT NOT NULL,
+                `group_id` TEXT NOT NULL,
+                `event_type` TEXT NOT NULL,
+                `severity` TEXT NOT NULL,
+                `details_json` TEXT NOT NULL,
+                `action_taken` TEXT,
+                `resolved` INTEGER NOT NULL,
+                `created_at` TEXT,
+                `updated_at` TEXT,
+                PRIMARY KEY(`id`)
+            )
+        """.trimIndent())
+
+        db.safeExec("CREATE INDEX IF NOT EXISTS `index_fraud_detection_events_member_id` ON `fraud_detection_events` (`member_id`)")
+        db.safeExec("CREATE INDEX IF NOT EXISTS `index_fraud_detection_events_group_id` ON `fraud_detection_events` (`group_id`)")
+        db.safeExec("CREATE INDEX IF NOT EXISTS `index_fraud_detection_events_severity` ON `fraud_detection_events` (`severity`)")
+        db.safeExec("CREATE INDEX IF NOT EXISTS `index_fraud_detection_events_resolved` ON `fraud_detection_events` (`resolved`)")
+
+        // Create behavior_analytics_summary table
+        db.safeExec("""
+            CREATE TABLE IF NOT EXISTS `behavior_analytics_summary` (
+                `group_id` TEXT NOT NULL PRIMARY KEY,
+                `total_members_tracked` INTEGER NOT NULL,
+                `excellent_members` INTEGER NOT NULL,
+                `good_members` INTEGER NOT NULL,
+                `fair_members` INTEGER NOT NULL,
+                `poor_members` INTEGER NOT NULL,
+                `suspended_members` INTEGER NOT NULL,
+                `high_fraud_risk_count` INTEGER NOT NULL,
+                `flagged_members_count` INTEGER NOT NULL,
+                `average_behavior_score` REAL NOT NULL,
+                `average_fraud_score` REAL NOT NULL,
+                `on_time_payment_rate` REAL NOT NULL,
+                `loan_default_rate` REAL NOT NULL,
+                `calculated_at` TEXT
+            )
+        """.trimIndent())
+
+        db.safeExec("CREATE UNIQUE INDEX IF NOT EXISTS `index_behavior_analytics_summary_group_id` ON `behavior_analytics_summary` (`group_id`)")
+    }
+}
+
 val ALL_MIGRATIONS = arrayOf(
     MIGRATION_1_2,
     MIGRATION_2_3,
@@ -741,6 +850,7 @@ val ALL_MIGRATIONS = arrayOf(
     MIGRATION_34_35,
     MIGRATION_35_36,
     MIGRATION_36_37,
-    MIGRATION_37_38
+    MIGRATION_37_38,
+    MIGRATION_38_39
 )
 

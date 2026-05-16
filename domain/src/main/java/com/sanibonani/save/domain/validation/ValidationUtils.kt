@@ -11,8 +11,8 @@ import java.util.Calendar
 object ValidationUtils {
 
     private val strictSaPhoneRegex = "^0(6|7)[0-9]{8}$".toRegex()
-    // SA PASA standard: 7–11 digit account numbers (aligns with RequestPayoutUseCase)
-    private val bankAccountRegex = "^[0-9]{7,11}$".toRegex()
+    // SA bank account numbers vary by bank; accept the common 7–13 digit range.
+    private val bankAccountRegex = "^[0-9]{7,13}$".toRegex()
     private val branchCodeRegex = "^[0-9]{6}$".toRegex()
     private val minimumMonthlyContribution = BigDecimal("10.00")
 
