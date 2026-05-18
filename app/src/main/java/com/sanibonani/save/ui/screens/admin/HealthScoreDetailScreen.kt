@@ -6,25 +6,35 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.hilt.navigation.compose.hiltViewModel
 import com.sanibonani.save.domain.model.GroupHealthScore
 import com.sanibonani.save.domain.model.RiskZone
 import com.sanibonani.save.ui.components.backgroundColor
 import com.sanibonani.save.ui.components.label
+import com.sanibonani.save.ui.theme.Forest
+import com.sanibonani.save.viewmodel.HealthScoreViewModel
 
 @Composable
 fun HealthScoreDetailScreen(
-    score: GroupHealthScore,
+    groupId: String,
     onBack: () -> Unit = {},
     onExportReport: () -> Unit = {},
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    vm: HealthScoreViewModel = hiltViewModel()
 ) {
+    val state by vm.state.collectAsState()
+
+    LaunchedEffect(groupId) {
+        vm.loadHealthScore(groupId)
+    }
+
     Column(modifier = modifier.fillMaxSize()) {
         // Top App Bar
         TopAppBar(
@@ -36,112 +46,124 @@ fun HealthScoreDetailScreen(
             }
         )
 
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-            item {
-                // Overall score section
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        if (state.isLoading) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(color = Forest)
+            }
+        } else if (state.error != null) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text(state.error ?: "Unknown error")
+            }
+        } else {
+            state.score?.let { score ->
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp)
-                    ) {
-                        Text(
-                            "Overall Score",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Spacer(modifier = Modifier.height(12.dp))
-
-                        LinearProgressIndicator(
-                            progress = { (score.overallScore / 100f) },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(16.dp)
-                                .clip(RoundedCornerShape(8.dp)),
-                            color = score.zone.backgroundColor(),
-                            trackColor = MaterialTheme.colorScheme.surfaceVariant
-                        )
-
-                        Spacer(modifier = Modifier.height(8.dp))
-
-                        Row(
+                    item {
+                        // Overall score section
+                        Card(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
+                            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
                         ) {
-                            Text(
-                                "${score.overallScore}/100",
-                                style = MaterialTheme.typography.headlineSmall,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Surface(
-                                color = score.zone.backgroundColor().copy(alpha = 0.2f),
-                                shape = RoundedCornerShape(8.dp)
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(16.dp)
                             ) {
                                 Text(
-                                    score.zone.label(),
-                                    modifier = Modifier.padding(8.dp, 4.dp),
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = score.zone.backgroundColor(),
+                                    "Overall Score",
+                                    style = MaterialTheme.typography.titleMedium,
                                     fontWeight = FontWeight.Bold
                                 )
+                                Spacer(modifier = Modifier.height(12.dp))
+
+                                LinearProgressIndicator(
+                                    progress = { (score.overallScore / 100f) },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(16.dp)
+                                        .clip(RoundedCornerShape(8.dp)),
+                                    color = score.zone.backgroundColor(),
+                                    trackColor = MaterialTheme.colorScheme.surfaceVariant
+                                )
+
+                                Spacer(modifier = Modifier.height(8.dp))
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        "${score.overallScore}/100",
+                                        style = MaterialTheme.typography.headlineSmall,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Surface(
+                                        color = score.zone.backgroundColor().copy(alpha = 0.2f),
+                                        shape = RoundedCornerShape(8.dp)
+                                    ) {
+                                        Text(
+                                            score.zone.label(),
+                                            modifier = Modifier.padding(8.dp, 4.dp),
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = score.zone.backgroundColor(),
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
+
+                    item {
+                        Text(
+                            "Component Breakdown",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+
+                    // Component cards
+                    items(score.components.size) { index ->
+                        val (name, value) = score.components.toList()[index]
+                        ComponentScoreCard(
+                            name = name,
+                            score = value,
+                            weight = getComponentWeight(name)
+                        )
+                    }
+
+                    item {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            "Recommendations",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+
+                    items(score.recommendations.size) { index ->
+                        RecommendationCard(text = score.recommendations[index])
+                    }
+
+                    item {
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Button(
+                            onClick = onExportReport,
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.primary
+                            )
+                        ) {
+                            Text("Export Full Report as PDF")
+                        }
+                        Spacer(modifier = Modifier.height(16.dp))
+                    }
                 }
-            }
-
-            item {
-                Text(
-                    "Component Breakdown",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-
-            // Component cards
-            items(score.components.size) { index ->
-                val (name, value) = score.components.toList()[index]
-                ComponentScoreCard(
-                    name = name,
-                    score = value,
-                    weight = getComponentWeight(name)
-                )
-            }
-
-            item {
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    "Recommendations",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-
-            items(score.recommendations.size) { index ->
-                RecommendationCard(text = score.recommendations[index])
-            }
-
-            item {
-                Spacer(modifier = Modifier.height(16.dp))
-                Button(
-                    onClick = onExportReport,
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.primary
-                    )
-                ) {
-                    Text("Export Full Report as PDF")
-                }
-                Spacer(modifier = Modifier.height(16.dp))
             }
         }
     }

@@ -8,10 +8,11 @@
 -- - Supabase SQL Editor does not execute \i directives.
 -- -----------------------------------------------------------------------------
 
-\set ON_ERROR_STOP on
+-- psql meta-commands removed for Dashboard compatibility.
+-- \set ON_ERROR_STOP on
 
-\echo 'Cleaning up debug logic scenarios...'
-\i supabase/19_CLEANUP_DEBUG_LOGIC_SCENARIOS.sql
+-- \echo 'Cleaning up debug logic scenarios...'
+-- \i supabase/19_CLEANUP_DEBUG_LOGIC_SCENARIOS.sql
 
-\echo 'Debug cleanup completed.'
+-- \echo 'Debug cleanup completed.'
 

@@ -82,7 +82,7 @@ CREATE TABLE public.groups (
     account_number         TEXT CHECK (account_number IS NULL OR account_number ~ '^[0-9]{7,13}$'),
     branch_code            TEXT CHECK (branch_code IS NULL OR branch_code ~ '^[0-9]{6}$'),
     account_type           TEXT DEFAULT 'Savings',
-    yoco_public_key        TEXT,
+    gateway_public_key     TEXT,
     balance                NUMERIC(12,2) DEFAULT 0,
     admin_user_id          UUID REFERENCES auth.users(id) NOT NULL,
     fee_status             TEXT DEFAULT 'due' CHECK (fee_status IN ('paid', 'due', 'warning', 'suspended', 'pending_activation')),
@@ -189,8 +189,8 @@ CREATE TABLE public.contributions (
     type                   TEXT DEFAULT 'contribution' CHECK (type IN ('contribution', 'joining_fee', 'registration_contribution', 'late_fee')),
     due_date               DATE NOT NULL,
     paid_at                TIMESTAMPTZ,
-    payment_method         TEXT DEFAULT 'yoco',
-    yoco_transaction_id    TEXT,
+    payment_method         TEXT DEFAULT 'bank',
+    transaction_id         TEXT,
     receipt_url            TEXT,
     status                 TEXT DEFAULT 'due' CHECK (status IN ('paid', 'due', 'overdue', 'partial')),
     late_fees_applied      BOOLEAN DEFAULT FALSE,
@@ -205,7 +205,7 @@ CREATE TABLE public.payments (
     group_id          UUID REFERENCES public.groups(id) ON DELETE CASCADE NOT NULL,
     amount            NUMERIC(12,2) NOT NULL CHECK (amount > 0),
     payment_type      TEXT NOT NULL CHECK (payment_type IN ('joining_fee', 'contribution', 'late_fee', 'platform_fee', 'claim', 'custom', 'registration')),
-    payment_method    TEXT NOT NULL CHECK (payment_method IN ('yoco', 'bank', 'cash', 'other')),
+    payment_method    TEXT NOT NULL CHECK (payment_method IN ('yoco', 'stitch', 'payfast', 'bank', 'cash', 'other')),
     transaction_id    TEXT,
     status            TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'processing', 'completed', 'failed', 'refunded')),
     processed_at      TIMESTAMPTZ,
@@ -266,10 +266,10 @@ CREATE TABLE public.payouts (
     bank_name         TEXT NOT NULL,
     account_no        TEXT NOT NULL CHECK (account_no ~ '^[0-9]{7,13}$'),
     branch_code       TEXT NOT NULL CHECK (branch_code ~ '^[0-9]{6}$'),
-    status            TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'processing', 'completed', 'failed', 'cancelled')),
+    status            TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'group_approved', 'processing', 'completed', 'failed', 'cancelled')),
     processed_by      UUID REFERENCES auth.users(id),
     processed_at      TIMESTAMPTZ,
-    yoco_payout_id    TEXT,
+    payout_reference  TEXT,
     created_at        TIMESTAMPTZ DEFAULT NOW(),
     updated_at        TIMESTAMPTZ DEFAULT NOW()
 );
@@ -328,7 +328,7 @@ CREATE TABLE public.loan_repayments (
     group_id          UUID REFERENCES public.groups(id) ON DELETE CASCADE NOT NULL,
     amount            NUMERIC(12,2) NOT NULL CHECK (amount > 0),
     paid_at           TIMESTAMPTZ DEFAULT NOW(),
-    payment_method    TEXT DEFAULT 'yoco',
+    payment_method    TEXT DEFAULT 'bank',
     transaction_id    TEXT,
     created_at        TIMESTAMPTZ DEFAULT NOW()
 );
@@ -414,14 +414,14 @@ CREATE TRIGGER trigger_update_member_count AFTER INSERT OR DELETE ON public.memb
 
 CREATE OR REPLACE FUNCTION public.record_contribution_v1(
     p_member_id UUID, p_group_id UUID, p_amount NUMERIC, p_due_date DATE,
-    p_paid_at TIMESTAMPTZ, p_status TEXT, p_yoco_tx_id TEXT DEFAULT NULL, p_type TEXT DEFAULT 'contribution'
+    p_paid_at TIMESTAMPTZ, p_status TEXT, p_tx_id TEXT DEFAULT NULL, p_type TEXT DEFAULT 'contribution'
 ) RETURNS public.contributions AS $$
 DECLARE
     v_contribution public.contributions;
     v_new_balance NUMERIC;
 BEGIN
-    INSERT INTO public.contributions (member_id, group_id, amount, due_date, paid_at, status, yoco_transaction_id, type)
-    VALUES (p_member_id, p_group_id, p_amount, p_due_date, p_paid_at, p_status, p_yoco_tx_id, p_type)
+    INSERT INTO public.contributions (member_id, group_id, amount, due_date, paid_at, status, transaction_id, type)
+    VALUES (p_member_id, p_group_id, p_amount, p_due_date, p_paid_at, p_status, p_tx_id, p_type)
     RETURNING * INTO v_contribution;
 
     UPDATE public.members
@@ -430,7 +430,8 @@ BEGIN
     WHERE id = p_member_id;
 
     UPDATE public.groups
-    SET balance = balance + p_amount
+    SET balance = balance + p_amount,
+        updated_at = NOW()
     WHERE id = p_group_id
     RETURNING balance INTO v_new_balance;
 
@@ -445,7 +446,7 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 CREATE OR REPLACE FUNCTION public.record_loan_repayment_v1(
-    p_loan_id UUID, p_member_id UUID, p_group_id UUID, p_amount NUMERIC, p_payment_method TEXT DEFAULT 'yoco'
+    p_loan_id UUID, p_member_id UUID, p_group_id UUID, p_amount NUMERIC, p_payment_method TEXT DEFAULT 'bank'
 ) RETURNS public.loan_repayments AS $$
 DECLARE
     v_repayment public.loan_repayments;
@@ -523,6 +524,10 @@ BEGIN
     IF NOT FOUND THEN
         RAISE EXCEPTION 'Group not found';
     END IF;
+
+    -- Insert ledger entry to keep immutable audit trail
+    INSERT INTO public.group_ledger (group_id, transaction_id, amount, balance_after, description, category)
+    VALUES (p_group_id, NULL, p_amount, v_new_balance, 'Atomic balance update', 'adjustment');
 
     RETURN v_new_balance;
 END;

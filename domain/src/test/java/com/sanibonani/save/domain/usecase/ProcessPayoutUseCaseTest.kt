@@ -2,7 +2,6 @@ package com.sanibonani.save.domain.usecase
 
 import com.sanibonani.save.domain.model.PayoutRequest
 import com.sanibonani.save.domain.model.PayoutStatus
-import com.sanibonani.save.domain.repository.GroupRepository
 import com.sanibonani.save.domain.repository.NotificationRepository
 import com.sanibonani.save.domain.repository.PayoutRepository
 import io.mockk.coEvery
@@ -17,28 +16,25 @@ class ProcessPayoutUseCaseTest {
 
     private lateinit var processPayoutUseCase: ProcessPayoutUseCase
     private val payoutRepository: PayoutRepository = mockk()
-    private val groupRepository: GroupRepository = mockk()
     private val notificationRepository: NotificationRepository = mockk()
 
     @Before
     fun setUp() {
         processPayoutUseCase = ProcessPayoutUseCase(
             payoutRepository,
-            groupRepository,
             notificationRepository
         )
     }
 
     @Test
-    fun `invoke with COMPLETED status decrements group balance`() = runBlocking {
+    fun `invoke with COMPLETED status calls completePayoutAtomic`() = runBlocking {
         // Given
         val payoutId = "p1"
         val groupId = "g1"
         val payout = PayoutRequest(id = payoutId, groupId = groupId, amount = 1000.0, bankName = "FNB", accountNo = "123", branchCode = "456")
         
         coEvery { payoutRepository.getPayoutById(payoutId) } returns Result.success(payout)
-        coEvery { payoutRepository.updatePayoutStatus(payoutId, PayoutStatus.COMPLETED, null) } returns Result.success(Unit)
-        coEvery { groupRepository.incrementGroupBalance(groupId, -1000.0) } returns Result.success(4000.0)
+        coEvery { payoutRepository.completePayoutAtomic(payoutId, "PLATFORM_ADMIN", null) } returns Result.success(Unit)
         coEvery { notificationRepository.sendNotification(any()) } returns Result.success(Unit)
 
         // When
@@ -46,13 +42,12 @@ class ProcessPayoutUseCaseTest {
 
         // Then
         assertTrue(result.isSuccess)
-        coVerify { payoutRepository.updatePayoutStatus(payoutId, PayoutStatus.COMPLETED, null) }
-        coVerify { groupRepository.incrementGroupBalance(groupId, -1000.0) }
+        coVerify { payoutRepository.completePayoutAtomic(payoutId, "PLATFORM_ADMIN", null) }
         coVerify { notificationRepository.sendNotification(any()) }
     }
 
     @Test
-    fun `invoke with PROCESSING status does NOT decrement group balance`() = runBlocking {
+    fun `invoke with PROCESSING status calls updatePayoutStatus`() = runBlocking {
         // Given
         val payoutId = "p1"
         val groupId = "g1"
@@ -68,7 +63,7 @@ class ProcessPayoutUseCaseTest {
         // Then
         assertTrue(result.isSuccess)
         coVerify { payoutRepository.updatePayoutStatus(payoutId, PayoutStatus.PROCESSING, null) }
-        coVerify(exactly = 0) { groupRepository.incrementGroupBalance(any(), any()) }
+        coVerify(exactly = 0) { payoutRepository.completePayoutAtomic(any(), any(), any()) }
     }
 
     @Test
@@ -85,5 +80,6 @@ class ProcessPayoutUseCaseTest {
         // Then
         assertTrue(result.isFailure)
         coVerify(exactly = 0) { payoutRepository.updatePayoutStatus(any(), any(), any()) }
+        coVerify(exactly = 0) { payoutRepository.completePayoutAtomic(any(), any(), any()) }
     }
 }

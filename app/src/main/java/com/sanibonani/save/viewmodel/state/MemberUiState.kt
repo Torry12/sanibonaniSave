@@ -18,7 +18,7 @@ data class MemberUiState(
     val group: Group? = null,
     val userRole: UserRole = UserRole.MEMBER,
     val currentGroupId: String? = null,
-    val businessInsight: GetGroupBusinessInsightsUseCase.GroupBusinessInsight = GetGroupBusinessInsightsUseCase.GroupBusinessInsight.None,
+    val businessInsight: GetGroupBusinessInsightsUseCase.GroupBusinessInsight = GetGroupBusinessInsightsUseCase.GroupBusinessInsight.Empty,
 
     // Financial data
     val contributions: List<Contribution> = emptyList(),

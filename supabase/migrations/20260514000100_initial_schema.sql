@@ -82,7 +82,7 @@ CREATE TABLE public.groups (
     account_number         TEXT CHECK (account_number IS NULL OR account_number ~ '^[0-9]{7,13}$'),
     branch_code            TEXT CHECK (branch_code IS NULL OR branch_code ~ '^[0-9]{6}$'),
     account_type           TEXT DEFAULT 'Savings',
-    yoco_public_key        TEXT,
+    gateway_public_key        TEXT,
     balance                NUMERIC(12,2) DEFAULT 0 CHECK (balance >= 0),
     admin_user_id          UUID REFERENCES auth.users(id) NOT NULL,
     fee_status             TEXT DEFAULT 'due' CHECK (fee_status IN ('paid', 'due', 'warning', 'suspended', 'pending_activation')),
@@ -190,7 +190,7 @@ CREATE TABLE public.contributions (
     due_date               DATE NOT NULL,
     paid_at                TIMESTAMPTZ,
     payment_method         TEXT DEFAULT 'yoco',
-    yoco_transaction_id    TEXT,
+    transaction_id    TEXT,
     receipt_url            TEXT,
     status                 TEXT DEFAULT 'due' CHECK (status IN ('paid', 'due', 'overdue', 'partial')),
     late_fees_applied      BOOLEAN DEFAULT FALSE,
@@ -269,7 +269,7 @@ CREATE TABLE public.payouts (
     status            TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'processing', 'completed', 'failed', 'cancelled')),
     processed_by      UUID REFERENCES auth.users(id),
     processed_at      TIMESTAMPTZ,
-    yoco_payout_id    TEXT,
+    payout_reference  TEXT,
     created_at        TIMESTAMPTZ DEFAULT NOW(),
     updated_at        TIMESTAMPTZ DEFAULT NOW()
 );
@@ -420,7 +420,7 @@ DECLARE
     v_contribution public.contributions;
     v_new_balance NUMERIC;
 BEGIN
-    INSERT INTO public.contributions (member_id, group_id, amount, due_date, paid_at, status, yoco_transaction_id, type)
+    INSERT INTO public.contributions (member_id, group_id, amount, due_date, paid_at, status, transaction_id, type)
     VALUES (p_member_id, p_group_id, p_amount, p_due_date, p_paid_at, p_status, p_yoco_tx_id, p_type)
     RETURNING * INTO v_contribution;
 
@@ -430,7 +430,8 @@ BEGIN
     WHERE id = p_member_id;
 
     UPDATE public.groups
-    SET balance = balance + p_amount
+    SET balance = balance + p_amount,
+        updated_at = NOW()
     WHERE id = p_group_id
     RETURNING balance INTO v_new_balance;
 
@@ -523,6 +524,10 @@ BEGIN
     IF NOT FOUND THEN
         RAISE EXCEPTION 'Group not found';
     END IF;
+
+    -- Ensure every balance change has a ledger entry for auditability
+    INSERT INTO public.group_ledger (group_id, transaction_id, amount, balance_after, description, category)
+    VALUES (p_group_id, NULL, p_amount, v_new_balance, 'Atomic balance update', 'adjustment');
 
     RETURN v_new_balance;
 END;

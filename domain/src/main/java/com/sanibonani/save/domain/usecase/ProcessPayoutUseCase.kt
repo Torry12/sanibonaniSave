@@ -20,7 +20,7 @@ class ProcessPayoutUseCase @Inject constructor(
         payoutId: String,
         groupId: String,
         status: PayoutStatus,
-        yocoPayoutId: String? = null
+        payoutReference: String? = null
     ): Result<Unit> {
         // 1. Get current payout data to know the amount if completing
         val payoutResult = payoutRepository.getPayoutById(payoutId)
@@ -32,9 +32,9 @@ class ProcessPayoutUseCase @Inject constructor(
 
         // 2. Update status and balance atomically if completing
         val updateResult = if (status == PayoutStatus.COMPLETED) {
-            payoutRepository.completePayoutAtomic(payoutId, "PLATFORM_ADMIN", yocoPayoutId)
+            payoutRepository.completePayoutAtomic(payoutId, "PLATFORM_ADMIN", payoutReference)
         } else {
-            payoutRepository.updatePayoutStatus(payoutId, status, yocoPayoutId)
+            payoutRepository.updatePayoutStatus(payoutId, status, payoutReference)
         }
         
         if (updateResult.isSuccess) {

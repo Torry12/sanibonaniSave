@@ -1,0 +1,42 @@
+name: Check SQL balance updates
+
+on:
+  pull_request:
+    branches:
+      - main
+      - develop
+      - staging
+      - 'release/**'
+    paths:
+      - 'supabase/**'
+      - 'scripts/**'
+      - '.github/workflows/**'
+  push:
+    branches:
+      - main
+      - develop
+      - staging
+      - 'release/**'
+    paths:
+      - 'supabase/**'
+      - 'scripts/**'
+
+jobs:
+  check-sql-updates:
+    name: Scan SQL for direct groups.balance updates
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run checker script
+        shell: powershell
+        run: |
+          Write-Host "Running check_sql_balance_updates.ps1..."
+          if (-not (Test-Path -Path .\scripts\check_sql_balance_updates.ps1)) {
+            Write-Host "Checker script not found at ./scripts/check_sql_balance_updates.ps1"; exit 0
+          }
+          # Run in CI mode so the script exits non-zero on findings
+          .\scripts\check_sql_balance_updates.ps1 -CI
+

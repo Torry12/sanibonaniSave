@@ -340,7 +340,7 @@ val MIGRATION_20_21 = object : Migration(20, 21) {
         db.safeExec("ALTER TABLE groups ADD COLUMN period_months INTEGER NOT NULL DEFAULT 12")
         
         // Legacy/Missing fields
-        db.safeExec("ALTER TABLE groups ADD COLUMN yoco_public_key TEXT")
+        db.safeExec("ALTER TABLE groups ADD COLUMN gateway_public_key TEXT")
         db.safeExec("ALTER TABLE groups ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0")
 
         // --- Indices Healing ---
@@ -813,6 +813,84 @@ val MIGRATION_38_39 = object : Migration(38, 39) {
     }
 }
 
+val MIGRATION_39_40 = object : Migration(39, 40) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.safeExec("""
+            CREATE TABLE IF NOT EXISTS `payouts_new` (
+                `id` TEXT NOT NULL,
+                `group_id` TEXT NOT NULL,
+                `amount` REAL NOT NULL,
+                `bank_name` TEXT NOT NULL,
+                `account_no` TEXT NOT NULL,
+                `branch_code` TEXT NOT NULL,
+                `status` TEXT NOT NULL,
+                `processed_by` TEXT,
+                `processed_at` TEXT,
+                `payout_reference` TEXT,
+                `created_at` TEXT,
+                `updated_at` INTEGER NOT NULL,
+                PRIMARY KEY(`id`)
+            )
+        """.trimIndent())
+        db.safeExec("""
+            INSERT INTO `payouts_new` (
+                `id`, `group_id`, `amount`, `bank_name`, `account_no`, `branch_code`,
+                `status`, `processed_by`, `processed_at`, `payout_reference`, `created_at`, `updated_at`
+            )
+            SELECT
+                `id`, `group_id`, `amount`, `bank_name`, `account_no`, `branch_code`,
+                `status`, `processed_by`, `processed_at`, `yoco_payout_id`, `created_at`, `updated_at`
+            FROM `payouts`
+        """.trimIndent())
+        db.safeExec("DROP TABLE `payouts`")
+        db.safeExec("ALTER TABLE `payouts_new` RENAME TO `payouts`")
+        db.safeExec("CREATE INDEX IF NOT EXISTS `index_payouts_group_id` ON `payouts` (`group_id`)")
+        db.safeExec("CREATE INDEX IF NOT EXISTS `index_payouts_status` ON `payouts` (`status`)")
+    }
+}
+
+val MIGRATION_40_41 = object : Migration(40, 41) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        // Change default payment_method from 'yoco' to 'bank' for contributions
+        // and rename yoco_transaction_id to transaction_id
+        db.safeExec("""
+            CREATE TABLE IF NOT EXISTS `contributions_new` (
+                `id` TEXT NOT NULL,
+                `member_id` TEXT NOT NULL,
+                `group_id` TEXT NOT NULL,
+                `policy_id` TEXT,
+                `amount` REAL NOT NULL,
+                `created_at` TEXT,
+                `due_date` TEXT NOT NULL,
+                `paid_at` TEXT,
+                `status` TEXT NOT NULL,
+                `type` TEXT NOT NULL DEFAULT 'contribution',
+                `payment_method` TEXT NOT NULL DEFAULT 'bank',
+                `late_fees_applied` INTEGER NOT NULL,
+                `transaction_id` TEXT,
+                `updated_at` INTEGER NOT NULL,
+                PRIMARY KEY(`id`)
+            )
+        """.trimIndent())
+        db.safeExec("""
+            INSERT INTO `contributions_new` (
+                `id`, `member_id`, `group_id`, `policy_id`, `amount`, `created_at`, `due_date`, `paid_at`,
+                `status`, `type`, `payment_method`, `late_fees_applied`, `transaction_id`, `updated_at`
+            )
+            SELECT 
+                `id`, `member_id`, `group_id`, `policy_id`, `amount`, `created_at`, `due_date`, `paid_at`,
+                `status`, `type`, `payment_method`, `late_fees_applied`, `yoco_transaction_id`, `updated_at`
+            FROM `contributions`
+        """.trimIndent())
+        db.safeExec("DROP TABLE `contributions`")
+        db.safeExec("ALTER TABLE `contributions_new` RENAME TO `contributions`")
+        db.safeExec("CREATE INDEX IF NOT EXISTS `index_contributions_member_id` ON `contributions` (`member_id`)")
+        db.safeExec("CREATE INDEX IF NOT EXISTS `index_contributions_group_id` ON `contributions` (`group_id`)")
+        db.safeExec("CREATE INDEX IF NOT EXISTS `index_contributions_status` ON `contributions` (`status`)")
+        db.safeExec("CREATE INDEX IF NOT EXISTS `index_contributions_due_date` ON `contributions` (`due_date`)")
+    }
+}
+
 val ALL_MIGRATIONS = arrayOf(
     MIGRATION_1_2,
     MIGRATION_2_3,
@@ -851,6 +929,8 @@ val ALL_MIGRATIONS = arrayOf(
     MIGRATION_35_36,
     MIGRATION_36_37,
     MIGRATION_37_38,
-    MIGRATION_38_39
+    MIGRATION_38_39,
+    MIGRATION_39_40,
+    MIGRATION_40_41
 )
 

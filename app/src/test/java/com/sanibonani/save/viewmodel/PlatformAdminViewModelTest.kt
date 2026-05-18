@@ -4,6 +4,7 @@ import android.util.Log
 import androidx.arch.core.executor.testing.InstantTaskExecutorRule
 import com.sanibonani.save.domain.model.*
 import com.sanibonani.save.domain.repository.*
+import com.sanibonani.save.domain.usecase.CalculateGroupHealthScoreUseCase
 import com.sanibonani.save.domain.usecase.ProcessBurialClaimUseCase
 import com.sanibonani.save.domain.usecase.ProcessPayoutUseCase
 import io.mockk.*
@@ -33,6 +34,7 @@ class PlatformAdminViewModelTest {
     private val notifRepo = mockk<NotificationRepository>(relaxed = true)
     private val supabaseRepo = mockk<SupabaseRepository>()
     private val platformConfigRepo = mockk<PlatformConfigRepository>(relaxed = true)
+    private val calculateGroupHealthScoreUseCase = mockk<CalculateGroupHealthScoreUseCase>()
 
     private lateinit var viewModel: PlatformAdminViewModel
     private val testDispatcher = StandardTestDispatcher()
@@ -66,6 +68,7 @@ class PlatformAdminViewModelTest {
         coEvery { platformRepo.getAuditLogs(any()) } returns Result.success(emptyList())
         coEvery { platformRepo.getPlatformLedger() } returns Result.success(emptyList())
         coEvery { platformRepo.getMemberBehaviorInsights() } returns Result.success(emptyList())
+        coEvery { calculateGroupHealthScoreUseCase(any()) } returns Result.success(GroupHealthScore("g1", 80, RiskZone.GREEN, emptyMap(), emptyList(), "", ""))
         every { loanRepo.getGroupLoans(any()) } returns flowOf(Result.success(emptyList()))
 
         every { platformConfigRepo.current() } returns PlatformConfig(
@@ -76,6 +79,7 @@ class PlatformAdminViewModelTest {
             lateFeePercent = 10.0,
             autoSuspensionDays = 30
         )
+        every { supabaseRepo.currentUserId } returns "platform_admin"
 
         viewModel = PlatformAdminViewModel(
             platformRepo,
@@ -87,7 +91,8 @@ class PlatformAdminViewModelTest {
             memberRepo,
             notifRepo,
             supabaseRepo,
-            platformConfigRepo
+            platformConfigRepo,
+            calculateGroupHealthScoreUseCase
         )
         // NOTE: Do NOT call advanceUntilIdle() here — doing so outside runTest can leak
         // uncaught coroutine exceptions into subsequent test classes.
@@ -281,10 +286,12 @@ class PlatformAdminViewModelTest {
             loanRepo,
             processPayoutUseCase,
             claimRepo,
+            processBurialClaimUseCase,
             memberRepo,
             notifRepo,
             supabaseRepo,
-            platformConfigRepo
+            platformConfigRepo,
+            calculateGroupHealthScoreUseCase
         )
 
         // Drain init { loadData(); loadSettings() } so groups are populated
@@ -341,10 +348,12 @@ class PlatformAdminViewModelTest {
             loanRepo,
             processPayoutUseCase,
             claimRepo,
+            processBurialClaimUseCase,
             memberRepo,
             notifRepo,
             supabaseRepo,
-            platformConfigRepo
+            platformConfigRepo,
+            calculateGroupHealthScoreUseCase
         )
         advanceUntilIdle()
 
@@ -478,7 +487,7 @@ class PlatformAdminViewModelTest {
 
         assertEquals("Your session has expired. Please log in again.", viewModel.state.value.error)
         coVerify(exactly = 0) {
-            claimRepo.updateClaimStatus(any(), any(), any(), any(), any())
+            processBurialClaimUseCase(any(), any(), any(), any(), any())
         }
     }
 
@@ -547,24 +556,67 @@ class PlatformAdminViewModelTest {
     }
 
     @Test
-    fun `sendDirectWhatsAppTest sends trimmed digits to notification repository`() = runTest {
-        coEvery {
-            notifRepo.sendDirectWhatsAppMessage(
-                "0713459563",
-                "Edge function smoke test"
-            )
-        } returns Result.success(Unit)
+    fun `fetchGroupMetrics updates state with actuarial metrics`() = runTest {
+        val groupId = "g1"
+        val metrics = ActuarialMetrics(
+            solvencyMarginPct = 1.5,
+            compositeRiskScore = 10
+        )
+        coEvery { platformRepo.getGroupMetrics(groupId) } returns Result.success(metrics)
 
-        viewModel.updateWhatsAppTestPhone("071 345 9563")
-        viewModel.updateWhatsAppTestMessage("Edge function smoke test")
-
-        viewModel.sendDirectWhatsAppTest()
+        viewModel.fetchGroupMetrics(groupId)
         advanceUntilIdle()
 
-        assertEquals("WhatsApp test sent to 0713459563.", viewModel.state.value.whatsAppTestResult)
+        assertEquals(metrics, viewModel.state.value.selectedGroupMetrics)
+    }
+
+    @Test
+    fun `setRiskFilter filters behavior insights correctly`() = runTest {
+        val groups = listOf(Group(id = "g1", name = "Group 1"))
+        coEvery { platformRepo.getAllGroups() } returns Result.success(groups)
+        
+        val insights = listOf(
+            MemberBehaviorInsight(memberId = "1", riskBand = "High", memberName = "M1", groupId = "g1"),
+            MemberBehaviorInsight(memberId = "2", riskBand = "Stable", memberName = "M2", groupId = "g1"),
+            MemberBehaviorInsight(memberId = "3", riskBand = "High", memberName = "M3", groupId = "g1")
+        )
+        
+        coEvery { platformRepo.getMemberBehaviorInsights() } returns Result.success(insights)
+        
+        // Reload data to populate groups first
+        viewModel.loadData()
+        advanceUntilIdle()
+        
+        viewModel.refreshLoanRequests()
+        advanceUntilIdle()
+        
+        assertEquals(3, viewModel.state.value.memberBehaviorInsights.size)
+        
+        viewModel.setRiskFilter("High")
+        assertEquals(2, viewModel.state.value.filteredMemberBehaviorInsights.size)
+        assertTrue(viewModel.state.value.filteredMemberBehaviorInsights.all { it.riskBand == "High" })
+        
+        viewModel.setRiskFilter("All")
+        assertEquals(3, viewModel.state.value.filteredMemberBehaviorInsights.size)
+    }
+
+    @Test
+    fun `sendWhatsAppTestToAdmin handles failure gracefully`() = runTest {
+        val groupId = "g1"
+        coEvery { notifRepo.sendNotification(any()) } returns Result.failure(Exception("network error"))
+
+        viewModel.sendWhatsAppTestToAdmin(groupId)
+        advanceUntilIdle()
+
+        assertEquals("network error", viewModel.state.value.whatsAppTestResult)
         assertFalse(viewModel.state.value.isSendingWhatsAppTest)
-        coVerify(exactly = 1) {
-            notifRepo.sendDirectWhatsAppMessage("0713459563", "Edge function smoke test")
-        }
+    }
+
+    @Test
+    fun `setTab updates selectedTab and resets flags`() = runTest {
+        viewModel.setTab(2)
+        assertEquals(2, viewModel.state.value.selectedTab)
+        assertFalse(viewModel.state.value.saveSuccess)
+        assertNull(viewModel.state.value.error)
     }
 }

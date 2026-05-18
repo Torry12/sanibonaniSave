@@ -19,6 +19,7 @@ import com.sanibonani.save.domain.model.UserRole
 import com.sanibonani.save.domain.utils.UserRoleMapper
 import com.sanibonani.save.ui.screens.admin.AdminDashboardScreen
 import com.sanibonani.save.ui.screens.admin.PlatformAdminScreen
+import com.sanibonani.save.ui.screens.sandbox.PaymentSandboxScreen
 import com.sanibonani.save.ui.screens.auth.LoginScreen
 import com.sanibonani.save.ui.screens.auth.NewUserOnboardingScreen
 import com.sanibonani.save.ui.screens.auth.RegisterScreen
@@ -62,6 +63,10 @@ sealed class Screen(val route: String) {
     }
     data object PlatformAdmin   : Screen("platform_admin")
     data object CreatePlatformAdmin : Screen("create_platform_admin")
+    data object HealthScoreDetail : Screen("health_score/{groupId}") {
+        fun withId(id: String) = "health_score/$id"
+    }
+    data object PaymentSandbox      : Screen("payment_sandbox")
 
     data object GroupProfile : Screen("group/{groupId}") {
         fun withId(id: String) = "group/$id"
@@ -170,8 +175,10 @@ internal fun isRoleAuthorizedForRoute(role: UserRole, currentRoute: String?): Bo
     // Public/auth routes remain accessible regardless of role.
     if (route.isAuthOrPublicRoute()) return true
 
-    // Platform admin route: only PLATFORM_ADMIN
-    if (route == Screen.PlatformAdmin.route) return role == UserRole.PLATFORM_ADMIN
+    // Platform admin routes: only PLATFORM_ADMIN
+    if (route == Screen.PlatformAdmin.route || 
+        route == Screen.CreatePlatformAdmin.route || 
+        route == Screen.PaymentSandbox.route) return role == UserRole.PLATFORM_ADMIN
 
     // Member dashboard: MEMBER and PLATFORM_ADMIN (if intended)
     if (route.startsWith("member_dashboard")) return role == UserRole.MEMBER || role == UserRole.PLATFORM_ADMIN
@@ -529,6 +536,7 @@ fun SanibonaniNavGraph(
         composable(Screen.PlatformAdmin.route) {
             PlatformAdminScreen(
                 onNavigateToCreateAdmin = { navController.navigate(Screen.CreatePlatformAdmin.route) },
+                onNavigateToSandbox = { navController.navigate(Screen.PaymentSandbox.route) },
                 onLogout = {
                     authViewModel.signOut()
                     navController.navigate(Screen.Landing.route) { popUpTo(0) }
@@ -541,7 +549,27 @@ fun SanibonaniNavGraph(
                 },
                 onOpenMemberPortalFromDisbursement = { groupId, _ ->
                     navController.navigate(Screen.MemberDashboard.withTab(0, groupId))
+                },
+                onNavigateToHealthScore = { groupId ->
+                    navController.navigate(Screen.HealthScoreDetail.withId(groupId))
                 }
+            )
+        }
+
+        composable(
+            route = Screen.HealthScoreDetail.route,
+            arguments = listOf(navArgument("groupId") { type = NavType.StringType })
+        ) { back ->
+            val groupId = back.arguments?.getString("groupId") ?: return@composable
+            com.sanibonani.save.ui.screens.admin.HealthScoreDetailScreen(
+                groupId = groupId,
+                onBack = { navController.popBackStack() }
+            )
+        }
+
+        composable(Screen.PaymentSandbox.route) {
+            PaymentSandboxScreen(
+                onBack = { navController.popBackStack() }
             )
         }
 

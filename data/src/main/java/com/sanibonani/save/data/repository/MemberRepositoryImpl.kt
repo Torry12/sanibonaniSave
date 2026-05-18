@@ -2,6 +2,7 @@ package com.sanibonani.save.data.repository
 
 import com.sanibonani.save.data.local.SanibonaniDatabase
 import com.sanibonani.save.data.logging.AppLogger
+import com.sanibonani.save.data.utils.logAndGetMessage
 import com.sanibonani.save.domain.model.Beneficiary
 import com.sanibonani.save.domain.model.Contribution
 import com.sanibonani.save.domain.model.ContributionStatus
@@ -62,7 +63,7 @@ class MemberRepositoryImpl @Inject constructor(
     // NOTE: Some environments may have extra optional columns (e.g. `receipt_url`).
     // Do NOT select optional columns unless the backend schema is known to support them,
     // otherwise PostgREST will fail the entire request with: `column contributions.<col> does not exist`.
-    private val CONTRIBUTION_COLUMNS_SAFE = "id,member_id,group_id,amount,created_at,due_date,paid_at,status,type,yoco_transaction_id,late_fees_applied"
+    private val CONTRIBUTION_COLUMNS_SAFE = "id,member_id,group_id,amount,created_at,due_date,paid_at,status,type,transaction_id,late_fees_applied"
 
     override fun getGroupMembers(groupId: String): Flow<Result<List<Member>>> = observeAndSync(
         dbFlow = db.memberDao().observeMembers(groupId),
@@ -113,7 +114,7 @@ class MemberRepositoryImpl @Inject constructor(
             member
         }.recoverCatching { exception ->
             db.memberDao().getMemberById(id)?.toModel()
-                ?: throw exception
+                ?: throw IllegalStateException(exception.logAndGetMessage(tag))
         }
     }
 
@@ -129,7 +130,7 @@ class MemberRepositoryImpl @Inject constructor(
             member
         }.recoverCatching { exception ->
             db.memberDao().getMemberByUserId(userId, groupId)?.toModel()
-                ?: throw exception
+                ?: throw IllegalStateException(exception.logAndGetMessage(tag))
         }
     }
 
@@ -142,7 +143,7 @@ class MemberRepositoryImpl @Inject constructor(
             members
         }.recoverCatching { exception ->
             val local = db.memberDao().getAllMemberships(userId).map { it.toModel() }
-            if (local.isNotEmpty()) local else throw exception
+            if (local.isNotEmpty()) local else throw IllegalStateException(exception.logAndGetMessage(tag))
         }
     }
 
@@ -316,7 +317,7 @@ class MemberRepositoryImpl @Inject constructor(
                 type = "joining_fee",
                 dueDate = registered.joinedAt ?: now.toString(),
                 paidAt = now.toString(),
-                yocoTransactionId = transactionId
+                transactionId = transactionId
             )
             recordContribution(contribution).getOrThrow()
         }
@@ -339,7 +340,7 @@ class MemberRepositoryImpl @Inject constructor(
                 put("status", contribution.status.name.lowercase())
                 put("due_date", contribution.dueDate)
                 put("paid_at", contribution.paidAt ?: now)
-                contribution.yocoTransactionId?.let { put("yoco_transaction_id", it) }
+                contribution.transactionId?.let { put("transaction_id", it) }
                 put("payment_method", "ledger")
             }
 
@@ -352,8 +353,8 @@ class MemberRepositoryImpl @Inject constructor(
                     eq("member_id", contribution.memberId)
                     eq("group_id", contribution.groupId)
                     eq("type", "member_fee")
-                    contribution.yocoTransactionId?.takeIf { it.isNotBlank() }?.let {
-                        eq("yoco_transaction_id", it)
+                    contribution.transactionId?.takeIf { it.isNotBlank() }?.let {
+                        eq("transaction_id", it)
                     }
                 }
                 order("created_at", order = io.github.jan.supabase.postgrest.query.Order.DESCENDING)
@@ -382,7 +383,7 @@ class MemberRepositoryImpl @Inject constructor(
             put("p_due_date", contribution.dueDate)
             put("p_paid_at", contribution.paidAt)
             put("p_status", contribution.status.name.lowercase())
-            contribution.yocoTransactionId?.let { put("p_yoco_tx_id", it) }
+            contribution.transactionId?.let { put("p_tx_id", it) }
         }
 
         // NOTE:
@@ -402,9 +403,9 @@ class MemberRepositoryImpl @Inject constructor(
                 eq("group_id", contribution.groupId)
                 eq("type", contribution.type)
                 // Prefer the transaction id lookup if present (most reliable)
-                val tx = contribution.yocoTransactionId?.takeIf { it.isNotBlank() }
+                val tx = contribution.transactionId?.takeIf { it.isNotBlank() }
                 if (tx != null) {
-                    eq("yoco_transaction_id", tx)
+                    eq("transaction_id", tx)
                 } else {
                     // Fallback signals to narrow down the most recent record if needed
                     // (Avoid relying on paid_at when tx id is available, as formatting/timezone
@@ -582,8 +583,9 @@ class MemberRepositoryImpl @Inject constructor(
 
         Result.success(publicUrl)
     } catch (e: Exception) {
-        AppLogger.e(tag, "Failed to upload document", e)
-        Result.failure(e)
+        val userMsg = e.logAndGetMessage(tag)
+        AppLogger.e(tag, "Failed to upload document: $userMsg", e)
+        Result.failure(IllegalStateException(userMsg))
     }
 
     override suspend fun uploadAndAddMemberDocument(

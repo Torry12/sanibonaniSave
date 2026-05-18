@@ -3,6 +3,7 @@ package com.sanibonani.save.data.repository
 import com.sanibonani.save.data.local.SanibonaniDatabase
 import com.sanibonani.save.data.local.LoanEntity
 import com.sanibonani.save.data.local.LoanRepaymentEntity
+import com.sanibonani.save.data.utils.logAndGetMessage
 import com.sanibonani.save.domain.model.*
 import com.sanibonani.save.domain.repository.LoanRepository
 import com.sanibonani.save.domain.repository.StorageRepository
@@ -40,7 +41,7 @@ class LoanRepositoryImpl @Inject constructor(
         db.loanDao().upsertLoan(loan.toEntity())
         loan
     }.recoverCatching { exception ->
-        db.loanDao().getLoanById(loanId)?.toModel() ?: throw exception
+        db.loanDao().getLoanById(loanId)?.toModel() ?: throw IllegalStateException(exception.logAndGetMessage(tag))
     }
 
     override fun getMemberLoans(memberId: String): Flow<Result<List<Loan>>> = observeAndSync(

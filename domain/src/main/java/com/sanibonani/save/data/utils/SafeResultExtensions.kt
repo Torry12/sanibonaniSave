@@ -111,7 +111,25 @@ fun Throwable.toUserMessage(): String {
             msg.contains("413") ->
             return "This file is too large to upload. Please choose a smaller file and try again."
 
-        // Schema mismatch often surfaces as "column ... does not exist"
+        // Database constraint violations (Unique/Foreign Key)
+        msg.contains("violates unique constraint", ignoreCase = true) ||
+            msg.contains("23505") ->
+            return "This record already exists. Please check your data and try again."
+
+        msg.contains("violates foreign key constraint", ignoreCase = true) ||
+            msg.contains("23503") ->
+            return "This action cannot be completed because it depends on other data that might have been removed."
+
+        // Syntax errors / psql command mismatches
+        msg.contains("syntax error", ignoreCase = true) ||
+            msg.contains("42601") -> {
+            if (msg.contains("\\")) {
+                return "SQL Syntax Error: It looks like you tried to run a psql script (with \\ commands) in a tool that doesn't support them. Please use the Supabase CLI or psql tool."
+            }
+            return "A syntax error occurred in the database request. Please check your query or app version."
+        }
+
+        // Schema mismatch often surfaces as \"column ... does not exist\"
         (msg.contains("column", ignoreCase = true) && msg.contains("does not exist", ignoreCase = true)) ->
             return "The server database schema is out of date. Please run the latest Supabase schema/migrations and try again."
 

@@ -16,7 +16,8 @@ import javax.inject.Inject
  */
 class CalculateGroupHealthScoreUseCase @Inject constructor(
     private val groupRepository: GroupRepository,
-    private val memberRepository: MemberRepository
+    private val memberRepository: MemberRepository,
+    private val healthScoreRepository: HealthScoreRepository
 ) {
 
     suspend operator fun invoke(groupId: String): Result<GroupHealthScore> = runCatching {
@@ -59,9 +60,9 @@ class CalculateGroupHealthScoreUseCase @Inject constructor(
 
         // Create timestamp
         val now = Clock.System.now().toString()
-        val sevenDaysFromNow = LocalDateTime.now().plusDays(7).toString()
+        val sevenDaysFromNow = java.time.OffsetDateTime.now().plusDays(7).toString()
 
-        GroupHealthScore(
+        val score = GroupHealthScore(
             groupId = groupId,
             overallScore = totalScore,
             zone = zone,
@@ -76,6 +77,10 @@ class CalculateGroupHealthScoreUseCase @Inject constructor(
             generatedAt = now,
             expiresAt = sevenDaysFromNow
         )
+        
+        healthScoreRepository.saveHealthScore(score)
+        
+        score
     }
 
     // ===== Component Calculations =====

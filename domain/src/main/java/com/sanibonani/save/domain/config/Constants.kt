@@ -35,19 +35,22 @@ object MemberValidation {
 
 // ── Bank Account Validation ────────────────────────────────────────────────
 object BankAccountValidation {
-    // Account number formats per major SA banks
+    // Standard SA bank account number lengths (aligned with DB constraints)
     val ACCOUNT_NUMBER_LENGTHS = mapOf(
-        "ABSA"          to (10..16),
-        "FNB"           to (10..20),
-        "Nedbank"       to (10..16),
-        "Capitec"       to (8..20),
-        "African Bank"  to (10..16),
-        "Standard Bank" to (10..20),
-        "Postbank"      to (10..20),
-        "TymeBank"      to (10..20)
+        "ABSA"          to (7..13),
+        "FNB"           to (7..13),
+        "Nedbank"       to (7..13),
+        "Capitec"       to (7..13),
+        "African Bank"  to (7..13),
+        "Standard Bank" to (7..13),
+        "Postbank"      to (7..13),
+        "TymeBank"      to (7..13),
+        "Discovery"     to (7..13),
+        "Bank Zero"     to (7..13)
     )
+    val DEFAULT_ACCOUNT_LENGTH = 7..13
     
-    // Branch code is typically 6 digits
+    // Branch code is exactly 6 digits in SA
     const val BRANCH_CODE_LENGTH = 6
     const val BRANCH_CODE_REGEX = "^[0-9]{6}$"
 }
@@ -73,7 +76,7 @@ object NotificationDefaults {
 // ── Database ───────────────────────────────────────────────────────────────
 object DatabaseConfig {
     const val DATABASE_NAME = "sanibonani.db"
-    const val SCHEMA_VERSION = 5
+    const val SCHEMA_VERSION = 41
     
     // Stale cache threshold: 24 hours
     const val STALE_CACHE_THRESHOLD_MS = 24 * 60 * 60 * 1000L

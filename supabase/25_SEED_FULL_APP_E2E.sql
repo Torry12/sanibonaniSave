@@ -213,7 +213,7 @@ BEGIN
             account_number,
             branch_code,
             account_type,
-            yoco_public_key,
+            gateway_public_key,
             balance,
             goal_amount,
             period_months,
@@ -430,7 +430,7 @@ BEGIN
                 due_date,
                 paid_at,
                 payment_method,
-                yoco_transaction_id,
+                transaction_id,
                 status,
                 late_fees_applied
             ) VALUES
@@ -441,7 +441,7 @@ BEGIN
                 'contribution',
                 CURRENT_DATE - INTERVAL '35 days',
                 NOW() - INTERVAL '34 days',
-                'yoco',
+                'bank',
                 format('tx-e2e-paid-%s-%s', v_group_index, v_member_index),
                 'paid',
                 FALSE
@@ -793,7 +793,7 @@ BEGIN
                 v_group_id,
                 1150,
                 NOW() - INTERVAL '45 days',
-                'yoco',
+                'bank',
                 format('repay-e2e-%s-a', v_group_index)
             ),
             (
@@ -854,7 +854,7 @@ BEGIN
             status,
             processed_by,
             processed_at,
-            yoco_payout_id
+            payout_reference
         ) VALUES
         (
             v_group_id,

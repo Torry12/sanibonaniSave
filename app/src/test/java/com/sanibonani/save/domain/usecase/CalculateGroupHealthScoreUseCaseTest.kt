@@ -14,11 +14,12 @@ class CalculateGroupHealthScoreUseCaseTest {
     private lateinit var useCase: CalculateGroupHealthScoreUseCase
     private val groupRepository: GroupRepository = mockk()
     private val memberRepository: MemberRepository = mockk()
+    private val healthScoreRepository: HealthScoreRepository = mockk(relaxed = true)
 
     @Before
     fun setUp() {
         useCase = CalculateGroupHealthScoreUseCase(
-            groupRepository, memberRepository
+            groupRepository, memberRepository, healthScoreRepository
         )
     }
 

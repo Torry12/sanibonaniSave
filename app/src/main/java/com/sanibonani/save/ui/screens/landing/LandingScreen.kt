@@ -23,8 +23,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.sanibonani.save.domain.model.UserRole
-import com.sanibonani.save.ui.components.SanibonaniButton
-import com.sanibonani.save.ui.components.formatZARShort
+import com.sanibonani.save.ui.components.*
 import com.sanibonani.save.ui.theme.*
 
 @Composable
@@ -388,15 +387,4 @@ fun FeatureCard(
             )
         }
     }
-}
-
-@Composable
-fun SectionHeader(title: String) {
-    Text(
-        text = title,
-        style = MaterialTheme.typography.titleLarge,
-        fontWeight = FontWeight.ExtraBold,
-        color = Charcoal,
-        modifier = Modifier.padding(bottom = 4.dp)
-    )
 }

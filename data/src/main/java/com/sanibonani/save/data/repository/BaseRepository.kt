@@ -1,6 +1,7 @@
 package com.sanibonani.save.data.repository
 
 import com.sanibonani.save.data.logging.AppLogger
+import com.sanibonani.save.data.utils.logAndGetMessage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
@@ -33,7 +34,8 @@ abstract class BaseRepository(protected val tag: String) {
                 runCatching { list.map(mapper) }
                     .onSuccess { send(Result.success(it)) }
                     .onFailure { e ->
-                        AppLogger.e(tag, "Local data mapping failed: ${e.message}")
+                        val userMsg = e.logAndGetMessage(tag)
+                        AppLogger.e(tag, "Local data mapping failed: $userMsg")
                         send(Result.failure(e))
                     }
             }
@@ -47,9 +49,10 @@ abstract class BaseRepository(protected val tag: String) {
                 cacheSync(remoteData.map { toEntity(it) })
                 syncCompleted = true
                 AppLogger.d(tag, "Cache sync completed")
-            } catch (e: Exception) {
+                } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) return@launch
-                AppLogger.e(tag, "Sync failed: ${e.message}")
+                val userMsg = e.logAndGetMessage(tag)
+                AppLogger.e(tag, "Sync failed: $userMsg")
                 syncCompleted = true
                 if (!hasEmittedFromDb) {
                     send(Result.failure(e))
@@ -80,7 +83,8 @@ abstract class BaseRepository(protected val tag: String) {
                     runCatching { mapper(item) }
                         .onSuccess { send(Result.success(it)) }
                         .onFailure { e ->
-                            AppLogger.e(tag, "Local item mapping failed: ${e.message}")
+                            val userMsg = e.logAndGetMessage(tag)
+                            AppLogger.e(tag, "Local item mapping failed: $userMsg")
                             send(Result.failure(e))
                         }
                 } else {
@@ -96,7 +100,8 @@ abstract class BaseRepository(protected val tag: String) {
                 cacheSync(toEntity(remoteData))
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) return@launch
-                AppLogger.e(tag, "Item sync failed: ${e.message}")
+                val userMsg = e.logAndGetMessage(tag)
+                AppLogger.e(tag, "Item sync failed: $userMsg")
                 if (!hasEmittedFromDb) {
                     send(Result.failure(e))
                 }
@@ -124,7 +129,8 @@ abstract class BaseRepository(protected val tag: String) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
                 lastException = e
                 if (attempt < maxRetries - 1) {
-                    AppLogger.d(tag, "Retry attempt ${attempt + 1}/$maxRetries after ${delayMs}ms: ${e.message}")
+                    val userMsg = e.logAndGetMessage(tag)
+                    AppLogger.d(tag, "Retry attempt ${attempt + 1}/$maxRetries after ${delayMs}ms: $userMsg")
                     delay(delayMs)
                     delayMs = (delayMs * 2).coerceAtMost(maxDelayMs)
                 }

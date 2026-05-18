@@ -22,6 +22,7 @@ import java.io.FileWriter
 import java.text.SimpleDateFormat
 import java.util.*
 import javax.inject.Inject
+import com.sanibonani.save.data.utils.logAndGetMessage
 
 class ExportRepositoryImpl @Inject constructor(
     @ApplicationContext private val context: Context,
@@ -558,7 +559,8 @@ class ExportRepositoryImpl @Inject constructor(
             }
             context.startActivity(chooser)
         } catch (e: Exception) {
-            com.sanibonani.save.data.logging.AppLogger.e("ExportRepo", "Share failed: ${e.message}", e)
+            val userMsg = e.logAndGetMessage("ExportRepo")
+            com.sanibonani.save.data.logging.AppLogger.e("ExportRepo", "Share failed: $userMsg", e)
         }
     }
 }

@@ -79,7 +79,7 @@ data class Group(
     @SerialName("account_number")         val accountNumber: String? = null,
     @SerialName("branch_code")            val branchCode: String? = null,
     @SerialName("account_type")           val accountType: String = "Savings",
-    @SerialName("yoco_public_key")        val yocoPublicKey: String? = null,
+    @SerialName("gateway_public_key")     val gatewayPublicKey: String? = null,
     val balance: Double = 0.0,
     @SerialName("goal_amount")            val goalAmount: Double = 0.0,
     @SerialName("period_months")          val periodMonths: Int = 12,
@@ -482,8 +482,8 @@ data class Contribution(
     @SerialName("paid_at")              val paidAt: String? = null,
     @SerialName("status")               val status: ContributionStatus = ContributionStatus.DUE,
     @SerialName("type")                 val type: String = "contribution",
-    @SerialName("payment_method")       val paymentMethod: String = "yoco",
-    @SerialName("yoco_transaction_id")  val yocoTransactionId: String? = null,
+    @SerialName("payment_method")       val paymentMethod: String = "bank",
+    @SerialName("transaction_id")       val transactionId: String? = null,
     @SerialName("late_fees_applied")    val lateFeesApplied: Boolean = false
 ) : Parcelable
 
@@ -774,7 +774,7 @@ data class Payment(
     @SerialName("group_id")       val groupId: String = "",
     val amount: Double = 0.0,
     @SerialName("payment_type")   val paymentType: PaymentType = PaymentType.CONTRIBUTION,
-    @SerialName("payment_method") val paymentMethod: PaymentMethod = PaymentMethod.YOCO,
+    @SerialName("payment_method") val paymentMethod: PaymentMethod = PaymentMethod.BANK,
     @SerialName("transaction_id") val transactionId: String? = null,
     @SerialName("status")         val status: PaymentStatus = PaymentStatus.PENDING,
     @SerialName("processed_at")   val processedAt: String? = null,
@@ -798,6 +798,8 @@ enum class PaymentType(val displayName: String) {
 @Serializable
 enum class PaymentMethod(val displayName: String) {
     @SerialName("yoco")       YOCO("YoCo Card"),
+    @SerialName("stitch")     STITCH("Instant EFT (Stitch)"),
+    @SerialName("payfast")    PAYFAST("PayFast"),
     @SerialName("bank")       BANK("Bank Transfer"),
     @SerialName("cash")       CASH("Cash"),
     @SerialName("wallet")     WALLET("Group Wallet"),
@@ -906,7 +908,7 @@ data class LoanRepayment(
     @SerialName("group_id")       val groupId: String = "",
     val amount: Double = 0.0,
     @SerialName("paid_at")        val paidAt: String? = null,
-    @SerialName("payment_method") val paymentMethod: PaymentMethod = PaymentMethod.YOCO,
+    @SerialName("payment_method") val paymentMethod: PaymentMethod = PaymentMethod.BANK,
     @SerialName("transaction_id") val transactionId: String? = null,
     @EncodeDefault(EncodeDefault.Mode.NEVER)
     @SerialName("created_at")     val createdAt: String? = null
@@ -940,32 +942,6 @@ data class AuditLog(
     @EncodeDefault(EncodeDefault.Mode.NEVER)
     @SerialName("created_at") val createdAt: String? = null
 ) : Parcelable
-
-/**
- * @deprecated Use [com.sanibonani.save.domain.config.SaReferenceData.PROVINCES] instead.
- *             This alias will be removed in a future release.
- */
-@Deprecated(
-    message = "Use SaReferenceData.PROVINCES",
-    replaceWith = ReplaceWith(
-        "SaReferenceData.PROVINCES",
-        "com.sanibonani.save.domain.config.SaReferenceData"
-    )
-)
-val SA_PROVINCES get() = com.sanibonani.save.domain.config.SaReferenceData.PROVINCES
-
-/**
- * @deprecated Use [com.sanibonani.save.domain.config.SaReferenceData.BANKS] instead.
- *             This alias will be removed in a future release.
- */
-@Deprecated(
-    message = "Use SaReferenceData.BANKS",
-    replaceWith = ReplaceWith(
-        "SaReferenceData.BANKS",
-        "com.sanibonani.save.domain.config.SaReferenceData"
-    )
-)
-val SA_BANKS get() = com.sanibonani.save.domain.config.SaReferenceData.BANKS
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  BURIAL SOCIETY CLAIM

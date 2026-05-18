@@ -1,0 +1,33 @@
+name: Apply consolidated SQL to staging
+
+on:
+  workflow_dispatch:
+
+jobs:
+  apply-consolidated:
+    runs-on: ubuntu-latest
+    if: ${{ secrets.STAGING_PG_CONN != '' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y postgresql-client
+
+      - name: Run SQL checker
+        shell: bash
+        run: |
+          pwsh -Command "./scripts/check_sql_balance_updates.ps1 -CI"
+        env:
+          # ensure pwsh is available on ubuntu runners
+          PATH: /usr/bin:$PATH
+
+      - name: Apply consolidated full script to staging
+        env:
+          STAGING_PG_CONN: ${{ secrets.STAGING_PG_CONN }}
+        run: |
+          echo "Applying consolidated SQL to staging using provided STAGING_PG_CONN secret"
+          psql "$STAGING_PG_CONN" -f supabase/CONSOLIDATED_FULL.sql
+

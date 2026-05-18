@@ -57,6 +57,15 @@ android {
         // ── YoCo payment gateway ────────��─────────────────────────────────────────
         buildConfigField("String", "YOCO_PUBLIC_KEY", getSafeProp("YOCO_PUBLIC_KEY"))
 
+        // ── Stitch (Instant EFT) ──────────────────────────────────────────────────
+        buildConfigField("String", "STITCH_CLIENT_ID", getSafeProp("STITCH_CLIENT_ID"))
+        buildConfigField("String", "STITCH_CLIENT_SECRET", getSafeProp("STITCH_CLIENT_SECRET"))
+        
+        // ── PayFast ──────────────────────────────────────────────────────────────
+        buildConfigField("String", "PAYFAST_MERCHANT_ID", getSafeProp("PAYFAST_MERCHANT_ID"))
+        buildConfigField("String", "PAYFAST_MERCHANT_KEY", getSafeProp("PAYFAST_MERCHANT_KEY"))
+        buildConfigField("String", "PAYFAST_PASSPHRASE", getSafeProp("PAYFAST_PASSPHRASE"))
+
         // WHATSAPP_TOKEN intentionally omitted from BuildConfig — the token lives in
         // Supabase Edge Function secrets and is never shipped inside the APK.
         // Phone number ID is non-secret and kept for reference only.
@@ -267,7 +276,6 @@ dependencies {
     // ── Modules ──────────────────────────────────────────────────────────────
     implementation(project(":domain"))
     implementation(project(":data"))
-    // implementation(project(":ui"))
 
     // ── Firebase BOM + modules ───────────────────────────────────────────────
     implementation(platform(libs.firebase.bom))

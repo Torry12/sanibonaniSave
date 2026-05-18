@@ -6,7 +6,7 @@
     "entities": [
       {
         "tableName": "groups",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `name` TEXT NOT NULL, `type` TEXT NOT NULL, `province` TEXT NOT NULL, `city` TEXT NOT NULL, `township` TEXT NOT NULL, `description` TEXT NOT NULL, `logo_emoji` TEXT NOT NULL, `joining_fee` REAL NOT NULL, `monthly_contribution` REAL NOT NULL, `late_fee` REAL NOT NULL, `late_fee_grace_days` INTEGER NOT NULL, `probation_months` INTEGER NOT NULL, `payment_due_day` INTEGER NOT NULL, `max_members` INTEGER NOT NULL, `current_members` INTEGER NOT NULL, `is_public` INTEGER NOT NULL, `allow_partial_payment` INTEGER NOT NULL, `auto_suspend_after` INTEGER NOT NULL, `bank_name` TEXT, `account_number` TEXT, `branch_code` TEXT, `account_type` TEXT NOT NULL, `yoco_public_key` TEXT, `balance` REAL NOT NULL, `admin_user_id` TEXT, `fee_status` TEXT NOT NULL, `registration_paid` INTEGER NOT NULL, `is_platform_suspended` INTEGER NOT NULL, `created_at` TEXT, `latitude` REAL, `longitude` REAL, `geohash` TEXT, `updated_at` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `name` TEXT NOT NULL, `type` TEXT NOT NULL, `province` TEXT NOT NULL, `city` TEXT NOT NULL, `township` TEXT NOT NULL, `description` TEXT NOT NULL, `logo_emoji` TEXT NOT NULL, `joining_fee` REAL NOT NULL, `monthly_contribution` REAL NOT NULL, `late_fee` REAL NOT NULL, `late_fee_grace_days` INTEGER NOT NULL, `probation_months` INTEGER NOT NULL, `payment_due_day` INTEGER NOT NULL, `max_members` INTEGER NOT NULL, `current_members` INTEGER NOT NULL, `is_public` INTEGER NOT NULL, `allow_partial_payment` INTEGER NOT NULL, `auto_suspend_after` INTEGER NOT NULL, `bank_name` TEXT, `account_number` TEXT, `branch_code` TEXT, `account_type` TEXT NOT NULL, `gateway_public_key` TEXT, `balance` REAL NOT NULL, `admin_user_id` TEXT, `fee_status` TEXT NOT NULL, `registration_paid` INTEGER NOT NULL, `is_platform_suspended` INTEGER NOT NULL, `created_at` TEXT, `latitude` REAL, `longitude` REAL, `geohash` TEXT, `updated_at` INTEGER NOT NULL, PRIMARY KEY(`id`))",
         "fields": [
           {
             "fieldPath": "id",
@@ -148,7 +148,7 @@
           },
           {
             "fieldPath": "yocoPublicKey",
-            "columnName": "yoco_public_key",
+            "columnName": "gateway_public_key",
             "affinity": "TEXT",
             "notNull": false
           },
@@ -395,7 +395,7 @@
       },
       {
         "tableName": "contributions",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `member_id` TEXT NOT NULL, `group_id` TEXT NOT NULL, `policy_id` TEXT, `amount` REAL NOT NULL, `created_at` TEXT, `due_date` TEXT NOT NULL, `paid_at` TEXT, `status` TEXT NOT NULL, `late_fees_applied` INTEGER NOT NULL, `yoco_transaction_id` TEXT, `updated_at` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `member_id` TEXT NOT NULL, `group_id` TEXT NOT NULL, `policy_id` TEXT, `amount` REAL NOT NULL, `created_at` TEXT, `due_date` TEXT NOT NULL, `paid_at` TEXT, `status` TEXT NOT NULL, `late_fees_applied` INTEGER NOT NULL, `transaction_id` TEXT, `updated_at` INTEGER NOT NULL, PRIMARY KEY(`id`))",
         "fields": [
           {
             "fieldPath": "id",
@@ -459,7 +459,7 @@
           },
           {
             "fieldPath": "yocoTransactionId",
-            "columnName": "yoco_transaction_id",
+            "columnName": "transaction_id",
             "affinity": "TEXT",
             "notNull": false
           },

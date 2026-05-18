@@ -36,10 +36,12 @@ import com.sanibonani.save.viewmodel.PlatformAdminViewModel
 @Composable
 fun PlatformAdminScreen(
     onNavigateToCreateAdmin: () -> Unit,
+    onNavigateToSandbox: () -> Unit,
     onLogout: () -> Unit,
     onImpersonateGroupAdmin: (groupId: String) -> Unit,
     onImpersonateMember: (memberId: String, groupId: String) -> Unit,
     onOpenMemberPortalFromDisbursement: (groupId: String, payoutId: String?) -> Unit,
+    onNavigateToHealthScore: (groupId: String) -> Unit,
     vm: PlatformAdminViewModel = hiltViewModel()
 ) {
     val state by vm.state.collectAsState()
@@ -114,7 +116,7 @@ fun PlatformAdminScreen(
                 Crossfade(targetState = state.selectedTab, label = "TabTransition") { tabIndex ->
                     when (tabIndex) {
                         0 -> PlatformAnalyticsTab(state.analytics)
-                        1 -> AllGroupsTab(state.groups, vm, state)
+                        1 -> AllGroupsTab(state.groups, vm, state, onNavigateToHealthScore)
                         2 -> DisbursementsTab(
                             payouts = state.payouts,
                             groups = state.groups,
@@ -132,7 +134,7 @@ fun PlatformAdminScreen(
                         )
                         3 -> PlatformLedgerTab(state)
                         4 -> FeeManagementTab(state, vm)
-                        5 -> MaintenanceTab(state, vm, onNavigateToCreateAdmin, onLogout, onImpersonateGroupAdmin, onImpersonateMember)
+                        5 -> MaintenanceTab(state, vm, onNavigateToCreateAdmin, onNavigateToSandbox, onLogout, onImpersonateGroupAdmin, onImpersonateMember)
                         else -> CenterPlaceholder("Unknown Tab")
                     }
                 }
@@ -201,7 +203,12 @@ private fun PlatformAnalyticsTab(analytics: PlatformAnalytics) {
 }
 
 @Composable
-private fun AllGroupsTab(groups: List<Group>, vm: PlatformAdminViewModel, state: PlatformAdminUiState) {
+private fun AllGroupsTab(
+    groups: List<Group>,
+    vm: PlatformAdminViewModel,
+    state: PlatformAdminUiState,
+    onNavigateToHealthScore: (groupId: String) -> Unit
+) {
     var showMetricsFor by remember { mutableStateOf<Group?>(null) }
     
     val filteredGroups = remember(groups, state.searchQuery) {
@@ -274,15 +281,69 @@ private fun AllGroupsTab(groups: List<Group>, vm: PlatformAdminViewModel, state:
             onDismissRequest = { showMetricsFor = null },
             title = { Text("Actuarial Health: ${group.name}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold) },
             text = {
-                state.selectedGroupMetrics?.let { metrics ->
-                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        MetricRow("Risk Score", "${metrics.compositeRiskScore}/100", 
-                            if (metrics.compositeRiskScore < 40) SuccessGreen else ErrorRed)
-                        MetricRow("Reserve Adequacy", formatPct(metrics.reserveAdequacyPct), Forest)
-                        MetricRow("Solvency Margin", formatPct(metrics.solvencyMarginPct), Forest)
-                        MetricRow("Expected Claims (Ann)", formatZAR(metrics.expectedAnnualClaims), Charcoal)
+                Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    state.selectedGroupMetrics?.let { metrics ->
+                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            MetricRow("Risk Score", "${metrics.compositeRiskScore}/100", 
+                                if (metrics.compositeRiskScore < 40) SuccessGreen else ErrorRed)
+                            MetricRow("Reserve Adequacy", formatPct(metrics.reserveAdequacyPct), Forest)
+                            MetricRow("Solvency Margin", formatPct(metrics.solvencyMarginPct), Forest)
+                            MetricRow("Expected Claims (Ann)", formatZAR(metrics.expectedAnnualClaims), Charcoal)
+                        }
                     }
-                } ?: Box(Modifier.fillMaxWidth(), Alignment.Center) { CircularProgressIndicator(color = Forest) }
+
+                    if (state.isLoadingHealthScore) {
+                        Box(Modifier.fillMaxWidth(), Alignment.Center) {
+                            CircularProgressIndicator(color = Forest, modifier = Modifier.size(24.dp))
+                        }
+                    } else {
+                        state.selectedGroupHealthScore?.let { healthScore ->
+                            HorizontalDivider(color = LightGray.copy(alpha = 0.3f))
+                            
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column {
+                                    Text("Composite Health Score", style = MaterialTheme.typography.labelSmall, color = MidGray)
+                                    Text("${healthScore.overallScore}/100", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black, color = healthScore.zone.backgroundColor())
+                                }
+                                
+                                Surface(
+                                    color = healthScore.zone.backgroundColor().copy(alpha = 0.1f),
+                                    shape = RoundedCornerShape(8.dp)
+                                ) {
+                                    Text(
+                                        healthScore.zone.label(),
+                                        modifier = Modifier.padding(8.dp, 4.dp),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = healthScore.zone.backgroundColor(),
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                            
+                            Button(
+                                onClick = { 
+                                    showMetricsFor = null
+                                    onNavigateToHealthScore(group.id ?: "")
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = ButtonDefaults.buttonColors(containerColor = Forest),
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Text("View Full Health Report")
+                            }
+                        }
+                    }
+                    
+                    if (state.selectedGroupMetrics == null && !state.isLoadingHealthScore && state.selectedGroupHealthScore == null) {
+                         Box(Modifier.fillMaxWidth(), Alignment.Center) {
+                             Text("No data available.", style = MaterialTheme.typography.bodySmall, color = MidGray)
+                         }
+                    }
+                }
             },
             confirmButton = {
                 TextButton(onClick = { showMetricsFor = null }) { Text("Close", color = Forest) }
@@ -692,6 +753,7 @@ private fun MaintenanceTab(
     state: PlatformAdminUiState,
     vm: PlatformAdminViewModel,
     onNavigateToCreateAdmin: () -> Unit,
+    onNavigateToSandbox: () -> Unit,
     onLogout: () -> Unit,
     onImpersonateGroupAdmin: (groupId: String) -> Unit,
     onImpersonateMember: (memberId: String, groupId: String) -> Unit
@@ -739,6 +801,16 @@ private fun MaintenanceTab(
                     Text("👤 Administrator Management", style = MaterialTheme.typography.titleSmall, color = Forest, fontWeight = FontWeight.Bold)
                     Text("Create additional group administrator accounts to help manage the system.", style = MaterialTheme.typography.bodySmall, color = MidGray)
                     Button(onClick = onNavigateToCreateAdmin, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = Forest)) { Text("CREATE NEW ADMIN") }
+                }
+            }
+        }
+
+        item {
+            Card(shape = RoundedCornerShape(12.dp), colors = CardDefaults.cardColors(containerColor = Color.White), border = BorderStroke(1.dp, Terra.copy(alpha = 0.3f))) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("💸 Payment Sandbox", style = MaterialTheme.typography.titleSmall, color = Terra, fontWeight = FontWeight.Bold)
+                    Text("Test payment gateway integrations (Stitch, PayFast) in a sandbox environment.", style = MaterialTheme.typography.bodySmall, color = MidGray)
+                    Button(onClick = onNavigateToSandbox, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = Terra)) { Text("OPEN PAYMENT SANDBOX") }
                 }
             }
         }
@@ -927,8 +999,12 @@ private fun AuditLogsCard(auditLogs: List<AuditLog>, isLoading: Boolean) {
                                 AnimatedVisibility(visible = isExpanded) {
                                     Column(Modifier.padding(top = 12.dp, start = 4.dp, end = 4.dp)) {
                                         AuditDetailRow(Forest, "Actor", log.actorId)
-                                        if (!log.targetGroupId.isNullOrBlank()) AuditDetailRow(Gold, "Group", log.targetGroupId)
-                                        if (!log.targetMemberId.isNullOrBlank()) AuditDetailRow(Terra, "Member", log.targetMemberId)
+                                        log.targetGroupId?.takeIf { it.isNotBlank() }?.let {
+                                            AuditDetailRow(Gold, "Group", it)
+                                        }
+                                        log.targetMemberId?.takeIf { it.isNotBlank() }?.let {
+                                            AuditDetailRow(Terra, "Member", it)
+                                        }
                                         log.details?.let { details ->
                                             Spacer(Modifier.height(8.dp))
                                             Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Cream2), shape = RoundedCornerShape(4.dp)) {

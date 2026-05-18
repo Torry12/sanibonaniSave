@@ -2,6 +2,7 @@ package com.sanibonani.save.data.repository
 
 import com.sanibonani.save.domain.repository.*
 import com.sanibonani.save.data.logging.AppLogger
+import com.sanibonani.save.data.utils.logAndGetMessage
 import com.sanibonani.save.data.utils.toUserMessage
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -46,12 +47,18 @@ class SyncRepositoryImpl @Inject constructor(
                 
                 _syncStatus.value = SyncStatus.Progress("Updating group details...", currentStep.toFloat() / totalSteps)
                 runCatching { groupRepo.getGroupById(groupId).getOrThrow() }
-                    .onFailure { AppLogger.e(tag, "Failed to sync group $groupId: ${it.message}") }
+                    .onFailure {
+                        val userMsg = it.logAndGetMessage(tag)
+                        AppLogger.e(tag, "Failed to sync group $groupId: $userMsg")
+                    }
                 currentStep++
 
                 _syncStatus.value = SyncStatus.Progress("Syncing notifications...", currentStep.toFloat() / totalSteps)
                 runCatching { notificationRepo.syncNotifications(groupId).getOrThrow() }
-                    .onFailure { AppLogger.e(tag, "Failed to sync notifications for $groupId: ${it.message}") }
+                    .onFailure {
+                        val userMsg = it.logAndGetMessage(tag)
+                        AppLogger.e(tag, "Failed to sync notifications for $groupId: $userMsg")
+                    }
                 currentStep++
             }
 

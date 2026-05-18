@@ -2,6 +2,7 @@ package com.sanibonani.save.data.repository
 
 import com.sanibonani.save.data.local.SanibonaniDatabase
 import com.sanibonani.save.data.logging.AppLogger
+import com.sanibonani.save.data.utils.logAndGetMessage
 import com.sanibonani.save.domain.model.AdminFeeState
 import com.sanibonani.save.domain.model.Contribution
 import com.sanibonani.save.domain.model.DocumentStatus
@@ -94,7 +95,7 @@ class GroupRepositoryImpl @Inject constructor(
         }
     }
 
-    private val GROUP_COLUMNS_SAFE = "id,name,type,province,city,township,description,logo_emoji,joining_fee,monthly_contribution,late_fee,late_fee_grace_days,probation_months,payment_due_day,max_members,current_members,is_public,allow_partial_payment,auto_suspend_after,bank_name,account_number,branch_code,account_type,yoco_public_key,balance,admin_user_id,fee_status,registration_paid,latitude,longitude,geohash,created_at,is_platform_suspended,goal_amount,period_months,max_beneficiaries,beneficiary_increase_pct,constitution_url,constitution_status"
+    private val GROUP_COLUMNS_SAFE = "id,name,type,province,city,township,description,logo_emoji,joining_fee,monthly_contribution,late_fee,late_fee_grace_days,probation_months,payment_due_day,max_members,current_members,is_public,allow_partial_payment,auto_suspend_after,bank_name,account_number,branch_code,account_type,gateway_public_key,balance,admin_user_id,fee_status,registration_paid,latitude,longitude,geohash,created_at,is_platform_suspended,goal_amount,period_months,max_beneficiaries,beneficiary_increase_pct,constitution_url,constitution_status"
 
     override fun getPublicGroups(): Flow<Result<List<Group>>> = observeAndSync(
         dbFlow = db.groupDao().observePublicGroups(),
@@ -121,7 +122,7 @@ class GroupRepositoryImpl @Inject constructor(
         }.recoverCatching { exception ->
             // Fallback to local database if network fails
             db.groupDao().getGroupById(id)?.toModel() 
-                ?: throw exception
+                ?: throw IllegalStateException(exception.logAndGetMessage(tag))
         }
     }
 
@@ -237,15 +238,17 @@ class GroupRepositoryImpl @Inject constructor(
                 dueDate = nowStr
             ))
         } catch (e: Exception) {
-            AppLogger.w(tag, "Platform fee initialization failed: ${e.message}")
+            val userMsg = e.logAndGetMessage(tag)
+            AppLogger.w(tag, "Platform fee initialization failed: $userMsg")
         }
 
         try {
             db.groupDao().upsertGroup(created.toEntity())
             AppLogger.d(tag, "✅ Group saved to local database: $createdGroupId")
         } catch (e: Exception) {
-            AppLogger.e(tag, "❌ Failed to save group to local database: ${e.message}", e)
-            throw e
+            val userMsg = e.logAndGetMessage(tag)
+            AppLogger.e(tag, "❌ Failed to save group to local database: $userMsg", e)
+            throw IllegalStateException(userMsg)
         }
         createdGroupId
     }
@@ -379,7 +382,8 @@ class GroupRepositoryImpl @Inject constructor(
                 }
             }
         } catch (e: Exception) {
-            AppLogger.w(tag, "Failed to update platform_fee record: ${e.message}")
+            val userMsg = e.logAndGetMessage(tag)
+            AppLogger.w(tag, "Failed to update platform_fee record: $userMsg")
         }
         
         val group = getGroupById(groupId).getOrThrow()
@@ -427,7 +431,7 @@ class GroupRepositoryImpl @Inject constructor(
                             put("p_paid_at", nowStr)
                             put("p_status", "paid")
                             put("p_type", "contribution")
-                            put("p_yoco_tx_id", txId ?: "first_contrib_auto_${System.currentTimeMillis()}")
+                            put("p_tx_id", txId ?: "first_contrib_auto_${System.currentTimeMillis()}")
                         }
                         supabase.postgrest.rpc("record_contribution_v1", rpcParams)
 
@@ -456,7 +460,7 @@ class GroupRepositoryImpl @Inject constructor(
                             put("paid_at", nowStr)
                             put("status", "paid")
                             put("type", "registration_contribution")
-                            put("yoco_transaction_id", txId ?: "reg_auto_credit_${System.currentTimeMillis()}")
+                            put("transaction_id", txId ?: "reg_auto_credit_${System.currentTimeMillis()}")
                         }
                         supabase.postgrest["contributions"].insert(insertData)
                     }
@@ -482,7 +486,7 @@ class GroupRepositoryImpl @Inject constructor(
                                 put("p_paid_at", nowStr)
                                 put("p_status", "paid")
                                 put("p_type", "joining_fee")
-                                put("p_yoco_tx_id", "joining_auto_credit_${System.currentTimeMillis()}")
+                                put("p_tx_id", "joining_auto_credit_${System.currentTimeMillis()}")
                             }
                             supabase.postgrest.rpc("record_contribution_v1", rpcParams)
                         }
@@ -502,7 +506,8 @@ class GroupRepositoryImpl @Inject constructor(
                     }
                 }
             } catch (e: Exception) {
-                AppLogger.w(tag, "Failed to finalize admin member: ${e.message}")
+                val userMsg = e.logAndGetMessage(tag)
+                AppLogger.w(tag, "Failed to finalize admin member: $userMsg")
             }
         }
 

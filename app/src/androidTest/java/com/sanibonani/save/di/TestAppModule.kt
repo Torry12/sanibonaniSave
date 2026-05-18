@@ -121,7 +121,7 @@ object TestAppModule {
                 val type = bodyJson["p_type"]?.jsonPrimitive?.content ?: "contribution"
                 val dueDate = bodyJson["p_due_date"]?.jsonPrimitive?.content
                 val paidAt = bodyJson["p_paid_at"]?.jsonPrimitive?.content
-                val txId = bodyJson["p_yoco_tx_id"]?.jsonPrimitive?.content
+                val txId = bodyJson["p_tx_id"]?.jsonPrimitive?.content
 
                 val id = UUID.randomUUID().toString()
                 val contribution = buildJsonObject {
@@ -133,7 +133,7 @@ object TestAppModule {
                     put("type", type)
                     put("due_date", dueDate ?: "")
                     put("paid_at", paidAt ?: "")
-                    put("yoco_transaction_id", txId)
+                    put("transaction_id", txId)
                     put("created_at", java.time.Instant.now().toString())
                 }
                 mockContributions[id] = contribution

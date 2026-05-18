@@ -109,7 +109,8 @@ object InputValidator {
     fun isValidAccountNumber(accountNumber: String, bankName: String): Boolean {
         if (accountNumber.isBlank()) return false
         val allowedLength = BankAccountValidation.ACCOUNT_NUMBER_LENGTHS[bankName]
-        return accountNumber.length in (allowedLength ?: (8..20))
+            ?: BankAccountValidation.DEFAULT_ACCOUNT_LENGTH
+        return accountNumber.length in allowedLength
     }
     
     fun validateAccountNumber(accountNumber: String, bankName: String): ValidationResult {
@@ -118,7 +119,8 @@ object InputValidator {
             !accountNumber.matches(Regex("^[0-9]+$")) -> 
                 ValidationResult.Error("Account number must contain only digits")
             !isValidAccountNumber(accountNumber, bankName) -> {
-                val allowedLength = BankAccountValidation.ACCOUNT_NUMBER_LENGTHS[bankName] ?: (8..20)
+                val allowedLength = BankAccountValidation.ACCOUNT_NUMBER_LENGTHS[bankName] 
+                    ?: BankAccountValidation.DEFAULT_ACCOUNT_LENGTH
                 ValidationResult.Error("$bankName account numbers must be ${allowedLength.first}-${allowedLength.last} digits")
             }
             else -> ValidationResult.Valid

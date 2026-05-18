@@ -48,12 +48,6 @@ class GetGroupBusinessInsightsUseCase @Inject constructor(
          * (e.g. group has no members yet).  Distinct from an error.
          */
         data object Empty : GroupBusinessInsight()
-
-        /**
-         * Backward-compatible alias retained for older callers.
-         */
-        @Deprecated("Use Empty", ReplaceWith("Empty"))
-        data object None : GroupBusinessInsight()
     }
 
     /**

@@ -14,6 +14,7 @@ import com.sanibonani.save.MainActivity
 import com.sanibonani.save.SanibonaniApp
 import com.sanibonani.save.R
 import com.sanibonani.save.data.logging.AppLogger
+import com.sanibonani.save.data.utils.logAndGetMessage
 import com.sanibonani.save.domain.repository.SupabaseRepository
 import dagger.hilt.android.AndroidEntryPoint
 import io.github.jan.supabase.SupabaseClient
@@ -72,9 +73,10 @@ class SanibonaniFirebaseService : FirebaseMessagingService() {
                 // Also clear the local backup since it's now synced
                 clearLocalToken()
             } catch (e: Exception) {
+                val userMsg = e.logAndGetMessage("FCMService")
                 AppLogger.w(
                     "FCMService",
-                    "Failed to sync FCM token to Supabase: ${e.message}. Will retry on next sync.",
+                    "Failed to sync FCM token to Supabase: $userMsg. Will retry on next sync.",
                     e
                 )
                 // Keep local copy for retry later
@@ -100,7 +102,8 @@ class SanibonaniFirebaseService : FirebaseMessagingService() {
             encryptedPrefs.edit().putString("pending_token", token).apply()
             AppLogger.d("FCMService", "Token stored locally in encrypted storage")
         } catch (e: Exception) {
-            AppLogger.e("FCMService", "Failed to save token locally: ${e.message}", e)
+            val userMsg = e.logAndGetMessage("FCMService")
+            AppLogger.e("FCMService", "Failed to save token locally: $userMsg", e)
         }
     }
 
@@ -120,7 +123,8 @@ class SanibonaniFirebaseService : FirebaseMessagingService() {
             
             encryptedPrefs.edit().remove("pending_token").apply()
         } catch (e: Exception) {
-            AppLogger.d("FCMService", "Could not clear local token: ${e.message}")
+            val userMsg = e.logAndGetMessage("FCMService")
+            AppLogger.d("FCMService", "Could not clear local token: $userMsg")
         }
     }
 

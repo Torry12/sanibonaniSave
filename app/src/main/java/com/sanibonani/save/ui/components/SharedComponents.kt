@@ -815,6 +815,16 @@ fun DetailRow(label: String, value: String) {
     }
 }
 
+@Composable
+fun DetailSection(title: String, content: @Composable (ColumnScope.() -> Unit)) {
+    Column(Modifier.padding(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = Forest)
+        Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(12.dp)) {
+            Column(Modifier.padding(16.dp).fillMaxWidth(), content = content)
+        }
+    }
+}
+
 // ── Modern Navigation Link ───────────────────────────────────────────────────
 @Composable
 fun ModernNavigationLink(

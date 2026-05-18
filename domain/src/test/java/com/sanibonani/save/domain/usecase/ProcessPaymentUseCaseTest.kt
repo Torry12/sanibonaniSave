@@ -9,6 +9,7 @@ import com.sanibonani.save.domain.model.PlatformFees
 import com.sanibonani.save.domain.repository.GroupRepository
 import com.sanibonani.save.domain.repository.MemberRepository
 import com.sanibonani.save.domain.repository.NotificationRepository
+import com.sanibonani.save.domain.repository.PaymentGatewayRepository
 import com.sanibonani.save.domain.repository.PaymentRepository
 import com.sanibonani.save.domain.repository.PlatformRepository
 import io.mockk.coEvery
@@ -29,6 +30,7 @@ class ProcessPaymentUseCaseTest {
     private val memberRepository: MemberRepository = mockk()
     private val notificationRepository: NotificationRepository = mockk()
     private val platformRepository: PlatformRepository = mockk()
+    private val gatewayRepository: PaymentGatewayRepository = mockk()
 
     @Before
     fun setUp() {
@@ -38,7 +40,8 @@ class ProcessPaymentUseCaseTest {
             groupRepository,
             memberRepository,
             notificationRepository,
-            platformRepository
+            platformRepository,
+            gatewayRepository
         )
     }
 
@@ -53,7 +56,7 @@ class ProcessPaymentUseCaseTest {
         val member = Member(id = "member-123", groupId = "group-456", status = MemberStatus.PENDING_PAYMENT)
         val amount = 150.0
         val groupId = "group-456"
-        val txIdPrefix = "yoco_tx_"
+        val txIdPrefix = "tx_"
         
         coEvery { paymentRepository.recordPayment(any()) } returns Result.success("payment-id")
         coEvery { memberRepository.registerMember(any(), any()) } returns Result.success(member.copy(status = MemberStatus.ACTIVE))
@@ -181,7 +184,7 @@ class ProcessPaymentUseCaseTest {
 
         // Then
         assertTrue(result.isSuccess)
-        assertTrue(result.getOrThrow().startsWith("yoco_tx_"))
+        assertTrue(result.getOrThrow().startsWith("tx_"))
         
         coVerify(exactly = 0) { groupRepository.activateGroup(any(), any()) }
         coVerify(exactly = 0) { paymentRepository.recordPayment(any()) }

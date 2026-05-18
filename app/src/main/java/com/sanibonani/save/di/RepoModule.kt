@@ -152,4 +152,22 @@ abstract class RepoModule {
     abstract fun bindBehaviorTrackingRepository(
         behaviorTrackingRepositoryImpl: BehaviorTrackingRepositoryImpl
     ): BehaviorTrackingRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindPaymentSandboxRepository(
+        paymentSandboxRepositoryImpl: PaymentSandboxRepositoryImpl
+    ): PaymentSandboxRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindMockBankRepository(
+        mockBankRepositoryImpl: MockBankRepositoryImpl
+    ): MockBankRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindPaymentGatewayRepository(
+        paymentGatewayRepositoryImpl: PaymentGatewayRepositoryImpl
+    ): PaymentGatewayRepository
 }

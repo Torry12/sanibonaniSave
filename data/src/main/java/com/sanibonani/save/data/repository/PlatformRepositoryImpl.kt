@@ -4,6 +4,7 @@ import com.sanibonani.save.domain.repository.*
 import com.sanibonani.save.domain.model.PlatformAnalytics
 import com.sanibonani.save.data.local.SanibonaniDatabase
 import com.sanibonani.save.data.logging.AppLogger
+import com.sanibonani.save.data.utils.logAndGetMessage
 import com.sanibonani.save.domain.model.*
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.auth.auth
@@ -22,7 +23,7 @@ class PlatformRepositoryImpl @Inject constructor(
     private val notifRepo: NotificationRepository
 ) : BaseRepository("PlatformRepository"), PlatformRepository {
 
-    private val GROUP_COLUMNS_SAFE = "id,name,type,province,city,township,description,logo_emoji,joining_fee,monthly_contribution,late_fee,late_fee_grace_days,probation_months,payment_due_day,max_members,current_members,is_public,allow_partial_payment,auto_suspend_after,bank_name,account_number,branch_code,account_type,yoco_public_key,balance,admin_user_id,fee_status,registration_paid,latitude,longitude,geohash,created_at,is_platform_suspended"
+    private val GROUP_COLUMNS_SAFE = "id,name,type,province,city,township,description,logo_emoji,joining_fee,monthly_contribution,late_fee,late_fee_grace_days,probation_months,payment_due_day,max_members,current_members,is_public,allow_partial_payment,auto_suspend_after,bank_name,account_number,branch_code,account_type,gateway_public_key,balance,admin_user_id,fee_status,registration_paid,latitude,longitude,geohash,created_at,is_platform_suspended"
 
     override suspend fun getPlatformAnalytics(): Result<PlatformAnalytics> = retryWithExponentialBackoff {
         runCatching {
@@ -43,8 +44,9 @@ class PlatformRepositoryImpl @Inject constructor(
                     }
                 }.decodeList<Group>()
             }.getOrElse { e ->
-                AppLogger.e(tag, "Failed to fetch groups for analytics", e)
-                throw e
+                val userMsg = e.logAndGetMessage(tag)
+                AppLogger.e(tag, "Failed to fetch groups for analytics: $userMsg", e)
+                throw IllegalStateException(userMsg)
             }
 
             val members: List<Member> = if (supabase.auth.currentSessionOrNull() != null) {
@@ -52,7 +54,8 @@ class PlatformRepositoryImpl @Inject constructor(
                     supabase.postgrest["members"].select().decodeList<Member>()
                 }.getOrElse { e ->
                     // Members are often private; don't fail analytics for non-admins.
-                    AppLogger.w(tag = "PlatformRepo", message = "Members not accessible: ${e.message}")
+                    val userMsg = e.logAndGetMessage("PlatformRepo")
+                    AppLogger.w(tag = "PlatformRepo", message = "Members not accessible: $userMsg")
                     emptyList()
                 }
             } else {
@@ -173,7 +176,8 @@ class PlatformRepositoryImpl @Inject constructor(
             val settings = try {
                 supabase.postgrest["platform_settings"].select().decodeList<PlatformSetting>()
             } catch (e: Exception) {
-                AppLogger.w(tag, "Failed to fetch platform_settings: ${e.message}")
+                val userMsg = e.logAndGetMessage(tag)
+                AppLogger.w(tag, "Failed to fetch platform_settings: $userMsg")
                 emptyList<PlatformSetting>()
             }
             val settingsMap = settings.associate { it.key to it.value }.toMutableMap()

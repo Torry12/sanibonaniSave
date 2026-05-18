@@ -43,8 +43,8 @@ class Converters {
 
     @TypeConverter fun fromPaymentMethod(v: PaymentMethod): String = v.name
     @TypeConverter fun toPaymentMethod(v: String): PaymentMethod = try { 
-        PaymentMethod.entries.find { it.name == v || it.name.lowercase() == v.lowercase() } ?: PaymentMethod.YOCO 
-    } catch (e: Exception) { PaymentMethod.YOCO }
+        PaymentMethod.entries.find { it.name == v || it.name.lowercase() == v.lowercase() } ?: PaymentMethod.BANK 
+    } catch (e: Exception) { PaymentMethod.BANK }
 
     @TypeConverter fun fromPaymentStatus(v: PaymentStatus): String = v.name
     @TypeConverter fun toPaymentStatus(v: String): PaymentStatus = try { 
@@ -116,7 +116,7 @@ data class GroupEntity(
     @ColumnInfo(name = "account_number") val accountNumber: String?,
     @ColumnInfo(name = "branch_code") val branchCode: String?,
     @ColumnInfo(name = "account_type") val accountType: String,
-    @ColumnInfo(name = "yoco_public_key") val yocoPublicKey: String?,
+    @ColumnInfo(name = "gateway_public_key") val gatewayPublicKey: String?,
     val balance: Double,
     @ColumnInfo(name = "admin_user_id") val adminUserId: String?,
     @ColumnInfo(name = "fee_status") val feeStatus: AdminFeeState,
@@ -238,9 +238,9 @@ data class ContributionEntity(
     @ColumnInfo(name = "paid_at") val paidAt: String?,
     val status: ContributionStatus,
     val type: String = "contribution",
-    @ColumnInfo(name = "payment_method") val paymentMethod: String = "yoco",
+    @ColumnInfo(name = "payment_method") val paymentMethod: String = "bank",
     @ColumnInfo(name = "late_fees_applied") val lateFeesApplied: Boolean,
-    @ColumnInfo(name = "yoco_transaction_id") val yocoTransactionId: String?,
+    @ColumnInfo(name = "transaction_id") val transactionId: String?,
     @ColumnInfo(name = "updated_at") val updatedAt: Long = System.currentTimeMillis()
 )
 
@@ -324,7 +324,7 @@ data class PayoutEntity(
     val status: PayoutStatus,
     @ColumnInfo(name = "processed_by") val processedBy: String?,
     @ColumnInfo(name = "processed_at") val processedAt: String?,
-    @ColumnInfo(name = "yoco_payout_id") val yocoPayoutId: String?,
+    @ColumnInfo(name = "payout_reference") val payoutReference: String?,
     @ColumnInfo(name = "created_at") val createdAt: String?,
     @ColumnInfo(name = "updated_at") val updatedAt: Long = System.currentTimeMillis()
 )
@@ -850,7 +850,7 @@ interface LedgerDao {
         FraudDetectionEventEntity::class,
         BehaviorAnalyticsSummaryEntity::class
     ],
-    version  = 39,
+    version  = 41,
     exportSchema = true
 )
 @TypeConverters(Converters::class)

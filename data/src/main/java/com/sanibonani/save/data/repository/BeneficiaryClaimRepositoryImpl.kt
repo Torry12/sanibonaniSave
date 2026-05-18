@@ -7,6 +7,7 @@ import com.sanibonani.save.domain.repository.BeneficiaryClaimRepository
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.postgrest.query.Columns
+import com.sanibonani.save.data.utils.logAndGetMessage
 import kotlinx.coroutines.flow.Flow
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -38,7 +39,7 @@ class BeneficiaryClaimRepositoryImpl @Inject constructor(
             if (isMissingPrimaryTableError(e)) {
                 block(LEGACY_TABLE)
             } else {
-                throw e
+                throw IllegalStateException(e.logAndGetMessage(tag))
             }
         }
     }

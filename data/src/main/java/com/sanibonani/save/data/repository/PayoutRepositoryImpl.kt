@@ -21,7 +21,7 @@ class PayoutRepositoryImpl @Inject constructor(
 
     private val PAYOUT_COLUMNS_SAFE = """
         id, group_id, amount, bank_name, account_no, branch_code, 
-        status, processed_by, processed_at, yoco_payout_id, created_at
+        status, processed_by, processed_at, payout_reference, created_at
     """.trimIndent().replace("\n", "")
 
     override suspend fun requestPayout(payout: PayoutRequest): Result<String> = retryWithExponentialBackoff {
@@ -36,7 +36,7 @@ class PayoutRepositoryImpl @Inject constructor(
                 put("status", payout.status.name.lowercase())
                 payout.processedBy?.let { put("processed_by", it) }
                 payout.processedAt?.let { put("processed_at", it) }
-                payout.yocoPayoutId?.let { put("yoco_payout_id", it) }
+                payout.payoutReference?.let { put("payout_reference", it) }
             }
             val created = if (payout.id.isNullOrBlank()) {
                 supabase.postgrest["payouts"].insert(insertData) {
@@ -69,20 +69,20 @@ class PayoutRepositoryImpl @Inject constructor(
         }
     }
 
-    override suspend fun updatePayoutStatus(payoutId: String, status: PayoutStatus, yocoPayoutId: String?): Result<Unit> = retryWithExponentialBackoff {
+    override suspend fun updatePayoutStatus(payoutId: String, status: PayoutStatus, payoutReference: String?): Result<Unit> = retryWithExponentialBackoff {
         runCatching {
             val existing = supabase.postgrest["payouts"].select(columns = Columns.raw(PAYOUT_COLUMNS_SAFE)) {
                 filter { eq("id", payoutId) }
             }.decodeSingleOrNull<PayoutRequest>()
 
-            if (existing != null && existing.status == status && (yocoPayoutId == null || existing.yocoPayoutId == yocoPayoutId)) {
+            if (existing != null && existing.status == status && (payoutReference == null || existing.payoutReference == payoutReference)) {
                 db.payoutDao().upsertPayout(existing.toEntity())
                 return@runCatching
             }
 
             supabase.postgrest["payouts"].update(buildJsonObject {
                 put("status", status.name.lowercase())
-                yocoPayoutId?.let { put("yoco_payout_id", it) }
+                payoutReference?.let { put("payout_reference", it) }
                 put("processed_at", OffsetDateTime.now().format(DateTimeFormatter.ISO_OFFSET_DATE_TIME))
             }) {
                 filter { eq("id", payoutId) }
@@ -101,13 +101,13 @@ class PayoutRepositoryImpl @Inject constructor(
     override suspend fun completePayoutAtomic(
         payoutId: String,
         adminId: String,
-        yocoPayoutId: String?
+        payoutReference: String?
     ): Result<Unit> = retryWithExponentialBackoff {
         runCatching {
             val rpcParams = buildJsonObject {
                 put("p_payout_id", payoutId)
                 put("p_admin_id", adminId)
-                yocoPayoutId?.let { put("p_yoco_payout_id", it) }
+                payoutReference?.let { put("p_payout_reference", it) }
             }
             supabase.postgrest.rpc("complete_payout_v1", rpcParams)
 

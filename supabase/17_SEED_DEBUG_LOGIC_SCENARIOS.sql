@@ -347,7 +347,7 @@ BEGIN
                 due_date,
                 paid_at,
                 payment_method,
-                yoco_transaction_id,
+                transaction_id,
                 status,
                 late_fees_applied
             ) VALUES
@@ -565,7 +565,7 @@ BEGIN
             status,
             processed_by,
             processed_at,
-            yoco_payout_id
+            payout_reference
         ) VALUES (
             v_group_id,
             CASE WHEN v_group_index = 4 THEN 2200.00 ELSE 4500.00 END,

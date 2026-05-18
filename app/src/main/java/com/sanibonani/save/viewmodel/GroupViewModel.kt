@@ -15,6 +15,7 @@ import com.sanibonani.save.domain.repository.ExportRepository
 import com.sanibonani.save.domain.repository.GroupRepository
 import com.sanibonani.save.data.utils.LocationUtils
 import com.sanibonani.save.data.utils.toUserMessage
+import com.sanibonani.save.data.utils.logAndGetMessage
 import com.sanibonani.save.domain.validation.ValidationResult
 import com.sanibonani.save.domain.validation.ValidationUtils
 import com.sanibonani.save.domain.usecase.CreateGroupUseCase
@@ -251,7 +252,8 @@ class GroupViewModel @Inject constructor(
 
                         // Persist to database
                         groupRepo.updateGroup(updatedGroup).onFailure { e ->
-                            AppLogger.w("GroupVM", "Failed to persist geocoded coordinates for group ${g.id}: ${e.message}")
+                            val userMsg = e.logAndGetMessage("GroupViewModel")
+                            AppLogger.w("GroupVM", "Failed to persist geocoded coordinates for group ${g.id}: $userMsg")
                         }
                     }
                 }
@@ -464,7 +466,8 @@ class GroupViewModel @Inject constructor(
                 Pair(lat, lon)
             } else null
         } catch (e: Exception) {
-            AppLogger.w("GroupViewModel", "⚠️ Geocoding failed for: $address - ${e.message}")
+            val userMsg = e.logAndGetMessage("GroupViewModel")
+            AppLogger.w("GroupViewModel", "⚠️ Geocoding failed for: $address - $userMsg")
             null
         }
     }
@@ -514,11 +517,12 @@ class GroupViewModel @Inject constructor(
                         pendingConstitutionUpload = null
                         _registerState.update { it.copy(pendingConstitutionName = null) }
                     }
-                    .onFailure { e ->
-                        // Don't block activation, but inform the user so they can retry later.
-                        AppLogger.w("GroupViewModel", "⚠️ Constitution upload failed during activation: ${e.message}")
-                        _registerState.update { it.copy(error = e.toUserMessage()) }
-                    }
+                        .onFailure { e ->
+                                // Don't block activation, but inform the user so they can retry later.
+                                val userMsg = e.logAndGetMessage("GroupViewModel")
+                                AppLogger.w("GroupViewModel", "⚠️ Constitution upload failed during activation: $userMsg")
+                                _registerState.update { it.copy(error = e.toUserMessage()) }
+                            }
             }
 
             // Automatically activate since payment was just confirmed
@@ -536,7 +540,8 @@ class GroupViewModel @Inject constructor(
                     loadGroups()
                 }
                 .onFailure { e ->
-                    AppLogger.e("GroupViewModel", "❌ Group activation failed: ${e.message}")
+                    val userMsg = e.logAndGetMessage("GroupViewModel")
+                    AppLogger.e("GroupViewModel", "❌ Group activation failed: $userMsg")
                     _registerState.update { it.copy(isSubmitting = false, success = false, error = e.toUserMessage()) }
                 }
         }
@@ -592,7 +597,8 @@ class GroupViewModel @Inject constructor(
                     AppLogger.d("GroupViewModel", "📍 Geocoded address: $address -> ($lat, $lon)")
                 }
             } catch (e: Exception) {
-                AppLogger.w("GroupViewModel", "⚠️ Geocoding failed for: $address - ${e.message}")
+                val userMsg = e.logAndGetMessage("GroupViewModel")
+                AppLogger.w("GroupViewModel", "⚠️ Geocoding failed for: $address - $userMsg")
                 // Don't block registration if geocoding fails
             }
         }

@@ -34,7 +34,7 @@ fun Group.toEntity() = GroupEntity(
     accountNumber = accountNumber, 
     branchCode = branchCode,
     accountType = accountType, 
-    yocoPublicKey = yocoPublicKey,
+    gatewayPublicKey = gatewayPublicKey,
     balance = balance, 
     adminUserId = adminUserId, 
     feeStatus = feeStatus,
@@ -79,7 +79,7 @@ fun GroupEntity.toModel() = Group(
     accountNumber = accountNumber, 
     branchCode = branchCode,
     accountType = accountType, 
-    yocoPublicKey = yocoPublicKey,
+    gatewayPublicKey = gatewayPublicKey,
     balance = balance, 
     adminUserId = adminUserId, 
     feeStatus = feeStatus,
@@ -209,7 +209,7 @@ fun Contribution.toEntity() = ContributionEntity(
     type = type,
     paymentMethod = paymentMethod,
     lateFeesApplied = lateFeesApplied,
-    yocoTransactionId = yocoTransactionId
+    transactionId = transactionId
 )
 
 fun ContributionEntity.toModel() = Contribution(
@@ -224,7 +224,7 @@ fun ContributionEntity.toModel() = Contribution(
     status = status,
     type = type,
     paymentMethod = paymentMethod,
-    yocoTransactionId = yocoTransactionId,
+    transactionId = transactionId,
     lateFeesApplied = lateFeesApplied
 )
 
@@ -304,7 +304,7 @@ fun PayoutRequest.toEntity() = PayoutEntity(
     status = status,
     processedBy = processedBy,
     processedAt = processedAt,
-    yocoPayoutId = yocoPayoutId,
+    payoutReference = payoutReference,
     createdAt = createdAt
 )
 
@@ -318,7 +318,7 @@ fun PayoutEntity.toModel() = PayoutRequest(
     status = status,
     processedBy = processedBy,
     processedAt = processedAt,
-    yocoPayoutId = yocoPayoutId,
+    payoutReference = payoutReference,
     createdAt = createdAt
 )
 

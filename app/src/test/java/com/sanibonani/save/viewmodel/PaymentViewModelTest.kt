@@ -49,6 +49,17 @@ class PaymentViewModelTest {
         viewModel = PaymentViewModel(supabaseRepo, groupRepo, memberRepo, processPaymentUseCase)
     }
 
+    private fun mockPaymentContext(groupId: String = "g1") {
+        val member = Member(id = "m1", groupId = groupId, joinedAt = "2026-01-01T00:00:00Z", status = MemberStatus.ACTIVE)
+        val group = Group(id = groupId, monthlyContribution = 200.0, paymentDueDay = 1)
+
+        coEvery { memberRepo.getMemberByUserId("user_123", groupId) } returns Result.success(member)
+        coEvery { groupRepo.getGroupById(groupId) } returns Result.success(group)
+        every { memberRepo.getMemberContributions("m1", groupId) } returns flowOf(Result.success(emptyList()))
+
+        viewModel.loadPaymentContext(groupId)
+    }
+
     @After
     fun tearDown() {
         Dispatchers.resetMain()
@@ -102,20 +113,25 @@ class PaymentViewModelTest {
     @Test
     fun `processPayment - success updates state to success`() = runTest {
         val groupId = "g1"
+        val amount = 1000.0
         val txId = "tx_123"
         
+        mockPaymentContext(groupId)
+        advanceUntilIdle()
+
         coEvery { processPaymentUseCase.invoke(
-            type = any(), 
-            amount = any(), 
-            groupId = any(), 
-            member = any(), 
-            group = any(), 
-            calculation = any()
+            type = PaymentType.CONTRIBUTION,
+            amount = amount,
+            groupId = groupId,
+            member = any(),
+            group = any(),
+            calculation = any(),
+            method = PaymentMethod.BANK
         ) } returns Result.success(txId)
 
         viewModel.processPayment(
             type = "contribution",
-            amount = 500.0,
+            amount = amount,
             groupId = groupId,
             cardNumber = "4242424242424242",
             expiry = "12/28",
@@ -133,11 +149,16 @@ class PaymentViewModelTest {
 
     @Test
     fun `processPayment - failure updates error state`() = runTest {
-        coEvery { processPaymentUseCase.invoke(any(), any(), any(), any(), any(), any()) } returns Result.failure(Exception("Network error"))
+        val amount = 1000.0
+
+        mockPaymentContext("g1")
+        advanceUntilIdle()
+
+        coEvery { processPaymentUseCase.invoke(any(), any(), any(), any(), any(), any(), any()) } returns Result.failure(Exception("Network error"))
 
         viewModel.processPayment(
             type = "contribution",
-            amount = 500.0,
+            amount = amount,
             groupId = "g1",
             cardNumber = "4242424242424242",
             expiry = "12/28",

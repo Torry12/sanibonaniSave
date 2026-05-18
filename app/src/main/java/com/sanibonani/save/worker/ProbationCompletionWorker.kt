@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.hilt.work.HiltWorker
 import androidx.work.*
 import com.sanibonani.save.data.logging.AppLogger
+import com.sanibonani.save.data.utils.logAndGetMessage
 import com.sanibonani.save.domain.model.MemberStatus
 import com.sanibonani.save.domain.model.NotifChannel
 import com.sanibonani.save.domain.model.NotifEvent
@@ -42,7 +43,9 @@ class ProbationCompletionWorker @AssistedInject constructor(
 
             val probationMembersResult = memberRepo.getAllProbationMembers()
             if (probationMembersResult.isFailure) {
-                AppLogger.e("ProbationWorker", "Failed to fetch probation members: ${probationMembersResult.exceptionOrNull()?.message}")
+                val ex = probationMembersResult.exceptionOrNull()
+                val userMsg = ex?.logAndGetMessage("ProbationWorker") ?: "Failed to fetch probation members"
+                AppLogger.e("ProbationWorker", "Failed to fetch probation members: $userMsg")
                 return Result.retry()
             }
 
@@ -75,7 +78,8 @@ class ProbationCompletionWorker @AssistedInject constructor(
             Result.success()
 
         } catch (e: Exception) {
-            AppLogger.e("ProbationWorker", "Error during probation completion check: ${e.message}", e)
+            val userMsg = e.logAndGetMessage("ProbationWorker")
+            AppLogger.e("ProbationWorker", "Error during probation completion check: $userMsg", e)
             Result.retry()
         }
     }
@@ -111,7 +115,8 @@ class ProbationCompletionWorker @AssistedInject constructor(
                 }
             }
         } catch (e: Exception) {
-            AppLogger.e("ProbationWorker", "Error checking member probation for $memberId: ${e.message}", e)
+            val userMsg = e.logAndGetMessage("ProbationWorker")
+            AppLogger.e("ProbationWorker", "Error checking member probation for $memberId: $userMsg", e)
         }
     }
 

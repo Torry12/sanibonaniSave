@@ -27,6 +27,7 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
+import java.util.Locale
 
 /**
  * UI state for the Payment screen.
@@ -45,7 +46,9 @@ data class PaymentUiState(
     val realtimeShortfall: Double = 0.0,
     val realtimeOverpayment: Double = 0.0,
     val nextDueDate: String = "",
-    val currentInputAmount: Double = 0.0
+    val currentInputAmount: Double = 0.0,
+    val selectedMethod: PaymentMethod = PaymentMethod.BANK,
+    val checkoutUrl: String? = null
 )
 
 internal data class RealtimePaymentPreview(
@@ -196,6 +199,10 @@ class PaymentViewModel @Inject constructor(
         recalculateRealtimePreview(newAmount)
     }
 
+    fun onMethodChanged(method: PaymentMethod) {
+        _state.update { it.copy(selectedMethod = method) }
+    }
+
     private fun recalculateRealtimePreview(inputAmount: Double) {
         val currentState = _state.value
         val calculation = currentState.calculation ?: return
@@ -221,15 +228,18 @@ class PaymentViewModel @Inject constructor(
         expiry: String,
         cvv: String
     ) {
-        // Validate input
-        if (!amount.isPositiveMoneyAmount()) {
-            _state.update { it.copy(error = "Amount must be positive") }
-            return
+        // Enforce provider-specific validation
+        if (_state.value.selectedMethod == PaymentMethod.YOCO) {
+            val validation = ValidationUtils.validatePaymentFields(cardNumber, expiry, cvv)
+            if (validation !is ValidationResult.Valid) {
+                _state.update { it.copy(isSuccess = false, error = validation.getErrorMessage()) }
+                return
+            }
         }
 
-        val validation = ValidationUtils.validatePaymentFields(cardNumber, expiry, cvv)
-        if (validation !is ValidationResult.Valid) {
-            _state.update { it.copy(error = validation.getErrorMessage()) }
+        // Validate input
+        if (!amount.isPositiveMoneyAmount()) {
+            _state.update { it.copy(isSuccess = false, error = "Amount must be positive") }
             return
         }
 
@@ -239,7 +249,7 @@ class PaymentViewModel @Inject constructor(
         if (type == "contribution" && group != null && calc != null && !group.allowPartialPayment) {
             val minRequired = calc.totalDueNow
             if (amount.toMoneyBigDecimal() < minRequired.toMoneyBigDecimal()) {
-                _state.update { it.copy(error = "This group does not allow partial payments. Min due: ${formatZAR(minRequired)}") }
+                _state.update { it.copy(isSuccess = false, error = "This group does not allow partial payments. Min due: ${formatZAR(minRequired)}") }
                 return
             }
         }
@@ -249,6 +259,7 @@ class PaymentViewModel @Inject constructor(
             _state.update {
                 it.copy(
                     isProcessing = false,
+                    isSuccess = false,
                     error = "Unsupported payment type. Please retry from the previous screen."
                 )
             }
@@ -256,42 +267,130 @@ class PaymentViewModel @Inject constructor(
         }
 
         viewModelScope.launch {
-            _state.update { it.copy(isProcessing = true, error = null) }
+            _state.update {
+                it.copy(
+                    isProcessing = true,
+                    isSuccess = false,
+                    error = null,
+                    checkoutUrl = null,
+                    transactionId = null
+                )
+            }
             AppAnalytics.track(
                 AnalyticsTaxonomy.Events.PAYMENT_PROCESS_STARTED,
                 mapOf(
                     AnalyticsTaxonomy.Params.GROUP_ID to groupId,
-                    AnalyticsTaxonomy.Params.PAYMENT_TYPE to paymentType.name.lowercase()
+                    AnalyticsTaxonomy.Params.PAYMENT_TYPE to paymentType.name.lowercase(),
+                    AnalyticsTaxonomy.Params.PAYMENT_METHOD to _state.value.selectedMethod.name
                 )
             )
-            delay(2000) // Simulate YoCo
 
-            processPaymentUseCase(
+            val selectedMethod = _state.value.selectedMethod
+            if (selectedMethod == PaymentMethod.YOCO || selectedMethod == PaymentMethod.BANK || selectedMethod == PaymentMethod.CASH) {
+                if (selectedMethod == PaymentMethod.YOCO) delay(1500) // Simulate gateway latency
+
+                processPaymentUseCase(
+                    type = paymentType,
+                    amount = amount,
+                    groupId = groupId,
+                    member = _state.value.member,
+                    group = _state.value.group,
+                    calculation = _state.value.calculation,
+                    method = selectedMethod
+                ).onSuccess { txId ->
+                    _state.update {
+                        it.copy(
+                            isProcessing = false,
+                            isSuccess = true,
+                            error = null,
+                            transactionId = txId
+                        )
+                    }
+                    AppAnalytics.track(
+                        AnalyticsTaxonomy.Events.PAYMENT_PROCESS_SUCCESS,
+                        mapOf(
+                            AnalyticsTaxonomy.Params.GROUP_ID to groupId,
+                            AnalyticsTaxonomy.Params.PAYMENT_TYPE to paymentType.name.lowercase()
+                        )
+                    )
+                }.onFailure { e ->
+                    _state.update {
+                        it.copy(
+                            isProcessing = false,
+                            isSuccess = false,
+                            error = e.toUserMessage()
+                        )
+                    }
+                }
+            } else {
+                // Stitch or PayFast: Initiate gateway and get checkout URL
+                processPaymentUseCase.initiate(
+                    method = _state.value.selectedMethod,
+                    type = paymentType,
+                    amount = amount,
+                    groupId = groupId,
+                    memberId = _state.value.member?.id,
+                    description = type.replace("_", " ").replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.ROOT) else it.toString() }
+                ).onSuccess { result ->
+                    _state.update {
+                        it.copy(
+                            isProcessing = false,
+                            isSuccess = false,
+                            error = null,
+                            checkoutUrl = result.checkoutUrl,
+                            transactionId = result.transactionId
+                        )
+                    }
+                }.onFailure { e ->
+                    _state.update {
+                        it.copy(
+                            isProcessing = false,
+                            isSuccess = false,
+                            error = e.toUserMessage()
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Called when the user returns from a gateway (Stitch/PayFast).
+     * Usually triggered by a deep link or back navigation.
+     */
+    fun onReturnFromGateway(transactionId: String, amount: Double, type: String, groupId: String) {
+        val paymentType = resolvePaymentType(type) ?: return
+        
+        viewModelScope.launch {
+            _state.update { it.copy(isProcessing = true, isSuccess = false, error = null) }
+            
+            // In a real app, we'd verify with PaymentGatewayRepository first
+            processPaymentUseCase.confirm(
+                txId = transactionId,
+                method = _state.value.selectedMethod,
                 type = paymentType,
                 amount = amount,
                 groupId = groupId,
                 member = _state.value.member,
                 group = _state.value.group,
                 calculation = _state.value.calculation
-            ).onSuccess { txId ->
-                _state.update { it.copy(isProcessing = false, isSuccess = true, transactionId = txId) }
-                AppAnalytics.track(
-                    AnalyticsTaxonomy.Events.PAYMENT_PROCESS_SUCCESS,
-                    mapOf(
-                        AnalyticsTaxonomy.Params.GROUP_ID to groupId,
-                        AnalyticsTaxonomy.Params.PAYMENT_TYPE to paymentType.name.lowercase()
+            ).onSuccess {
+                _state.update {
+                    it.copy(
+                        isProcessing = false,
+                        isSuccess = true,
+                        error = null,
+                        transactionId = transactionId
                     )
-                )
+                }
             }.onFailure { e ->
-                _state.update { it.copy(isProcessing = false, error = e.toUserMessage()) }
-                AppAnalytics.track(
-                    AnalyticsTaxonomy.Events.PAYMENT_PROCESS_FAILURE,
-                    mapOf(
-                        AnalyticsTaxonomy.Params.GROUP_ID to groupId,
-                        AnalyticsTaxonomy.Params.PAYMENT_TYPE to paymentType.name.lowercase(),
-                        AnalyticsTaxonomy.Params.ERROR_TYPE to "usecase"
+                _state.update {
+                    it.copy(
+                        isProcessing = false,
+                        isSuccess = false,
+                        error = e.toUserMessage()
                     )
-                )
+                }
             }
         }
     }

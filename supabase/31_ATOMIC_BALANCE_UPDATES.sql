@@ -23,13 +23,18 @@ DECLARE
     v_new_balance NUMERIC;
 BEGIN
     UPDATE public.groups
-    SET balance = balance + p_amount
+    SET balance = balance + p_amount,
+        updated_at = NOW()
     WHERE id = p_group_id
     RETURNING balance INTO v_new_balance;
 
     IF NOT FOUND THEN
         RAISE EXCEPTION 'Group not found';
     END IF;
+
+    -- Persist ledger entry for auditability
+    INSERT INTO public.group_ledger (group_id, transaction_id, amount, balance_after, description, category)
+    VALUES (p_group_id, NULL, p_amount, v_new_balance, 'Atomic balance update', 'adjustment');
 
     RETURN v_new_balance;
 END;

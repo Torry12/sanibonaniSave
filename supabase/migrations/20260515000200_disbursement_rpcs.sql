@@ -60,7 +60,7 @@ $$;
 CREATE OR REPLACE FUNCTION public.complete_payout_v1(
     p_payout_id UUID,
     p_admin_id UUID,
-    p_yoco_payout_id TEXT DEFAULT NULL
+    p_payout_reference TEXT DEFAULT NULL
 ) RETURNS VOID
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -83,7 +83,7 @@ BEGIN
     SET status = 'completed',
         processed_at = NOW(),
         processed_by = p_admin_id,
-        yoco_payout_id = COALESCE(p_yoco_payout_id, yoco_payout_id),
+        payout_reference = COALESCE(p_payout_reference, payout_reference),
         updated_at = NOW()
     WHERE id = p_payout_id;
 

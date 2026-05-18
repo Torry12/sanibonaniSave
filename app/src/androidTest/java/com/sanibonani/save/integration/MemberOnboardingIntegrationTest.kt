@@ -101,7 +101,7 @@ class MemberOnboardingIntegrationTest {
         // 6. Verify contribution was recorded
         val result = memberRepository.getMemberContributions(activatedMember.id!!, groupId).first()
         val contributions = result.getOrThrow()
-        assertTrue(contributions.any { it.yocoTransactionId == transactionId && it.amount == 150.0 })
+        assertTrue(contributions.any { it.transactionId == transactionId && it.amount == 150.0 })
     }
 
     @Test

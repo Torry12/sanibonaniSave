@@ -7,6 +7,7 @@ import com.sanibonani.save.analytics.AppAnalytics
 import com.sanibonani.save.data.utils.toUserMessage
 import com.sanibonani.save.domain.model.*
 import com.sanibonani.save.domain.repository.*
+import com.sanibonani.save.domain.usecase.CalculateGroupHealthScoreUseCase
 import com.sanibonani.save.domain.usecase.ProcessBurialClaimUseCase
 import com.sanibonani.save.domain.usecase.ProcessPayoutUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -43,6 +44,8 @@ data class PlatformAdminUiState(
     val autoSuspensionDays: String = "30",
     // Group Management
     val selectedGroupMetrics: ActuarialMetrics? = null,
+    val selectedGroupHealthScore: GroupHealthScore? = null,
+    val isLoadingHealthScore: Boolean = false,
     val isSuspending: Boolean = false,
     // Payouts
     val payouts: List<PayoutRequest> = emptyList(),
@@ -94,7 +97,8 @@ class PlatformAdminViewModel @Inject constructor(
     private val memberRepo: MemberRepository,
     private val notifRepo: NotificationRepository,
     private val supabaseRepo: SupabaseRepository,
-    private val platformConfigRepository: PlatformConfigRepository
+    private val platformConfigRepository: PlatformConfigRepository,
+    private val calculateGroupHealthScoreUseCase: CalculateGroupHealthScoreUseCase
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(PlatformAdminUiState())
@@ -293,9 +297,20 @@ class PlatformAdminViewModel @Inject constructor(
 
     fun fetchGroupMetrics(groupId: String) {
         viewModelScope.launch {
-            platformRepo.getGroupMetrics(groupId).onSuccess { metrics ->
-                _state.update { it.copy(selectedGroupMetrics = metrics) }
-            }
+            _state.update { it.copy(isLoadingHealthScore = true, selectedGroupMetrics = null, selectedGroupHealthScore = null) }
+            
+            val metricsResult = async { platformRepo.getGroupMetrics(groupId) }
+            val healthScoreResult = async { calculateGroupHealthScoreUseCase(groupId) }
+
+            val metrics = metricsResult.await()
+            val healthScore = healthScoreResult.await()
+
+            _state.update { it.copy(
+                selectedGroupMetrics = metrics.getOrNull(),
+                selectedGroupHealthScore = healthScore.getOrNull(),
+                isLoadingHealthScore = false,
+                error = healthScore.exceptionOrNull()?.toUserMessage() ?: metrics.exceptionOrNull()?.toUserMessage()
+            ) }
         }
     }
 
@@ -732,7 +747,11 @@ class PlatformAdminViewModel @Inject constructor(
     }
 
     fun payBurialClaim(claimId: String, notes: String) {
-        val adminId = supabaseRepo.currentUserId ?: return
+        val adminId = supabaseRepo.currentUserId
+        if (adminId == null) {
+            _state.update { it.copy(error = "Your session has expired. Please log in again.") }
+            return
+        }
         viewModelScope.launch {
             _state.update { it.copy(isProcessingClaim = true) }
             processBurialClaimUseCase(
@@ -749,7 +768,11 @@ class PlatformAdminViewModel @Inject constructor(
     }
 
     fun approveBurialClaim(claimId: String, notes: String) {
-        val adminId = supabaseRepo.currentUserId ?: return
+        val adminId = supabaseRepo.currentUserId
+        if (adminId == null) {
+            _state.update { it.copy(error = "Your session has expired. Please log in again.") }
+            return
+        }
         viewModelScope.launch {
             _state.update { it.copy(isProcessingClaim = true) }
             processBurialClaimUseCase(
@@ -766,7 +789,11 @@ class PlatformAdminViewModel @Inject constructor(
     }
 
     fun rejectBurialClaim(claimId: String, reason: String) {
-        val adminId = supabaseRepo.currentUserId ?: return
+        val adminId = supabaseRepo.currentUserId
+        if (adminId == null) {
+            _state.update { it.copy(error = "Your session has expired. Please log in again.") }
+            return
+        }
         viewModelScope.launch {
             _state.update { it.copy(isProcessingClaim = true) }
             processBurialClaimUseCase(

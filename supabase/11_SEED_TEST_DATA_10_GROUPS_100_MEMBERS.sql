@@ -225,7 +225,7 @@ BEGIN
                 status,
                 processed_by,
                 processed_at,
-                yoco_payout_id
+                payout_reference
             ) VALUES (
                 v_group_id,
                 3200.00,
@@ -338,7 +338,7 @@ BEGIN
                     due_date,
                     paid_at,
                     payment_method,
-                    yoco_transaction_id,
+                    transaction_id,
                     status,
                     late_fees_applied
                 ) VALUES (

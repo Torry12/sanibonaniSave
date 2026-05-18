@@ -873,28 +873,6 @@ fun ContributionItem(c: Contribution) {
     }
 }
 
-@Composable
-fun DetailSection(title: String, content: @Composable (ColumnScope.() -> Unit)) {
-    Column(Modifier.padding(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = Forest)
-        Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(12.dp)) {
-            Column(Modifier.padding(16.dp).fillMaxWidth(), content = content)
-        }
-    }
-}
-
-
-@Composable
-fun StatCard(icon: String, label: String, value: String, subtitle: String, accentColor: Color) {
-    Card(modifier = Modifier.width(160.dp), colors = CardDefaults.cardColors(containerColor = Color.White), elevation = CardDefaults.cardElevation(2.dp), shape = RoundedCornerShape(16.dp)) {
-        Column(Modifier.padding(16.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) { Text(icon, fontSize = 18.sp); Spacer(Modifier.width(8.dp)); Text(label, style = MaterialTheme.typography.labelSmall, color = MidGray) }
-            Spacer(Modifier.height(8.dp))
-            Text(value, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = accentColor)
-            Text(subtitle, style = MaterialTheme.typography.labelSmall, color = MidGray, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        }
-    }
-}
 
 fun getFileNameFromUri(cr: ContentResolver, uri: Uri): String {
     var name = ""

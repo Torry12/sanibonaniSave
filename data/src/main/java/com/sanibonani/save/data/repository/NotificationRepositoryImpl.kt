@@ -5,7 +5,6 @@ import com.sanibonani.save.data.local.SanibonaniDatabase
 import com.sanibonani.save.data.logging.AppLogger
 import com.sanibonani.save.domain.model.*
 import com.sanibonani.save.data.remote.EdgeFunctionGateway
-import com.sanibonani.save.domain.model.WhatsAppSendException
 import com.sanibonani.save.domain.repository.*
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.postgrest.postgrest
@@ -20,13 +19,16 @@ import javax.inject.Inject
 import java.text.NumberFormat
 import java.util.Locale
 
+// Added imports for friendly error mapping / logging
+import com.sanibonani.save.data.utils.logAndGetMessage
+
 class NotificationRepositoryImpl @Inject constructor(
     private val supabase: SupabaseClient,
     private val edgeFunctionGateway: EdgeFunctionGateway,
     private val db: SanibonaniDatabase
 ) : BaseRepository("NotificationRepository"), NotificationRepository {
 
-    private val GROUP_COLUMNS_SAFE = "id,name,type,province,city,township,description,logo_emoji,joining_fee,monthly_contribution,late_fee,late_fee_grace_days,probation_months,payment_due_day,max_members,current_members,is_public,allow_partial_payment,auto_suspend_after,bank_name,account_number,branch_code,account_type,yoco_public_key,balance,admin_user_id,fee_status,registration_paid,latitude,longitude,geohash,created_at,is_platform_suspended"
+    private val GROUP_COLUMNS_SAFE = "id,name,type,province,city,township,description,logo_emoji,joining_fee,monthly_contribution,late_fee,late_fee_grace_days,probation_months,payment_due_day,max_members,current_members,is_public,allow_partial_payment,auto_suspend_after,bank_name,account_number,branch_code,account_type,gateway_public_key,balance,admin_user_id,fee_status,registration_paid,latitude,longitude,geohash,created_at,is_platform_suspended"
 
     override fun observeNotifications(groupId: String): Flow<Result<List<AppNotification>>> = this.observeAndSync(
         dbFlow = db.notificationDao().observeNotifications(groupId),
@@ -81,10 +83,11 @@ class NotificationRepositoryImpl @Inject constructor(
             }
             db.notificationDao().upsertNotifications(listOf(serverNotification.toEntity()))
         } catch (e: Exception) {
-            AppLogger.e("NotificationRepo", "Postgrest insert failed: ${e.message}")
-            if (notification.channel == NotifChannel.EMAIL) throw e
-            // For other channels, we still want to proceed with WhatsApp if possible,
-            // but the local DB won't have the notification yet.
+            // Log the error and surface a user-friendly message when appropriate.
+            val userMsg = e.logAndGetMessage("NotificationRepo")
+            AppLogger.e("NotificationRepo", "Postgrest insert failed: $userMsg")
+            if (notification.channel == NotifChannel.EMAIL) throw IllegalStateException(userMsg)
+            // For other channels, proceed with best-effort WhatsApp delivery; DB entry may be missing.
         }
 
         if (notification.channel == NotifChannel.WHATSAPP || notification.channel == NotifChannel.BOTH) {
@@ -128,7 +131,8 @@ class NotificationRepositoryImpl @Inject constructor(
                             try {
                                 sendWhatsAppViaEdge(m.phone, notification.message)
                             } catch (e: Exception) {
-                                AppLogger.e("NotificationRepo", "Failed broadcast to ${m.phone}: ${e.message}")
+                                val userMsg = e.logAndGetMessage("NotificationRepo")
+                                AppLogger.e("NotificationRepo", "Failed broadcast to ${m.phone}: $userMsg")
                             }
                         }
                     }
@@ -171,28 +175,23 @@ class NotificationRepositoryImpl @Inject constructor(
         if (templateResult.isSuccess) return
 
         val templateError = templateResult.exceptionOrNull()
+        // If the error is not a template-delivery issue, surface a friendly message.
         if (templateError == null || !isTemplateDeliveryFailure(templateError)) {
-            // Tag the exception attemptType for clearer debug messages in the UI.
-            val richError = when (templateError) {
-                is WhatsAppSendException -> templateError.copy(attemptType = "template")
-                else -> templateError
-            }
-            throw richError ?: IllegalStateException("Failed to send WhatsApp template message.")
+            val message = templateError?.logAndGetMessage("NotificationRepo")
+                ?: "Failed to send WhatsApp template message."
+            throw IllegalStateException(message)
         }
 
-        AppLogger.w(
-            "NotificationRepo",
-            "Template delivery failed for $phone. Retrying as plain text: ${templateError.message}"
-        )
+        // Template failed (e.g., unapproved template) — retry as plain text and log the template failure.
+        val templateMsg = templateError.logAndGetMessage("NotificationRepo")
+        AppLogger.w("NotificationRepo", "Template delivery failed for $phone. Retrying as plain text: $templateMsg")
 
         val textResult = edgeFunctionGateway.invoke("send-whatsapp", textPayload)
         if (textResult.isFailure) {
             val textError = textResult.exceptionOrNull()
-            val richError = when (textError) {
-                is WhatsAppSendException -> textError.copy(attemptType = "text-fallback")
-                else -> textError
-            }
-            throw richError ?: IllegalStateException("Failed to send WhatsApp text-fallback message.")
+            val message = textError?.logAndGetMessage("NotificationRepo")
+                ?: "Failed to send WhatsApp text-fallback message."
+            throw IllegalStateException(message)
         }
     }
 

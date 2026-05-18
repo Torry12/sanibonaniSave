@@ -36,7 +36,7 @@ class MigrationTest {
                     `joining_fee`, `monthly_contribution`, `late_fee`, `late_fee_grace_days`, `probation_months`,
                     `payment_due_day`, `max_members`, `current_members`, `is_public`, `allow_partial_payment`,
                     `auto_suspend_after`, `bank_name`, `account_number`, `branch_code`, `account_type`,
-                    `yoco_public_key`, `balance`, `admin_user_id`, `fee_status`, `registration_paid`,
+                    `gateway_public_key`, `balance`, `admin_user_id`, `fee_status`, `registration_paid`,
                     `is_platform_suspended`, `created_at`, `latitude`, `longitude`, `geohash`, `updated_at`
                 ) VALUES (
                     'group-legacy', 'Legacy Group', 'OTHER', 'Gauteng', 'Johannesburg', 'Soweto', 'Legacy row', '🤝',

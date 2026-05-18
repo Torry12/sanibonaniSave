@@ -1,9 +1,5 @@
 package com.sanibonani.save.ui.screens.payment
 
-import android.app.Activity
-import android.content.Intent
-import android.net.Uri
-import android.webkit.*
 import androidx.compose.animation.*
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
@@ -11,22 +7,28 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.AccountBalance
 import androidx.compose.material.icons.filled.CreditCard
+import androidx.compose.material.icons.filled.Language
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.*
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.sanibonani.save.domain.model.PaymentMethod
 import com.sanibonani.save.domain.model.PlatformFees
 import com.sanibonani.save.ui.components.*
 import com.sanibonani.save.ui.theme.*
 import com.sanibonani.save.ui.utils.ToastUtils
 import com.sanibonani.save.viewmodel.PaymentViewModel
+import java.util.Locale
 
 @Composable
 fun PaymentScreen(
@@ -39,6 +41,7 @@ fun PaymentScreen(
 ) {
     val state by vm.state.collectAsState()
     val context = LocalContext.current
+    val uriHandler = LocalUriHandler.current
 
     LaunchedEffect(groupId, paymentType) {
         // Load member context for joining_fee and contribution payment types
@@ -57,6 +60,14 @@ fun PaymentScreen(
     LaunchedEffect(state.error) {
         state.error?.let {
             ToastUtils.showError(context, it)
+        }
+    }
+
+    // Launch external checkout URL if present
+    LaunchedEffect(state.checkoutUrl) {
+        state.checkoutUrl?.let { url ->
+            uriHandler.openUri(url)
+            // In a production app, we would also navigate to a "Waiting for Payment" screen
         }
     }
 
@@ -119,7 +130,7 @@ fun PaymentScreen(
                 "contribution" -> {
                     InfoBox(
                         "Monthly contribution to your savings group. " +
-                        "Funds are settled directly into the group's bank account via YoCo on T+1.",
+                        "Funds are settled directly into the group's bank account via our secure gateways.",
                         InfoType.INFO
                     )
                     
@@ -147,8 +158,8 @@ fun PaymentScreen(
                 }
             }
 
-            // YoCo form
-            YoCoPaymentForm(
+            // Unified Payment Form
+            PaymentGatewayForm(
                 amount      = amount,
                 description = when (paymentType) {
                     "registration" -> "Group Registration — SanibonaniSave"
@@ -156,6 +167,8 @@ fun PaymentScreen(
                     "joining_fee"  -> "Member Joining Fee"
                     else           -> "Monthly Contribution"
                 },
+                selectedMethod = state.selectedMethod,
+                onMethodChanged = vm::onMethodChanged,
                 onPay    = { card, expiry, cvv, finalAmount ->
                     vm.processPayment(paymentType, finalAmount, groupId, card, expiry, cvv)
                 },
@@ -189,10 +202,10 @@ fun PaymentScreen(
                 Row(Modifier.padding(14.dp), verticalAlignment = Alignment.Top) {
                     Text("🔒", fontSize = 20.sp, modifier = Modifier.padding(end = 10.dp))
                     Column {
-                        Text("Secure Payment by YoCo",
+                        Text("Secure Payment Gateway",
                             style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
                         Text(
-                            "Card details are handled entirely by YoCo's PCI-DSS infrastructure. " +
+                            "Your transaction is handled via PCI-DSS compliant infrastructure. " +
                             "SanibonaniSave never stores your card number, expiry, or CVV.",
                             style = MaterialTheme.typography.bodySmall, color = MidGray,
                             modifier = Modifier.padding(top = 3.dp)
@@ -205,9 +218,11 @@ fun PaymentScreen(
 }
 
 @Composable
-fun YoCoPaymentForm(
+fun PaymentGatewayForm(
     amount: Double,
     description: String,
+    selectedMethod: PaymentMethod,
+    onMethodChanged: (PaymentMethod) -> Unit,
     onPay: (String, String, String, Double) -> Unit,
     onCancel: () -> Unit,
     isLoading: Boolean = false,
@@ -224,7 +239,6 @@ fun YoCoPaymentForm(
     var cvv        by remember { mutableStateOf("") }
 
     val isContribution = description.contains("Contribution")
-    val canEditAmount = isContribution // Always allow editing to see effects on due date
 
     LaunchedEffect(amount) {
         if (paymentAmount == 0.0) {
@@ -243,38 +257,40 @@ fun YoCoPaymentForm(
                 Column {
                     Text("Amount to Pay", style = MaterialTheme.typography.labelSmall, color = MidGray)
                     
-                    // Allow editable amount for contributions if partial allowed
                     if (isContribution) {
                         var amountText by remember { mutableStateOf(if (paymentAmount == 0.0) "" else paymentAmount.toString()) }
                         
-                        if (canEditAmount) {
-                            BasicTextField(
-                                value = amountText,
-                                onValueChange = { 
-                                    if (it.isEmpty() || it.toDoubleOrNull() != null || it.endsWith(".")) {
-                                        amountText = it
-                                        it.toDoubleOrNull()?.let { newVal ->
-                                            paymentAmount = newVal
-                                            onAmountChanged(newVal)
-                                        } ?: run {
-                                            paymentAmount = 0.0
-                                            onAmountChanged(0.0)
-                                        }
+                        BasicTextField(
+                            value = amountText,
+                            onValueChange = { 
+                                if (it.isEmpty() || it.toDoubleOrNull() != null || it.endsWith(".")) {
+                                    amountText = it
+                                    it.toDoubleOrNull()?.let { newVal ->
+                                        paymentAmount = newVal
+                                        onAmountChanged(newVal)
+                                    } ?: run {
+                                        paymentAmount = 0.0
+                                        onAmountChanged(0.0)
                                     }
-                                },
-                                textStyle = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.ExtraBold, color = Forest),
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal)
-                            )
-                        } else {
-                            // Fixed amount if partial not allowed
-                            Text(formatZAR(paymentAmount), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.ExtraBold, color = Forest)
-                            Text("Fixed (Partial disabled)", style = MaterialTheme.typography.labelSmall, color = ErrorRed)
-                        }
+                                }
+                            },
+                            textStyle = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.ExtraBold, color = Forest),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal)
+                        )
                     } else {
                         Text(formatZAR(paymentAmount), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.ExtraBold, color = Forest)
                     }
                 }
-                Icon(Icons.Default.CreditCard, null, tint = Forest, modifier = Modifier.size(32.dp))
+                Icon(
+                    imageVector = when(selectedMethod) {
+                        PaymentMethod.STITCH -> Icons.Default.AccountBalance
+                        PaymentMethod.PAYFAST -> Icons.Default.Language
+                        else -> Icons.Default.CreditCard
+                    },
+                    contentDescription = null,
+                    tint = Forest,
+                    modifier = Modifier.size(32.dp)
+                )
             }
             
             Text(description, style = MaterialTheme.typography.bodySmall, color = MidGray)
@@ -284,6 +300,32 @@ fun YoCoPaymentForm(
             }
 
             HorizontalDivider(thickness = 0.5.dp, color = LightGray)
+
+            Text("Payment Method", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+            FlowRow(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                listOf(PaymentMethod.BANK, PaymentMethod.YOCO, PaymentMethod.STITCH, PaymentMethod.PAYFAST).forEach { method ->
+                    FilterChip(
+                        selected = selectedMethod == method,
+                        onClick = { onMethodChanged(method) },
+                        label = { 
+                            val label = when(method) {
+                                PaymentMethod.YOCO -> "Card Payment"
+                                PaymentMethod.BANK -> "Bank Transfer"
+                                else -> method.name.lowercase().replaceFirstChar { it.titlecase(Locale.ROOT) }
+                            }
+                            Text(label)
+                        },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = Forest,
+                            selectedLabelColor = Color.White
+                        )
+                    )
+                }
+            }
 
             if (isContribution) {
                 Row(Modifier.fillMaxWidth(), Arrangement.spacedBy(8.dp)) {
@@ -305,53 +347,76 @@ fun YoCoPaymentForm(
                 HorizontalDivider(thickness = 0.5.dp, color = LightGray)
             }
 
-            SanibonaniTextField(
-                value = cardNumber,
-                onValueChange = { 
-                    val filtered = it.filter { char -> char.isDigit() }
-                    if(filtered.length <= 16) cardNumber = filtered 
-                },
-                label = "Card Number",
-                placeholder = "0000 0000 0000 0000",
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                visualTransformation = CardNumberTransformation()
-            )
-
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            if (selectedMethod == PaymentMethod.YOCO) {
                 SanibonaniTextField(
-                    value = expiryDate,
+                    value = cardNumber,
                     onValueChange = { 
                         val filtered = it.filter { char -> char.isDigit() }
-                        if(filtered.length <= 4) expiryDate = filtered 
+                        if(filtered.length <= 16) cardNumber = filtered 
                     },
-                    label = "Expiry (MM/YY)",
-                    placeholder = "MM/YY",
-                    modifier = Modifier.weight(1f),
+                    label = "Card Number",
+                    placeholder = "0000 0000 0000 0000",
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    visualTransformation = ExpiryDateTransformation()
+                    visualTransformation = CardNumberTransformation()
                 )
-                SanibonaniTextField(
-                    value = cvv,
-                    onValueChange = { 
-                        val filtered = it.filter { char -> char.isDigit() }
-                        if(filtered.length <= 3) cvv = filtered 
-                    },
-                    label = "CVV",
-                    placeholder = "123",
-                    modifier = Modifier.weight(1f),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    SanibonaniTextField(
+                        value = expiryDate,
+                        onValueChange = { 
+                            val filtered = it.filter { char -> char.isDigit() }
+                            if(filtered.length <= 4) expiryDate = filtered 
+                        },
+                        label = "Expiry (MM/YY)",
+                        placeholder = "MM/YY",
+                        modifier = Modifier.weight(1f),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        visualTransformation = ExpiryDateTransformation()
+                    )
+                    SanibonaniTextField(
+                        value = cvv,
+                        onValueChange = { 
+                            val filtered = it.filter { char -> char.isDigit() }
+                            if(filtered.length <= 3) cvv = filtered 
+                        },
+                        label = "CVV",
+                        placeholder = "123",
+                        modifier = Modifier.weight(1f),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                    )
+                }
+            } else if (selectedMethod == PaymentMethod.BANK) {
+                InfoBox(
+                    message = "Please make a manual bank transfer of ${formatZAR(paymentAmount)} using your unique member key as reference. Once done, click the button below to notify the group admin.",
+                    type = InfoType.INFO
+                )
+            } else if (selectedMethod == PaymentMethod.CASH) {
+                InfoBox(
+                    message = "Hand ${formatZAR(paymentAmount)} cash to your group treasurer. Once done, click the button below to record the transaction.",
+                    type = InfoType.WARNING
+                )
+            } else {
+                val gatewayName = selectedMethod.name.lowercase().replaceFirstChar { it.titlecase(Locale.ROOT) }
+                InfoBox(
+                    message = "You will be redirected to $gatewayName to complete your payment via secure ${if(selectedMethod == PaymentMethod.STITCH) "Instant EFT" else "checkout"}.",
+                    type = InfoType.INFO
                 )
             }
 
             Spacer(Modifier.height(8.dp))
 
             SanibonaniButton(
-                text = "Pay ${formatZAR(paymentAmount)}",
+                text = when (selectedMethod) {
+                    PaymentMethod.YOCO -> "Pay ${formatZAR(paymentAmount)}"
+                    PaymentMethod.BANK -> "Confirm Bank Transfer"
+                    PaymentMethod.CASH -> "Record Cash Payment"
+                    else -> "Proceed to ${selectedMethod.name.lowercase().replaceFirstChar { it.titlecase(Locale.ROOT) }}"
+                },
                 onClick = { onPay(cardNumber, expiryDate, cvv, paymentAmount) },
                 modifier = Modifier.fillMaxWidth(),
                 isLoading = isLoading,
-                enabled = cardNumber.length >= 13 && expiryDate.length >= 4 && cvv.length >= 3 && paymentAmount > 0 && 
-                        (allowPartialPayments || paymentAmount >= minDueAmount - 0.01)
+                enabled = (selectedMethod != PaymentMethod.YOCO || (cardNumber.length >= 13 && expiryDate.length >= 4 && cvv.length >= 3)) && 
+                        paymentAmount > 0 && (allowPartialPayments || paymentAmount >= minDueAmount - 0.01)
             )
             
             TextButton(onClick = onCancel, modifier = Modifier.align(Alignment.CenterHorizontally)) {
