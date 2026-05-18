@@ -10,9 +10,9 @@
 \i 'supabase/03_PLATFORM_ADMIN_SETUP.sql'
 \i 'supabase/04_MIGRATIONS_AND_UPDATES.sql'
 \i 'supabase/04_PLATFORM_ADMIN_AUTH_ALIGNMENT.sql'
--- Seeds and supplemental scripts are grouped into drivers under supabase/seeds/
-\i 'supabase/seeds/SAFE_SEED_DRIVER.sql'
-\i 'supabase/seeds/E2E_SEED_DRIVER.sql'
+-- Seeds: use consolidated canonical seed files (SAFE and E2E). SAFE is safe for most tests; E2E is heavy.
+\i 'supabase/seeds/SAFE_SEED.sql'
+\i 'supabase/seeds/E2E_SEED.sql'
 
 \echo '\n--- Consolidated full apply complete ---'
 
