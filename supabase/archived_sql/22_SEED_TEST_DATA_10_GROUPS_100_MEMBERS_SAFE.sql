@@ -1,3 +1,5 @@
+-- DEPRECATED: Use supabase/seeds/SAFE_SEED.sql or supabase/seeds/E2E_SEED.sql instead.
+-- This script is retained for reference only. All new tests and data loads should use the canonical seeds.
 -- -----------------------------------------------------------------------------
 -- SanibonaniSave - SAFE TEST SEED (10 Groups / 100 Members)
 -- Purpose: create deterministic group/member data for app logic debugging.
@@ -86,7 +88,7 @@ BEGIN
     DELETE FROM public.groups WHERE name LIKE 'SEED100-G%';
 
     FOR g IN 1..10 LOOP
-        v_group_name := format('SEED100-G%02s %s', g, initcap(replace(v_types[g], '_', ' ')));
+        v_group_name := format('SEED100-G%s %s', lpad(g::text,2,'0'), initcap(replace(v_types[g], '_', ' ')));
         v_group_balance := (4500.00 + (g * 1200))::numeric(12,2);
         v_contribution_amount := (300.00 + (g * 10))::numeric(10,2);
         v_disbursement_amount := (v_contribution_amount * 4)::numeric(12,2);
@@ -485,4 +487,3 @@ BEGIN
 
     RAISE NOTICE 'Safe seed complete: 10 groups + 100 members + primary/admin-linked extra admins + mock transactions/disbursements/ledger.';
 END $$;
-

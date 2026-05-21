@@ -10,7 +10,7 @@ BEGIN;
 
 /**
  * Core function for recording any disbursement (outflow).
- * Decrements group balance and records in group_ledger.
+ * Decrements group balance and records in group_ledger via atomic helper.
  */
 CREATE OR REPLACE FUNCTION public.record_disbursement_v1(
     p_group_id UUID,
@@ -22,34 +22,18 @@ CREATE OR REPLACE FUNCTION public.record_disbursement_v1(
 LANGUAGE plpgsql
 SECURITY DEFINER
 AS $$
-DECLARE
-    v_new_balance NUMERIC;
 BEGIN
     IF p_amount <= 0 THEN
         RAISE EXCEPTION 'Disbursement amount must be positive';
     END IF;
 
-    -- 1. Update group balance
-    UPDATE public.groups
-    SET balance = balance - p_amount,
-        updated_at = NOW()
-    WHERE id = p_group_id
-    RETURNING balance INTO v_new_balance;
-
-    IF NOT FOUND THEN
-        RAISE EXCEPTION 'Group not found';
-    END IF;
-
-    IF v_new_balance < 0 THEN
-        -- Allow overdrawing if specific business rules permit, but usually we want to know
-        -- RAISE NOTICE 'Group balance is now negative: %', v_new_balance;
-    END IF;
-
-    -- 2. Add to Group Ledger
-    INSERT INTO public.group_ledger (group_id, transaction_id, amount, balance_after, description, category)
-    VALUES (p_group_id, p_transaction_id, -p_amount, v_new_balance, p_description, p_category);
-
-    RETURN v_new_balance;
+    RETURN public.increment_group_balance(
+        p_group_id,
+        -p_amount,
+        p_description,
+        p_category,
+        p_transaction_id
+    );
 END;
 $$;
 

@@ -31,7 +31,7 @@ BEGIN
     DELETE FROM public.groups WHERE name LIKE 'SAFE_SEED-G%';
 
     FOR g IN 1..10 LOOP
-        v_group_name := format('SAFE_SEED-G%02s %s', g, initcap(replace(v_types[g],'_',' ')));
+        v_group_name := format('SAFE_SEED-G%s %s', lpad(g::text,2,'0'), initcap(replace(v_types[g],'_',' ')));
         v_group_balance := (4000.00 + (g * 1000))::numeric(12,2);
         v_contribution_amount := (250.00 + (g * 10))::numeric(10,2);
         v_disbursement_amount := (v_contribution_amount * 3)::numeric(12,2);
@@ -109,18 +109,37 @@ BEGIN
             ON CONFLICT (id) DO NOTHING;
         END LOOP;
 
-        -- Mock a payout for some groups
-        v_disbursement_status := CASE WHEN g % 4 = 0 THEN 'completed' WHEN g % 3 = 0 THEN 'processing' WHEN g % 5 = 0 THEN 'failed' ELSE 'pending' END;
-        INSERT INTO public.payouts (id, group_id, amount, bank_name, account_no, branch_code, status, processed_by, processed_at, payout_reference, created_at)
-        VALUES (gen_random_uuid(), v_group_id, v_disbursement_amount, 'Standard Bank', '1234500' || lpad(g::text,3,'0'), '051001', v_disbursement_status, CASE WHEN v_disbursement_status = 'pending' THEN NULL ELSE v_admin_id END, CASE WHEN v_disbursement_status = 'pending' THEN NULL ELSE now() - interval '2 days' END, CASE WHEN v_disbursement_status IN ('processing','completed') THEN format('safe_payout_%s', lpad(g::text,2,'0')) ELSE NULL END, now() - interval '3 days') ON CONFLICT (id) DO NOTHING;
+        -- All payouts are now escalated to platform admin and must be processed from there (including ROSCA payouts)
+        -- Payouts are created with status 'escalated', processed_by and processed_at are NULL
+        INSERT INTO public.payouts (
+            id, group_id, amount, bank_name, account_no, branch_code, status, processed_by, processed_at, payout_reference, created_at
+        ) VALUES (
+            gen_random_uuid(),
+            v_group_id,
+            v_disbursement_amount,
+            'Standard Bank',
+            '1234500' || lpad(g::text,3,'0'),
+            '051001',
+            'escalated',
+            NULL,
+            NULL,
+            format('safe_payout_%s', lpad(g::text,2,'0')),
+            now() - interval '3 days'
+        ) ON CONFLICT (id) DO NOTHING;
 
-        IF v_disbursement_status = 'completed' THEN
-            -- Update groups.balance via RPC for auditability
-            PERFORM public.increment_group_balance(v_group_id, -v_disbursement_amount);
-        END IF;
+        -- No balance update here; payout must be processed by platform admin
 
         -- Ensure current_members count
         UPDATE public.groups SET current_members = 10 WHERE id = v_group_id;
+
+        -- Seed Actuarial Snapshot
+        INSERT INTO public.group_actuarial_metrics (
+            group_id, pure_premium, gross_premium, solvency_margin_pct, reserve_adequacy_pct,
+            solvency_ratio, capital_adequacy_pct, expected_annual_claims, expected_annual_claims_count
+        ) VALUES (
+            v_group_id, 180.00, 250.00, 45.00, 110.00,
+            1.45, 18.5, 2.4, 2.4
+        );
 
         INSERT INTO public.audit_logs (id, actor_id, target_group_id, action, details, created_at) VALUES (gen_random_uuid(), v_admin_id, v_group_id, 'SAFE_SEED_GROUP_CREATED', jsonb_build_object('seed', true, 'group_number', g, 'members', 10), now()) ON CONFLICT (id) DO NOTHING;
     END LOOP;

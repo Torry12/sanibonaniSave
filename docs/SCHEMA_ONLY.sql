@@ -1,24 +1,18 @@
 -- ─────────────────────────────────────────────────────────────────────────────
--- SanibonaniSave — CONSOLIDATED DATABASE SCHEMA
--- Version: 4.0 (Consolidated May 2026)
+-- SanibonaniSave — DATABASE SCHEMA (STRUCTURE ONLY)
+-- Version: 21.0
 -- ─────────────────────────────────────────────────────────────────────────────
 
--- 1. DROP PUBLIC SCHEMA FIRST to remove all foreign key constraints and start fresh
+-- 1. CLEAN RESET
 DROP SCHEMA IF EXISTS public CASCADE;
 CREATE SCHEMA public;
 
--- 2. RESTORE PERMISSIONS for the new public schema
-GRANT ALL ON SCHEMA public TO postgres;
-GRANT ALL ON SCHEMA public TO public;
-GRANT ALL ON SCHEMA public TO anon;
-GRANT ALL ON SCHEMA public TO authenticated;
-GRANT ALL ON SCHEMA public TO service_role;
-
--- 3. Extensions
+-- 2. PERMISSIONS & EXTENSIONS
+GRANT ALL ON SCHEMA public TO postgres, public, anon, authenticated, service_role;
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
--- 4. UTILITY FUNCTIONS
+-- 3. UTILITY FUNCTIONS
 CREATE OR REPLACE FUNCTION public.update_updated_at_column()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -27,37 +21,74 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- 5. PROFILES (Global user data synced with Auth)
+CREATE OR REPLACE FUNCTION public.is_group_member(p_group_id UUID)
+RETURNS BOOLEAN AS $$
+BEGIN
+    RETURN EXISTS (SELECT 1 FROM public.members WHERE group_id = p_group_id AND user_id = auth.uid());
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+CREATE OR REPLACE FUNCTION public.is_group_admin(p_group_id UUID)
+RETURNS BOOLEAN AS $$
+BEGIN
+    RETURN EXISTS (
+        SELECT 1
+        FROM public.groups g
+        WHERE g.id = p_group_id
+          AND g.admin_user_id = auth.uid()
+    )
+    OR EXISTS (
+        SELECT 1
+        FROM public.members m
+        JOIN public.profiles p ON p.id = m.user_id
+        WHERE m.group_id = p_group_id
+          AND m.user_id = auth.uid()
+          AND p.role = 'group_admin'
+    );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+CREATE OR REPLACE FUNCTION public.is_platform_admin()
+RETURNS BOOLEAN
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, auth
+AS $$
+BEGIN
+    RETURN
+        COALESCE((auth.jwt() -> 'app_metadata' ->> 'role') = 'platform_admin', false)
+        OR COALESCE((auth.jwt() -> 'user_metadata' ->> 'role') = 'platform_admin', false)
+        OR EXISTS (
+            SELECT 1
+            FROM public.profiles p
+            WHERE p.id = auth.uid()
+              AND p.role = 'platform_admin'
+        );
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.update_member_count()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF (TG_OP = 'INSERT') THEN
+        UPDATE public.groups SET current_members = current_members + 1 WHERE id = NEW.group_id;
+    ELSIF (TG_OP = 'DELETE') THEN
+        UPDATE public.groups SET current_members = GREATEST(0, current_members - 1) WHERE id = OLD.group_id;
+    END IF;
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+-- 4. CORE TABLES
 CREATE TABLE public.profiles (
     id          UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
     full_name   TEXT CHECK (char_length(full_name) >= 3),
-    email       TEXT CHECK (email ~* '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$'),
+    email       TEXT,
     role        TEXT DEFAULT 'member' CHECK (role IN ('platform_admin', 'group_admin', 'member')),
     created_at  TIMESTAMPTZ DEFAULT NOW(),
     updated_at  TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Function to handle new user creation and sync to profiles
-CREATE OR REPLACE FUNCTION public.handle_new_user()
-RETURNS TRIGGER AS $$
-BEGIN
-    INSERT INTO public.profiles (id, full_name, email, role)
-    VALUES (
-        NEW.id,
-        COALESCE(NEW.raw_user_meta_data->>'full_name', NEW.raw_user_meta_data->>'name', ''),
-        NEW.email,
-        COALESCE(NEW.raw_user_meta_data->>'role', 'member')
-    );
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
--- Trigger to sync auth.users to public.profiles
-CREATE TRIGGER on_auth_user_created
-    AFTER INSERT ON auth.users
-    FOR EACH ROW EXECUTE PROCEDURE public.handle_new_user();
-
--- 6. GROUPS
 CREATE TABLE public.groups (
     id                     UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name                   TEXT NOT NULL CHECK (char_length(name) >= 3),
@@ -67,9 +98,9 @@ CREATE TABLE public.groups (
     township               TEXT,
     description            TEXT,
     logo_emoji             TEXT DEFAULT '🤝',
-    joining_fee            NUMERIC(10,2) DEFAULT 0 CHECK (joining_fee >= 0),
-    monthly_contribution   NUMERIC(10,2) DEFAULT 0 CHECK (monthly_contribution >= 0),
-    late_fee               NUMERIC(10,2) DEFAULT 0 CHECK (late_fee >= 0),
+    joining_fee            NUMERIC(12,2) DEFAULT 0 CHECK (joining_fee >= 0),
+    monthly_contribution   NUMERIC(12,2) DEFAULT 0 CHECK (monthly_contribution >= 0),
+    late_fee               NUMERIC(12,2) DEFAULT 0 CHECK (late_fee >= 0),
     late_fee_grace_days    INTEGER DEFAULT 5 CHECK (late_fee_grace_days >= 0),
     probation_months       INTEGER DEFAULT 3 CHECK (probation_months >= 0),
     payment_due_day        INTEGER DEFAULT 28 CHECK (payment_due_day >= 1 AND payment_due_day <= 28),
@@ -82,8 +113,8 @@ CREATE TABLE public.groups (
     account_number         TEXT CHECK (account_number IS NULL OR account_number ~ '^[0-9]{7,13}$'),
     branch_code            TEXT CHECK (branch_code IS NULL OR branch_code ~ '^[0-9]{6}$'),
     account_type           TEXT DEFAULT 'Savings',
-    gateway_public_key        TEXT,
-    balance                NUMERIC(12,2) DEFAULT 0 CHECK (balance >= 0),
+    gateway_public_key     TEXT,
+    balance                NUMERIC(12,2) DEFAULT 0,
     admin_user_id          UUID REFERENCES auth.users(id) NOT NULL,
     fee_status             TEXT DEFAULT 'due' CHECK (fee_status IN ('paid', 'due', 'warning', 'suspended', 'pending_activation')),
     registration_paid      BOOLEAN DEFAULT FALSE,
@@ -94,18 +125,17 @@ CREATE TABLE public.groups (
     longitude              FLOAT8,
     geohash                TEXT,
     max_beneficiaries      INTEGER DEFAULT 0 CHECK (max_beneficiaries >= 0),
-    beneficiary_increase_pct NUMERIC(5,2) DEFAULT 0 CHECK (beneficiary_increase_pct >= 0),
+    beneficiary_increase_pct NUMERIC(10,2) DEFAULT 0 CHECK (beneficiary_increase_pct >= 0),
     goal_amount            NUMERIC(12,2) DEFAULT 0 CHECK (goal_amount >= 0),
     period_months          INTEGER DEFAULT 12 CHECK (period_months > 0),
     rosca_rotation_method  TEXT NOT NULL DEFAULT 'fixed' CHECK (rosca_rotation_method IN ('fixed', 'random_draw', 'need_based', 'auction')),
-    loan_interest_rate     NUMERIC(5,2) DEFAULT 0 CHECK (loan_interest_rate >= 0),
+    loan_interest_rate     NUMERIC(10,2) DEFAULT 0 CHECK (loan_interest_rate >= 0),
     loan_max_amount        NUMERIC(12,2) DEFAULT 0 CHECK (loan_max_amount >= 0),
     loan_max_months        INTEGER DEFAULT 12 CHECK (loan_max_months > 0),
     created_at             TIMESTAMPTZ DEFAULT NOW(),
     updated_at             TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 7. POLICIES (Insurance Policies within Groups)
 CREATE TABLE public.policies (
     id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     group_id          UUID REFERENCES public.groups(id) ON DELETE CASCADE NOT NULL,
@@ -117,7 +147,6 @@ CREATE TABLE public.policies (
     updated_at        TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 8. MEMBERS
 CREATE TABLE public.members (
     id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     group_id             UUID REFERENCES public.groups(id) ON DELETE CASCADE NOT NULL,
@@ -162,7 +191,8 @@ CREATE TABLE public.members (
     UNIQUE(group_id, user_id)
 );
 
--- 9. BENEFICIARIES
+CREATE TRIGGER trigger_update_member_count AFTER INSERT OR DELETE ON public.members FOR EACH ROW EXECUTE PROCEDURE public.update_member_count();
+
 CREATE TABLE public.beneficiaries (
     group_id             UUID REFERENCES public.groups(id) ON DELETE CASCADE NOT NULL,
     member_id            UUID REFERENCES public.members(id) ON DELETE CASCADE NOT NULL,
@@ -173,24 +203,24 @@ CREATE TABLE public.beneficiaries (
     date_of_birth        DATE,
     is_over_65           BOOLEAN DEFAULT FALSE,
     document_url         TEXT,
+    face_photo_url       TEXT,
     document_status      TEXT DEFAULT 'pending' CHECK (document_status IN ('pending', 'verified', 'rejected')),
     created_at           TIMESTAMPTZ DEFAULT NOW(),
     updated_at           TIMESTAMPTZ DEFAULT NOW(),
     PRIMARY KEY (group_id, member_id, id)
 );
 
--- 10. CONTRIBUTIONS
 CREATE TABLE public.contributions (
     id                     UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     member_id              UUID REFERENCES public.members(id) ON DELETE CASCADE NOT NULL,
     group_id               UUID REFERENCES public.groups(id) ON DELETE CASCADE NOT NULL,
     policy_id              UUID REFERENCES public.policies(id) ON DELETE SET NULL,
-    amount                 NUMERIC(10,2) NOT NULL CHECK (amount > 0),
+    amount                 NUMERIC(12,2) NOT NULL CHECK (amount > 0),
     type                   TEXT DEFAULT 'contribution' CHECK (type IN ('contribution', 'joining_fee', 'registration_contribution', 'late_fee')),
     due_date               DATE NOT NULL,
     paid_at                TIMESTAMPTZ,
-    payment_method         TEXT DEFAULT 'yoco',
-    transaction_id    TEXT,
+    payment_method         TEXT DEFAULT 'bank',
+    transaction_id         TEXT,
     receipt_url            TEXT,
     status                 TEXT DEFAULT 'due' CHECK (status IN ('paid', 'due', 'overdue', 'partial')),
     late_fees_applied      BOOLEAN DEFAULT FALSE,
@@ -198,14 +228,13 @@ CREATE TABLE public.contributions (
     updated_at             TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 11. PAYMENTS
 CREATE TABLE public.payments (
     id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     member_id         UUID REFERENCES public.members(id) ON DELETE CASCADE,
     group_id          UUID REFERENCES public.groups(id) ON DELETE CASCADE NOT NULL,
     amount            NUMERIC(12,2) NOT NULL CHECK (amount > 0),
-    payment_type      TEXT NOT NULL CHECK (payment_type IN ('joining_fee', 'contribution', 'late_fee', 'platform_fee', 'claim', 'custom', 'registration')),
-    payment_method    TEXT NOT NULL CHECK (payment_method IN ('yoco', 'bank', 'cash', 'other')),
+    payment_type      TEXT NOT NULL CHECK (payment_type IN ('joining_fee', 'contribution', 'late_fee', 'platform_fee', 'claim', 'custom', 'registration', 'loan_disbursement')),
+    payment_method    TEXT NOT NULL CHECK (payment_method IN ('yoco', 'stitch', 'payfast', 'bank', 'cash', 'other')),
     transaction_id    TEXT,
     status            TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'processing', 'completed', 'failed', 'refunded')),
     processed_at      TIMESTAMPTZ,
@@ -213,7 +242,6 @@ CREATE TABLE public.payments (
     updated_at        TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 12. NOTIFICATIONS
 CREATE TABLE public.notifications (
     id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     group_id       UUID REFERENCES public.groups(id) ON DELETE CASCADE NOT NULL,
@@ -224,7 +252,6 @@ CREATE TABLE public.notifications (
     created_at     TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 13. MEMBER DOCUMENTS
 CREATE TABLE public.member_documents (
     id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     member_id         UUID REFERENCES public.members(id) ON DELETE CASCADE NOT NULL,
@@ -238,7 +265,6 @@ CREATE TABLE public.member_documents (
     UNIQUE(member_id, label)
 );
 
--- 14. ACTUARIAL SNAPSHOTS
 CREATE TABLE public.group_actuarial_metrics (
     id                             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     group_id                       UUID REFERENCES public.groups(id) ON DELETE CASCADE NOT NULL,
@@ -255,14 +281,12 @@ CREATE TABLE public.group_actuarial_metrics (
     composite_risk_score           INTEGER DEFAULT 0,
     insolvency_months              INTEGER DEFAULT 0,
     expected_annual_claims         NUMERIC(15,2) DEFAULT 0,
-    -- Enhanced insight fields
     expected_annual_claims_count   NUMERIC(15,2) DEFAULT 0,
     solvency_ratio                 NUMERIC(10,2) DEFAULT 0,
     capital_adequacy_pct           NUMERIC(10,2) DEFAULT 0,
     created_at                     TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 15. PAYOUTS
 CREATE TABLE public.payouts (
     id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     group_id          UUID REFERENCES public.groups(id) ON DELETE CASCADE NOT NULL,
@@ -270,7 +294,7 @@ CREATE TABLE public.payouts (
     bank_name         TEXT NOT NULL,
     account_no        TEXT NOT NULL CHECK (account_no ~ '^[0-9]{7,13}$'),
     branch_code       TEXT NOT NULL CHECK (branch_code ~ '^[0-9]{6}$'),
-    status            TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'processing', 'completed', 'failed', 'cancelled')),
+    status            TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'group_approved', 'processing', 'completed', 'failed', 'cancelled')),
     processed_by      UUID REFERENCES auth.users(id),
     processed_at      TIMESTAMPTZ,
     payout_reference  TEXT,
@@ -278,12 +302,11 @@ CREATE TABLE public.payouts (
     updated_at        TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 16. PLATFORM FEES
 CREATE TABLE public.platform_fees (
     id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     group_id          UUID REFERENCES public.groups(id) ON DELETE CASCADE NOT NULL,
     fee_type          TEXT NOT NULL CHECK (fee_type IN ('registration', 'monthly')),
-    amount            NUMERIC(10,2) NOT NULL CHECK (amount >= 0),
+    amount            NUMERIC(12,2) NOT NULL CHECK (amount >= 0),
     status            TEXT DEFAULT 'due' CHECK (status IN ('paid', 'due', 'warning', 'suspended')),
     due_date          TEXT,
     paid_at           TIMESTAMPTZ,
@@ -292,20 +315,18 @@ CREATE TABLE public.platform_fees (
     updated_at        TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 17. PLATFORM SETTINGS
 CREATE TABLE public.platform_settings (
     key   TEXT PRIMARY KEY,
     value NUMERIC NOT NULL,
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 18. LOANS
 CREATE TABLE public.loans (
     id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     member_id         UUID REFERENCES public.members(id) ON DELETE CASCADE NOT NULL,
     group_id          UUID REFERENCES public.groups(id) ON DELETE CASCADE NOT NULL,
     amount            NUMERIC(12,2) NOT NULL CHECK (amount > 0),
-    interest_rate     NUMERIC(5,2) DEFAULT 0 CHECK (interest_rate >= 0),
+    interest_rate     NUMERIC(10,2) DEFAULT 0 CHECK (interest_rate >= 0),
     total_to_repay    NUMERIC(12,2) NOT NULL CHECK (total_to_repay >= amount),
     total_repaid      NUMERIC(12,2) DEFAULT 0 CHECK (total_repaid >= 0),
     monthly_repayment NUMERIC(12,2) NOT NULL CHECK (monthly_repayment > 0),
@@ -324,7 +345,6 @@ CREATE TABLE public.loans (
     updated_at        TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 19. LOAN REPAYMENTS
 CREATE TABLE public.loan_repayments (
     id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     loan_id           UUID REFERENCES public.loans(id) ON DELETE CASCADE NOT NULL,
@@ -332,12 +352,11 @@ CREATE TABLE public.loan_repayments (
     group_id          UUID REFERENCES public.groups(id) ON DELETE CASCADE NOT NULL,
     amount            NUMERIC(12,2) NOT NULL CHECK (amount > 0),
     paid_at           TIMESTAMPTZ DEFAULT NOW(),
-    payment_method    TEXT DEFAULT 'yoco',
+    payment_method    TEXT DEFAULT 'bank',
     transaction_id    TEXT,
     created_at        TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 20. AUDIT LOGS
 CREATE TABLE public.audit_logs (
     id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     actor_id          UUID NOT NULL,
@@ -348,13 +367,13 @@ CREATE TABLE public.audit_logs (
     created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- 21. BENEFICIARY PAYOUT CLAIMS
 CREATE TABLE public.beneficiary_payout_claims (
     id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     group_id          UUID REFERENCES public.groups(id) ON DELETE CASCADE NOT NULL,
     member_id         UUID REFERENCES public.members(id) ON DELETE CASCADE NOT NULL,
     beneficiary_id    UUID NOT NULL,
     beneficiary_name  TEXT NOT NULL,
+    face_photo_url    TEXT,
     cause_of_death    TEXT NOT NULL,
     date_of_death     DATE NOT NULL,
     claim_amount      NUMERIC(12,2) NOT NULL CHECK (claim_amount > 0),
@@ -371,7 +390,6 @@ CREATE TABLE public.beneficiary_payout_claims (
     created_at        TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 22. GROUP LEDGER (Double-entry tracking)
 CREATE TABLE public.group_ledger (
     id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     group_id          UUID REFERENCES public.groups(id) ON DELETE CASCADE NOT NULL,
@@ -383,7 +401,6 @@ CREATE TABLE public.group_ledger (
     created_at        TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 23. PLATFORM LEDGER
 CREATE TABLE public.platform_ledger (
     id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     transaction_id    UUID,
@@ -394,125 +411,48 @@ CREATE TABLE public.platform_ledger (
     created_at        TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 24. INDEXES
-CREATE INDEX IF NOT EXISTS idx_groups_admin_user_id ON public.groups(admin_user_id);
-CREATE INDEX IF NOT EXISTS idx_members_group_id ON public.members(group_id);
-CREATE INDEX IF NOT EXISTS idx_contributions_member_id ON public.contributions(member_id);
-CREATE INDEX IF NOT EXISTS idx_payments_status ON public.payments(status);
-CREATE INDEX IF NOT EXISTS idx_loans_status ON public.loans(status);
+CREATE TABLE public.group_polls (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    group_id UUID NOT NULL REFERENCES public.groups(id) ON DELETE CASCADE,
+    created_by_member_id UUID REFERENCES public.members(id) ON DELETE SET NULL,
+    title TEXT NOT NULL CHECK (char_length(trim(title)) >= 3),
+    description TEXT,
+    status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('draft', 'open', 'closed', 'cancelled')),
+    allow_multiple_choice BOOLEAN NOT NULL DEFAULT FALSE,
+    starts_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    ends_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CHECK (ends_at IS NULL OR ends_at >= starts_at)
+);
 
--- 22. TRIGGERS & RPCs
-CREATE OR REPLACE FUNCTION public.update_member_count()
-RETURNS TRIGGER AS $$
-BEGIN
-    IF (TG_OP = 'INSERT') THEN
-        UPDATE public.groups SET current_members = current_members + 1 WHERE id = NEW.group_id;
-    ELSIF (TG_OP = 'DELETE') THEN
-        UPDATE public.groups SET current_members = current_members - 1 WHERE id = OLD.group_id;
-    END IF;
-    RETURN NULL;
-END;
-$$ LANGUAGE plpgsql;
+CREATE TABLE public.group_poll_options (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    poll_id UUID NOT NULL REFERENCES public.group_polls(id) ON DELETE CASCADE,
+    label TEXT NOT NULL CHECK (char_length(trim(label)) >= 1),
+    position INTEGER NOT NULL DEFAULT 1 CHECK (position > 0),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (poll_id, position)
+);
 
-CREATE TRIGGER trigger_update_member_count AFTER INSERT OR DELETE ON public.members FOR EACH ROW EXECUTE PROCEDURE public.update_member_count();
+CREATE TABLE public.group_poll_votes (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    poll_id UUID NOT NULL REFERENCES public.group_polls(id) ON DELETE CASCADE,
+    option_id UUID NOT NULL REFERENCES public.group_poll_options(id) ON DELETE CASCADE,
+    member_id UUID NOT NULL REFERENCES public.members(id) ON DELETE CASCADE,
+    group_id UUID NOT NULL REFERENCES public.groups(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (poll_id, member_id)
+);
 
-CREATE OR REPLACE FUNCTION public.record_contribution_v1(
-    p_member_id UUID, p_group_id UUID, p_amount NUMERIC, p_due_date DATE,
-    p_paid_at TIMESTAMPTZ, p_status TEXT, p_yoco_tx_id TEXT DEFAULT NULL, p_type TEXT DEFAULT 'contribution'
-) RETURNS public.contributions AS $$
-DECLARE
-    v_contribution public.contributions;
-    v_new_balance NUMERIC;
-BEGIN
-    INSERT INTO public.contributions (member_id, group_id, amount, due_date, paid_at, status, transaction_id, type)
-    VALUES (p_member_id, p_group_id, p_amount, p_due_date, p_paid_at, p_status, p_yoco_tx_id, p_type)
-    RETURNING * INTO v_contribution;
-
-    UPDATE public.members
-    SET total_contributions = total_contributions + 1,
-        total_paid = total_paid + p_amount
-    WHERE id = p_member_id;
-
-    UPDATE public.groups
-    SET balance = balance + p_amount,
-        updated_at = NOW()
-    WHERE id = p_group_id
-    RETURNING balance INTO v_new_balance;
-
-    -- Add to Group Ledger
-    INSERT INTO public.group_ledger (group_id, transaction_id, amount, balance_after, description, category)
-    VALUES (p_group_id, v_contribution.id, p_amount, v_new_balance,
-            p_type || ' from ' || (SELECT full_name FROM public.members WHERE id = p_member_id),
-            p_type);
-
-    RETURN v_contribution;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
-CREATE OR REPLACE FUNCTION public.record_loan_repayment_v1(
-    p_loan_id UUID, p_member_id UUID, p_group_id UUID, p_amount NUMERIC, p_payment_method TEXT DEFAULT 'yoco'
-) RETURNS public.loan_repayments AS $$
-DECLARE
-    v_repayment public.loan_repayments;
-    v_new_balance NUMERIC;
-BEGIN
-    -- Record repayment
-    INSERT INTO public.loan_repayments (loan_id, member_id, group_id, amount, payment_method)
-    VALUES (p_loan_id, p_member_id, p_group_id, p_amount, p_payment_method)
-    RETURNING * INTO v_repayment;
-
-    -- Update loan status/balance
-    UPDATE public.loans
-    SET total_repaid = total_repaid + p_amount,
-        status = CASE
-            WHEN total_repaid + p_amount >= total_to_repay THEN 'completed'::text
-            ELSE 'partially_paid'::text
-        END,
-        updated_at = NOW()
-    WHERE id = p_loan_id;
-
-    -- Update group balance
-    UPDATE public.groups
-    SET balance = balance + p_amount
-    WHERE id = p_group_id
-    RETURNING balance INTO v_new_balance;
-
-    -- Add to Group Ledger
-    INSERT INTO public.group_ledger (group_id, transaction_id, amount, balance_after, description, category)
-    VALUES (p_group_id, v_repayment.id, p_amount, v_new_balance,
-            'Loan repayment from ' || (SELECT full_name FROM public.members WHERE id = p_member_id),
-            'loan_repayment');
-
-    RETURN v_repayment;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
--- Trigger to log platform revenue
-CREATE OR REPLACE FUNCTION public.log_platform_revenue()
-RETURNS TRIGGER AS $$
-DECLARE
-    v_total_revenue NUMERIC;
-BEGIN
-    IF (NEW.status = 'paid' AND (OLD.status IS NULL OR OLD.status != 'paid')) THEN
-        SELECT COALESCE(SUM(amount), 0) INTO v_total_revenue FROM public.platform_fees WHERE status = 'paid';
-
-        INSERT INTO public.platform_ledger (transaction_id, amount, balance_after, description, category)
-        VALUES (NEW.id, NEW.amount, v_total_revenue,
-                NEW.fee_type || ' fee from group ' || (SELECT name FROM public.groups WHERE id = NEW.group_id),
-                NEW.fee_type);
-    END IF;
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
-CREATE TRIGGER trigger_log_platform_revenue
-    AFTER UPDATE ON public.platform_fees
-    FOR EACH ROW EXECUTE PROCEDURE public.log_platform_revenue();
-
--- Atomically increments or decrements a group's balance.
+-- 5. BUSINESS LOGIC FUNCTIONS
 CREATE OR REPLACE FUNCTION public.increment_group_balance(
     p_group_id UUID,
-    p_amount NUMERIC
+    p_amount NUMERIC,
+    p_description TEXT DEFAULT 'Atomic balance update',
+    p_category TEXT DEFAULT 'adjustment',
+    p_transaction_id UUID DEFAULT NULL
 ) RETURNS NUMERIC
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -521,23 +461,111 @@ DECLARE
     v_new_balance NUMERIC;
 BEGIN
     UPDATE public.groups
-    SET balance = balance + p_amount
+    SET balance = balance + p_amount,
+        updated_at = NOW()
     WHERE id = p_group_id
     RETURNING balance INTO v_new_balance;
 
-    IF NOT FOUND THEN
-        RAISE EXCEPTION 'Group not found';
-    END IF;
+    IF NOT FOUND THEN RAISE EXCEPTION 'Group % not found', p_group_id; END IF;
 
-    -- Ensure every balance change has a ledger entry for auditability
     INSERT INTO public.group_ledger (group_id, transaction_id, amount, balance_after, description, category)
-    VALUES (p_group_id, NULL, p_amount, v_new_balance, 'Atomic balance update', 'adjustment');
+    VALUES (p_group_id, p_transaction_id, p_amount, v_new_balance, p_description, p_category);
 
     RETURN v_new_balance;
 END;
 $$;
 
-GRANT EXECUTE ON FUNCTION public.increment_group_balance(UUID, NUMERIC) TO authenticated, service_role;
+CREATE OR REPLACE FUNCTION public.record_contribution_v1(
+    p_member_id UUID, p_group_id UUID, p_amount NUMERIC, p_due_date DATE,
+    p_paid_at TIMESTAMPTZ, p_status TEXT, p_tx_id TEXT DEFAULT NULL, p_type TEXT DEFAULT 'contribution'
+) RETURNS public.contributions AS $$
+DECLARE
+    v_contribution public.contributions;
+    v_new_balance NUMERIC;
+    v_member_name TEXT;
+BEGIN
+    SELECT full_name INTO v_member_name FROM public.members WHERE id = p_member_id AND group_id = p_group_id;
+    IF v_member_name IS NULL THEN RAISE EXCEPTION 'Member not found in group'; END IF;
 
--- Initial settings
-INSERT INTO public.platform_settings (key, value) VALUES ('monthly_per_member', 10.0), ('registration_fee', 700.0) ON CONFLICT DO NOTHING;
+    INSERT INTO public.contributions (member_id, group_id, amount, due_date, paid_at, status, transaction_id, type)
+    VALUES (p_member_id, p_group_id, p_amount, p_due_date, p_paid_at, p_status, p_tx_id, p_type)
+    RETURNING * INTO v_contribution;
+
+    UPDATE public.members SET total_contributions = total_contributions + 1, total_paid = total_paid + p_amount WHERE id = p_member_id;
+
+    PERFORM public.increment_group_balance(p_group_id, p_amount, initcap(replace(p_type, '_', ' ')) || ' from ' || v_member_name, p_type, v_contribution.id);
+
+    RETURN v_contribution;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+CREATE OR REPLACE FUNCTION public.record_loan_repayment_v1(
+    p_loan_id UUID, p_member_id UUID, p_group_id UUID, p_amount NUMERIC, p_payment_method TEXT DEFAULT 'bank'
+) RETURNS public.loan_repayments AS $$
+DECLARE
+    v_repayment public.loan_repayments;
+    v_new_balance NUMERIC;
+BEGIN
+    INSERT INTO public.loan_repayments (loan_id, member_id, group_id, amount, payment_method)
+    VALUES (p_loan_id, p_member_id, p_group_id, p_amount, p_payment_method)
+    RETURNING * INTO v_repayment;
+
+    UPDATE public.loans
+    SET total_repaid = total_repaid + p_amount,
+        status = CASE WHEN total_repaid + p_amount >= total_to_repay THEN 'completed' ELSE 'partially_paid' END,
+        updated_at = NOW()
+    WHERE id = p_loan_id;
+
+    PERFORM public.increment_group_balance(p_group_id, p_amount, 'Loan repayment from ' || (SELECT full_name FROM public.members WHERE id = p_member_id), 'loan_repayment', v_repayment.id);
+
+    RETURN v_repayment;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- 6. VIEWS
+CREATE OR REPLACE VIEW public.platform_member_behavior_insights_v1 AS
+WITH loan_rollup AS (
+    SELECT
+        l.member_id,
+        l.group_id,
+        COUNT(*)::int AS total_loan_requests,
+        COUNT(*) FILTER (WHERE l.status = 'pending')::int AS pending_requests,
+        COUNT(*) FILTER (WHERE l.status = 'overdue')::int AS overdue_loans,
+        COALESCE(SUM(l.amount), 0)::double precision AS total_requested_amount,
+        COALESCE(SUM(GREATEST(l.total_to_repay - l.total_repaid, 0)), 0)::double precision AS outstanding_amount,
+        COALESCE(AVG(CASE WHEN l.status = 'completed' THEN 1.0 ELSE 0.0 END), 0)::double precision AS completion_ratio
+    FROM public.loans l
+    GROUP BY l.member_id, l.group_id
+)
+SELECT
+    lr.member_id,
+    COALESCE(m.full_name, CONCAT('Member ', LEFT(lr.member_id::text, 8))) AS member_name,
+    lr.group_id,
+    lr.total_loan_requests,
+    lr.pending_requests,
+    lr.overdue_loans,
+    lr.total_requested_amount,
+    lr.outstanding_amount,
+    lr.completion_ratio,
+    CASE
+        WHEN lr.overdue_loans > 0 THEN 'High'
+        WHEN lr.pending_requests >= 2 OR lr.outstanding_amount > 20000 THEN 'Elevated'
+        WHEN lr.completion_ratio >= 0.5 THEN 'Stable'
+        ELSE 'Watch'
+    END AS risk_band
+FROM loan_rollup lr
+LEFT JOIN public.members m ON m.id = lr.member_id;
+
+-- 7. SECURITY (RLS)
+DO $$
+DECLARE v_t text;
+BEGIN
+    FOR v_t IN (SELECT tablename FROM pg_tables WHERE schemaname = 'public') LOOP
+        EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY', v_t);
+        EXECUTE format('DROP POLICY IF EXISTS "Allow All" ON public.%I', v_t);
+        EXECUTE format('CREATE POLICY "Allow All" ON public.%I FOR ALL TO authenticated, anon USING (true) WITH CHECK (true)', v_t);
+    END LOOP;
+END $$;
+
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO anon, authenticated;
+GRANT SELECT ON ALL VIEWS IN SCHEMA public TO anon, authenticated;

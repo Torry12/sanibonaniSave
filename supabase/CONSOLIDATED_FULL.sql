@@ -4,7 +4,15 @@
 
 \i 'supabase/CONSOLIDATED_SCHEMA_ONLY.sql'
 
--- 3) Top-level supplemental migrations and fixes (supabase/*.sql) - numeric order
+-- 3) Engineering performance optimizations (atomic ops, analytics, error logging)
+\echo '\n-- Applying: supabase/39_ENGINEERING_PERFORMANCE_OPTIMIZATIONS.sql'
+\i 'supabase/39_ENGINEERING_PERFORMANCE_OPTIMIZATIONS.sql'
+
+-- 4) Architecture model schema templates (event-driven, risk, social credit, etc.)
+\echo '\n-- Applying: supabase/28_ARCHITECTURE_MODEL_SCHEMA_TEMPLATES.sql'
+\i 'supabase/28_ARCHITECTURE_MODEL_SCHEMA_TEMPLATES.sql'
+
+-- 5) Top-level supplemental migrations and fixes (supabase/*.sql) - numeric order
 \echo '\n-- Applying top-level supplemental scripts and seeds...'
 \i 'supabase/02_SECURITY_AND_RLS.sql'
 \i 'supabase/03_PLATFORM_ADMIN_SETUP.sql'
@@ -15,4 +23,3 @@
 \i 'supabase/seeds/E2E_SEED.sql'
 
 \echo '\n--- Consolidated full apply complete ---'
-

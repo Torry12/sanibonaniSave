@@ -92,7 +92,10 @@ BEGIN
         v_province := v_provinces[g];
         v_city := v_cities[g];
         v_township := v_townships[g];
-        v_group_name := format('SEED-G%02s %s', g, initcap(replace(v_group_type, '_', ' ')));
+
+
+
+        v_group_name := format('SEED-G%s %s', lpad(g::text,2,'0'), initcap(replace(v_group_type, '_', ' ')));
 
         INSERT INTO public.groups (
             name,
@@ -230,7 +233,7 @@ BEGIN
                 v_group_id,
                 3200.00,
                 'Standard Bank',
-                format('12345678%02s', g),
+                format('12345678%s', lpad(g::text,2,'0')),
                 '051001',
                 'processing',
                 v_admin_id,

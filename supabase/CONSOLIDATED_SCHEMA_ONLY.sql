@@ -24,5 +24,13 @@
 \i 'supabase/migrations/20260518000100_backfill_group_ledger_from_payments.sql'
 \i 'supabase/migrations/20260518000200_recompute_group_balances_from_ledger.sql'
 
+-- 3) Engineering performance optimizations (atomic ops, analytics, error logging)
+\echo '\n-- Applying: supabase/39_ENGINEERING_PERFORMANCE_OPTIMIZATIONS.sql'
+\i 'supabase/39_ENGINEERING_PERFORMANCE_OPTIMIZATIONS.sql'
+
+-- 4) Architecture model schema templates (event-driven, risk, social credit, etc.)
+\echo '\n-- Applying: supabase/28_ARCHITECTURE_MODEL_SCHEMA_TEMPLATES.sql'
+\i 'supabase/28_ARCHITECTURE_MODEL_SCHEMA_TEMPLATES.sql'
+
 \echo '\n--- Consolidated schema-only apply complete ---'
 

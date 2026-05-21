@@ -570,7 +570,7 @@ BEGIN
             v_group_id,
             CASE WHEN v_group_index = 4 THEN 2200.00 ELSE 4500.00 END,
             'Standard Bank',
-            format('12344456%02s', v_group_index),
+            format('12344456%s', lpad(v_group_index::text,2,'0')),
             '051001',
             CASE
                 WHEN v_group_index = 1 THEN v_status_group_approved

@@ -173,6 +173,7 @@ CREATE TABLE public.beneficiaries (
     date_of_birth        DATE,
     is_over_65           BOOLEAN DEFAULT FALSE,
     document_url         TEXT,
+    face_photo_url       TEXT,
     document_status      TEXT DEFAULT 'pending' CHECK (document_status IN ('pending', 'verified', 'rejected')),
     created_at           TIMESTAMPTZ DEFAULT NOW(),
     updated_at           TIMESTAMPTZ DEFAULT NOW(),
@@ -255,6 +256,10 @@ CREATE TABLE public.group_actuarial_metrics (
     composite_risk_score           INTEGER DEFAULT 0,
     insolvency_months              INTEGER DEFAULT 0,
     expected_annual_claims         NUMERIC(15,2) DEFAULT 0,
+    -- Enhanced insight fields
+    expected_annual_claims_count   NUMERIC(15,2) DEFAULT 0,
+    solvency_ratio                 NUMERIC(10,2) DEFAULT 0,
+    capital_adequacy_pct           NUMERIC(10,2) DEFAULT 0,
     created_at                     TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -351,6 +356,7 @@ CREATE TABLE public.beneficiary_payout_claims (
     member_id         UUID REFERENCES public.members(id) ON DELETE CASCADE NOT NULL,
     beneficiary_id    UUID NOT NULL,
     beneficiary_name  TEXT NOT NULL,
+    face_photo_url    TEXT,
     cause_of_death    TEXT NOT NULL,
     date_of_death     DATE NOT NULL,
     claim_amount      NUMERIC(12,2) NOT NULL CHECK (claim_amount > 0),
@@ -419,26 +425,37 @@ CREATE OR REPLACE FUNCTION public.record_contribution_v1(
 DECLARE
     v_contribution public.contributions;
     v_new_balance NUMERIC;
+    v_member_name TEXT;
 BEGIN
+    -- 1. Validation: Ensure member belongs to group
+    SELECT full_name INTO v_member_name FROM public.members WHERE id = p_member_id AND group_id = p_group_id;
+    IF v_member_name IS NULL THEN
+        RAISE EXCEPTION 'Member % does not belong to group %', p_member_id, p_group_id;
+    END IF;
+
+    -- 2. Record contribution
     INSERT INTO public.contributions (member_id, group_id, amount, due_date, paid_at, status, transaction_id, type)
     VALUES (p_member_id, p_group_id, p_amount, p_due_date, p_paid_at, p_status, p_tx_id, p_type)
     RETURNING * INTO v_contribution;
 
+    -- 3. Update member stats
     UPDATE public.members
     SET total_contributions = total_contributions + 1,
-        total_paid = total_paid + p_amount
+        total_paid = total_paid + p_amount,
+        updated_at = NOW()
     WHERE id = p_member_id;
 
+    -- 4. Update group balance (Atomic inline)
     UPDATE public.groups
     SET balance = balance + p_amount,
         updated_at = NOW()
     WHERE id = p_group_id
     RETURNING balance INTO v_new_balance;
 
-    -- Add to Group Ledger
+    -- 5. Add to Group Ledger with detailed audit context
     INSERT INTO public.group_ledger (group_id, transaction_id, amount, balance_after, description, category)
     VALUES (p_group_id, v_contribution.id, p_amount, v_new_balance,
-            p_type || ' from ' || (SELECT full_name FROM public.members WHERE id = p_member_id),
+            initcap(replace(p_type, '_', ' ')) || ' from ' || v_member_name,
             p_type);
 
     RETURN v_contribution;
@@ -508,7 +525,10 @@ CREATE TRIGGER trigger_log_platform_revenue
 -- Atomically increments or decrements a group's balance.
 CREATE OR REPLACE FUNCTION public.increment_group_balance(
     p_group_id UUID,
-    p_amount NUMERIC
+    p_amount NUMERIC,
+    p_description TEXT DEFAULT 'Atomic balance update',
+    p_category TEXT DEFAULT 'adjustment',
+    p_transaction_id UUID DEFAULT NULL
 ) RETURNS NUMERIC
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -517,23 +537,24 @@ DECLARE
     v_new_balance NUMERIC;
 BEGIN
     UPDATE public.groups
-    SET balance = balance + p_amount
+    SET balance = balance + p_amount,
+        updated_at = NOW()
     WHERE id = p_group_id
     RETURNING balance INTO v_new_balance;
 
     IF NOT FOUND THEN
-        RAISE EXCEPTION 'Group not found';
+        RAISE EXCEPTION 'Group % not found', p_group_id;
     END IF;
 
     -- Insert ledger entry to keep immutable audit trail
     INSERT INTO public.group_ledger (group_id, transaction_id, amount, balance_after, description, category)
-    VALUES (p_group_id, NULL, p_amount, v_new_balance, 'Atomic balance update', 'adjustment');
+    VALUES (p_group_id, p_transaction_id, p_amount, v_new_balance, p_description, p_category);
 
     RETURN v_new_balance;
 END;
 $$;
 
-GRANT EXECUTE ON FUNCTION public.increment_group_balance(UUID, NUMERIC) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.increment_group_balance(UUID, NUMERIC, TEXT, TEXT, UUID) TO authenticated, service_role;
 
 -- Initial settings
 INSERT INTO public.platform_settings (key, value) VALUES ('monthly_per_member', 10.0), ('registration_fee', 700.0) ON CONFLICT DO NOTHING;

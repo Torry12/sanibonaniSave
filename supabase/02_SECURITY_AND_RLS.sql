@@ -36,18 +36,28 @@ $$;
 GRANT EXECUTE ON FUNCTION public.is_platform_admin() TO anon, authenticated, service_role;
 
 CREATE OR REPLACE FUNCTION public.is_group_admin(p_group_id UUID)
-RETURNS BOOLEAN AS $$
-BEGIN
-    RETURN EXISTS (SELECT 1 FROM public.groups WHERE id = p_group_id AND admin_user_id = auth.uid());
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+RETURNS BOOLEAN
+LANGUAGE sql
+SECURITY DEFINER
+STABLE
+AS $$
+    SELECT EXISTS (
+        SELECT 1 FROM public.groups
+        WHERE id = p_group_id AND admin_user_id = auth.uid()
+    );
+$$;
 
 CREATE OR REPLACE FUNCTION public.is_group_member(p_group_id UUID)
-RETURNS BOOLEAN AS $$
-BEGIN
-    RETURN EXISTS (SELECT 1 FROM public.members WHERE group_id = p_group_id AND user_id = auth.uid());
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+RETURNS BOOLEAN
+LANGUAGE sql
+SECURITY DEFINER
+STABLE
+AS $$
+    SELECT EXISTS (
+        SELECT 1 FROM public.members
+        WHERE group_id = p_group_id AND user_id = auth.uid()
+    );
+$$;
 
 -- 3. TABLE GRANTS
 GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
@@ -245,6 +255,12 @@ DROP POLICY IF EXISTS "Storage: Admin View Group Docs" ON storage.objects;
 CREATE POLICY "Storage: Member Upload Docs" ON storage.objects FOR INSERT TO authenticated WITH CHECK (bucket_id = 'documents' AND (storage.foldername(name))[1] = 'members');
 CREATE POLICY "Storage: Member View Own Docs" ON storage.objects FOR SELECT TO authenticated USING (bucket_id = 'documents' AND (storage.foldername(name))[1] = 'members');
 CREATE POLICY "Storage: Admin View Group Docs" ON storage.objects FOR SELECT TO authenticated USING (bucket_id = 'documents');
+
+-- Beneficiary Documents Folder
+DROP POLICY IF EXISTS "Storage: Member Upload Beneficiary Docs" ON storage.objects;
+DROP POLICY IF EXISTS "Storage: Member View Beneficiary Docs" ON storage.objects;
+CREATE POLICY "Storage: Member Upload Beneficiary Docs" ON storage.objects FOR INSERT TO authenticated WITH CHECK (bucket_id = 'documents' AND (storage.foldername(name))[1] = 'beneficiaries');
+CREATE POLICY "Storage: Member View Beneficiary Docs" ON storage.objects FOR SELECT TO authenticated USING (bucket_id = 'documents' AND (storage.foldername(name))[1] = 'beneficiaries');
 
 -- Constitutions Bucket
 DROP POLICY IF EXISTS "Storage: Admin Manage Group Constitution" ON storage.objects;
