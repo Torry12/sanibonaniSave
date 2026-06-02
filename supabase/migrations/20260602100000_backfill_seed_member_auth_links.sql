@@ -8,7 +8,17 @@
 
 BEGIN;
 
--- 1) Fast path: link by existing auth user email.
+-- 1) Fast path: link by existing auth identity email owner.
+UPDATE public.members m
+SET user_id = i.user_id,
+    updated_at = now()
+FROM auth.identities i
+WHERE m.user_id IS NULL
+  AND m.email IS NOT NULL
+  AND i.provider = 'email'
+  AND lower(m.email) = lower(i.provider_id);
+
+-- 1b) Fallback: link by existing auth user email.
 UPDATE public.members m
 SET user_id = u.id,
     updated_at = now()
@@ -21,6 +31,8 @@ DO $$
 DECLARE
     v_member RECORD;
     v_auth_user_id UUID;
+    -- Seed-only deterministic credential used by existing test-login documentation.
+    -- Do not use these accounts as-is in production environments.
     v_member_password CONSTANT TEXT := 'Test@12345';
 BEGIN
     -- 2) Create/update auth users for seeded member email patterns still missing links.
@@ -38,11 +50,20 @@ BEGIN
               OR lower(m.email) LIKE 'test.member.g%@example.com'
           )
     LOOP
-        SELECT u.id
+        SELECT i.user_id
         INTO v_auth_user_id
-        FROM auth.users u
-        WHERE lower(u.email) = v_member.email
+        FROM auth.identities i
+        WHERE i.provider = 'email'
+          AND lower(i.provider_id) = v_member.email
         LIMIT 1;
+
+        IF v_auth_user_id IS NULL THEN
+            SELECT u.id
+            INTO v_auth_user_id
+            FROM auth.users u
+            WHERE lower(u.email) = v_member.email
+            LIMIT 1;
+        END IF;
 
         IF v_auth_user_id IS NULL THEN
             v_auth_user_id := gen_random_uuid();
@@ -63,17 +84,15 @@ BEGIN
                 now()
             )
             ON CONFLICT (email) DO UPDATE
-                SET encrypted_password = EXCLUDED.encrypted_password,
-                    email_confirmed_at = COALESCE(auth.users.email_confirmed_at, now()),
-                    raw_app_meta_data = COALESCE(auth.users.raw_app_meta_data, '{}'::jsonb) || '{"provider":"email","providers":["email"],"role":"member"}'::jsonb,
+                SET email_confirmed_at = COALESCE(auth.users.email_confirmed_at, now()),
+                    raw_app_meta_data = jsonb_set(COALESCE(auth.users.raw_app_meta_data, '{}'::jsonb), '{role}', '"member"'::jsonb, true),
                     raw_user_meta_data = COALESCE(auth.users.raw_user_meta_data, '{}'::jsonb) || jsonb_build_object('full_name', v_member.full_name, 'role', 'member'),
                     updated_at = now()
             RETURNING id INTO v_auth_user_id;
         ELSE
             UPDATE auth.users
-            SET encrypted_password = crypt(v_member_password, gen_salt('bf')),
-                email_confirmed_at = COALESCE(email_confirmed_at, now()),
-                raw_app_meta_data = COALESCE(raw_app_meta_data, '{}'::jsonb) || '{"provider":"email","providers":["email"],"role":"member"}'::jsonb,
+            SET email_confirmed_at = COALESCE(email_confirmed_at, now()),
+                raw_app_meta_data = jsonb_set(COALESCE(raw_app_meta_data, '{}'::jsonb), '{role}', '"member"'::jsonb, true),
                 raw_user_meta_data = COALESCE(raw_user_meta_data, '{}'::jsonb) || jsonb_build_object('full_name', v_member.full_name, 'role', 'member'),
                 updated_at = now()
             WHERE id = v_auth_user_id;
@@ -90,9 +109,18 @@ BEGIN
             now()
         )
         ON CONFLICT (provider, provider_id) DO UPDATE
-            SET user_id = EXCLUDED.user_id,
-                identity_data = EXCLUDED.identity_data,
-                updated_at = now();
+            SET identity_data = EXCLUDED.identity_data,
+                updated_at = now()
+            WHERE auth.identities.user_id = EXCLUDED.user_id;
+
+        -- Re-read canonical identity owner after upsert attempt so we never relink
+        -- members away from an existing identity owner in conflict scenarios.
+        SELECT i.user_id
+        INTO v_auth_user_id
+        FROM auth.identities i
+        WHERE i.provider = 'email'
+          AND i.provider_id = v_member.email
+        LIMIT 1;
 
         INSERT INTO public.profiles (id, full_name, email, role)
         VALUES (v_auth_user_id, v_member.full_name, v_member.email, 'member')
