@@ -1,4 +1,4 @@
-reanalyse app polish and stremline ,then update all related filesreanalyse app polish and stremline ,then update all related files-- ─────────────────────────────────────────────────────────────────────────────
+-- ─────────────────────────────────────────────────────────────────────────────
 -- SanibonaniSave — GROUP VOTING + MULTI-ADMIN AUTHORIZATION
 -- Date: 2026-05-15
 -- Purpose:
@@ -173,4 +173,3 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON public.group_poll_options TO authenticat
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.group_poll_votes TO authenticated;
 
 COMMIT;
-
