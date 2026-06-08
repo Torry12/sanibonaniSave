@@ -41,6 +41,21 @@ BEGIN
         RETURNING id INTO v_group_id;
 
         -- create a deterministic admin profile for the group (idempotent)
+        -- Seed group policy
+        INSERT INTO public.policies (id, group_id, name, description, required_amount, status, created_at, updated_at)
+        VALUES (gen_random_uuid(), v_group_id, format('SEED15_POLICY_%s', lpad(g::text,2,'0')), 'Seeded policy for group', 5000.00 + (g * 1000), 'active', now() - interval '60 days', now() - interval '30 days')
+        ON CONFLICT (name) DO NOTHING;
+        -- Seed group poll
+        DO $$
+        DECLARE v_poll_id UUID := gen_random_uuid();
+        BEGIN
+        INSERT INTO public.group_polls (id, group_id, created_by_member_id, title, description, status, starts_at, ends_at, created_at, updated_at)
+        VALUES (v_poll_id, v_group_id, NULL, format('SEED15_POLL_%s', lpad(g::text,2,'0')), 'Seeded poll for group', 'open', now() - interval '10 days', now() + interval '10 days', now() - interval '10 days', now())
+        ON CONFLICT (id) DO NOTHING;
+        INSERT INTO public.group_poll_options (id, poll_id, label, position, created_at)
+        VALUES (gen_random_uuid(), v_poll_id, 'Option A', 1, now()), (gen_random_uuid(), v_poll_id, 'Option B', 2, now())
+        ON CONFLICT (id) DO NOTHING;
+        END $$;
         v_admin_id := gen_random_uuid();
         INSERT INTO public.profiles (id, full_name, email, role, created_at, updated_at)
         VALUES (v_admin_id, format('Seed Admin %s', lpad(g::text,2,'0')), format('seed.admin.%s@example.com', lpad(g::text,2,'0')), 'group_admin', now(), now())
@@ -99,6 +114,40 @@ BEGIN
             INSERT INTO public.audit_logs (id, actor_id, target_member_id, target_group_id, action, details, created_at)
             VALUES (gen_random_uuid(), v_admin_id, v_member_id, v_group_id, 'SEED_MEMBER_ADDED', jsonb_build_object('seed', true, 'member_index', m), now())
             ON CONFLICT (id) DO NOTHING;
+
+            -- Add beneficiary for each member
+            INSERT INTO public.beneficiaries (id, group_id, member_id, full_name, id_number, relationship, date_of_birth, is_over_65, document_status, created_at, updated_at)
+            VALUES (gen_random_uuid(), v_group_id, v_member_id, format('SEED15_BENEFICIARY_%s_%s', lpad(g::text,2,'0'), lpad(m::text,2,'0')), lpad((9900000000000 + (g * 100) + m)::text,13,'0'), 'child', '2010-01-01', FALSE, 'verified', now() - interval '10 days', now())
+            ON CONFLICT (id) DO NOTHING;
+
+            -- Add member document
+            INSERT INTO public.member_documents (id, member_id, group_id, label, document_url, document_type, status, created_at, updated_at)
+            VALUES (gen_random_uuid(), v_member_id, v_group_id, format('SEED15_DOC_%s_%s', lpad(g::text,2,'0'), lpad(m::text,2,'0')), 'https://example.com/doc.pdf', 'id_card', 'verified', now() - interval '10 days', now())
+            ON CONFLICT (id) DO NOTHING;
+
+            -- Add notification for member
+            INSERT INTO public.notifications (id, group_id, member_id, message, channel, trigger_event, created_at)
+            VALUES (gen_random_uuid(), v_group_id, v_member_id, format('SEED15 notification for member %s-%s', lpad(g::text,2,'0'), lpad(m::text,2,'0')), 'both', 'seed', now() - interval '5 days')
+            ON CONFLICT (id) DO NOTHING;
+
+            -- Add loan and repayment for some members
+            IF m = 3 OR m = 7 THEN
+                DO $$
+                DECLARE v_loan_id UUID := gen_random_uuid();
+                BEGIN
+                INSERT INTO public.loans (id, member_id, group_id, amount, interest_rate, total_to_repay, monthly_repayment, status, created_at, updated_at, purpose)
+                VALUES (v_loan_id, v_member_id, v_group_id, 2000.00 + (g * 100), 10.0, 2200.00 + (g * 100), 200.00, CASE WHEN m = 3 THEN 'active' ELSE 'overdue' END, now() - interval '40 days', now(), format('SEED15_LOAN_%s_%s', lpad(g::text,2,'0'), lpad(m::text,2,'0')))
+                ON CONFLICT (id) DO NOTHING;
+                -- Add repayment
+                INSERT INTO public.loan_repayments (id, loan_id, member_id, group_id, amount, paid_at, payment_method, transaction_id, created_at)
+                VALUES (gen_random_uuid(), v_loan_id, v_member_id, v_group_id, 500.00, now() - interval '10 days', 'bank', format('seed15_loanrepay_%s_%s', lpad(g::text,2,'0'), lpad(m::text,2,'0')), now() - interval '10 days')
+                ON CONFLICT (id) DO NOTHING;
+                END $$;
+            END IF;
+                        -- Add platform fee for group
+                        INSERT INTO public.platform_fees (id, group_id, fee_type, amount, status, due_date, paid_at, transaction_id, created_at, updated_at)
+                        VALUES (gen_random_uuid(), v_group_id, 'registration', 700.00, 'paid', to_char(now() - interval '100 days', 'YYYY-MM-DD'), now() - interval '99 days', format('SEED15_FEE_%s', lpad(g::text,2,'0')), now() - interval '100 days', now() - interval '99 days')
+                        ON CONFLICT (id) DO NOTHING;
         END LOOP;
 
     END LOOP;

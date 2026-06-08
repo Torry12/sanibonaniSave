@@ -1,27 +1,116 @@
 package com.sanibonani.save.ui.components
 
-import androidx.compose.animation.core.*
+import androidx.compose.ui.zIndex
+import com.sanibonani.save.ui.theme.Gold
+import com.sanibonani.save.ui.theme.Forest
+import android.graphics.Bitmap
+import android.graphics.pdf.PdfRenderer
+import android.os.ParcelFileDescriptor
+import android.preference.PreferenceManager
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.foundation.*
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.*
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
-import androidx.compose.material.icons.filled.*
-import androidx.compose.material.icons.rounded.*
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
-import androidx.compose.ui.*
+import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
+import androidx.compose.material.icons.filled.AccountCircle
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.Badge
+import androidx.compose.material.icons.filled.CalendarToday
+import androidx.compose.material.icons.filled.Cancel
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.CloudUpload
+import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.Error
+import androidx.compose.material.icons.filled.FilePresent
+import androidx.compose.material.icons.filled.FileUpload
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Remove
+import androidx.compose.material.icons.filled.SwapHoriz
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.filled.ZoomIn
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDefaults
+import androidx.compose.material3.DatePickerDialog
+import androidx.compose.material3.DatePickerState
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.SmallFloatingActionButton
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.rememberDatePickerState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.*
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.OffsetMapping
@@ -29,45 +118,57 @@ import androidx.compose.ui.text.input.TransformedText
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.*
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import androidx.compose.ui.viewinterop.AndroidView
-import android.graphics.pdf.PdfRenderer
-import android.os.ParcelFileDescriptor
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.ui.graphics.asImageBitmap
-import java.io.File
-import java.io.FileOutputStream
-import java.net.URL
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
-import android.graphics.Bitmap
-import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import coil.compose.AsyncImage
 import coil.request.CachePolicy
 import coil.request.ImageRequest
-import com.sanibonani.save.domain.model.*
+import com.sanibonani.save.domain.model.AdminFeeState
+import com.sanibonani.save.domain.model.DocumentStatus
+import com.sanibonani.save.domain.model.Group
+import com.sanibonani.save.domain.model.MemberStatus
 import com.sanibonani.save.domain.utils.roundMoneyToTwoDecimals
-import com.sanibonani.save.ui.theme.*
+import com.sanibonani.save.ui.theme.Charcoal
+import com.sanibonani.save.ui.theme.Cream
+import com.sanibonani.save.ui.theme.ErrorBg
+import com.sanibonani.save.ui.theme.ErrorRed
+import com.sanibonani.save.ui.theme.Forest
+import com.sanibonani.save.ui.theme.ForestLight
+import com.sanibonani.save.ui.theme.ForestMid
+import com.sanibonani.save.ui.theme.Gold
+import com.sanibonani.save.ui.theme.InfoBg
+import com.sanibonani.save.ui.theme.InfoBlue
+import com.sanibonani.save.ui.theme.LightGray
+import com.sanibonani.save.ui.theme.MidGray
+import com.sanibonani.save.ui.theme.SuccessBg
+import com.sanibonani.save.ui.theme.SuccessGreen
+import com.sanibonani.save.ui.theme.WarningAmber
+import com.sanibonani.save.ui.theme.WarningBg
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import org.osmdroid.config.Configuration
 import org.osmdroid.tileprovider.tilesource.TileSourceFactory
 import org.osmdroid.util.BoundingBox
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Marker
-import org.osmdroid.config.Configuration
-import android.preference.PreferenceManager
-
-import java.util.Locale
+import java.io.File
+import java.io.FileOutputStream
 import java.math.BigDecimal
+import java.net.URL
 import java.text.NumberFormat
-import java.util.Currency
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import java.util.Currency
+import java.util.Locale
 
 // ── Currency formatter ────────────────────────────────────────────────────────
 private val zarFormatter: NumberFormat = NumberFormat.getCurrencyInstance(Locale("en", "ZA")).apply {
@@ -342,41 +443,44 @@ fun StatCard(
         modifier  = modifier
             .width(185.dp)
             .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier),
-        shape     = RoundedCornerShape(24.dp),
+        shape     = RoundedCornerShape(28.dp),
         colors    = CardDefaults.cardColors(containerColor = Color.White),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-        border    = BorderStroke(1.dp, accentColor.copy(alpha = 0.08f))
+        border    = BorderStroke(1.dp, accentColor.copy(alpha = 0.12f))
     ) {
         Column(Modifier.padding(20.dp)) {
             Box(
                 modifier         = Modifier
-                    .size(48.dp)
-                    .clip(RoundedCornerShape(16.dp))
+                    .size(52.dp)
+                    .clip(RoundedCornerShape(18.dp))
                     .background(
                         Brush.linearGradient(
-                            listOf(accentColor.copy(alpha = 0.15f), accentColor.copy(alpha = 0.05f))
+                            listOf(accentColor.copy(alpha = 0.18f), accentColor.copy(alpha = 0.06f))
                         )
                     ),
                 contentAlignment = Alignment.Center
             ) { 
-                Text(icon, fontSize = 24.sp) 
+                Text(icon, fontSize = 26.sp) 
             }
             
-            Spacer(Modifier.height(16.dp))
+            Spacer(Modifier.height(18.dp))
             
             Text(
-                text = label, 
-                style = MaterialTheme.typography.labelMedium, 
+                text = label.uppercase(), 
+                style = MaterialTheme.typography.labelSmall, 
                 color = MidGray, 
-                fontWeight = FontWeight.Medium,
-                maxLines = 1
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 1.1.sp,
+                maxLines = 1,
+                softWrap = false,
+                overflow = TextOverflow.Ellipsis
             )
             
-            Spacer(Modifier.height(4.dp))
+            Spacer(Modifier.height(6.dp))
             
             Text(
                 text = value, 
-                style = MaterialTheme.typography.titleLarge, 
+                style = MaterialTheme.typography.headlineMedium, 
                 color = Charcoal, 
                 fontWeight = FontWeight.Black, 
                 maxLines = 1, 
@@ -387,11 +491,36 @@ fun StatCard(
                 Text(
                     text = it, 
                     style = MaterialTheme.typography.labelSmall, 
-                    color = accentColor.copy(alpha = 0.7f), 
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.padding(top = 6.dp)
+                    color = accentColor.copy(alpha = 0.85f), 
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier
+                        .padding(top = 8.dp)
+                        .background(accentColor.copy(alpha = 0.05f), RoundedCornerShape(8.dp))
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
                 )
             }
+        }
+    }
+}
+
+/**
+ * A modern, glassy card for primary dashboard sections.
+ */
+@Composable
+fun GlassCard(
+    modifier: Modifier = Modifier,
+    accentColor: Color = Forest,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(32.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        border = BorderStroke(1.5.dp, Brush.verticalGradient(listOf(accentColor.copy(0.15f), accentColor.copy(0.02f)))),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+    ) {
+        Column(modifier = Modifier.padding(24.dp)) {
+            content()
         }
     }
 }
@@ -422,31 +551,37 @@ fun SanibonaniButton(
     isLoading      : Boolean  = false,
     containerColor : Color    = Forest,
     contentColor   : Color    = Color.White,
-    textStyle      : androidx.compose.ui.text.TextStyle = MaterialTheme.typography.labelLarge
+    textStyle      : androidx.compose.ui.text.TextStyle = MaterialTheme.typography.titleMedium
 ) {
-    val alpha = if (enabled) 1f else 0.6f
+    val alpha = if (enabled) 1f else 0.5f
     Button(
         onClick  = onClick,
-        modifier = modifier.height(52.dp).alpha(alpha),
+        modifier = modifier
+            .height(56.dp)
+            .alpha(alpha),
         enabled  = enabled && !isLoading,
-        shape    = RoundedCornerShape(16.dp),
+        shape    = RoundedCornerShape(20.dp),
         colors   = ButtonDefaults.buttonColors(
             containerColor   = containerColor,
             contentColor     = contentColor
         ),
-        elevation = ButtonDefaults.buttonElevation(defaultElevation = 2.dp, pressedElevation = 0.dp)
+        elevation = ButtonDefaults.buttonElevation(
+            defaultElevation = 6.dp, 
+            pressedElevation = 2.dp,
+            disabledElevation = 0.dp
+        )
     ) {
         if (isLoading) {
             CircularProgressIndicator(
                 modifier = Modifier.size(24.dp),
                 color = contentColor,
-                strokeWidth = 2.5.dp
+                strokeWidth = 3.dp
             )
         } else {
             Text(
                 text = text,
                 style = textStyle,
-                fontWeight = FontWeight.Black,
+                fontWeight = FontWeight.ExtraBold,
                 letterSpacing = 0.5.sp,
                 maxLines = 1,
                 softWrap = false,
@@ -601,7 +736,10 @@ fun SanibonaniTopBar(
                 text = title,
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
-                color = Forest
+                color = Forest,
+                maxLines = 1,
+                softWrap = false,
+                overflow = TextOverflow.Ellipsis
             )
         },
         navigationIcon = {
@@ -711,6 +849,59 @@ fun SectionHeader(title: String, modifier: Modifier = Modifier) {
 }
 
 @Composable
+fun GlobalErrorBanner(
+    message: String,
+    onDismiss: () -> Unit,
+    isCritical: Boolean = false,
+    actionLabel: String? = null,
+    onAction: (() -> Unit)? = null
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(16.dp)
+            .zIndex(100f),
+        color = if (isCritical) MaterialTheme.colorScheme.errorContainer else Gold.copy(alpha = 0.9f),
+        shape = RoundedCornerShape(12.dp),
+        shadowElevation = 8.dp
+    ) {
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Icon(
+                imageVector = if (isCritical) Icons.Default.Error else Icons.Default.Warning,
+                contentDescription = null,
+                tint = if (isCritical) MaterialTheme.colorScheme.error else Forest
+            )
+            
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = message,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = if (isCritical) MaterialTheme.colorScheme.onErrorContainer else Forest
+                )
+                
+                if (actionLabel != null && onAction != null) {
+                    TextButton(onClick = onAction) {
+                        Text(actionLabel, color = if (isCritical) MaterialTheme.colorScheme.error else Forest, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+            
+            IconButton(onClick = onDismiss) {
+                Icon(
+                    imageVector = Icons.Default.Close,
+                    contentDescription = "Dismiss",
+                    tint = if (isCritical) MaterialTheme.colorScheme.error else Forest
+                )
+            }
+        }
+    }
+}
+
+@Composable
 fun GroupCardShimmer() {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -800,18 +991,55 @@ fun SectionTitle(title: String, subtitle: String? = null) {
 fun InfoRow(label: String, value: String) {
     Row(
         modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-        horizontalArrangement = Arrangement.SpaceBetween
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(label, style = MaterialTheme.typography.bodyMedium, color = MidGray)
-        Text(value, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, color = Charcoal)
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MidGray,
+            modifier = Modifier.weight(1f)
+        )
+        Spacer(Modifier.width(8.dp))
+        Text(
+            text = value,
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.Bold,
+            color = Charcoal,
+            textAlign = TextAlign.End
+        )
     }
 }
 
 @Composable
-fun DetailRow(label: String, value: String) {
-    Row(Modifier.fillMaxWidth().padding(vertical = 2.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-        Text(label, style = MaterialTheme.typography.bodySmall, color = MidGray)
-        Text(value, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
+fun DetailRow(label: String, value: String, isProtected: Boolean = false) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodySmall,
+            color = if (isProtected) Forest else MidGray,
+            modifier = Modifier.weight(1f)
+        )
+        Spacer(Modifier.width(8.dp))
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = value,
+                style = MaterialTheme.typography.bodySmall,
+                fontWeight = FontWeight.Bold,
+                color = Charcoal,
+                textAlign = TextAlign.End
+            )
+            if (isProtected) {
+                Text("🔒", fontSize = 12.sp)
+            }
+        }
     }
 }
 
@@ -841,45 +1069,52 @@ fun ModernNavigationLink(
     Surface(
         onClick = onClick,
         modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(22.dp),
         color = containerColor,
-        border = BorderStroke(1.dp, accentColor.copy(alpha = 0.05f)),
-        shadowElevation = 0.dp
+        border = BorderStroke(1.dp, accentColor.copy(alpha = 0.08f)),
+        shadowElevation = 2.dp,
+        tonalElevation = 1.dp
     ) {
         Row(
-            modifier = Modifier.padding(16.dp),
+            modifier = Modifier.padding(20.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             if (icon != null) {
                 Box(
                     modifier = Modifier
-                        .size(40.dp)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(accentColor.copy(alpha = 0.08f)),
+                        .size(44.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(accentColor.copy(alpha = 0.1f)),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         imageVector = icon,
                         contentDescription = null,
                         tint = accentColor,
-                        modifier = Modifier.size(20.dp)
+                        modifier = Modifier.size(22.dp)
                     )
                 }
-                Spacer(Modifier.width(16.dp))
+                Spacer(Modifier.width(18.dp))
             }
 
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = title,
-                    style = MaterialTheme.typography.bodyLarge,
-                    fontWeight = FontWeight.Bold,
-                    color = contentColor
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = contentColor,
+                    maxLines = 1,
+                    softWrap = false,
+                    overflow = TextOverflow.Ellipsis
                 )
                 if (subtitle != null) {
                     Text(
                         text = subtitle,
                         style = MaterialTheme.typography.bodySmall,
-                        color = MidGray
+                        color = MidGray,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        lineHeight = 16.sp
                     )
                 }
             }
@@ -1326,10 +1561,11 @@ fun SaOsmMap(
         }
     }
 
-    // Initialize OSMDroid configuration
+    // Initialize OSMDroid configuration using application context to prevent activity leaks
     LaunchedEffect(Unit) {
-        Configuration.getInstance().load(context, PreferenceManager.getDefaultSharedPreferences(context))
-        Configuration.getInstance().userAgentValue = context.packageName
+        val appContext = context.applicationContext
+        Configuration.getInstance().load(appContext, PreferenceManager.getDefaultSharedPreferences(appContext))
+        Configuration.getInstance().userAgentValue = appContext.packageName
     }
 
     val mapView = remember {
@@ -1350,14 +1586,17 @@ fun SaOsmMap(
         }
     }
 
-    // Pre-compute grouped locations on a background thread to avoid blocking the main thread
+    // Pre-compute grouped locations on a background thread
     var groupedLocationsState by remember { mutableStateOf<Map<String, List<Triple<Double, Double, Group>>>>(emptyMap()) }
     var shouldCenterMap by remember { mutableStateOf(false) }
     var avgLat by remember { mutableStateOf(0.0) }
     var avgLon by remember { mutableStateOf(0.0) }
     var centerZoom by remember { mutableStateOf(10.0) }
 
-    // Compute grouped locations asynchronously to avoid UI thread blocking
+    // Use a Ref to keep track of the MapView without re-triggering composition
+    val mapViewRef = remember { mutableStateOf<MapView?>(null) }
+
+    // Compute grouped locations asynchronously
     LaunchedEffect(markerEntries) {
         if (markerEntries.isEmpty()) {
             groupedLocationsState = emptyMap()
@@ -1384,26 +1623,36 @@ fun SaOsmMap(
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
-                Lifecycle.Event.ON_RESUME -> mapView.onResume()
-                Lifecycle.Event.ON_PAUSE  -> mapView.onPause()
+                Lifecycle.Event.ON_RESUME -> mapViewRef.value?.onResume()
+                Lifecycle.Event.ON_PAUSE  -> mapViewRef.value?.onPause()
                 else -> {}
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose {
             lifecycleOwner.lifecycle.removeObserver(observer)
-            mapView.onDetach()
+            mapViewRef.value?.onDetach()
+            mapViewRef.value = null
         }
     }
 
     Box(modifier = modifier) {
         AndroidView(
             modifier = Modifier.fillMaxSize(),
-            factory  = { mapView },
+            factory  = { ctx ->
+                MapView(ctx).apply {
+                    setTileSource(TileSourceFactory.MAPNIK)
+                    setMultiTouchControls(true)
+                    controller.setZoom(5.3)
+                    controller.setCenter(GeoPoint(-29.0, 24.0))
+                    mapViewRef.value = this
+                }
+            },
             update = { }
         )
 
-        LaunchedEffect(markerEntries, userLocation, autoCenterOnGroups) {
+        LaunchedEffect(groupedLocationsState, userLocation, autoCenterOnGroups) {
+            val mapView = mapViewRef.value ?: return@LaunchedEffect
             mapView.post {
                 mapView.overlays.clear()
 
@@ -1550,7 +1799,7 @@ fun FileViewerDialog(
     headers: Map<String, String>,
     onDismiss: () -> Unit
 ) {
-    val context = LocalContext.current
+    LocalContext.current
     val isPdf = url.substringAfterLast(".", "").substringBefore("?").lowercase() == "pdf"
     
     Dialog(
@@ -1806,7 +2055,14 @@ fun LogoutButton(
                     Icon(Icons.AutoMirrored.Filled.ExitToApp, null, tint = ErrorRed, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(8.dp))
                 }
-                Text("Log out", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                Text(
+                    text = "Log out",
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    softWrap = false,
+                    overflow = TextOverflow.Ellipsis
+                )
             }
         }
         LogoutButtonStyle.MenuItem -> {

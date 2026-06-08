@@ -1,0 +1,9 @@
+-- ─────────────────────────────────────────────────────────────
+-- SanibonaniSave — Canonical schema pointer
+-- Source of truth: supabase/rebuild_kit_v4/ (run scripts in README order)
+-- App column projections: data/.../PostgrestColumns.kt
+-- Brownfield member columns: supabase/migrations/20260529120000_align_members_app_columns.sql
+-- ─────────────────────────────────────────────────────────────
+--
+-- Do NOT use legacy CONSOLIDATED_MINIMAL / SCHEMA_FULL_RESET for new environments.
+-- Regenerate inlined bundles with: scripts/regenerate_sql_from_rebuild_kit_v4.ps1

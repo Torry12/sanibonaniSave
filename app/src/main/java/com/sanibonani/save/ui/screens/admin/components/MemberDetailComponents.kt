@@ -20,7 +20,7 @@ import com.sanibonani.save.ui.theme.*
 @Composable
 fun DocumentAdminCard(
     label: String,
-    url: String,
+    url: String?,
     status: DocumentStatus,
     onVerify: (Boolean) -> Unit,
     onDownload: (String, String) -> Unit
@@ -41,8 +41,10 @@ fun DocumentAdminCard(
             }
             
             Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = { onDownload(url, label) }) {
-                    Icon(Icons.Default.Download, "Download", tint = Forest)
+                if (url != null) {
+                    IconButton(onClick = { onDownload(url, label) }) {
+                        Icon(Icons.Default.Download, "Download", tint = Forest)
+                    }
                 }
                 
                 if (status == DocumentStatus.PENDING) {

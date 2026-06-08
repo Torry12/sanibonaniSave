@@ -20,8 +20,15 @@ BEGIN
     TRUNCATE TABLE public.payments CASCADE;
     TRUNCATE TABLE public.contributions CASCADE;
     TRUNCATE TABLE public.loans CASCADE;
+    TRUNCATE TABLE public.loan_repayments CASCADE;
     TRUNCATE TABLE public.beneficiary_payout_claims CASCADE;
     TRUNCATE TABLE public.beneficiaries CASCADE;
+    TRUNCATE TABLE public.member_documents CASCADE;
+    TRUNCATE TABLE public.notifications CASCADE;
+    TRUNCATE TABLE public.group_poll_options CASCADE;
+    TRUNCATE TABLE public.group_polls CASCADE;
+    TRUNCATE TABLE public.policies CASCADE;
+    TRUNCATE TABLE public.platform_fees CASCADE;
     TRUNCATE TABLE public.members CASCADE;
     TRUNCATE TABLE public.groups CASCADE;
     TRUNCATE TABLE public.profiles CASCADE;

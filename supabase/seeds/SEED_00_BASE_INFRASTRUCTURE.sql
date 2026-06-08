@@ -48,5 +48,14 @@ BEGIN
     ('late_fee_standard', 50.0)
     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value;
 
+    -- 4. Minimal platform-level seed for notifications and documents
+    INSERT INTO public.notifications (id, group_id, member_id, message, channel, trigger_event, created_at)
+    VALUES (gen_random_uuid(), NULL, v_admin_id, 'SEED00: Platform admin notification', 'both', 'seed', now())
+    ON CONFLICT (id) DO NOTHING;
+
+    INSERT INTO public.member_documents (id, member_id, group_id, label, document_url, document_type, status, created_at, updated_at)
+    VALUES (gen_random_uuid(), v_admin_id, NULL, 'SEED00_ADMIN_DOC', 'https://example.com/admin_doc.pdf', 'id_card', 'verified', now(), now())
+    ON CONFLICT (id) DO NOTHING;
+
     RAISE NOTICE 'Base infrastructure seeded successfully.';
 END $$;

@@ -5,10 +5,12 @@ import com.sanibonani.save.domain.model.BeneficiaryClaimStatus
 import com.sanibonani.save.domain.model.BeneficiaryPayoutClaim
 import com.sanibonani.save.domain.repository.BeneficiaryClaimRepository
 import io.github.jan.supabase.SupabaseClient
+import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.postgrest.query.Columns
 import com.sanibonani.save.data.utils.logAndGetMessage
 import kotlinx.coroutines.flow.Flow
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import java.time.OffsetDateTime
@@ -141,11 +143,12 @@ class BeneficiaryClaimRepositoryImpl @Inject constructor(
         notes: String?
     ): Result<Unit> = retryWithExponentialBackoff {
         runCatching {
-            val rpcParams = buildJsonObject {
-                put("p_claim_id", claimId)
-                put("p_admin_id", adminId)
-                notes?.let { put("p_notes", it) }
-            }
+            val rpcParams = buildPayClaimRpcParams(
+                claimId = claimId,
+                adminId = adminId,
+                fallbackAdminId = supabase.auth.currentUserOrNull()?.id,
+                notes = notes
+            )
             supabase.postgrest.rpc("pay_burial_claim_v1", rpcParams)
 
             // Refresh local cache for this claim
@@ -187,6 +190,27 @@ class BeneficiaryClaimRepositoryImpl @Inject constructor(
             db.beneficiaryClaimDao().upsertClaim(claim.toEntity())
             claim
         }
+    }
+
+    companion object {
+        private val UUID_REGEX = Regex(
+            "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+        )
+
+        internal fun buildPayClaimRpcParams(
+            claimId: String,
+            adminId: String,
+            fallbackAdminId: String?,
+            notes: String?
+        ): JsonObject = buildJsonObject {
+            put("p_claim_id", claimId)
+            val safeAdminId = adminId.takeIf { it.isValidUuid() }
+                ?: fallbackAdminId?.takeIf { it.isValidUuid() }
+            safeAdminId?.let { put("p_admin_id", it) }
+            notes?.let { put("p_notes", it) }
+        }
+
+        private fun String.isValidUuid(): Boolean = UUID_REGEX.matches(trim())
     }
 }
 

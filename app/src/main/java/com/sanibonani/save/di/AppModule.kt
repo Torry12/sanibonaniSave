@@ -5,6 +5,11 @@ import androidx.room.Room
 import com.sanibonani.save.BuildConfig
 import com.sanibonani.save.data.local.ALL_MIGRATIONS
 import com.sanibonani.save.data.local.SanibonaniDatabase
+import com.sanibonani.save.data.sync.RealtimeSyncManager
+import com.sanibonani.save.domain.architecture.policy.InMemoryPolicyRouter
+import com.sanibonani.save.domain.architecture.policy.PolicyRouter
+import com.sanibonani.save.domain.architecture.policy.LargeAmountDualApprovalRule
+import com.sanibonani.save.domain.architecture.policy.SuspendedGroupBlockRule
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -144,4 +149,15 @@ object AppModule {
     @Provides
     @Singleton
     fun provideMemberDocumentDao(db: SanibonaniDatabase): com.sanibonani.save.data.local.MemberDocumentDao = db.memberDocumentDao()
+
+    @Provides
+    @Singleton
+    fun providePolicyRouter(): PolicyRouter {
+        return InMemoryPolicyRouter(
+            rules = listOf(
+                LargeAmountDualApprovalRule(threshold = 5000.0),
+                SuspendedGroupBlockRule()
+            )
+        )
+    }
 }

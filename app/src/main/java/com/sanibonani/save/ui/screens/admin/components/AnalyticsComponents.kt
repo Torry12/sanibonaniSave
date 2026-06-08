@@ -9,7 +9,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.sanibonani.save.domain.model.actuarial.GroupFinancialInsight
+import com.sanibonani.save.domain.model.GroupFinancialInsight
 
 @Composable
 fun FullInsightWidget(insight: GroupFinancialInsight) {

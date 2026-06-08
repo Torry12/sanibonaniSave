@@ -23,8 +23,8 @@ import com.sanibonani.save.viewmodel.PlatformAdminUiState
 import com.sanibonani.save.viewmodel.PlatformAdminViewModel
 import com.sanibonani.save.ui.screens.admin.components.ProvinceHeaderCard
 import com.sanibonani.save.ui.screens.admin.components.MetricRow
-import com.sanibonani.save.ui.utils.backgroundColor
-import com.sanibonani.save.ui.utils.label
+import com.sanibonani.save.ui.components.backgroundColor
+import com.sanibonani.save.ui.components.label
 
 @Composable
 fun AllGroupsTab(
@@ -75,7 +75,7 @@ fun AllGroupsTab(
                             province = province,
                             count = provinceGroups.size,
                             isExpanded = expandedProvinces[province] == true,
-                            onToggle = { expandedProvinces[province] = !(expandedProvinces[province] ?: false) }
+                            onClick = { expandedProvinces[province] = !(expandedProvinces[province] ?: false) }
                         )
                     }
 

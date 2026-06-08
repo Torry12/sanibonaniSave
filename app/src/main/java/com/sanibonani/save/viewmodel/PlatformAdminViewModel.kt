@@ -78,7 +78,11 @@ data class PlatformAdminUiState(
     val whatsAppTestResult: String? = null,
     val auditLogs: List<AuditLog> = emptyList(),
     val isLoadingAuditLogs: Boolean = false,
-    val platformLedger: List<LedgerEntry> = emptyList()
+    val platformLedger: List<LedgerEntry> = emptyList(),
+    val selectedLedgerEntry: LedgerEntry? = null,
+    val isExporting: Boolean = false,
+    val exportFile: java.io.File? = null,
+    val totalRevenueShare: Double = 0.0
 )
 
 /**
@@ -98,7 +102,8 @@ class PlatformAdminViewModel @Inject constructor(
     private val notifRepo: NotificationRepository,
     private val supabaseRepo: SupabaseRepository,
     private val platformConfigRepository: PlatformConfigRepository,
-    private val calculateGroupHealthScoreUseCase: CalculateGroupHealthScoreUseCase
+    private val calculateGroupHealthScoreUseCase: CalculateGroupHealthScoreUseCase,
+    private val exportRepo: ExportRepository
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(PlatformAdminUiState())
@@ -106,15 +111,44 @@ class PlatformAdminViewModel @Inject constructor(
     
     private var lastLoadedConfig: PlatformConfig = PlatformConfig()
     private var loanRequestsJob: Job? = null
+    private var loadDataJob: Job? = null
+    private var loadSettingsJob: Job? = null
+    private var auditLogsJob: Job? = null
+    private var escalatedClaimsJob: Job? = null
+    private var impersonationMembersJob: Job? = null
+    private var impersonationRequestVersion: Long = 0L
+
+    private val isActive = MutableStateFlow(false)
 
     init {
-        loadData()
-        loadSettings()
-        observeEscalatedClaims()
+        viewModelScope.launch {
+            combine(supabaseRepo.sessionFlow, isActive) { session, active ->
+                session != null && active
+            }.collect { shouldObserve ->
+                if (shouldObserve) {
+                    loadData()
+                    loadSettings()
+                    observeEscalatedClaims()
+                } else {
+                    loanRequestsJob?.cancel()
+                    loadDataJob?.cancel()
+                    loadSettingsJob?.cancel()
+                    auditLogsJob?.cancel()
+                    escalatedClaimsJob?.cancel()
+                    impersonationMembersJob?.cancel()
+                }
+            }
+        }
+    }
+
+    fun setActive(active: Boolean) {
+        com.sanibonani.save.data.logging.AppLogger.d("PlatformAdminVM", "[Lifecycle] setActive: $active")
+        isActive.value = active
     }
 
     private fun observeEscalatedClaims() {
-        claimRepo.observeEscalatedClaims().onEach { result ->
+        escalatedClaimsJob?.cancel()
+        escalatedClaimsJob = claimRepo.observeEscalatedClaims().onEach { result ->
             result.onSuccess { claims ->
                 _state.update { it.copy(escalatedClaims = claims) }
             }.onFailure { e ->
@@ -124,7 +158,8 @@ class PlatformAdminViewModel @Inject constructor(
     }
 
     fun loadData() {
-        viewModelScope.launch {
+        loadDataJob?.cancel()
+        loadDataJob = viewModelScope.launch {
             AppAnalytics.track(AnalyticsTaxonomy.Events.PLATFORM_DASHBOARD_LOAD_STARTED)
             _state.update { it.copy(isLoading = true, error = null) }
             
@@ -144,16 +179,25 @@ class PlatformAdminViewModel @Inject constructor(
             val ledgerResult = ledgerDeferred.await()
 
             if (analyticsResult.isSuccess && groupsResult.isSuccess) {
+                val groups = groupsResult.getOrThrow()
+                val analytics = analyticsResult.getOrThrow()
+                
+                // Calculate Revenue Share: sum of platform fees from all groups
+                // We define "Rev Share" as the projected monthly income from all active members
+                val monthlyFee = platformConfigRepository.current().monthlyMemberFee
+                val projectedRevenue = groups.sumOf { it.currentMembers * monthlyFee }
+                
                 _state.update { it.copy(
-                    analytics = analyticsResult.getOrThrow(),
-                    groups = groupsResult.getOrThrow(),
+                    analytics = analytics,
+                    groups = groups,
                     payments = paymentsResult.getOrDefault(emptyList()),
                     payouts = payoutsResult.getOrDefault(emptyList()),
                     auditLogs = auditResult.getOrDefault(emptyList()),
                     platformLedger = ledgerResult.getOrDefault(emptyList()),
-                    isLoading = false
+                    isLoading = false,
+                    totalRevenueShare = projectedRevenue
                 ) }
-                loadLoanRequests(groupsResult.getOrThrow())
+                loadLoanRequests(groups)
                 AppAnalytics.track(AnalyticsTaxonomy.Events.PLATFORM_DASHBOARD_LOAD_SUCCESS)
             } else {
                 val error = (analyticsResult.exceptionOrNull() ?: groupsResult.exceptionOrNull())
@@ -169,7 +213,8 @@ class PlatformAdminViewModel @Inject constructor(
     }
 
     private fun loadSettings() {
-        viewModelScope.launch {
+        loadSettingsJob?.cancel()
+        loadSettingsJob = viewModelScope.launch {
             platformRepo.getPlatformSettings()
                 .onSuccess { settings ->
                     val mCharge = settings["monthly_member_fee"] ?: settings["monthly_per_member"] ?: 10.0
@@ -455,6 +500,31 @@ class PlatformAdminViewModel @Inject constructor(
         }
     }
 
+    fun disburseLoan(loan: Loan) {
+        val loanId = loan.id
+        if (loanId.isNullOrBlank()) {
+            _state.update { it.copy(error = "This loan is missing an identifier.") }
+            return
+        }
+        viewModelScope.launch {
+            _state.update { it.copy(isProcessingLoanRequest = true, error = null) }
+            loanRepo.disburseLoan(loanId, PaymentMethod.BANK)
+                .onSuccess {
+                    logAudit(
+                        action = "PLATFORM_DISBURSE_LOAN",
+                        targetMemberId = loan.memberId,
+                        targetGroupId = loan.groupId,
+                        details = mapOf("loanId" to loanId, "amount" to loan.amount)
+                    )
+                    _state.update { it.copy(isProcessingLoanRequest = false, saveSuccess = true) }
+                    loadLoanRequests(_state.value.groups)
+                }
+                .onFailure { e ->
+                    _state.update { it.copy(isProcessingLoanRequest = false, error = e.toUserMessage()) }
+                }
+        }
+    }
+
     fun rejectLoanRequest(loan: Loan, reason: String) {
         if (reason.isBlank()) {
             _state.update { it.copy(error = "Please provide a reason before rejecting this loan request.") }
@@ -500,6 +570,7 @@ class PlatformAdminViewModel @Inject constructor(
 
         _state.update { it.copy(isLoadingLoanRequests = true) }
 
+        // 1. Fetch only pending/active loans for each group (avoiding full sync where possible)
         val grouped = groups.map { group ->
             async {
                 val groupId = group.id?.takeIf(String::isNotBlank) ?: return@async null
@@ -521,68 +592,27 @@ class PlatformAdminViewModel @Inject constructor(
             }
         }.awaitAll().filterNotNull().toMap()
 
-        val memberNameById = grouped.keys
-            .map { groupId ->
-                async {
-                    runCatching {
-                        memberRepo.syncGroupMembers(groupId).getOrElse { emptyList() }
-                    }.getOrElse { emptyList() }
-                }
-            }.awaitAll()
-            .flatten()
-            .mapNotNull { member ->
-                val memberId = member.id ?: return@mapNotNull null
-                memberId to member.fullName
-            }
-            .toMap()
-
-        val allLoans = grouped.values.flatten()
-        val localInsights = allLoans
-            .groupBy { it.memberId }
-            .map { (memberId, loans) ->
-                val totalRequests = loans.size
-                val pending = loans.count { it.status == LoanStatus.PENDING }
-                val overdue = loans.count { it.status == LoanStatus.OVERDUE }
-                val completed = loans.count { it.status == LoanStatus.COMPLETED }
-                val totalRequested = loans.sumOf { it.amount }
-                val outstanding = loans.sumOf { it.balanceRemaining }
-                val completion = if (totalRequests == 0) 0.0 else completed.toDouble() / totalRequests.toDouble()
-                val riskBand = when {
-                    overdue > 0 -> "High"
-                    pending >= 2 || outstanding > 20000.0 -> "Elevated"
-                    completion >= 0.5 -> "Stable"
-                    else -> "Watch"
-                }
-
-                MemberBehaviorInsight(
-                    memberId = memberId,
-                    memberName = memberNameById[memberId] ?: "Member ${memberId.take(8)}",
-                    groupId = loans.firstOrNull()?.groupId.orEmpty(),
-                    totalLoanRequests = totalRequests,
-                    pendingRequests = pending,
-                    overdueLoans = overdue,
-                    totalRequestedAmount = totalRequested,
-                    outstandingAmount = outstanding,
-                    completionRatio = completion,
-                    riskBand = riskBand
-                )
-            }
-            .sortedWith(
-                compareByDescending<MemberBehaviorInsight> { it.overdueLoans }
-                    .thenByDescending { it.outstandingAmount }
-                    .thenByDescending { it.pendingRequests }
-            )
-
+        // 2. Fetch server-side behavior insights (Pre-calculated by DB to avoid OOM)
         val serverInsights = platformRepo.getMemberBehaviorInsights().getOrElse { emptyList() }
-        val insights = serverInsights.ifEmpty { localInsights }
+        
+        // 3. Resolve names for the specific members with active loans only
+        val activeMemberIds = (grouped.values.flatten().map { it.memberId } + serverInsights.take(20).map { it.memberId }).distinct()
+        val memberNameById = activeMemberIds.map { mid ->
+            async {
+                runCatching {
+                    memberRepo.getMemberById(mid).getOrNull()?.let { mid to it.fullName }
+                }.getOrNull()
+            }
+        }.awaitAll().filterNotNull().toMap()
+
         val selectedRiskFilter = _state.value.selectedRiskFilter
 
         _state.update {
             it.copy(
                 loanRequestsByGroup = grouped,
                 loanMemberNames = memberNameById,
-                memberBehaviorInsights = insights,
-                filteredMemberBehaviorInsights = applyRiskFilter(insights, selectedRiskFilter),
+                memberBehaviorInsights = serverInsights,
+                filteredMemberBehaviorInsights = applyRiskFilter(serverInsights, selectedRiskFilter),
                 isLoadingLoanRequests = false
             )
         }
@@ -599,7 +629,10 @@ class PlatformAdminViewModel @Inject constructor(
     }
 
     fun selectImpersonationGroup(groupId: String, forceReload: Boolean = false) {
+        com.sanibonani.save.data.logging.AppLogger.d("PlatformAdminVM", "[Impersonation] selectImpersonationGroup: $groupId, forceReload: $forceReload")
         if (groupId.isBlank()) {
+            impersonationMembersJob?.cancel()
+            impersonationRequestVersion++
             _state.update {
                 it.copy(
                     impersonationGroupId = null,
@@ -610,11 +643,17 @@ class PlatformAdminViewModel @Inject constructor(
             return
         }
 
-        if (!forceReload && _state.value.impersonationGroupId == groupId && _state.value.impersonationMembers.isNotEmpty()) {
+        if (!forceReload &&
+            _state.value.impersonationGroupId == groupId &&
+            _state.value.impersonationMembers.isNotEmpty() &&
+            !_state.value.isLoadingImpersonationMembers
+        ) {
             return
         }
 
-        viewModelScope.launch {
+        val requestVersion = ++impersonationRequestVersion
+        impersonationMembersJob?.cancel()
+        impersonationMembersJob = viewModelScope.launch {
             _state.update {
                 it.copy(
                     impersonationGroupId = groupId,
@@ -626,6 +665,11 @@ class PlatformAdminViewModel @Inject constructor(
 
             memberRepo.syncGroupMembers(groupId)
                 .onSuccess { members ->
+                    if (requestVersion != impersonationRequestVersion ||
+                        _state.value.impersonationGroupId != groupId
+                    ) {
+                        return@onSuccess
+                    }
                     _state.update {
                         it.copy(
                             impersonationMembers = members,
@@ -634,6 +678,11 @@ class PlatformAdminViewModel @Inject constructor(
                     }
                 }
                 .onFailure { e ->
+                    if (requestVersion != impersonationRequestVersion ||
+                        _state.value.impersonationGroupId != groupId
+                    ) {
+                        return@onFailure
+                    }
                     _state.update {
                         it.copy(
                             impersonationMembers = emptyList(),
@@ -646,6 +695,8 @@ class PlatformAdminViewModel @Inject constructor(
     }
 
     fun refreshMaintenanceData() {
+        impersonationMembersJob?.cancel()
+        impersonationRequestVersion++
         _state.update {
             it.copy(
                 saveSuccess = false,
@@ -656,7 +707,8 @@ class PlatformAdminViewModel @Inject constructor(
                 isLoadingAuditLogs = true
             )
         }
-        viewModelScope.launch {
+        auditLogsJob?.cancel()
+        auditLogsJob = viewModelScope.launch {
             val auditResult = platformRepo.getAuditLogs(50)
             _state.update { it.copy(
                 auditLogs = auditResult.getOrDefault(emptyList()),
@@ -668,10 +720,14 @@ class PlatformAdminViewModel @Inject constructor(
     }
 
     fun resetLocalData() {
+        com.sanibonani.save.data.logging.AppLogger.d("PlatformAdminVM", "[Maintenance] resetLocalData triggered")
+        impersonationMembersJob?.cancel()
+        impersonationRequestVersion++
         viewModelScope.launch {
             _state.update { it.copy(isLoading = true, saveSuccess = false, error = null) }
             runCatching { supabaseRepo.resetLocalCache() }
                 .onSuccess {
+                    com.sanibonani.save.data.logging.AppLogger.d("PlatformAdminVM", "[Maintenance] resetLocalCache success")
                     _state.update {
                         it.copy(
                             isLoading = false,
@@ -708,6 +764,11 @@ class PlatformAdminViewModel @Inject constructor(
     }
 
     private fun processPayout(payoutId: String, groupId: String, status: PayoutStatus) {
+        val adminId = supabaseRepo.currentUserId
+        if (adminId.isNullOrBlank()) {
+            _state.update { it.copy(error = "Your session has expired. Please log in again.") }
+            return
+        }
         viewModelScope.launch {
             _state.update { it.copy(isProcessingPayout = true) }
             AppAnalytics.track(
@@ -718,7 +779,7 @@ class PlatformAdminViewModel @Inject constructor(
                     AnalyticsTaxonomy.Params.STATUS to status.name.lowercase()
                 )
             )
-            processPayoutUseCase(payoutId, groupId, status)
+            processPayoutUseCase(payoutId, groupId, status, adminId)
                 .onSuccess {
                     _state.update { it.copy(isProcessingPayout = false) }
                     AppAnalytics.track(
@@ -895,6 +956,7 @@ class PlatformAdminViewModel @Inject constructor(
     fun sendDirectWhatsAppTest() {
         val rawPhone = _state.value.whatsAppTestPhone
         val digitsOnly = rawPhone.filter(Char::isDigit)
+        com.sanibonani.save.data.logging.AppLogger.d("PlatformAdminVM", "[WhatsApp] sendDirectWhatsAppTest to: $digitsOnly")
         if (!isValidSouthAfricanWhatsAppNumber(digitsOnly)) {
             _state.update {
                 it.copy(error = "Enter a valid South African WhatsApp number, for example 0713459563 or 27713459563.")
@@ -944,5 +1006,48 @@ class PlatformAdminViewModel @Inject constructor(
 
     fun clearBroadcastSuccess() {
         _state.update { it.copy(broadcastSuccess = false) }
+    }
+
+    fun selectLedgerEntry(entry: LedgerEntry?) {
+        _state.update { it.copy(selectedLedgerEntry = entry) }
+    }
+
+    fun exportPlatformLedger(pdf: Boolean) {
+        val entries = state.value.platformLedger
+        if (entries.isEmpty()) {
+            _state.update { it.copy(error = "No ledger entries to export.") }
+            return
+        }
+
+        viewModelScope.launch {
+            _state.update { it.copy(isExporting = true, error = null) }
+            val group = Group(name = "Sanibonani Platform")
+            val result = if (pdf) {
+                exportRepo.exportLedgerToPdf(group, entries)
+            } else {
+                exportRepo.exportLedgerToCsv(group, entries)
+            }
+
+            result.onSuccess { file ->
+                _state.update { it.copy(isExporting = false, exportFile = file) }
+            }.onFailure { e ->
+                _state.update { it.copy(isExporting = false, error = e.toUserMessage()) }
+            }
+        }
+    }
+
+    fun clearExportFile() {
+        _state.update { it.copy(exportFile = null) }
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        loanRequestsJob?.cancel()
+        loadDataJob?.cancel()
+        loadSettingsJob?.cancel()
+        auditLogsJob?.cancel()
+        escalatedClaimsJob?.cancel()
+        impersonationMembersJob?.cancel()
+        // No hard state reset here to prevent race conditions during fast navigation transitions.
     }
 }

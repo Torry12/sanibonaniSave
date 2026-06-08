@@ -380,6 +380,15 @@ deno_version = 2
 # [edge_runtime.secrets]
 # secret_key = "env(SECRET_VALUE)"
 
+[functions.send-whatsapp]
+verify_jwt = false
+
+[functions.yoco-webhook]
+verify_jwt = false
+
+[functions.architecture-read]
+verify_jwt = false
+
 [analytics]
 enabled = true
 port = 54327

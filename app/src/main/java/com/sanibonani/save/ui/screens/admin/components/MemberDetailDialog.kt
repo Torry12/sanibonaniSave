@@ -27,7 +27,7 @@ import coil.request.CachePolicy
 import coil.request.ImageRequest
 import com.sanibonani.save.BuildConfig
 import com.sanibonani.save.domain.model.*
-import com.sanibonani.save.domain.utils.PaymentCalculation
+import com.sanibonani.save.data.utils.PaymentCalculation
 import com.sanibonani.save.ui.components.*
 import com.sanibonani.save.ui.theme.*
 import com.sanibonani.save.viewmodel.AdminViewModel
@@ -360,122 +360,6 @@ fun MemberDetailDialog(
                         }
                     }
                 }
-            }
-        }
-    }
-}
-
-@Composable
-fun ClaimAdminCard(
-    claim: BeneficiaryPayoutClaim,
-    onVerify: (Boolean) -> Unit,
-    onEscalate: () -> Unit
-) {
-    Card(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-        colors = CardDefaults.cardColors(containerColor = Forest.copy(0.05f)),
-        border = BorderStroke(1.dp, Forest.copy(0.1f))
-    ) {
-        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
-                Column {
-                    Text(claim.beneficiaryName, fontWeight = FontWeight.Bold)
-                    // Note: actual relationship isn't in claim model but beneficiary name is
-                    Text("Burial Payout Claim", style = MaterialTheme.typography.labelSmall, color = Forest)
-                }
-                Surface(
-                    color = when(claim.status) {
-                        BeneficiaryClaimStatus.SUBMITTED -> MidGray
-                        BeneficiaryClaimStatus.UNDER_REVIEW -> InfoBlue
-                        BeneficiaryClaimStatus.ESCALATED -> ForestMid
-                        BeneficiaryClaimStatus.APPROVED -> Forest
-                        BeneficiaryClaimStatus.PAID -> Forest
-                        BeneficiaryClaimStatus.REJECTED -> ErrorRed
-                        else -> MidGray
-                    }.copy(0.1f),
-                    shape = RoundedCornerShape(16.dp)
-                ) {
-                    Text(
-                        claim.status.displayName,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                        color = when(claim.status) {
-                            BeneficiaryClaimStatus.SUBMITTED -> MidGray
-                            BeneficiaryClaimStatus.UNDER_REVIEW -> InfoBlue
-                            BeneficiaryClaimStatus.ESCALATED -> ForestMid
-                            BeneficiaryClaimStatus.APPROVED -> Forest
-                            BeneficiaryClaimStatus.PAID -> Forest
-                            BeneficiaryClaimStatus.REJECTED -> ErrorRed
-                            else -> MidGray
-                        },
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-            }
-            
-            DetailRow("Cause of Death", claim.causeOfDeath)
-            DetailRow("Date of Death", claim.dateOfDeath)
-            DetailRow("Claim Amount", formatZAR(claim.claimAmount))
-            
-            HorizontalDivider(color = Forest.copy(0.1f))
-            Text("Banking Details", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
-            DetailRow("Bank", claim.bankName)
-            DetailRow("Account", claim.accountNo)
-            DetailRow("Account Holder", claim.accountHolder)
-
-            if (claim.status == BeneficiaryClaimStatus.SUBMITTED) {
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(
-                        onClick = { onVerify(false) },
-                        modifier = Modifier.weight(1f),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = ErrorRed),
-                        border = BorderStroke(1.dp, ErrorRed)
-                    ) {
-                        Text("Reject", style = MaterialTheme.typography.labelSmall)
-                    }
-                    Button(
-                        onClick = { onVerify(true) },
-                        modifier = Modifier.weight(1f),
-                        colors = ButtonDefaults.buttonColors(containerColor = InfoBlue)
-                    ) {
-                        Text("Verify Details", style = MaterialTheme.typography.labelSmall)
-                    }
-                }
-            } else if (claim.status == BeneficiaryClaimStatus.UNDER_REVIEW) {
-                Button(
-                    onClick = onEscalate,
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = ButtonDefaults.buttonColors(containerColor = Forest)
-                ) {
-                    Text("Escalate to Platform", style = MaterialTheme.typography.labelSmall)
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun DocumentRow(label: String, status: DocumentStatus, onVerify: (Boolean) -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 8.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Column(Modifier.weight(1f)) {
-            Text(label, style = MaterialTheme.typography.bodyMedium)
-            Text(status.name, style = MaterialTheme.typography.labelSmall, color = when(status) {
-                DocumentStatus.VERIFIED -> Forest
-                DocumentStatus.REJECTED -> ErrorRed
-                else -> WarningYellow
-            })
-        }
-        
-        if (status == DocumentStatus.PENDING) {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                IconButton(onClick = { onVerify(false) }) { Icon(Icons.Default.Close, null, tint = ErrorRed) }
-                IconButton(onClick = { onVerify(true) }) { Icon(Icons.Default.Check, null, tint = Forest) }
             }
         }
     }

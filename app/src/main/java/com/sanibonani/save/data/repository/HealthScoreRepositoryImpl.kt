@@ -117,8 +117,8 @@ class HealthScoreRepositoryImpl @Inject constructor(
 
     private fun isExpired(expiresAt: String?): Boolean {
         if (expiresAt.isNullOrBlank()) return true
-        val expiry = runCatching { Instant.parse(expiresAt) }.getOrNull() ?: return true
-        return expiry < Clock.System.now()
+        val expiry = runCatching { java.time.Instant.parse(expiresAt) }.getOrNull() ?: return true
+        return expiry.isBefore(java.time.Instant.now())
     }
 
 }

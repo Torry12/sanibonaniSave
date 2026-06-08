@@ -78,7 +78,7 @@ class ProcessPaymentUseCaseTest {
             it.paymentType == PaymentType.JOINING_FEE && it.amount == amount 
         }) }
         coVerify { memberRepository.registerMember(member, any()) }
-        coVerify { notificationRepository.sendNotification(any()) }
+        // Notification is now handled by DomainEventDispatcher via recordPayment()
     }
 
     @Test
@@ -115,7 +115,7 @@ class ProcessPaymentUseCaseTest {
             it.type == "contribution" && it.amount == 190.0 && it.dueDate == calculation.nextDueDate
         }) }
         coVerify { memberRepository.recordContribution(match {
-            it.type == "member_fee_ledger" && it.amount == 10.0 && it.dueDate == calculation.nextDueDate
+            it.type == "member_fee" && it.amount == 10.0 && it.dueDate == calculation.nextDueDate
         }) }
     }
 

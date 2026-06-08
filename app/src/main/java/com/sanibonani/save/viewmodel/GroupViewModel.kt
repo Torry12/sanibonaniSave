@@ -144,9 +144,19 @@ class GroupViewModel @Inject constructor(
     private var loadGroupsJob: Job? = null
     private var geocodeBatchJob: Job? = null
     private var searchJob: Job? = null
+    private var detailJob: Job? = null
+    private val isActive = MutableStateFlow(false)
 
     init {
-        loadGroups()
+        viewModelScope.launch {
+            isActive.collect { active ->
+                if (active) {
+                    loadGroups()
+                } else {
+                    cancelAllJobs()
+                }
+            }
+        }
         
         // Auto-fill admin email if user is logged in
         viewModelScope.launch {
@@ -155,6 +165,10 @@ class GroupViewModel @Inject constructor(
                 _registerState.update { it.copy(adminEmail = email, isLoggedIn = true) }
             }
         }
+    }
+
+    fun setActive(active: Boolean) {
+        isActive.value = active
     }
 
     fun loadGroups() {
@@ -196,7 +210,6 @@ class GroupViewModel @Inject constructor(
         }
     }
 
-    private var detailJob: Job? = null
 
     fun loadGroup(id: String) {
         detailJob?.cancel()
@@ -412,8 +425,7 @@ class GroupViewModel @Inject constructor(
             }
 
             val group = buildGroupFromState(finalState).getOrElse { e ->
-                val message = e.message?.takeIf { it.isNotBlank() } ?: e.toUserMessage()
-                _registerState.update { it.copy(isSubmitting = false, error = message) }
+                _registerState.update { it.copy(isSubmitting = false, error = e.toUserMessage()) }
                 return@launch
             }
 
@@ -487,7 +499,7 @@ class GroupViewModel @Inject constructor(
             val groupId = snapshot.createdGroupId ?: run {
                 val group = buildGroupFromState(snapshot).getOrElse { e ->
                     _registerState.update {
-                        it.copy(isSubmitting = false, error = e.message?.takeIf(String::isNotBlank) ?: e.toUserMessage())
+                        it.copy(isSubmitting = false, error = e.toUserMessage())
                     }
                     return@launch
                 }
@@ -554,7 +566,7 @@ class GroupViewModel @Inject constructor(
             2 -> ValidationUtils.validateGroupStep2(s.province, s.city)
             3 -> ValidationUtils.validateGroupStep3(s.joiningFee, s.monthlyContribution, s.maxMembers)
             4 -> ValidationUtils.validateGroupStep4(s.bankName, s.accountNumber, s.branchCode)
-            5 -> if (s.constitutionUrl == null) ValidationResult.Error("Please upload your group constitution") else ValidationResult.Valid
+             5 -> if (s.constitutionUrl == null && !s.useStandardConstitution) ValidationResult.Error("Please upload your group constitution") else ValidationResult.Valid
             else -> ValidationResult.Valid
         }
 
@@ -653,5 +665,21 @@ class GroupViewModel @Inject constructor(
     fun resetNavigation() {
         pendingConstitutionUpload = null
         _registerState.update { it.copy(success = false, createdGroupId = null, pendingConstitutionName = null) }
+    }
+
+    private fun cancelAllJobs() {
+        loadGroupsJob?.cancel()
+        geocodeBatchJob?.cancel()
+        searchJob?.cancel()
+        detailJob?.cancel()
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        cancelAllJobs()
+        _listState.update { GroupListState() }
+        _detail.update { GroupDetailState() }
+        _registerState.update { RegisterGroupState() }
+        pendingConstitutionUpload = null
     }
 }

@@ -38,6 +38,8 @@ import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import com.sanibonani.save.data.logging.AppLogger
 import com.sanibonani.save.ui.utils.BiometricHelper
+import com.sanibonani.save.ui.utils.rememberClickDebouncer
+
 // ── Login Screen ──────────────────────────────────────────────────────────────
 @Composable
 fun LoginScreen(
@@ -48,6 +50,7 @@ fun LoginScreen(
 ) {
     val state by vm.state.collectAsState()
     val context = LocalContext.current
+    val clickDebouncer = rememberClickDebouncer()
 
     LaunchedEffect(state.isLoggedIn) {
         if (state.isLoggedIn) {
@@ -229,7 +232,7 @@ fun LoginScreen(
                     }
                     SanibonaniButton(
                         text     = if (state.isLoading) "Processing…" else "Log In",
-                        onClick  = { vm.signIn() },
+                        onClick  = { clickDebouncer.processClick { vm.signIn() } },
                         modifier = Modifier.fillMaxWidth(),
                         enabled  = !state.isLoading && state.email.isNotBlank() && state.password.isNotBlank()
                     )
@@ -309,7 +312,7 @@ fun LoginScreen(
                     }
 
                      TextButton(
-                         onClick = onForgotPassword, 
+                         onClick = { clickDebouncer.processClick(onForgotPassword) }, 
                          modifier = Modifier.align(Alignment.CenterHorizontally)
                      ) {
                          Text("Forgot password?", color = Forest, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
@@ -319,7 +322,7 @@ fun LoginScreen(
 
             Spacer(Modifier.height(32.dp))
             Surface(
-                onClick = onNavigateRegister,
+                onClick = { clickDebouncer.processClick(onNavigateRegister) },
                 color = Forest.copy(alpha = 0.08f),
                 shape = CircleShape
             ) {
@@ -345,6 +348,7 @@ fun RegisterScreen(
 ) {
     val state by vm.state.collectAsState()
     val context = LocalContext.current
+    val clickDebouncer = rememberClickDebouncer()
 
      LaunchedEffect(state.isLoggedIn) {
          if (state.isLoggedIn) {
@@ -491,7 +495,7 @@ fun RegisterScreen(
             state.error?.let { InfoBox(it, InfoType.ERROR) }
             SanibonaniButton(
                 text    = if (state.isLoading) "Creating account…" else "Create Account",
-                onClick = { vm.signUp() },
+                onClick = { clickDebouncer.processClick { vm.signUp() } },
                 modifier = Modifier.fillMaxWidth(),
                 enabled = !state.isLoading &&
                     state.fullName.length >= 3 &&
@@ -516,6 +520,7 @@ fun UpdatePasswordScreen(
 ) {
     val state by vm.state.collectAsState()
     val context = LocalContext.current
+    val clickDebouncer = rememberClickDebouncer()
 
     LaunchedEffect(state.navigateTo) {
         if (state.navigateTo == "login") {
@@ -635,7 +640,7 @@ fun UpdatePasswordScreen(
 
             SanibonaniButton(
                 text = if (state.isLoading) "Updating..." else "Update Password",
-                onClick = { vm.updatePassword() },
+                onClick = { clickDebouncer.processClick { vm.updatePassword() } },
                 modifier = Modifier.fillMaxWidth(),
                 enabled = state.isLoggedIn && !state.isLoading && state.password.isNotBlank() && state.password == state.confirmPw
             )

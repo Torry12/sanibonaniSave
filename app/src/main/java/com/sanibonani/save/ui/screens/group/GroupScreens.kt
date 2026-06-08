@@ -64,6 +64,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -84,6 +85,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.sanibonani.save.ui.utils.rememberClickDebouncer
 import com.sanibonani.save.domain.config.SaReferenceData
 import com.sanibonani.save.domain.model.Group
 import com.sanibonani.save.domain.model.GroupType
@@ -125,6 +127,7 @@ import com.sanibonani.save.viewmodel.RegisterGroupState
 fun GroupListScreen(vm: GroupViewModel, onGroupClick: (String) -> Unit) {
     val state by vm.listState.collectAsState()
     val context = LocalContext.current
+    val clickDebouncer = rememberClickDebouncer()
     var showMapView by remember { mutableStateOf(false) }
 
     LaunchedEffect(state.error) {
@@ -206,7 +209,7 @@ fun GroupListScreen(vm: GroupViewModel, onGroupClick: (String) -> Unit) {
                     } else {
                         SaOsmMap(
                             groups = groupsWithLocation,
-                            onMarker = { groupId -> onGroupClick(groupId) },
+                            onMarker = { groupId -> clickDebouncer.processClick { onGroupClick(groupId) } },
                             modifier = Modifier.fillMaxSize()
                         )
                     }
@@ -239,7 +242,7 @@ fun GroupListScreen(vm: GroupViewModel, onGroupClick: (String) -> Unit) {
             LazyColumn(Modifier.fillMaxSize().padding(padding).padding(horizontal = 16.dp)) {
                 item { Spacer(Modifier.height(16.dp)) }
                 items(state.filteredGroups) { group ->
-                    GroupListItem(group) { onGroupClick(group.id ?: "") }
+                    GroupListItem(group) { clickDebouncer.processClick { onGroupClick(group.id ?: "") } }
                     Spacer(Modifier.height(12.dp))
                 }
                 
@@ -277,13 +280,21 @@ fun GroupProfileScreen(
     vm: GroupViewModel = hiltViewModel()
 ) {
     val state by vm.detail.collectAsState()
+    val clickDebouncer = rememberClickDebouncer()
+
+    DisposableEffect(Unit) {
+        vm.setActive(true)
+        onDispose {
+            vm.setActive(false)
+        }
+    }
 
     LaunchedEffect(groupId) {
         vm.loadGroup(groupId)
     }
 
     Scaffold(
-        topBar = { SanibonaniTopBar("Group Profile", onBack = onBack) }
+        topBar = { SanibonaniTopBar("Group Profile", onBack = { clickDebouncer.processClick(onBack) }) }
     ) { padding ->
         if (state.isLoading) {
             Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
@@ -455,7 +466,7 @@ fun GroupProfileScreen(
                         if (group.currentMembers < group.maxMembers) {
                             SanibonaniButton(
                                 text = "Apply to Join Group",
-                                onClick = onJoinGroup,
+                                onClick = { clickDebouncer.processClick(onJoinGroup) },
                                 modifier = Modifier.fillMaxWidth()
                             )
                         } else {
@@ -496,6 +507,14 @@ fun GroupRegistrationScreen(
 ) {
     val state by vm.registerState.collectAsState()
     val context = LocalContext.current
+    val clickDebouncer = rememberClickDebouncer()
+
+    DisposableEffect(Unit) {
+        vm.setActive(true)
+        onDispose {
+            vm.setActive(false)
+        }
+    }
 
     LaunchedEffect(state.success, state.createdGroupId) {
         if (state.success) {
@@ -519,6 +538,7 @@ fun GroupRegistrationScreen(
             onPaymentComplete = { 
                 vm.finalizeRegistrationAfterPayment(payState.transactionId) 
             },
+            onPaymentFailed = { /* Handled via Global Error Banner */ },
             onBack = { vm.onEvent(GroupFormEvent.DismissPayment) },
             vm = payVm
         )
@@ -587,11 +607,15 @@ fun GroupRegistrationScreen(
 
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         if (state.currentStep > 1) {
-                            OutlinedButton(onClick = { vm.prevStep() }, modifier = Modifier.weight(1f)) { Text("Back") }
+                            OutlinedButton(onClick = { clickDebouncer.processClick { vm.prevStep() } }, modifier = Modifier.weight(1f)) { Text("Back") }
                         }
                         SanibonaniButton(
                             text = if (state.currentStep == 6) "Pay Registration Fee" else "Next",
-                            onClick = { if (state.currentStep == 6) vm.submitGroup() else vm.nextStep() },
+                            onClick = { 
+                                clickDebouncer.processClick {
+                                    if (state.currentStep == 6) vm.submitGroup() else vm.nextStep() 
+                                }
+                            },
                             modifier = Modifier.weight(1f),
                             isLoading = state.isSubmitting
                         )

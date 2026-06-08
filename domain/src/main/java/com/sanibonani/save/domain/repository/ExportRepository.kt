@@ -43,6 +43,12 @@ interface ExportRepository {
         group: Group
     ): Result<File>
 
+    /**
+     * Professional Ledger Exports
+     */
+    suspend fun exportLedgerToCsv(group: Group, entries: List<com.sanibonani.save.domain.model.LedgerEntry>): Result<File>
+    suspend fun exportLedgerToPdf(group: Group, entries: List<com.sanibonani.save.domain.model.LedgerEntry>): Result<File>
+
     fun downloadStatementPdf(context: Context, groupId: String, memberId: String? = null)
     fun shareFile(context: Context, file: File)
 }

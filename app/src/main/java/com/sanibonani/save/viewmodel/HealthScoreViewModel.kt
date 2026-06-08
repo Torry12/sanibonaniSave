@@ -27,6 +27,12 @@ class HealthScoreViewModel @Inject constructor(
     private val _state = MutableStateFlow(HealthScoreUiState())
     val state: StateFlow<HealthScoreUiState> = _state.asStateFlow()
 
+    private val isActive = MutableStateFlow(false)
+
+    fun setActive(active: Boolean) {
+        isActive.value = active
+    }
+
     fun loadHealthScore(groupId: String) {
         viewModelScope.launch {
             _state.update { it.copy(isLoading = true, error = null) }
@@ -38,5 +44,10 @@ class HealthScoreViewModel @Inject constructor(
                     _state.update { it.copy(isLoading = false, error = e.toUserMessage()) }
                 }
         }
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        _state.update { HealthScoreUiState() }
     }
 }

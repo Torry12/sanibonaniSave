@@ -398,6 +398,52 @@ class PaymentCalculatorTest {
     }
 
     @Test
+    fun `shortfall - joining fee and platform fee are excluded`() {
+        val joinDate = LocalDate.of(2024, 1, 1)
+        val currentDate = LocalDate.of(2024, 1, 28)
+
+        val member = Member(
+            id = "m1",
+            groupId = stokvelGroup.id!!,
+            joinedAt = "${joinDate}T00:00:00Z"
+        )
+
+        val contributions = listOf(
+            Contribution(
+                memberId = "m1",
+                groupId = stokvelGroup.id!!,
+                amount = 200.0,
+                type = "joining_fee",
+                status = ContributionStatus.PAID,
+                dueDate = "2024-01-01"
+            ),
+            Contribution(
+                memberId = "m1",
+                groupId = stokvelGroup.id!!,
+                amount = 50.0,
+                type = "member_fee",
+                status = ContributionStatus.PAID,
+                dueDate = "2024-01-01"
+            ),
+            Contribution(
+                memberId = "m1",
+                groupId = stokvelGroup.id!!,
+                amount = 100.0,
+                type = "contribution",
+                status = ContributionStatus.PARTIAL,
+                dueDate = "2024-01-15"
+            )
+        )
+
+        val status = PaymentCalculator.calculateStatus(stokvelGroup, member, contributions, currentDate)
+
+        // Target: 500.0
+        // Paid (contributions only): 100.0
+        // Joining fee (200) and member fee (50) should be ignored.
+        assertEquals("Shortfall should only consider 'contribution' type", 400.0, status.shortfall, 0.01)
+    }
+
+    @Test
     fun `roundToTwoDecimals - handles floating point correctly`() {
         val value = 123.456789
         val rounded = value.roundMoneyToTwoDecimals()

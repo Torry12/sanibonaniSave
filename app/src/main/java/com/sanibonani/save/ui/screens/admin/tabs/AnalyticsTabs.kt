@@ -19,6 +19,7 @@ import com.sanibonani.save.ui.components.*
 import com.sanibonani.save.ui.theme.*
 import com.sanibonani.save.viewmodel.AdminUiState
 import com.sanibonani.save.ui.screens.admin.components.SectionHeading
+import com.sanibonani.save.ui.screens.admin.components.FullInsightWidget
 
 @Composable
 fun InsightsTab(state: AdminUiState) {

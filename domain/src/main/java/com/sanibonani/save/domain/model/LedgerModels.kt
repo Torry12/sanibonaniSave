@@ -1,36 +1,10 @@
+@file:OptIn(ExperimentalSerializationApi::class)
 package com.sanibonani.save.domain.model
 
-import kotlinx.serialization.Serializable
-import kotlinx.parcelize.Parcelize
 import android.os.Parcelable
-import kotlinx.serialization.SerialName
-import kotlinx.serialization.EncodeDefault
+import kotlinx.parcelize.Parcelize
+import kotlinx.serialization.*
 import java.time.Instant
-
-@Serializable
-@Parcelize
-data class LedgerEntry(
-    @EncodeDefault(EncodeDefault.Mode.NEVER)
-    val id: String? = null,
-    @SerialName("group_id") val groupId: String = "",
-    @SerialName("member_id") val memberId: String? = null,
-    @SerialName("transaction_id") val transactionId: String? = null,
-    @SerialName("type") val type: LedgerEntryType,
-    @SerialName("amount") val amount: Long,
-    @SerialName("currency") val currency: String = "ZAR",
-    @SerialName("timestamp") val timestamp: Long = Instant.now().toEpochMilli(),
-    @SerialName("description") val description: String? = null
-) : Parcelable
-
-@Serializable
-@Parcelize
-enum class LedgerEntryType : Parcelable {
-    @SerialName("credit") CREDIT,
-    @SerialName("debit") DEBIT,
-    @SerialName("reversal") REVERSAL,
-    @SerialName("fee") FEE,
-    @SerialName("settlement") SETTLEMENT
-}
 
 @Serializable
 @Parcelize
@@ -87,17 +61,3 @@ data class ReconciliationRecord(
     @SerialName("status") val status: String = "pending",
     @SerialName("discrepancy") val discrepancy: Long? = null
 ) : Parcelable
-
-@Serializable
-@Parcelize
-data class AuditLog(
-    @EncodeDefault(EncodeDefault.Mode.NEVER)
-    val id: String? = null,
-    @SerialName("entity_id") val entityId: String,
-    @SerialName("entity_type") val entityType: String,
-    @SerialName("action") val action: String,
-    @SerialName("performed_by") val performedBy: String? = null,
-    @SerialName("timestamp") val timestamp: Long = Instant.now().toEpochMilli(),
-    @SerialName("details") val details: String? = null
-) : Parcelable
-

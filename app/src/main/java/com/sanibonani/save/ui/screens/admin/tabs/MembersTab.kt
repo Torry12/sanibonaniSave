@@ -19,7 +19,7 @@ import com.sanibonani.save.ui.theme.Forest
 import com.sanibonani.save.ui.theme.WarningYellow
 import com.sanibonani.save.viewmodel.AdminUiState
 import com.sanibonani.save.viewmodel.AdminViewModel
-import com.sanibonani.save.domain.utils.PaymentCalculation
+import com.sanibonani.save.data.utils.PaymentCalculation
 
 @Composable
 fun MembersTab(

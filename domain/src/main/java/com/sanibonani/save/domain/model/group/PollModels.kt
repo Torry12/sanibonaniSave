@@ -1,3 +1,5 @@
+
+@file:OptIn(ExperimentalSerializationApi::class)
 package com.sanibonani.save.domain.model.group
 
 import android.os.Parcelable
@@ -29,7 +31,6 @@ enum class EffectStatus {
     @SerialName("failed") FAILED
 }
 
-@OptIn(ExperimentalSerializationApi::class)
 @Serializable
 @Parcelize
 data class GroupPoll(
@@ -50,7 +51,6 @@ data class GroupPoll(
     @EncodeDefault(EncodeDefault.Mode.NEVER) @SerialName("updated_at") val updatedAt: String? = null
 ) : Parcelable
 
-@OptIn(ExperimentalSerializationApi::class)
 @Serializable
 @Parcelize
 data class GroupPollOption(
@@ -62,7 +62,6 @@ data class GroupPollOption(
     @EncodeDefault(EncodeDefault.Mode.NEVER) @SerialName("created_at") val createdAt: String? = null
 ) : Parcelable
 
-@OptIn(ExperimentalSerializationApi::class)
 @Serializable
 @Parcelize
 data class GroupPollVote(

@@ -3,6 +3,7 @@ package com.sanibonani.save.data.repository
 import com.sanibonani.save.data.local.NotificationEntity
 import com.sanibonani.save.data.local.SanibonaniDatabase
 import com.sanibonani.save.data.logging.AppLogger
+import com.sanibonani.save.data.remote.PostgrestColumns
 import com.sanibonani.save.domain.model.*
 import com.sanibonani.save.data.remote.EdgeFunctionGateway
 import com.sanibonani.save.domain.repository.*
@@ -27,8 +28,6 @@ class NotificationRepositoryImpl @Inject constructor(
     private val edgeFunctionGateway: EdgeFunctionGateway,
     private val db: SanibonaniDatabase
 ) : BaseRepository("NotificationRepository"), NotificationRepository {
-
-    private val GROUP_COLUMNS_SAFE = "id,name,type,province,city,township,description,logo_emoji,joining_fee,monthly_contribution,late_fee,late_fee_grace_days,probation_months,payment_due_day,max_members,current_members,is_public,allow_partial_payment,auto_suspend_after,bank_name,account_number,branch_code,account_type,gateway_public_key,balance,admin_user_id,fee_status,registration_paid,latitude,longitude,geohash,created_at,is_platform_suspended"
 
     override fun observeNotifications(groupId: String): Flow<Result<List<AppNotification>>> = this.observeAndSync(
         dbFlow = db.notificationDao().observeNotifications(groupId),
@@ -228,7 +227,7 @@ class NotificationRepositoryImpl @Inject constructor(
             else -> "Platform fee update: $event"
         }
 
-        val group = supabase.postgrest["groups"].select(columns = Columns.raw(GROUP_COLUMNS_SAFE)) {
+        val group = supabase.postgrest["groups"].select(columns = Columns.raw(PostgrestColumns.GROUPS_SAFE)) {
             filter { eq("id", groupId) }
         }.decodeSingle<Group>()
         val adminUserId = group.adminUserId

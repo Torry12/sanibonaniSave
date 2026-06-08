@@ -42,6 +42,7 @@ import javax.inject.Singleton
 )
 object TestAppModule {
 
+    private var dbInstance: SanibonaniDatabase? = null
     private val mockGroups = mutableMapOf<String, JsonObject>()
     private val mockMembers = mutableMapOf<String, JsonObject>()
     private val mockContributions = mutableMapOf<String, JsonObject>()
@@ -57,17 +58,19 @@ object TestAppModule {
         mockBeneficiaries.clear()
         mockMemberDocuments.clear()
         mockPayouts.clear()
+        dbInstance?.clearAllTables()
     }
 
     @Provides
     @Singleton
-    fun provideInMemoryDatabase(@ApplicationContext context: Context): SanibonaniDatabase =
-        Room.inMemoryDatabaseBuilder(
+    fun provideInMemoryDatabase(@ApplicationContext context: Context): SanibonaniDatabase {
+        return dbInstance ?: Room.inMemoryDatabaseBuilder(
             context,
             SanibonaniDatabase::class.java
         )
         .allowMainThreadQueries()
-        .build()
+        .build().also { dbInstance = it }
+    }
 
     @Provides
     @Singleton
@@ -158,6 +161,54 @@ object TestAppModule {
 
                 respond(
                     content = buildJsonArray { add(contribution) }.toString(),
+                    status = HttpStatusCode.OK,
+                    headers = headersOf(HttpHeaders.ContentType, "application/json")
+                )
+            }
+
+            // PostgREST: rpc increment_group_balance
+            path.contains("/rest/v1/rpc/increment_group_balance") && method == "POST" -> {
+                val bodyString = (request.body as? TextContent)?.text ?: ""
+                val bodyJson = Json.parseToJsonElement(bodyString).jsonObject
+                val groupId = bodyJson["p_group_id"]?.jsonPrimitive?.content ?: ""
+                val amount = bodyJson["p_amount"]?.jsonPrimitive?.double ?: 0.0
+
+                val currentBalance = mockGroups[groupId]?.get("balance")?.jsonPrimitive?.double ?: 0.0
+                val newBalance = currentBalance + amount
+                
+                mockGroups[groupId]?.let { group ->
+                    mockGroups[groupId] = buildJsonObject {
+                        group.forEach { (k, v) -> put(k, v) }
+                        put("balance", newBalance)
+                    }
+                }
+
+                respond(
+                    content = newBalance.toString(),
+                    status = HttpStatusCode.OK,
+                    headers = headersOf(HttpHeaders.ContentType, "application/json")
+                )
+            }
+
+            // PostgREST: rpc record_disbursement_v1
+            path.contains("/rest/v1/rpc/record_disbursement_v1") && method == "POST" -> {
+                val bodyString = (request.body as? TextContent)?.text ?: ""
+                val bodyJson = Json.parseToJsonElement(bodyString).jsonObject
+                val groupId = bodyJson["p_group_id"]?.jsonPrimitive?.content ?: ""
+                val amount = bodyJson["p_amount"]?.jsonPrimitive?.double ?: 0.0
+
+                val currentBalance = mockGroups[groupId]?.get("balance")?.jsonPrimitive?.double ?: 0.0
+                val newBalance = currentBalance - amount
+                
+                mockGroups[groupId]?.let { group ->
+                    mockGroups[groupId] = buildJsonObject {
+                        group.forEach { (k, v) -> put(k, v) }
+                        put("balance", newBalance)
+                    }
+                }
+
+                respond(
+                    content = newBalance.toString(),
                     status = HttpStatusCode.OK,
                     headers = headersOf(HttpHeaders.ContentType, "application/json")
                 )

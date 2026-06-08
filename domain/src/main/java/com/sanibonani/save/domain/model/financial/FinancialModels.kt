@@ -1,8 +1,11 @@
+
+@file:OptIn(ExperimentalSerializationApi::class)
 package com.sanibonani.save.domain.model.financial
 
 import android.os.Parcelable
 import com.sanibonani.save.domain.model.AdminFeeState
 import com.sanibonani.save.domain.model.DocumentStatus
+import com.sanibonani.save.domain.model.LoanRepayment
 import kotlinx.parcelize.Parcelize
 import kotlinx.serialization.*
 
@@ -47,7 +50,6 @@ enum class ContributionStatus(val displayName: String) {
     @SerialName("partial") PARTIAL("Partial")
 }
 
-@OptIn(ExperimentalSerializationApi::class)
 @Serializable
 @Parcelize
 data class Contribution(
@@ -68,7 +70,6 @@ data class Contribution(
     @EncodeDefault(EncodeDefault.Mode.NEVER) @SerialName("updated_at") val updatedAt: String? = null
 ) : Parcelable
 
-@OptIn(ExperimentalSerializationApi::class)
 @Serializable
 @Parcelize
 data class Payment(
@@ -86,7 +87,6 @@ data class Payment(
     @EncodeDefault(EncodeDefault.Mode.NEVER) @SerialName("updated_at") val updatedAt: String? = null
 ) : Parcelable
 
-@OptIn(ExperimentalSerializationApi::class)
 @Serializable
 @Parcelize
 data class PlatformFee(

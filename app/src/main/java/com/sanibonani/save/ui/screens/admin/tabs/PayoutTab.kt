@@ -2,6 +2,7 @@ package com.sanibonani.save.ui.screens.admin.tabs
 
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -11,12 +12,25 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.sanibonani.save.domain.model.*
 import com.sanibonani.save.ui.components.formatZAR
 import com.sanibonani.save.ui.theme.*
+import com.sanibonani.save.ui.utils.uiLabel
 import com.sanibonani.save.viewmodel.AdminUiState
 import com.sanibonani.save.viewmodel.AdminViewModel
 import com.sanibonani.save.ui.screens.admin.components.SectionHeading
+import androidx.compose.material3.OutlinedTextFieldDefaults
+
+/**
+ * Masks account number for display, showing only last 4 digits.
+ * Security measure: prevents full account number visibility in UI.
+ * Example: "1234567890" → "****7890"
+ */
+fun maskAccountNumber(accountNumber: String): String = when {
+    accountNumber.length <= 4 -> accountNumber
+    else -> "*".repeat(accountNumber.length - 4) + accountNumber.takeLast(4)
+}
 
 @Composable
 fun PayoutTab(state: AdminUiState, vm: AdminViewModel) {
@@ -56,57 +70,140 @@ fun PayoutTab(state: AdminUiState, vm: AdminViewModel) {
                 )
                 
                 Spacer(Modifier.height(16.dp))
-                Text("Banking Details", fontWeight = FontWeight.Bold)
-                
+
+                // Security notice for registered bank details
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF3E0)),
+                    border = BorderStroke(1.dp, Color(0xFFFFB74D))
+                ) {
+                    Row(
+                        modifier = Modifier.padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text("🔒", fontSize = 18.sp)
+                        Column {
+                            Text(
+                                "Registered Bank Details",
+                                fontWeight = FontWeight.Bold,
+                                style = MaterialTheme.typography.labelSmall
+                            )
+                            Text(
+                                "Payout will be sent to the group's registered bank account. These details are protected from edit.",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MidGray
+                            )
+                        }
+                    }
+                }
+
+                Spacer(Modifier.height(12.dp))
+                Text("Banking Details (Read-Only)", fontWeight = FontWeight.Bold)
+
+                // Bank Name - Read Only
                 OutlinedTextField(
-                    value = state.payoutBankName,
-                    onValueChange = { vm.updatePayoutBank(it) },
+                    value = state.group?.bankName ?: "",
+                    onValueChange = {},  // No-op for read-only
                     label = { Text("Bank Name") },
                     modifier = Modifier.fillMaxWidth(),
-                    isError = state.payoutBankName.isBlank() && state.error?.contains("Bank Name") == true
+                    enabled = false,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        disabledBorderColor = LightGray,
+                        disabledTextColor = MidGray,
+                        disabledLabelColor = MidGray
+                    ),
+                    trailingIcon = {
+                        Text("🔒", modifier = Modifier.padding(end = 8.dp), fontSize = 14.sp)
+                    }
                 )
                 
+                // Account Number - Read Only
                 OutlinedTextField(
-                    value = state.payoutAccountNo,
-                    onValueChange = { if (it.all { c -> c.isDigit() }) vm.updatePayoutAccount(it) },
+                    value = state.group?.accountNumber?.let { maskAccountNumber(it) } ?: "",
+                    onValueChange = {},  // No-op for read-only
                     label = { Text("Account Number") },
                     modifier = Modifier.fillMaxWidth(),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    isError = state.error?.contains("Account Number") == true,
+                    enabled = false,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        disabledBorderColor = LightGray,
+                        disabledTextColor = MidGray,
+                        disabledLabelColor = MidGray
+                    ),
                     supportingText = {
-                        if (state.error?.contains("Account Number") == true) {
-                            Text(state.error ?: "", color = MaterialTheme.colorScheme.error)
-                        } else {
-                            Text("7-13 digits")
-                        }
+                        Text("Full account: ${state.group?.accountNumber ?: "N/A"}", style = MaterialTheme.typography.labelSmall, color = LightGray)
+                    },
+                    trailingIcon = {
+                        Text("🔒", modifier = Modifier.padding(end = 8.dp), fontSize = 14.sp)
                     }
                 )
                 
+                // Branch Code - Read Only
                 OutlinedTextField(
-                    value = state.payoutBranchCode,
-                    onValueChange = { if (it.all { c -> c.isDigit() }) vm.updatePayoutBranch(it) },
+                    value = state.group?.branchCode ?: "",
+                    onValueChange = {},  // No-op for read-only
                     label = { Text("Branch Code") },
                     modifier = Modifier.fillMaxWidth(),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    isError = state.error?.contains("Branch Code") == true,
-                    supportingText = {
-                        if (state.error?.contains("Branch Code") == true) {
-                            Text(state.error ?: "", color = MaterialTheme.colorScheme.error)
-                        } else {
-                            Text("6 digits")
-                        }
+                    enabled = false,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        disabledBorderColor = LightGray,
+                        disabledTextColor = MidGray,
+                        disabledLabelColor = MidGray
+                    ),
+                    trailingIcon = {
+                        Text("🔒", modifier = Modifier.padding(end = 8.dp), fontSize = 14.sp)
                     }
                 )
-                
+
+                // Warning if bank details missing
+                if (state.group == null ||
+                    state.group.bankName.isNullOrBlank() ||
+                    state.group.accountNumber.isNullOrBlank() ||
+                    state.group.branchCode.isNullOrBlank()) {
+
+                    Card(
+                        modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFFFFEBEE)),
+                        border = BorderStroke(1.dp, ErrorRed)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text("⚠️", fontSize = 18.sp)
+                            Column {
+                                Text(
+                                    "Bank Details Missing",
+                                    fontWeight = FontWeight.Bold,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = ErrorRed
+                                )
+                                Text(
+                                    "Please configure the group's bank account details before requesting a payout.",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = ErrorRed
+                                )
+                            }
+                        }
+                    }
+                }
+
                 Spacer(Modifier.height(24.dp))
                 
+                val hasBankDetails = state.group != null &&
+                                     !state.group.bankName.isNullOrBlank() &&
+                                     !state.group.accountNumber.isNullOrBlank() &&
+                                     !state.group.branchCode.isNullOrBlank()
+
                 Button(
                     onClick = { vm.submitPayoutRequest() },
                     modifier = Modifier.fillMaxWidth(),
                     enabled = !state.isRequestingPayout && 
                              state.payoutAmount.isNotEmpty() && 
                              (state.payoutAmount.toDoubleOrNull() ?: 0.0) <= (state.group?.balance ?: 0.0) &&
-                             (state.payoutAmount.toDoubleOrNull() ?: 0.0) > 0,
+                             (state.payoutAmount.toDoubleOrNull() ?: 0.0) > 0 &&
+                             hasBankDetails,  // ✅ Bank details must exist
                     colors = ButtonDefaults.buttonColors(containerColor = Forest)
                 ) {
                     if (state.isRequestingPayout) {

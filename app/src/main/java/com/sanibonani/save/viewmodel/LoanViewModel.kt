@@ -11,6 +11,7 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 import com.sanibonani.save.domain.repository.LoanRepository
 import com.sanibonani.save.domain.model.Loan
+import com.sanibonani.save.data.utils.toUserMessage
 
 @HiltViewModel
 class LoanViewModel @Inject constructor(
@@ -19,6 +20,12 @@ class LoanViewModel @Inject constructor(
 
     private val _state = MutableStateFlow(LoanUiState())
     val state: StateFlow<LoanUiState> = _state.asStateFlow()
+
+    private val isActive = MutableStateFlow(false)
+
+    fun setActive(active: Boolean) {
+        isActive.value = active
+    }
 
     fun approveAndDisburseLoan(loanId: String, adminId: String) {
         viewModelScope.launch {
@@ -44,6 +51,11 @@ class LoanViewModel @Inject constructor(
                     _state.update { it.copy(error = e.toUserMessage(), isLoading = false) }
                 }
         }
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        _state.update { LoanUiState() }
     }
 }
 

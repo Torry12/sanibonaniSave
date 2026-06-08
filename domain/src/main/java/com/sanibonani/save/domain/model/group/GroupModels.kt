@@ -1,3 +1,15 @@
+
+/**
+ * ⚠️  ORPHANED FILE — DO NOT USE
+ *
+ * All declarations here (Group, GroupType, RoscaRotationMethod, GroupTypeSerializer)
+ * are duplicates of the canonical versions in:
+ *   [com.sanibonani.save.domain.model.Models.kt]
+ *
+ * No production code imports from this package. This file will be removed in a
+ * future cleanup pass. Add new group-related model code to Models.kt only.
+ */
+@file:OptIn(ExperimentalSerializationApi::class)
 package com.sanibonani.save.domain.model.group
 
 import android.os.Parcelable
@@ -50,7 +62,6 @@ enum class GroupType(val displayName: String) {
     }
 }
 
-@OptIn(ExperimentalSerializationApi::class)
 @Serializable
 @Parcelize
 data class Group(
@@ -78,7 +89,6 @@ data class Group(
     @SerialName("account_number")         val accountNumber: String? = null,
     @SerialName("branch_code")            val branchCode: String? = null,
     @SerialName("account_type")           val accountType: String = "Savings",
-    @SerialName("gateway_public_key")     val gatewayPublicKey: String? = null,
     val balance: Double = 0.0,
     @SerialName("goal_amount")            val goalAmount: Double = 0.0,
     @SerialName("period_months")          val periodMonths: Int = 12,

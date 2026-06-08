@@ -1,3 +1,5 @@
+
+@file:OptIn(ExperimentalSerializationApi::class)
 package com.sanibonani.save.domain.model.member
 
 import android.os.Parcelable
@@ -22,7 +24,6 @@ enum class NotificationPref(val displayName: String) {
     @SerialName("both")     BOTH("Both")
 }
 
-@OptIn(ExperimentalSerializationApi::class)
 @Serializable
 @Parcelize
 data class Member(

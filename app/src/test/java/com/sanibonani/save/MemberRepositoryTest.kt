@@ -79,7 +79,7 @@ class MemberRepositoryTest {
             )
         )
 
-        every { memberDao.observeMembers(groupId) } returns flowOf(cachedEntities)
+        every { memberDao.observeActiveMembers(groupId) } returns flowOf(cachedEntities)
         
         val result = repository.getGroupMembers(groupId).first()
         

@@ -1,3 +1,11 @@
+/**
+ * ⚠️  ORPHANED FILE — DO NOT USE
+ *
+ * The canonical GroupSettings data class lives in:
+ *   [com.sanibonani.save.domain.model.Models.kt]
+ *
+ * No production code imports from this file. It will be removed in a future cleanup pass.
+ */
 package com.sanibonani.save.domain.model.group
 
 data class GroupSettings(

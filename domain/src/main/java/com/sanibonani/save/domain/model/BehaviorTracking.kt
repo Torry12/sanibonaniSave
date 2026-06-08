@@ -1,10 +1,9 @@
+@file:OptIn(ExperimentalSerializationApi::class)
 package com.sanibonani.save.domain.model
 
 import android.os.Parcelable
 import kotlinx.parcelize.Parcelize
-import kotlinx.serialization.Serializable
-import kotlinx.serialization.SerialName
-import kotlinx.serialization.EncodeDefault
+import kotlinx.serialization.*
 
 // ─────────────────────────────────────────────────────────────────────────────
 // BEHAVIOR SCORE MODELS

@@ -65,6 +65,8 @@ class MultiGroupTest {
     private val validateLoanEligibilityUseCase = mockk<ValidateLoanEligibilityUseCase>(relaxed = true)
     private val generateLoanContractUseCase = mockk<GenerateLoanContractUseCase>(relaxed = true)
     private val getGroupBusinessInsightsUseCase = mockk<GetGroupBusinessInsightsUseCase>(relaxed = true)
+    private val calculateGroupHealthScoreUseCase = mockk<CalculateGroupHealthScoreUseCase>(relaxed = true)
+    private val healthScoreRepo = mockk<HealthScoreRepository>(relaxed = true)
     private val ledgerRepo = mockk<LedgerRepository>(relaxed = true)
 
     private val adminContextCacheService by lazy {
@@ -157,8 +159,11 @@ class MultiGroupTest {
             validateLoanEligibilityUseCase,
             generateLoanContractUseCase,
             getGroupBusinessInsightsUseCase,
+            calculateGroupHealthScoreUseCase,
+            healthScoreRepo,
             ledgerRepo
         )
+        adminViewModel.setActive(true)
         
         advanceUntilIdle()
 

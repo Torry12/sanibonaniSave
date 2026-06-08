@@ -5,12 +5,16 @@ import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
+import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -18,15 +22,23 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.sanibonani.save.domain.model.*
 import com.sanibonani.save.ui.components.*
+import com.sanibonani.save.ui.components.backgroundColor
+import com.sanibonani.save.ui.components.label
 import com.sanibonani.save.ui.theme.*
 import com.sanibonani.save.ui.utils.uiLabel
 import com.sanibonani.save.viewmodel.PlatformAdminUiState
 import com.sanibonani.save.viewmodel.PlatformAdminViewModel
+import com.sanibonani.save.ui.screens.admin.tabs.platform.DisbursementsTab
+import com.sanibonani.save.ui.screens.admin.tabs.platform.DisbursementsTabState
+import com.sanibonani.save.ui.utils.rememberClickDebouncer
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 /**
  * Main Platform Administration Screen.
@@ -45,18 +57,68 @@ fun PlatformAdminScreen(
     vm: PlatformAdminViewModel = hiltViewModel()
 ) {
     val state by vm.state.collectAsState()
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val scope = rememberCoroutineScope()
+    val clickDebouncer = rememberClickDebouncer()
+
+    DisposableEffect(Unit) {
+        vm.setActive(true)
+        onDispose {
+            vm.setActive(false)
+        }
+    }
+
+    LaunchedEffect(state.exportFile) {
+        state.exportFile?.let { file ->
+            val uri = androidx.core.content.FileProvider.getUriForFile(
+                context,
+                "${context.packageName}.fileprovider",
+                file
+            )
+            val isPdf = file.extension.equals("pdf", ignoreCase = true)
+            val intent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                type = if (isPdf) "application/pdf" else "text/csv"
+                putExtra(android.content.Intent.EXTRA_STREAM, uri)
+                addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            context.startActivity(android.content.Intent.createChooser(intent, "Share Platform Ledger"))
+            vm.clearExportFile()
+        }
+    }
+
     val pendingLoanRequests = state.loanRequestsByGroup.values.flatten().count { it.status == LoanStatus.PENDING }
     val disbursementBacklogCount = state.payouts.size + state.escalatedClaims.size + pendingLoanRequests
     val highRiskMembersCount = state.memberBehaviorInsights.count { it.riskBand == "High" }
     
     val tabs = listOf(
-        "Platform Analytics",
-        "All Groups",
-        if (disbursementBacklogCount > 0) "Disbursements ($disbursementBacklogCount)" else "Disbursements",
-        "Financial Ledger",
-        "Fee Management",
-        if (highRiskMembersCount > 0) "Maintenance ($highRiskMembersCount)" else "Maintenance"
+        "Analytics",
+        "Groups",
+        if (disbursementBacklogCount > 0) "Tasks ($disbursementBacklogCount)" else "Tasks",
+        "Ledger",
+        "Fees",
+        "Maintenance"
     )
+
+    val pagerState = rememberPagerState(initialPage = 0, pageCount = { tabs.size })
+
+    // Sync PagerState with ViewModel State (First direction)
+    LaunchedEffect(state.selectedTab) {
+        val targetPage = state.selectedTab.takeIf { it in tabs.indices } ?: 0
+        if (targetPage != state.selectedTab) {
+            vm.setTab(targetPage)
+        } else if (pagerState.currentPage != targetPage) {
+            com.sanibonani.save.data.logging.AppLogger.d("PlatformAdmin", "[Nav] Pager sync to tab: $targetPage")
+            pagerState.animateScrollToPage(targetPage)
+        }
+    }
+
+    // Sync ViewModel State with PagerState (Second direction, when swiped)
+    LaunchedEffect(pagerState.currentPage) {
+        if (state.selectedTab != pagerState.currentPage) {
+            com.sanibonani.save.data.logging.AppLogger.d("PlatformAdmin", "[Nav] Tab swipe detected: ${pagerState.currentPage}")
+            vm.setTab(pagerState.currentPage)
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -64,7 +126,7 @@ fun PlatformAdminScreen(
                 title = "Platform Administration",
                 actions = {
                     OutlinedButton(
-                        onClick = onLogout,
+                        onClick = { clickDebouncer.processClick(onLogout) },
                         shape = RoundedCornerShape(10.dp),
                         border = BorderStroke(1.dp, LightGray.copy(alpha = 0.7f)),
                         colors = ButtonDefaults.outlinedButtonColors(contentColor = MidGray),
@@ -88,58 +150,86 @@ fun PlatformAdminScreen(
             Modifier.fillMaxSize().background(Cream).padding(padding)
         ) {
             ScrollableTabRow(
-                selectedTabIndex = state.selectedTab,
+                selectedTabIndex = pagerState.currentPage,
                 containerColor = Color.White,
-                edgePadding = 0.dp,
-                divider = {}
+                edgePadding = 16.dp,
+                divider = {},
+                indicator = { tabPositions ->
+                    if (pagerState.currentPage < tabPositions.size) {
+                        TabRowDefaults.SecondaryIndicator(
+                            modifier = Modifier.tabIndicatorOffset(tabPositions[pagerState.currentPage]),
+                            color = Forest
+                        )
+                    }
+                }
             ) {
                 tabs.forEachIndexed { i, t ->
                     Tab(
-                        selected = state.selectedTab == i,
-                        onClick = { vm.setTab(i) },
+                        selected = pagerState.currentPage == i,
+                        onClick = { 
+                            scope.launch { 
+                                pagerState.animateScrollToPage(i) 
+                                vm.setTab(i)
+                            } 
+                        },
                         text = { 
                             Text(
                                 t, 
-                                style = if (state.selectedTab == i) MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold) 
-                                        else MaterialTheme.typography.labelSmall
+                                style = if (pagerState.currentPage == i) MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold) 
+                                        else MaterialTheme.typography.labelSmall,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             ) 
                         }
                     )
                 }
             }
 
-            if (state.isLoading) {
+            if (state.isLoading && state.groups.isEmpty()) {
                 Box(Modifier.fillMaxSize(), Alignment.Center) {
                     CircularProgressIndicator(color = Forest)
                 }
             } else {
-                Crossfade(targetState = state.selectedTab, label = "TabTransition") { tabIndex ->
-                    when (tabIndex) {
-                        0 -> PlatformAnalyticsTab(state.analytics)
+                HorizontalPager(
+                    state = pagerState,
+                    modifier = Modifier.fillMaxSize(),
+                    userScrollEnabled = true,
+                    beyondViewportPageCount = 1
+                ) { page ->
+                    when (page) {
+                        0 -> PlatformAnalyticsTab(state.analytics, state.totalRevenueShare)
                         1 -> AllGroupsTab(state.groups, vm, state, onNavigateToHealthScore)
                         2 -> DisbursementsTab(
-                            payouts = state.payouts,
-                            groups = state.groups,
-                            claims = state.escalatedClaims,
-                            loanRequestsByGroup = state.loanRequestsByGroup,
-                            loanMemberNames = state.loanMemberNames,
-                            memberBehaviorInsights = state.filteredMemberBehaviorInsights,
-                            selectedRiskFilter = state.selectedRiskFilter,
-                            isLoadingLoanRequests = state.isLoadingLoanRequests,
-                            isProcessingLoanRequest = state.isProcessingLoanRequest,
+                            state = DisbursementsTabState(
+                                payouts = state.payouts,
+                                groups = state.groups,
+                                claims = state.escalatedClaims,
+                                loanRequestsByGroup = state.loanRequestsByGroup,
+                                loanMemberNames = state.loanMemberNames,
+                                memberBehaviorInsights = state.filteredMemberBehaviorInsights,
+                                selectedRiskFilter = state.selectedRiskFilter,
+                                isLoadingLoanRequests = state.isLoadingLoanRequests,
+                                isProcessingLoanRequest = state.isProcessingLoanRequest
+                            ),
                             vm = vm,
-                            onOpenMemberPortal = onOpenMemberPortalFromDisbursement,
-                            onVerifyMember = onImpersonateMember,
+                            onOpenMemberPortal = { gid, pid -> clickDebouncer.processClick { onOpenMemberPortalFromDisbursement(gid, pid) } },
+                            onVerifyMember = { mid, gid -> clickDebouncer.processClick { onImpersonateMember(mid, gid) } },
                             onRiskFilterChanged = vm::setRiskFilter
                         )
-                        3 -> PlatformLedgerTab(state)
+                        3 -> PlatformLedgerTab(state, vm)
                         4 -> FeeManagementTab(state, vm)
-                        5 -> MaintenanceTab(state, vm, onNavigateToCreateAdmin, onNavigateToSandbox, onLogout, onImpersonateGroupAdmin, onImpersonateMember)
-                        else -> CenterPlaceholder("Unknown Tab")
+                        5 -> MaintenanceTab(state, vm, onNavigateToCreateAdmin, onNavigateToSandbox, onLogout, onImpersonateGroupAdmin, onImpersonateMember, clickDebouncer)
                     }
                 }
             }
         }
+    }
+
+    state.selectedLedgerEntry?.let { entry ->
+        LedgerEntryDetailDialog(
+            entry = entry,
+            onDismiss = { vm.selectLedgerEntry(null) }
+        )
     }
 }
 
@@ -148,57 +238,65 @@ fun PlatformAdminScreen(
 // ══════════════════════════════════════════════════════════════════════════
 
 @Composable
-private fun PlatformAnalyticsTab(analytics: PlatformAnalytics) {
+private fun PlatformAnalyticsTab(analytics: PlatformAnalytics, totalRevenueShare: Double) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+        contentPadding = PaddingValues(20.dp),
+        verticalArrangement = Arrangement.spacedBy(20.dp)
     ) {
         item {
-            Text("Network-Wide KPIs", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            SectionTitle("Network-Wide KPIs", "Aggregated platform performance")
         }
         item {
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                 StatCard("🏢", "Total Groups", "${analytics.totalGroups}", "Active across SA", accentColor = Forest, modifier = Modifier.weight(1f))
                 StatCard("👥", "Total Members", "${analytics.totalMembers}", "Enrolled users", accentColor = Forest, modifier = Modifier.weight(1f))
             }
         }
         item {
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                StatCard("💰", "Network Balance", formatZAR(analytics.totalBalance), "Group holdings", accentColor = Gold, modifier = Modifier.weight(1f))
-                StatCard("📈", "Platform Revenue", formatZAR(analytics.totalPlatformFees), "From monthly fees", accentColor = SuccessGreen, modifier = Modifier.weight(1f))
+            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                StatCard("💰", "Total Balance", formatZAR(analytics.totalBalance), "Group holdings", accentColor = Gold, modifier = Modifier.weight(1f))
+                StatCard("📈", "Rev Share", formatZAR(totalRevenueShare), "Target monthly yield", accentColor = SuccessGreen, modifier = Modifier.weight(1f))
             }
         }
         
         item {
-            StatCard("🛡️", "Avg Risk Score", "${analytics.averageRiskScore.toInt()}/100", "Actuarial platform health", accentColor = InfoBlue)
+            GlassCard(accentColor = InfoBlue) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("🛡️", fontSize = 28.sp)
+                    Spacer(Modifier.width(16.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text("Average Risk Score", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.ExtraBold, color = Charcoal)
+                        Text("Platform actuarial health", style = MaterialTheme.typography.bodySmall, color = MidGray)
+                    }
+                    Text("${analytics.averageRiskScore.toInt()}/100", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Black, color = InfoBlue)
+                }
+            }
         }
 
         item {
             SectionTitle("Group Distribution", "By province")
-            Card(colors = CardDefaults.cardColors(containerColor = Color.White), border = BorderStroke(1.dp, LightGray.copy(0.3f))) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    analytics.provinceDistribution.toList().sortedByDescending { it.second }.forEach { (prov, count) ->
-                        val pct = if (analytics.totalGroups > 0) count.toFloat() / analytics.totalGroups else 0f
-                        DistributionRow(prov ?: "Unknown", count, pct, Forest)
-                    }
+            GlassCard(accentColor = Forest) {
+                analytics.provinceDistribution.toList().sortedByDescending { it.second }.forEach { (prov, count) ->
+                    val pct = if (analytics.totalGroups > 0) count.toFloat() / analytics.totalGroups else 0f
+                    DistributionRow(prov ?: "Unknown", count, pct, Forest)
+                    Spacer(Modifier.height(12.dp))
                 }
             }
         }
 
         item {
             SectionTitle("Market Segments", "By group type")
-            Card(colors = CardDefaults.cardColors(containerColor = Color.White), border = BorderStroke(1.dp, LightGray.copy(0.3f))) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    analytics.groupTypeDistribution.toList().sortedByDescending { it.second }.forEach { (type, count) ->
-                        val pct = if (analytics.totalGroups > 0) count.toFloat() / analytics.totalGroups else 0f
-                        DistributionRow(type.replace("_", " ").lowercase().replaceFirstChar { it.uppercase() }, count, pct, InfoBlue)
-                    }
+            GlassCard(accentColor = InfoBlue) {
+                analytics.groupTypeDistribution.toList().sortedByDescending { it.second }.forEach { (type, count) ->
+                    val pct = if (analytics.totalGroups > 0) count.toFloat() / analytics.totalGroups else 0f
+                    DistributionRow(type.replace("_", " ").lowercase().replaceFirstChar { it.uppercase() }, count, pct, InfoBlue)
+                    Spacer(Modifier.height(12.dp))
                 }
             }
         }
         
-        item { Spacer(Modifier.height(32.dp)) }
+        item { Spacer(Modifier.height(48.dp)) }
     }
 }
 
@@ -356,15 +454,7 @@ private fun AllGroupsTab(
 
 @Composable
 private fun DisbursementsTab(
-    payouts: List<PayoutRequest>,
-    groups: List<Group>,
-    claims: List<BeneficiaryPayoutClaim>,
-    loanRequestsByGroup: Map<String, List<Loan>>,
-    loanMemberNames: Map<String, String>,
-    memberBehaviorInsights: List<MemberBehaviorInsight>,
-    selectedRiskFilter: String,
-    isLoadingLoanRequests: Boolean,
-    isProcessingLoanRequest: Boolean,
+    state: DisbursementsTabState,
     vm: PlatformAdminViewModel,
     onOpenMemberPortal: (groupId: String, payoutId: String?) -> Unit,
     onVerifyMember: (memberId: String, groupId: String) -> Unit,
@@ -382,20 +472,20 @@ private fun DisbursementsTab(
     val expandedLoanProvinces = remember { mutableStateMapOf<String, Boolean>() }
     val expandedClaimProvinces = remember { mutableStateMapOf<String, Boolean>() }
 
-    val provinceMap = remember(groups) { groups.associateBy({ it.id }, { it.province ?: "Other" }) }
+    val provinceMap = remember(state.groups) { state.groups.associateBy({ it.id }, { it.province ?: "Other" }) }
 
-    val payoutsByProvince = remember(payouts, provinceMap) {
-        payouts.groupBy { provinceMap[it.groupId] ?: "Other" }.toList().sortedBy { it.first }
+    val payoutsByProvince = remember(state.payouts, provinceMap) {
+        state.payouts.groupBy { provinceMap[it.groupId] ?: "Other" }.toList().sortedBy { it.first }
     }
 
-    val loansByProvince = remember(loanRequestsByGroup, provinceMap) {
-        loanRequestsByGroup.entries.groupBy { (groupId, _) ->
-            provinceMap[groupId] ?: "Other"
+    val loansByProvince = remember(state.loanRequestsByGroup, provinceMap) {
+        state.loanRequestsByGroup.entries.groupBy { (groupId, _) ->
+            provinceMap[groupId ?: ""] ?: "Other"
         }.toList().sortedBy { it.first }
     }
 
-    val claimsByProvince = remember(claims, provinceMap) {
-        claims.groupBy { claim ->
+    val claimsByProvince = remember(state.claims, provinceMap) {
+        state.claims.groupBy { claim ->
             provinceMap[claim.groupId] ?: "Other"
         }.toList().sortedBy { it.first }
     }
@@ -405,196 +495,196 @@ private fun DisbursementsTab(
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // --- 1. Escalated Disbursements Section ---
-        item {
-            SectionHeaderCard(
-                icon = "💰",
-                title = "Escalated Disbursements",
-                subtitle = "Payout requests awaiting final approval.",
-                count = payouts.size,
-                isExpanded = isPayoutsSectionExpanded,
-                onClick = { isPayoutsSectionExpanded = !isPayoutsSectionExpanded }
-            )
-        }
+            // --- 1. Escalated Disbursements Section ---
+            item {
+                SectionHeaderCard(
+                    icon = "💰",
+                    title = "Escalated Disbursements",
+                    subtitle = "Payout requests awaiting final approval.",
+                    count = state.payouts.size,
+                    isExpanded = isPayoutsSectionExpanded,
+                    onClick = { isPayoutsSectionExpanded = !isPayoutsSectionExpanded }
+                )
+            }
 
-        if (isPayoutsSectionExpanded) {
-            if (payouts.isEmpty()) {
-                item { EmptyStateSmall("No disbursement requests found.") }
-            } else {
-                payoutsByProvince.forEach { (province, provincePayouts) ->
-                    item(key = "payout_province_$province") {
-                        ProvinceHeaderCard(
-                            province = province,
-                            count = provincePayouts.size,
-                            isExpanded = expandedPayoutProvinces[province] == true,
-                            onClick = { expandedPayoutProvinces[province] = !(expandedPayoutProvinces[province] ?: false) }
-                        )
-                    }
-
-                    if (expandedPayoutProvinces[province] == true) {
-                        items(provincePayouts) { payout ->
-                            val group = groups.find { it.id == payout.groupId }
-                            val groupName = group?.name ?: "Unknown Group"
-                            PayoutCard(
-                                payout = payout,
-                                groupName = groupName,
-                                onOpenPortal = {
-                                    vm.logAudit(action = "OPEN_MEMBER_PORTAL_FROM_DISBURSEMENT", targetGroupId = payout.groupId, details = mapOf("payoutId" to (payout.id ?: "unknown"), "groupName" to groupName))
-                                    onOpenMemberPortal(payout.groupId, payout.id)
-                                },
-                                onApprove = { payout.id?.let { vm.approvePayout(it, payout.groupId) } },
-                                onReject = { payout.id?.let { vm.rejectPayout(it, payout.groupId) } },
-                                onComplete = { payout.id?.let { vm.completePayout(it, payout.groupId) } }
+            if (isPayoutsSectionExpanded) {
+                if (state.payouts.isEmpty()) {
+                    item { EmptyStateSmall("No disbursement requests found.") }
+                } else {
+                    payoutsByProvince.forEach { (province, provincePayouts) ->
+                        item(key = "payout_province_$province") {
+                            ProvinceHeaderCard(
+                                province = province,
+                                count = provincePayouts.size,
+                                isExpanded = expandedPayoutProvinces[province] == true,
+                                onClick = { expandedPayoutProvinces[province] = !(expandedPayoutProvinces[province] ?: false) }
                             )
                         }
-                    }
-                }
-            }
-        }
 
-        // --- 2. Member Loan Requests Section ---
-        item {
-            SectionHeaderCard(
-                icon = "🏥",
-                title = "Member Loan Requests",
-                subtitle = "Loan applications requiring platform review.",
-                count = loanRequestsByGroup.values.flatten().size,
-                isExpanded = isLoansSectionExpanded,
-                onClick = { isLoansSectionExpanded = !isLoansSectionExpanded }
-            )
-        }
-
-        if (isLoansSectionExpanded) {
-            item {
-                Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), horizontalArrangement = Arrangement.End) {
-                    TextButton(onClick = { vm.refreshLoanRequests() }, enabled = !isLoadingLoanRequests && !isProcessingLoanRequest) {
-                        Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(14.dp))
-                        Spacer(Modifier.width(4.dp))
-                        Text(if (isLoadingLoanRequests) "Refreshing..." else "Refresh List", style = MaterialTheme.typography.labelSmall)
-                    }
-                }
-            }
-
-            if (isLoadingLoanRequests) {
-                item { Box(Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = Forest, modifier = Modifier.size(24.dp)) } }
-            } else if (loanRequestsByGroup.isEmpty()) {
-                item { EmptyStateSmall("No loan requests requiring review.") }
-            } else {
-                loansByProvince.forEach { (province, provinceEntries) ->
-                    item(key = "loan_province_$province") {
-                        ProvinceHeaderCard(
-                            province = province,
-                            count = provinceEntries.sumOf { it.value.size },
-                            isExpanded = expandedLoanProvinces[province] == true,
-                            onClick = { expandedLoanProvinces[province] = !(expandedLoanProvinces[province] ?: false) }
-                        )
-                    }
-
-                    if (expandedLoanProvinces[province] == true) {
-                        provinceEntries.sortedBy { (groupId, _) -> groups.find { it.id == groupId }?.name ?: "" }.forEach { (groupId, loans) ->
-                            item(key = "loan_group_header_$groupId") {
-                                val groupName = groups.find { it.id == groupId }?.name ?: "Unknown Group"
-                                Text(text = groupName, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = ForestMid, modifier = Modifier.padding(top = 8.dp, start = 24.dp))
-                            }
-
-                            items(loans) { loan ->
-                                val memberName = loanMemberNames[loan.memberId] ?: "Member ${loan.memberId.take(8)}"
-                                LoanRequestCard(
-                                    loan = loan,
-                                    memberName = memberName,
-                                    isProcessing = isProcessingLoanRequest,
-                                    onVerifyProfile = {
-                                        vm.logAudit(action = "PLATFORM_VERIFY_LOAN_MEMBER", targetMemberId = loan.memberId, targetGroupId = loan.groupId, details = mapOf("loanId" to (loan.id ?: "unknown")))
-                                        onVerifyMember(loan.memberId, loan.groupId)
+                        if (expandedPayoutProvinces[province] == true) {
+                            items(provincePayouts) { payout ->
+                                val group = state.groups.find { it.id == payout.groupId }
+                                val groupName = group?.name ?: "Unknown Group"
+                                PayoutCard(
+                                    payout = payout,
+                                    groupName = groupName,
+                                    onOpenPortal = {
+                                        vm.logAudit(action = "OPEN_MEMBER_PORTAL_FROM_DISBURSEMENT", targetGroupId = payout.groupId, details = mapOf("payoutId" to (payout.id ?: "unknown"), "groupName" to groupName))
+                                        onOpenMemberPortal(payout.groupId, payout.id)
                                     },
-                                    onApprove = { vm.approveLoanRequest(loan) },
-                                    onReject = { rejectLoanTarget = loan; rejectLoanReason = "" }
+                                    onApprove = { payout.id?.let { vm.approvePayout(it, payout.groupId) } },
+                                    onReject = { payout.id?.let { vm.rejectPayout(it, payout.groupId) } },
+                                    onComplete = { payout.id?.let { vm.completePayout(it, payout.groupId) } }
                                 )
                             }
                         }
                     }
                 }
             }
-        }
 
-        // --- 3. Burial Society Claims Section ---
-        item {
-            SectionHeaderCard(
-                icon = "🕊️",
-                title = "Burial Payout Claims",
-                subtitle = "Escalated death benefit claims.",
-                count = claims.size,
-                isExpanded = isClaimsSectionExpanded,
-                onClick = { isClaimsSectionExpanded = !isClaimsSectionExpanded }
-            )
-        }
+        // --- 2. Member Loan Requests Section ---
+            item {
+                SectionHeaderCard(
+                    icon = "🏥",
+                    title = "Member Loan Requests",
+                    subtitle = "Loan applications requiring platform review.",
+                    count = state.loanRequestsByGroup.values.flatten().size,
+                    isExpanded = isLoansSectionExpanded,
+                    onClick = { isLoansSectionExpanded = !isLoansSectionExpanded }
+                )
+            }
 
-        if (isClaimsSectionExpanded) {
-            if (claims.isEmpty()) {
-                item { EmptyStateSmall("No escalated burial claims.") }
-            } else {
-                claimsByProvince.forEach { (province, provinceClaims) ->
-                    item(key = "claim_province_$province") {
-                        ProvinceHeaderCard(
-                            province = province,
-                            count = provinceClaims.size,
-                            isExpanded = expandedClaimProvinces[province] == true,
-                            onClick = { expandedClaimProvinces[province] = !(expandedClaimProvinces[province] ?: false) }
-                        )
+            if (isLoansSectionExpanded) {
+                item {
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), horizontalArrangement = Arrangement.End) {
+                        TextButton(onClick = { vm.refreshLoanRequests() }, enabled = !state.isLoadingLoanRequests && !state.isProcessingLoanRequest) {
+                            Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(14.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text(if (state.isLoadingLoanRequests) "Refreshing..." else "Refresh List", style = MaterialTheme.typography.labelSmall)
+                        }
                     }
+                }
 
-                    if (expandedClaimProvinces[province] == true) {
-                        items(provinceClaims) { claim ->
-                            val group = groups.find { it.id == claim.groupId }
-                            val groupName = group?.name ?: "Unknown Group"
-                            BurialClaimCard(
-                                claim = claim,
-                                groupName = groupName,
-                                onApprove = { claim.id?.let { vm.approveBurialClaim(it, "Approved by Platform") } },
-                                onPay = { claim.id?.let { vm.payBurialClaim(it, "Paid Out") } },
-                                onReject = { claim.id?.let { vm.rejectBurialClaim(it, "Rejected by Platform") } }
+                if (state.isLoadingLoanRequests) {
+                    item { Box(Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = Forest, modifier = Modifier.size(24.dp)) } }
+                } else if (state.loanRequestsByGroup.isEmpty()) {
+                    item { EmptyStateSmall("No loan requests requiring review.") }
+                } else {
+                    loansByProvince.forEach { (province, provinceEntries) ->
+                        item(key = "loan_province_$province") {
+                            ProvinceHeaderCard(
+                                province = province,
+                                count = provinceEntries.sumOf { it.value.size },
+                                isExpanded = expandedLoanProvinces[province] == true,
+                                onClick = { expandedLoanProvinces[province] = !(expandedLoanProvinces[province] ?: false) }
                             )
+                        }
+
+                        if (expandedLoanProvinces[province] == true) {
+                            provinceEntries.sortedBy { (groupId, _) -> state.groups.find { it.id == groupId }?.name ?: "" }.forEach { (groupId, loans) ->
+                                item(key = "loan_group_header_$groupId") {
+                                    val groupName = state.groups.find { it.id == groupId }?.name ?: "Unknown Group"
+                                    Text(text = groupName, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = ForestMid, modifier = Modifier.padding(top = 8.dp, start = 24.dp))
+                                }
+
+                                items(loans) { loan ->
+                                    val memberName = state.loanMemberNames[loan.memberId] ?: "Member ${loan.memberId.take(8)}"
+                                    LoanRequestCard(
+                                        loan = loan,
+                                        memberName = memberName,
+                                        isProcessing = state.isProcessingLoanRequest,
+                                        onVerifyProfile = {
+                                            vm.logAudit(action = "PLATFORM_VERIFY_LOAN_MEMBER", targetMemberId = loan.memberId, targetGroupId = loan.groupId, details = mapOf("loanId" to (loan.id ?: "unknown")))
+                                            onVerifyMember(loan.memberId, loan.groupId)
+                                        },
+                                        onApprove = { vm.approveLoanRequest(loan) },
+                                        onReject = { rejectLoanTarget = loan; rejectLoanReason = "" }
+                                    )
+                                }
+                            }
                         }
                     }
                 }
             }
-        }
 
-        // --- 4. Member Behavior Analysis Section ---
-        item {
-            SectionHeaderCard(
-                icon = "📊",
-                title = "Member Behavior Analysis",
-                subtitle = "Risk-focused summary of loan behavior.",
-                count = null,
-                isExpanded = isAnalysisSectionExpanded,
-                onClick = { isAnalysisSectionExpanded = !isAnalysisSectionExpanded }
-            )
-        }
-
-        if (isAnalysisSectionExpanded) {
+        // --- 3. Burial Society Claims Section ---
             item {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(start = 12.dp)) {
-                    listOf("All", "High", "Elevated", "Watch", "Stable").forEach { riskBand ->
-                        FilterChip(
-                            selected = selectedRiskFilter == riskBand,
-                            onClick = { onRiskFilterChanged(riskBand) },
-                            label = { Text(riskBand) },
-                            colors = FilterChipDefaults.filterChipColors(selectedContainerColor = Forest.copy(0.1f), selectedLabelColor = Forest)
-                        )
+                SectionHeaderCard(
+                    icon = "🕊️",
+                    title = "Burial Payout Claims",
+                    subtitle = "Escalated death benefit claims.",
+                    count = state.claims.size,
+                    isExpanded = isClaimsSectionExpanded,
+                    onClick = { isClaimsSectionExpanded = !isClaimsSectionExpanded }
+                )
+            }
+
+            if (isClaimsSectionExpanded) {
+                if (state.claims.isEmpty()) {
+                    item { EmptyStateSmall("No escalated burial claims.") }
+                } else {
+                    claimsByProvince.forEach { (province, provinceClaims) ->
+                        item(key = "claim_province_$province") {
+                            ProvinceHeaderCard(
+                                province = province,
+                                count = provinceClaims.size,
+                                isExpanded = expandedClaimProvinces[province] == true,
+                                onClick = { expandedClaimProvinces[province] = !(expandedClaimProvinces[province] ?: false) }
+                            )
+                        }
+
+                        if (expandedClaimProvinces[province] == true) {
+                            items(provinceClaims) { claim ->
+                                val group = state.groups.find { it.id == claim.groupId }
+                                val groupName = group?.name ?: "Unknown Group"
+                                BurialClaimCard(
+                                    claim = claim,
+                                    groupName = groupName,
+                                    onApprove = { claim.id?.let { vm.approveBurialClaim(it, "Approved by Platform") } },
+                                    onPay = { claim.id?.let { vm.payBurialClaim(it, "Paid Out") } },
+                                    onReject = { claim.id?.let { vm.rejectBurialClaim(it, "Rejected by Platform") } }
+                                )
+                            }
+                        }
                     }
                 }
             }
 
-            if (memberBehaviorInsights.isEmpty()) {
-                item { EmptyStateSmall("No behavior insights available.") }
-            } else {
-                items(memberBehaviorInsights.take(15)) { insight ->
-                    BehaviorInsightCard(insight)
+        // --- 4. Member Behavior Analysis Section ---
+            item {
+                SectionHeaderCard(
+                    icon = "📊",
+                    title = "Member Behavior Analysis",
+                    subtitle = "Risk-focused summary of loan behavior.",
+                    count = null,
+                    isExpanded = isAnalysisSectionExpanded,
+                    onClick = { isAnalysisSectionExpanded = !isAnalysisSectionExpanded }
+                )
+            }
+
+            if (isAnalysisSectionExpanded) {
+                item {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(start = 12.dp)) {
+                        listOf("All", "High", "Elevated", "Watch", "Stable").forEach { riskBand ->
+                            FilterChip(
+                                selected = state.selectedRiskFilter == riskBand,
+                                onClick = { onRiskFilterChanged(riskBand) },
+                                label = { Text(riskBand) },
+                                colors = FilterChipDefaults.filterChipColors(selectedContainerColor = Forest.copy(alpha = 0.1f), selectedLabelColor = Forest)
+                            )
+                        }
+                    }
+                }
+
+                if (state.memberBehaviorInsights.isEmpty()) {
+                    item { EmptyStateSmall("No behavior insights available.") }
+                } else {
+                    items(state.memberBehaviorInsights.take(15)) { insight ->
+                        BehaviorInsightCard(insight)
+                    }
                 }
             }
-        }
-        
+
         item { Spacer(Modifier.height(40.dp)) }
     }
 
@@ -609,7 +699,7 @@ private fun DisbursementsTab(
                 }
             },
             confirmButton = {
-                Button(onClick = { vm.rejectLoanRequest(loan, rejectLoanReason); rejectLoanTarget = null }, enabled = rejectLoanReason.isNotBlank() && !isProcessingLoanRequest, colors = ButtonDefaults.buttonColors(containerColor = ErrorRed)) { Text("Reject") }
+                Button(onClick = { vm.rejectLoanRequest(loan, rejectLoanReason); rejectLoanTarget = null }, enabled = rejectLoanReason.isNotBlank() && !state.isProcessingLoanRequest, colors = ButtonDefaults.buttonColors(containerColor = ErrorRed)) { Text("Reject") }
             },
             dismissButton = {
                 TextButton(onClick = { rejectLoanTarget = null }) { Text("Cancel", color = MidGray) }
@@ -621,24 +711,51 @@ private fun DisbursementsTab(
 }
 
 @Composable
-fun PlatformLedgerTab(state: PlatformAdminUiState) {
+fun PlatformLedgerTab(state: PlatformAdminUiState, vm: PlatformAdminViewModel) {
     Column(
         Modifier.fillMaxSize().padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        SectionTitle("📈 Platform Revenue Ledger")
-        Text("Central record of registration fees and monthly member charges.", style = MaterialTheme.typography.bodyMedium, color = MidGray)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            SectionTitle("📈 Platform Revenue Ledger")
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                IconButton(onClick = { vm.exportPlatformLedger(pdf = false) }, enabled = !state.isExporting) {
+                    Icon(Icons.Default.Share, "Export CSV", tint = Forest)
+                }
+                IconButton(onClick = { vm.exportPlatformLedger(pdf = true) }, enabled = !state.isExporting) {
+                    if (state.isExporting) {
+                        CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
+                    } else {
+                        Icon(Icons.Default.PictureAsPdf, "Export PDF", tint = Forest)
+                    }
+                }
+            }
+        }
+        
+        Text("Central record of registration fees and monthly member charges. Apply accounting standards for verification.", style = MaterialTheme.typography.bodyMedium, color = MidGray)
 
         if (state.platformLedger.isEmpty()) {
             EmptyState(icon = "🧾", title = "No transactions", description = "Platform-wide financial movements will appear here.")
         } else {
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            LazyColumn(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                contentPadding = PaddingValues(bottom = 80.dp)
+            ) {
                 items(state.platformLedger) { entry ->
-                    Card(colors = CardDefaults.cardColors(containerColor = Color.White), border = BorderStroke(1.dp, LightGray.copy(0.3f))) {
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = Color.White), 
+                        border = BorderStroke(1.dp, LightGray.copy(0.3f)),
+                        modifier = Modifier.clickable { vm.selectLedgerEntry(entry) }
+                    ) {
                         Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f)) {
-                                Text(entry.description, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
-                                Text("${entry.createdAt?.take(16)?.replace("T", " ")} • ${entry.category}", style = MaterialTheme.typography.labelSmall, color = MidGray)
+                                Text(entry.description, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text("${entry.createdAt?.take(16)?.replace("T", " ")} • ${entry.category.uppercase()}", style = MaterialTheme.typography.labelSmall, color = MidGray)
                             }
                             Column(horizontalAlignment = Alignment.End) {
                                 val color = if (entry.amount >= 0) SuccessGreen else Color.Red
@@ -649,8 +766,17 @@ fun PlatformLedgerTab(state: PlatformAdminUiState) {
                         }
                     }
                 }
-                item { Spacer(Modifier.height(40.dp)) }
             }
+        }
+    }
+}
+
+@Composable
+private fun SectionTitle(title: String, subtitle: String? = null) {
+    Column {
+        Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Forest)
+        if (subtitle != null) {
+            Text(subtitle, style = MaterialTheme.typography.labelSmall, color = MidGray)
         }
     }
 }
@@ -756,11 +882,17 @@ private fun MaintenanceTab(
     onNavigateToSandbox: () -> Unit,
     onLogout: () -> Unit,
     onImpersonateGroupAdmin: (groupId: String) -> Unit,
-    onImpersonateMember: (memberId: String, groupId: String) -> Unit
+    onImpersonateMember: (memberId: String, groupId: String) -> Unit,
+    clickDebouncer: com.sanibonani.save.ui.utils.ClickDebouncer
 ) {
-    val filteredGroups = remember(state.groups, state.searchQuery) {
-        if (state.searchQuery.isBlank()) state.groups
-        else state.groups.filter {
+    val uniqueGroups = remember(state.groups) {
+        state.groups.distinctBy { group ->
+            group.id?.takeIf(String::isNotBlank) ?: "${group.name}|${group.city}|${group.province}"
+        }
+    }
+    val filteredGroups = remember(uniqueGroups, state.searchQuery) {
+        if (state.searchQuery.isBlank()) uniqueGroups
+        else uniqueGroups.filter {
             it.name.contains(state.searchQuery, ignoreCase = true) ||
                     it.province?.contains(state.searchQuery, ignoreCase = true) == true
         }
@@ -784,7 +916,9 @@ private fun MaintenanceTab(
                 subtitle = "Administrative controls and live operations.",
                 count = null,
                 isExpanded = true,
-                onClick = {}
+                onClick = {
+                    com.sanibonani.save.data.logging.AppLogger.d("PlatformAdmin", "[Maintenance] Section header clicked")
+                }
             )
         }
 
@@ -800,7 +934,14 @@ private fun MaintenanceTab(
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text("👤 Administrator Management", style = MaterialTheme.typography.titleSmall, color = Forest, fontWeight = FontWeight.Bold)
                     Text("Create additional group administrator accounts to help manage the system.", style = MaterialTheme.typography.bodySmall, color = MidGray)
-                    Button(onClick = onNavigateToCreateAdmin, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = Forest)) { Text("CREATE NEW ADMIN") }
+                    Button(
+                        onClick = { 
+                            com.sanibonani.save.data.logging.AppLogger.d("PlatformAdmin", "[Maintenance] Navigating to Create Admin")
+                            clickDebouncer.processClick(onNavigateToCreateAdmin) 
+                        }, 
+                        modifier = Modifier.fillMaxWidth(), 
+                        colors = ButtonDefaults.buttonColors(containerColor = Forest)
+                    ) { Text("CREATE NEW ADMIN") }
                 }
             }
         }
@@ -810,7 +951,14 @@ private fun MaintenanceTab(
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text("💸 Payment Sandbox", style = MaterialTheme.typography.titleSmall, color = Terra, fontWeight = FontWeight.Bold)
                     Text("Test payment gateway integrations (Stitch, PayFast) in a sandbox environment.", style = MaterialTheme.typography.bodySmall, color = MidGray)
-                    Button(onClick = onNavigateToSandbox, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = Terra)) { Text("OPEN PAYMENT SANDBOX") }
+                    Button(
+                        onClick = { 
+                            com.sanibonani.save.data.logging.AppLogger.d("PlatformAdmin", "[Maintenance] Navigating to Sandbox")
+                            clickDebouncer.processClick(onNavigateToSandbox) 
+                        }, 
+                        modifier = Modifier.fillMaxWidth(), 
+                        colors = ButtonDefaults.buttonColors(containerColor = Terra)
+                    ) { Text("OPEN PAYMENT SANDBOX") }
                 }
             }
         }
@@ -884,13 +1032,18 @@ private fun MaintenanceTab(
             }
 
             if (expandedProvinces[province] == true) {
-                items(provinceGroups, key = { it.id ?: it.hashCode() }) { group ->
+                itemsIndexed(
+                    items = provinceGroups,
+                    key = { index, group ->
+                        "maintenance_group_${group.id?.takeIf(String::isNotBlank) ?: "${province}_${group.name}_$index"}"
+                    }
+                ) { _, group ->
                     val groupId = group.id?.takeIf { it.isNotBlank() }
                     val isSelected = state.impersonationGroupId == groupId
 
                     Card(
                         shape = RoundedCornerShape(12.dp),
-                        colors = CardDefaults.cardColors(containerColor = if (isSelected) InfoBlue.copy(0.05f) else Color.White),
+                        colors = CardDefaults.cardColors(containerColor = if (isSelected) InfoBlue.copy(alpha = 0.05f) else Color.White),
                         border = if (isSelected) BorderStroke(2.dp, InfoBlue) else BorderStroke(1.dp, LightGray.copy(0.5f)),
                         modifier = Modifier.padding(start = 12.dp)
                     ) {
@@ -909,13 +1062,48 @@ private fun MaintenanceTab(
                             }
 
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                                OutlinedButton(onClick = { groupId?.let { vm.logAudit(action = "IMPERSONATE_GROUP_ADMIN", targetGroupId = it, details = mapOf("groupName" to group.name)); onImpersonateGroupAdmin(it) } }, modifier = Modifier.weight(1f), enabled = groupId != null && !state.isLoading, border = BorderStroke(1.dp, InfoBlue.copy(alpha = 0.5f)), colors = ButtonDefaults.outlinedButtonColors(contentColor = InfoBlue)) { Text("Admin Portal", fontWeight = FontWeight.SemiBold, fontSize = 11.sp) }
-                                IconButton(onClick = { groupId?.let { vm.sendWhatsAppTestToAdmin(it) } }, enabled = groupId != null && !state.isSendingWhatsAppTest, modifier = Modifier.size(40.dp).clip(RoundedCornerShape(10.dp)).background(Color.White).border(1.dp, LightGray.copy(alpha = 0.6f), RoundedCornerShape(10.dp))) { Text("💬", fontSize = 16.sp) }
-                                Button(onClick = { groupId?.let { vm.selectImpersonationGroup(it, forceReload = true) } }, modifier = Modifier.weight(1f), colors = ButtonDefaults.buttonColors(containerColor = if (isSelected) InfoBlue else MidGray), enabled = groupId != null && !state.isLoadingImpersonationMembers) { Text(if (state.isLoadingImpersonationMembers && isSelected) "..." else "Load Members", fontWeight = FontWeight.Bold, fontSize = 11.sp) }
+                                OutlinedButton(
+                                    onClick = { 
+                                        groupId?.let { 
+                                            com.sanibonani.save.data.logging.AppLogger.d("PlatformAdmin", "[Maintenance] Impersonating Group Admin for: $it")
+                                            clickDebouncer.processClick { 
+                                                vm.logAudit(action = "IMPERSONATE_GROUP_ADMIN", targetGroupId = it, details = mapOf("groupName" to group.name))
+                                                onImpersonateGroupAdmin(it) 
+                                            } 
+                                        } 
+                                    }, 
+                                    modifier = Modifier.weight(1f), 
+                                    enabled = groupId != null && !state.isLoading, 
+                                    border = BorderStroke(1.dp, InfoBlue.copy(alpha = 0.5f)), 
+                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = InfoBlue)
+                                ) { Text("Admin Portal", fontWeight = FontWeight.SemiBold, fontSize = 11.sp) }
+                                
+                                IconButton(
+                                    onClick = { 
+                                        groupId?.let { 
+                                            com.sanibonani.save.data.logging.AppLogger.d("PlatformAdmin", "[Maintenance] Triggering WhatsApp test to admin for: $it")
+                                            vm.sendWhatsAppTestToAdmin(it) 
+                                        } 
+                                    }, 
+                                    enabled = groupId != null && !state.isSendingWhatsAppTest, 
+                                    modifier = Modifier.size(40.dp).clip(RoundedCornerShape(10.dp)).background(Color.White).border(1.dp, LightGray.copy(alpha = 0.6f), RoundedCornerShape(10.dp))
+                                ) { Text("💬", fontSize = 16.sp) }
+                                
+                                Button(
+                                    onClick = { 
+                                        groupId?.let { 
+                                            com.sanibonani.save.data.logging.AppLogger.d("PlatformAdmin", "[Maintenance] Loading members for: $it")
+                                            vm.selectImpersonationGroup(it, forceReload = true) 
+                                        } 
+                                    }, 
+                                    modifier = Modifier.weight(1f), 
+                                    colors = ButtonDefaults.buttonColors(containerColor = if (isSelected) InfoBlue else MidGray), 
+                                    enabled = groupId != null && !state.isLoadingImpersonationMembers
+                                ) { Text(if (state.isLoadingImpersonationMembers && isSelected) "..." else "Load Members", fontWeight = FontWeight.Bold, fontSize = 11.sp) }
                             }
 
                             if (isSelected) {
-                                HorizontalDivider(thickness = 0.5.dp, color = LightGray.copy(0.5f))
+                                HorizontalDivider(thickness = 0.5.dp, color = LightGray.copy(alpha = 0.5f))
                                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                     if (state.isLoadingImpersonationMembers) { Box(Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator(modifier = Modifier.size(24.dp), color = InfoBlue, strokeWidth = 2.dp) } }
                                     else if (state.impersonationMembers.isEmpty()) { Text("No members found.", style = MaterialTheme.typography.bodySmall, color = MidGray) }
@@ -927,7 +1115,19 @@ private fun MaintenanceTab(
                                                     Text(member.fullName, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium)
                                                     Text(member.status.name, style = MaterialTheme.typography.labelSmall, color = if (member.status == MemberStatus.ACTIVE) SuccessGreen else MidGray)
                                                 }
-                                                TextButton(onClick = { if (memberId != null && groupId != null) { vm.logAudit(action = "IMPERSONATE_MEMBER", targetMemberId = memberId, targetGroupId = groupId, details = mapOf("memberName" to member.fullName)); onImpersonateMember(memberId, groupId) } }, colors = ButtonDefaults.textButtonColors(contentColor = Forest), enabled = memberId != null && groupId != null) { Text("IMPERSONATE", fontSize = 10.sp) }
+                                                TextButton(
+                                                    onClick = { 
+                                                        if (memberId != null && groupId != null) { 
+                                                            com.sanibonani.save.data.logging.AppLogger.d("PlatformAdmin", "[Maintenance] Impersonating Member: $memberId in Group: $groupId")
+                                                            clickDebouncer.processClick { 
+                                                                vm.logAudit(action = "IMPERSONATE_MEMBER", targetMemberId = memberId, targetGroupId = groupId, details = mapOf("memberName" to member.fullName))
+                                                                onImpersonateMember(memberId, groupId) 
+                                                            } 
+                                                        } 
+                                                    }, 
+                                                    colors = ButtonDefaults.textButtonColors(contentColor = Forest), 
+                                                    enabled = memberId != null && groupId != null
+                                                ) { Text("IMPERSONATE", fontSize = 10.sp) }
                                             }
                                         }
                                     }
@@ -1020,7 +1220,7 @@ private fun AuditLogsCard(auditLogs: List<AuditLog>, isLoading: Boolean) {
                                         }
                                     }
                                 }
-                                if (!isExpanded) HorizontalDivider(modifier = Modifier.padding(top = 8.dp), color = LightGray.copy(0.3f))
+                                if (!isExpanded) HorizontalDivider(modifier = Modifier.padding(top = 8.dp), color = LightGray.copy(alpha = 0.3f))
                             }
                         }
                     }
@@ -1045,7 +1245,7 @@ private fun AuditDetailRow(color: Color, label: String, value: String) {
 
 @Composable
 private fun SectionHeaderCard(icon: String, title: String, subtitle: String, count: Int?, isExpanded: Boolean, onClick: () -> Unit) {
-    Card(shape = RoundedCornerShape(12.dp), colors = CardDefaults.cardColors(containerColor = if (isExpanded) Forest.copy(0.02f) else Color.White), border = BorderStroke(1.dp, Forest.copy(alpha = 0.4f)), modifier = Modifier.fillMaxWidth().clickable { onClick() }) {
+    Card(shape = RoundedCornerShape(12.dp), colors = CardDefaults.cardColors(containerColor = if (isExpanded) Forest.copy(alpha = 0.02f) else Color.White), border = BorderStroke(1.dp, Forest.copy(alpha = 0.4f)), modifier = Modifier.fillMaxWidth().clickable { onClick() }) {
         Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
             Column(Modifier.weight(1f)) {
                 Text("$icon $title", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Forest)
@@ -1054,7 +1254,7 @@ private fun SectionHeaderCard(icon: String, title: String, subtitle: String, cou
             Row(verticalAlignment = Alignment.CenterVertically) {
                 count?.let {
                     Surface(shape = RoundedCornerShape(16.dp), color = Forest.copy(alpha = 0.1f)) {
-                        Text("$it", Modifier.padding(horizontal = 8.dp, vertical = 2.dp), style = MaterialTheme.typography.labelSmall, color = Forest, fontWeight = FontWeight.Bold)
+                        Text("$it", Modifier.padding(horizontal = 8.dp, vertical = 1.dp), style = MaterialTheme.typography.labelSmall, color = Forest, fontWeight = FontWeight.Bold)
                     }
                     Spacer(Modifier.width(8.dp))
                 }
@@ -1066,7 +1266,7 @@ private fun SectionHeaderCard(icon: String, title: String, subtitle: String, cou
 
 @Composable
 private fun ProvinceHeaderCard(province: String, count: Int, isExpanded: Boolean, onClick: () -> Unit) {
-    Card(shape = RoundedCornerShape(12.dp), colors = CardDefaults.cardColors(containerColor = if (isExpanded) Forest.copy(0.05f) else Color.White), border = BorderStroke(1.dp, if (isExpanded) Forest.copy(alpha = 0.5f) else LightGray.copy(0.5f)), modifier = Modifier.fillMaxWidth().padding(start = 12.dp).clickable { onClick() }) {
+    Card(shape = RoundedCornerShape(12.dp), colors = CardDefaults.cardColors(containerColor = if (isExpanded) Forest.copy(alpha = 0.05f) else Color.White), border = BorderStroke(1.dp, if (isExpanded) Forest.copy(alpha = 0.5f) else LightGray.copy(alpha = 0.5f)), modifier = Modifier.fillMaxWidth().padding(start = 12.dp).clickable { onClick() }) {
         Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Icon(Icons.Default.LocationOn, contentDescription = null, tint = Forest, modifier = Modifier.size(18.dp))
@@ -1089,7 +1289,7 @@ private fun PayoutCard(payout: PayoutRequest, groupName: String, onOpenPortal: (
                     Text(groupName, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodySmall)
                     Text(formatZAR(payout.amount), color = Forest, fontWeight = FontWeight.ExtraBold, style = MaterialTheme.typography.bodySmall)
                 }
-                Surface(color = getPayoutStatusColor(payout.status).copy(0.1f), shape = RoundedCornerShape(16.dp)) {
+                Surface(color = getPayoutStatusColor(payout.status).copy(alpha = 0.1f), shape = RoundedCornerShape(16.dp)) {
                     Text(payout.status.uiLabel, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp), color = getPayoutStatusColor(payout.status), style = MaterialTheme.typography.labelSmall, fontSize = 9.sp)
                 }
             }
@@ -1144,7 +1344,7 @@ private fun BurialClaimCard(claim: BeneficiaryPayoutClaim, groupName: String, on
                     Text(groupName, style = MaterialTheme.typography.labelSmall, color = MidGray)
                     Text(formatZAR(claim.claimAmount), color = Color.Red, fontWeight = FontWeight.ExtraBold, style = MaterialTheme.typography.bodySmall)
                 }
-                Surface(color = Forest.copy(0.1f), shape = RoundedCornerShape(16.dp)) {
+                Surface(color = Forest.copy(alpha = 0.1f), shape = RoundedCornerShape(16.dp)) {
                     Text(claim.status.displayName, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp), color = Forest, style = MaterialTheme.typography.labelSmall, fontSize = 9.sp)
                 }
             }
@@ -1182,7 +1382,8 @@ private fun EmptyStateSmall(message: String) {
 private fun DistributionRow(label: String, count: Int, percentage: Float, color: Color) {
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-            Text(label, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium)
+            Text(label, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
+            Spacer(Modifier.width(8.dp))
             Text("$count", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
         }
         Box(

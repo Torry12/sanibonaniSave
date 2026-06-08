@@ -14,6 +14,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.sanibonani.save.ui.utils.rememberClickDebouncer
 import com.sanibonani.save.domain.model.GroupHealthScore
 import com.sanibonani.save.domain.model.RiskZone
 import com.sanibonani.save.ui.components.backgroundColor
@@ -30,6 +31,14 @@ fun HealthScoreDetailScreen(
     vm: HealthScoreViewModel = hiltViewModel()
 ) {
     val state by vm.state.collectAsState()
+    val clickDebouncer = rememberClickDebouncer()
+
+    DisposableEffect(Unit) {
+        vm.setActive(true)
+        onDispose {
+            vm.setActive(false)
+        }
+    }
 
     LaunchedEffect(groupId) {
         vm.loadHealthScore(groupId)
@@ -40,7 +49,7 @@ fun HealthScoreDetailScreen(
         TopAppBar(
             title = { Text("Health Score Details") },
             navigationIcon = {
-                IconButton(onClick = onBack) {
+                IconButton(onClick = { clickDebouncer.processClick(onBack) }) {
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                 }
             }

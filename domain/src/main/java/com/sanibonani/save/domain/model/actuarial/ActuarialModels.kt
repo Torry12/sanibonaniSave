@@ -1,3 +1,18 @@
+
+/**
+ * ⚠️  ORPHANED FILE — DO NOT USE
+ *
+ * The canonical actuarial types (GroupFinancialInsight, ActuarialMetrics,
+ * RiskLevel, MonthlyProjection, IndustryBenchmark) all live in:
+ *   [com.sanibonani.save.domain.model.Models.kt]
+ *
+ * The GroupType import here references the orphaned duplicate in
+ * [com.sanibonani.save.domain.model.group.GroupModels]; use the canonical
+ * GroupType from Models.kt instead.
+ *
+ * No production code imports from this file. It will be removed in a future cleanup pass.
+ */
+@file:OptIn(ExperimentalSerializationApi::class)
 package com.sanibonani.save.domain.model.actuarial
 
 import android.os.Parcelable
@@ -36,7 +51,6 @@ data class IndustryBenchmark(
     @SerialName("benchmark_notes")             val benchmarkNotes: String = ""
 ) : Parcelable
 
-@OptIn(ExperimentalSerializationApi::class)
 @Serializable
 @Parcelize
 data class GroupFinancialInsight(
@@ -106,7 +120,6 @@ data class GroupFinancialInsight(
     @EncodeDefault(EncodeDefault.Mode.NEVER) @SerialName("goal_progress_pct")           val goalProgressPct: Double = 0.0
 ) : Parcelable
 
-@OptIn(ExperimentalSerializationApi::class)
 @Serializable
 @Parcelize
 data class ActuarialMetrics(

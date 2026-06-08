@@ -47,7 +47,7 @@ fun PlatformAnalyticsTab(analytics: PlatformAnalytics) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     analytics.provinceDistribution.toList().sortedByDescending { it.second }.forEach { (prov, count) ->
                         val pct = if (analytics.totalGroups > 0) count.toFloat() / analytics.totalGroups else 0f
-                        DistributionRow(prov, count, pct, Forest)
+                        DistributionRow(prov ?: "Unknown", count, pct, Forest)
                     }
                 }
             }

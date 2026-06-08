@@ -20,29 +20,30 @@ class ProcessPayoutUseCase @Inject constructor(
         payoutId: String,
         groupId: String,
         status: PayoutStatus,
+        adminId: String,
         payoutReference: String? = null
     ): Result<Unit> {
         // 1. Get current payout data to know the amount if completing
         val payoutResult = payoutRepository.getPayoutById(payoutId)
         val payout = payoutResult.getOrNull()
 
-        if (status == PayoutStatus.COMPLETED && (payoutResult.isFailure || payout == null)) {
-            return Result.failure(payoutResult.exceptionOrNull() ?: Exception("Failed to retrieve payout details for completion"))
+        if (payoutResult.isFailure || payout == null) {
+            return Result.failure(payoutResult.exceptionOrNull() ?: Exception("Payout not found: $payoutId"))
         }
 
         // 2. Update status and balance atomically if completing
         val updateResult = if (status == PayoutStatus.COMPLETED) {
-            payoutRepository.completePayoutAtomic(payoutId, "PLATFORM_ADMIN", payoutReference)
+            payoutRepository.completePayoutAtomic(payoutId, adminId, payoutReference)
         } else {
             payoutRepository.updatePayoutStatus(payoutId, status, payoutReference)
         }
         
         if (updateResult.isSuccess) {
             val message = when (status) {
-                PayoutStatus.PROCESSING -> "Your payout request is now being processed."
-                PayoutStatus.COMPLETED -> "Your disbursement request has been processed successfully. Funds are on their way."
-                PayoutStatus.FAILED -> "Your disbursement request could not be processed. Please contact support."
-                PayoutStatus.CANCELLED -> "Your payout request has been cancelled."
+                PayoutStatus.PROCESSING -> "Your payout request of R${"%.2f".format(payout.amount)} is now being processed."
+                PayoutStatus.COMPLETED -> "Your disbursement request of R${"%.2f".format(payout.amount)} has been processed successfully. Funds are on their way."
+                PayoutStatus.FAILED -> "Your disbursement request of R${"%.2f".format(payout.amount)} could not be processed. Please contact support."
+                PayoutStatus.CANCELLED -> "Your payout request of R${"%.2f".format(payout.amount)} has been cancelled."
                 else -> null
             }
             

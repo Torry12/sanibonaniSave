@@ -60,7 +60,7 @@ class DatabaseResetUtility {
                 install(Auth) {
                     sessionManager = object : SessionManager {
                         override suspend fun saveSession(session: io.github.jan.supabase.auth.user.UserSession) {}
-                        override suspend fun loadSession(): io.github.jan.supabase.auth.user.UserSession? = null
+                        override suspend fun loadSession(): io.github.jan.supabase.auth.user.UserSession = error("No session")
                         override suspend fun deleteSession() {}
                     }
                     codeVerifierCache = object : CodeVerifierCache {
@@ -76,7 +76,7 @@ class DatabaseResetUtility {
                 install(Auth) {
                     sessionManager = object : SessionManager {
                         override suspend fun saveSession(session: io.github.jan.supabase.auth.user.UserSession) {}
-                        override suspend fun loadSession(): io.github.jan.supabase.auth.user.UserSession? = null
+                        override suspend fun loadSession(): io.github.jan.supabase.auth.user.UserSession = error("No session")
                         override suspend fun deleteSession() {}
                     }
                     codeVerifierCache = object : CodeVerifierCache {
@@ -303,7 +303,7 @@ class DatabaseResetUtility {
                 install(Auth) {
                     sessionManager = object : SessionManager {
                         override suspend fun saveSession(session: io.github.jan.supabase.auth.user.UserSession) {}
-                        override suspend fun loadSession(): io.github.jan.supabase.auth.user.UserSession? = null
+                        override suspend fun loadSession(): io.github.jan.supabase.auth.user.UserSession = error("No session")
                         override suspend fun deleteSession() {}
                     }
                     codeVerifierCache = object : CodeVerifierCache {
@@ -403,7 +403,7 @@ class DatabaseResetUtility {
                 install(Auth) {
                     sessionManager = object : SessionManager {
                         override suspend fun saveSession(session: io.github.jan.supabase.auth.user.UserSession) {}
-                        override suspend fun loadSession(): io.github.jan.supabase.auth.user.UserSession? = null
+                        override suspend fun loadSession(): io.github.jan.supabase.auth.user.UserSession = error("No session")
                         override suspend fun deleteSession() {}
                     }
                     codeVerifierCache = object : CodeVerifierCache {
@@ -653,7 +653,7 @@ class DatabaseResetUtility {
                 install(Auth) {
                     sessionManager = object : SessionManager {
                         override suspend fun saveSession(session: io.github.jan.supabase.auth.user.UserSession) {}
-                        override suspend fun loadSession(): io.github.jan.supabase.auth.user.UserSession? = null
+                        override suspend fun loadSession(): io.github.jan.supabase.auth.user.UserSession = error("No session")
                         override suspend fun deleteSession() {}
                     }
                     codeVerifierCache = object : CodeVerifierCache {
@@ -789,7 +789,7 @@ class DatabaseResetUtility {
                 install(Auth) {
                     sessionManager = object : SessionManager {
                         override suspend fun saveSession(session: io.github.jan.supabase.auth.user.UserSession) {}
-                        override suspend fun loadSession(): io.github.jan.supabase.auth.user.UserSession? = null
+                        override suspend fun loadSession(): io.github.jan.supabase.auth.user.UserSession = error("No session")
                         override suspend fun deleteSession() {}
                     }
                     codeVerifierCache = object : CodeVerifierCache {

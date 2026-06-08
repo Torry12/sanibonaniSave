@@ -2,6 +2,8 @@ package com.sanibonani.save.data.repository
 
 import com.sanibonani.save.data.local.PaymentEntity
 import com.sanibonani.save.data.local.SanibonaniDatabase
+import com.sanibonani.save.domain.event.EventBus
+import com.sanibonani.save.domain.event.PaymentProcessedEvent
 import com.sanibonani.save.domain.model.Payment
 import com.sanibonani.save.domain.repository.PaymentRepository
 import com.sanibonani.save.domain.utils.OperationKeys
@@ -58,6 +60,10 @@ class PaymentRepositoryImpl @Inject constructor(
                 select(columns = Columns.raw(PAYMENT_COLUMNS_SAFE))
             }.decodeSingle<Payment>()
             db.paymentDao().upsertPayment(created.toEntity())
+            
+            // Centralized event emission for all recorded payments
+            EventBus.emit(PaymentProcessedEvent(created))
+
             created.id ?: paymentId
         }
     }
