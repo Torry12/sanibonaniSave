@@ -59,4 +59,3 @@ data class HealthScoreRecommendation(
     @SerialName("created_at")
     val createdAt: String
 )
-

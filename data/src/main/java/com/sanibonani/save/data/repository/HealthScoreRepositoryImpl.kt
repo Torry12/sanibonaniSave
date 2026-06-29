@@ -122,4 +122,3 @@ class HealthScoreRepositoryImpl @Inject constructor(
     }
 
 }
-

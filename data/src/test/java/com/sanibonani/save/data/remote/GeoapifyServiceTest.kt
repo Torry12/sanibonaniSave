@@ -1,10 +1,5 @@
-package com.sanibonani.save
+package com.sanibonani.save.data.remote
 
-import com.sanibonani.save.data.remote.GeoapifyService
-import com.sanibonani.save.data.remote.GeoapifyResponse
-import com.sanibonani.save.data.remote.Feature
-import com.sanibonani.save.data.remote.Properties
-import com.sanibonani.save.data.remote.Geometry
 import kotlinx.coroutines.runBlocking
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
