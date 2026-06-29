@@ -1,11 +1,16 @@
 package com.sanibonani.save.data.repository
 
+import com.sanibonani.save.domain.event.EventBus
+import com.sanibonani.save.domain.event.LedgerEntryCreatedEvent
+import com.sanibonani.save.domain.model.LedgerEntry
 import com.sanibonani.save.data.local.SanibonaniDatabase
 import com.sanibonani.save.data.logging.AppLogger
+import com.sanibonani.save.data.remote.PostgrestColumns
 import com.sanibonani.save.data.utils.logAndGetMessage
 import com.sanibonani.save.domain.model.Beneficiary
 import com.sanibonani.save.domain.model.Contribution
 import com.sanibonani.save.domain.model.ContributionStatus
+import com.sanibonani.save.domain.model.RecordContributionResult
 import com.sanibonani.save.domain.model.DocumentStatus
 import com.sanibonani.save.domain.model.Member
 import com.sanibonani.save.domain.model.MemberDocument
@@ -58,31 +63,110 @@ class MemberRepositoryImpl @Inject constructor(
     private val storageRepo: StorageRepository
 ) : BaseRepository("MemberRepository"), MemberRepository, BeneficiaryRepository, MemberDocumentRepository {
 
-    private val MEMBER_COLUMNS_SAFE = "id,group_id,user_id,full_name,id_number,phone,email,street,suburb,city,province,notification_pref,status,joined_at,probation_end_at,profile_photo_url,document_1_url,document_1_type,document_1_status,document_2_url,document_2_type,document_2_status,document_3_url,document_3_type,document_3_status,document_4_url,document_4_type,document_4_status,document_5_url,document_5_type,document_5_status,fcm_token,member_key,total_contributions,total_paid,beneficiary_count,beneficiary_over_65_count,monthly_contribution_override,created_at"
-    // NOTE: Keep this aligned with `supabase/schema.sql`.
-    // NOTE: Some environments may have extra optional columns (e.g. `receipt_url`).
-    // Do NOT select optional columns unless the backend schema is known to support them,
-    // otherwise PostgREST will fail the entire request with: `column contributions.<col> does not exist`.
+    // NOTE: Keep aligned with PostgrestColumns / supabase/rebuild_kit_v4/01_TABLES_AND_INDEXES.sql.
+    // Do NOT select optional columns unless the backend schema supports them.
     private val CONTRIBUTION_COLUMNS_SAFE = "id,member_id,group_id,amount,created_at,due_date,paid_at,status,type,transaction_id,late_fees_applied"
 
+    private fun Throwable.isMissingColumnError(): Boolean {
+        val msg = message.orEmpty()
+        return msg.contains("column", ignoreCase = true) && msg.contains("does not exist", ignoreCase = true)
+    }
+
+    private suspend fun fetchMembersList(
+        columns: String = PostgrestColumns.MEMBERS_SAFE,
+        configure: io.github.jan.supabase.postgrest.query.PostgrestRequestBuilder.() -> Unit = {}
+    ): List<Member> = try {
+        supabase.postgrest["members"].select(columns = Columns.raw(columns)) {
+            configure()
+        }.decodeList<Member>()
+    } catch (e: Exception) {
+        if (columns == PostgrestColumns.MEMBERS_SAFE && e.isMissingColumnError()) {
+            AppLogger.w(
+                tag,
+                "Members schema missing extended columns; using minimal projection. Apply supabase/migrations/20260529120000_align_members_app_columns.sql."
+            )
+            fetchMembersList(PostgrestColumns.MEMBERS_MINIMAL, configure)
+        } else {
+            throw e
+        }
+    }
+
+    private suspend fun fetchMemberSingle(
+        columns: String = PostgrestColumns.MEMBERS_SAFE,
+        configure: io.github.jan.supabase.postgrest.query.PostgrestRequestBuilder.() -> Unit
+    ): Member = try {
+        supabase.postgrest["members"].select(columns = Columns.raw(columns)) {
+            configure()
+        }.decodeSingle<Member>()
+    } catch (e: Exception) {
+        if (columns == PostgrestColumns.MEMBERS_SAFE && e.isMissingColumnError()) {
+            AppLogger.w(tag, "Members schema missing extended columns; using minimal projection.")
+            fetchMemberSingle(PostgrestColumns.MEMBERS_MINIMAL, configure)
+        } else {
+            throw e
+        }
+    }
+
+    private suspend fun decodeMemberAfterWrite(
+        columns: String,
+        request: suspend (String) -> Member
+    ): Member = try {
+        request(columns)
+    } catch (e: Exception) {
+        if (columns == PostgrestColumns.MEMBERS_SAFE && e.isMissingColumnError()) {
+            AppLogger.w(tag, "Members schema missing extended columns after write; using minimal projection.")
+            decodeMemberAfterWrite(PostgrestColumns.MEMBERS_MINIMAL, request)
+        } else {
+            throw e
+        }
+    }
+
+    private suspend fun fetchMemberOrNull(
+        columns: String = PostgrestColumns.MEMBERS_SAFE,
+        configure: io.github.jan.supabase.postgrest.query.PostgrestRequestBuilder.() -> Unit
+    ): Member? = try {
+        supabase.postgrest["members"].select(columns = Columns.raw(columns)) {
+            configure()
+        }.decodeSingleOrNull<Member>()
+    } catch (e: Exception) {
+        if (columns == PostgrestColumns.MEMBERS_SAFE && e.isMissingColumnError()) {
+            fetchMemberOrNull(PostgrestColumns.MEMBERS_MINIMAL, configure)
+        } else {
+            null
+        }
+    }
+
     override fun getGroupMembers(groupId: String): Flow<Result<List<Member>>> = observeAndSync(
-        dbFlow = db.memberDao().observeMembers(groupId),
+        dbFlow = db.memberDao().observeActiveMembers(groupId),
         mapper = { it.toModel() },
         toEntity = { it.toEntity() },
-        networkFetch = { 
-            supabase.postgrest["members"].select(columns = Columns.raw(MEMBER_COLUMNS_SAFE)) {
-                filter { eq("group_id", groupId) } 
-            }.decodeList<Member>()
+        networkFetch = {
+            fetchMembersList {
+                filter {
+                    eq("group_id", groupId)
+                    // Only active and probation members for portal display
+                    or {
+                        eq("status", "active")
+                        eq("status", "probation")
+                    }
+                }
+            }
         },
-        cacheSync = { list -> db.memberDao().syncMembers(groupId, list) }
+        cacheSync = { list -> db.memberDao().syncActiveMembers(groupId, list) }
     )
 
     override suspend fun syncGroupMembers(groupId: String): Result<List<Member>> = retryWithExponentialBackoff {
         runCatching {
-            val remote = supabase.postgrest["members"].select(columns = Columns.raw(MEMBER_COLUMNS_SAFE)) {
-                filter { eq("group_id", groupId) }
-            }.decodeList<Member>()
-            db.memberDao().syncMembers(groupId, remote.map { it.toEntity() })
+            val remote = fetchMembersList {
+                filter {
+                    eq("group_id", groupId)
+                    or {
+                        eq("status", "active")
+                        eq("status", "probation")
+                    }
+                }
+            }
+            db.memberDao().syncActiveMembers(groupId, remote.map { it.toEntity() })
             remote
         }
     }
@@ -93,13 +177,13 @@ class MemberRepositoryImpl @Inject constructor(
         limit: Int
     ): Result<List<Member>> = retryWithExponentialBackoff {
         runCatching {
-            val members = supabase.postgrest["members"].select(columns = Columns.raw(MEMBER_COLUMNS_SAFE)) {
-                filter { 
-                    eq("group_id", groupId) 
+            val members = fetchMembersList {
+                filter {
+                    eq("group_id", groupId)
                 }
                 range(offset.toLong(), (offset + limit - 1).toLong())
                 order("created_at", order = io.github.jan.supabase.postgrest.query.Order.DESCENDING)
-            }.decodeList<Member>()
+            }
             db.memberDao().upsertMembers(members.map { it.toEntity() })
             members
         }
@@ -107,9 +191,7 @@ class MemberRepositoryImpl @Inject constructor(
 
     override suspend fun getMemberById(id: String): Result<Member> = retryWithExponentialBackoff {
         runCatching {
-            val member = supabase.postgrest["members"].select(columns = Columns.raw(MEMBER_COLUMNS_SAFE)) {
-                filter { eq("id", id) } 
-            }.decodeSingle<Member>()
+            val member = fetchMemberSingle { filter { eq("id", id) } }
             db.memberDao().upsertMember(member.toEntity())
             member
         }.recoverCatching { exception ->
@@ -120,12 +202,12 @@ class MemberRepositoryImpl @Inject constructor(
 
     override suspend fun getMemberByUserId(userId: String, groupId: String): Result<Member> = retryWithExponentialBackoff {
         runCatching {
-            val member = supabase.postgrest["members"].select(columns = Columns.raw(MEMBER_COLUMNS_SAFE)) {
-                filter { 
-                    eq("user_id", userId) 
+            val member = fetchMemberSingle {
+                filter {
+                    eq("user_id", userId)
                     eq("group_id", groupId)
-                } 
-            }.decodeSingle<Member>()
+                }
+            }
             db.memberDao().upsertMember(member.toEntity())
             member
         }.recoverCatching { exception ->
@@ -136,10 +218,8 @@ class MemberRepositoryImpl @Inject constructor(
 
     override suspend fun getMemberships(userId: String): Result<List<Member>> = retryWithExponentialBackoff {
         runCatching {
-            val members = supabase.postgrest["members"].select(columns = Columns.raw(MEMBER_COLUMNS_SAFE)) {
-                filter { eq("user_id", userId) }
-            }.decodeList<Member>()
-            db.memberDao().upsertMembers(members.map { it.toEntity() })
+            val members = fetchMembersList { filter { eq("user_id", userId) } }
+            db.memberDao().syncMembershipsForUser(userId, members.map { it.toEntity() })
             members
         }.recoverCatching { exception ->
             val local = db.memberDao().getAllMemberships(userId).map { it.toModel() }
@@ -152,11 +232,9 @@ class MemberRepositoryImpl @Inject constructor(
         mapper = { it.toModel() },
         toEntity = { it.toEntity() },
         networkFetch = {
-            supabase.postgrest["members"].select(columns = Columns.raw(MEMBER_COLUMNS_SAFE)) {
-                filter { eq("user_id", userId) }
-            }.decodeList<Member>()
+            fetchMembersList { filter { eq("user_id", userId) } }
         },
-        cacheSync = { list -> db.memberDao().upsertMembers(list) }
+        cacheSync = { list -> db.memberDao().syncMembershipsForUser(userId, list) }
     )
 
     override fun observeMemberByUserId(userId: String, groupId: String): Flow<Result<Member?>> = channelFlow {
@@ -166,12 +244,12 @@ class MemberRepositoryImpl @Inject constructor(
                 mapper = { it.toModel() },
                 toEntity = { it.toEntity() },
                 networkFetch = {
-                    supabase.postgrest["members"].select(columns = Columns.raw(MEMBER_COLUMNS_SAFE)) {
+                    fetchMemberSingle {
                         filter {
                             eq("user_id", userId)
                             eq("group_id", groupId)
                         }
-                    }.decodeSingle<Member>()
+                    }
                 },
                 cacheSync = { entity -> db.memberDao().upsertMember(entity) }
             ).collect { send(it) }
@@ -204,14 +282,12 @@ class MemberRepositoryImpl @Inject constructor(
         if (member.groupId.isBlank()) throw Exception("Group ID required for registration")
         
         // 1. UNIQUE CHECK: Prevent duplicate joining by UserID + GroupID
-        val existing = try {
-            supabase.postgrest["members"].select(columns = Columns.raw(MEMBER_COLUMNS_SAFE)) {
-                filter { 
-                    eq("user_id", member.userId ?: "")
-                    eq("group_id", member.groupId)
-                }
-            }.decodeSingleOrNull<Member>()
-        } catch (e: Exception) { null }
+        val existing = fetchMemberOrNull {
+            filter {
+                eq("user_id", member.userId ?: "")
+                eq("group_id", member.groupId)
+            }
+        }
         
         if (existing != null) {
             if (existing.status != MemberStatus.PENDING_PAYMENT) {
@@ -224,30 +300,25 @@ class MemberRepositoryImpl @Inject constructor(
         }
 
         // 2. UNIQUE CHECK: Member ID number must be unique within the group (if not the same member)
-        val duplicateId = try {
-            supabase.postgrest["members"].select(columns = Columns.raw(MEMBER_COLUMNS_SAFE)) {
-                filter {
-                    eq("group_id", member.groupId)
-                    eq("id_number", member.idNumber ?: "")
-                }
-            }.decodeSingleOrNull<Member>()
-        } catch (e: Exception) { null }
+        val duplicateId = fetchMemberOrNull {
+            filter {
+                eq("group_id", member.groupId)
+                eq("id_number", member.idNumber ?: "")
+            }
+        }
         if (duplicateId != null && duplicateId.id != existing?.id) {
             throw Exception("This ID number is already registered in this group.")
         }
 
 
-        // Get group to calculate proper probation end date
         val group = groupRepo.getGroupById(member.groupId).getOrThrow()
         
-        // 3. ACTIVATION CHECK: Group must be activated (registration paid) to accept members
-        // Business Exception: Allow the group administrator to register during the initial setup
         val isGroupAdmin = group.adminUserId == member.userId
         if (!group.registrationPaid && !isGroupAdmin) {
             throw Exception("This group is not yet active. Please contact the administrator.")
         }
 
-        // 2. JOINING FEE LOGIC: If a joining fee is required and no transactionId provided,
+        // JOINING FEE LOGIC: If a joining fee is required and no transactionId provided,
         // the member will be created with PENDING_PAYMENT status.
         // The payment flow will update the status to ACTIVE/PROBATION after successful payment.
         // This allows the registration form → payment → completion flow.
@@ -296,14 +367,18 @@ class MemberRepositoryImpl @Inject constructor(
         }
         
         val registered = if (existing != null) {
-            supabase.postgrest["members"].update(insertData) {
-                filter { eq("id", existing.id ?: throw IllegalStateException("Member ID missing for update")) }
-                select(columns = Columns.raw(MEMBER_COLUMNS_SAFE))
-            }.decodeSingle<Member>()
+            decodeMemberAfterWrite(PostgrestColumns.MEMBERS_SAFE) { cols ->
+                supabase.postgrest["members"].update(insertData) {
+                    filter { eq("id", existing.id ?: throw IllegalStateException("Member ID missing for update")) }
+                    select(columns = Columns.raw(cols))
+                }.decodeSingle<Member>()
+            }
         } else {
-            supabase.postgrest["members"].insert(insertData) { 
-                select(columns = Columns.raw(MEMBER_COLUMNS_SAFE))
-            }.decodeSingle<Member>()
+            decodeMemberAfterWrite(PostgrestColumns.MEMBERS_SAFE) { cols ->
+                supabase.postgrest["members"].insert(insertData) {
+                    select(columns = Columns.raw(cols))
+                }.decodeSingle<Member>()
+            }
         }
 
         
@@ -392,63 +467,62 @@ class MemberRepositoryImpl @Inject constructor(
         // an array but receives an object. To make this robust across PostgREST/RPC return
         // shapes, we:
         //  1) execute the RPC (atomic DB-side write)
-        //  2) fetch the inserted contribution via a normal SELECT (always returns a JSON array)
-        supabase.postgrest.rpc("record_contribution_v1", rpcParams)
+        //  2) use the returned new balance and contribution record
+        val result = supabase.postgrest.rpc("record_contribution_v1", rpcParams)
+            .decodeAs<RecordContributionResult>()
 
-        val inserted = supabase.postgrest["contributions"].select(
-            columns = Columns.raw(CONTRIBUTION_COLUMNS_SAFE)
-        ) {
-            filter {
-                eq("member_id", contribution.memberId)
-                eq("group_id", contribution.groupId)
-                eq("type", contribution.type)
-                // Prefer the transaction id lookup if present (most reliable)
-                val tx = contribution.transactionId?.takeIf { it.isNotBlank() }
-                if (tx != null) {
-                    eq("transaction_id", tx)
-                } else {
-                    // Fallback signals to narrow down the most recent record if needed
-                    // (Avoid relying on paid_at when tx id is available, as formatting/timezone
-                    // conversions can cause an equality mismatch.)
-                    contribution.paidAt?.takeIf { it.isNotBlank() }?.let { eq("paid_at", it) }
-                }
-            }
-            order("created_at", order = io.github.jan.supabase.postgrest.query.Order.DESCENDING)
-            range(0, 0)
-        }.decodeList<Contribution>().firstOrNull()
-            ?: throw IllegalStateException("Contribution recorded but could not be retrieved.")
+        val inserted = result.contribution
+        val newBalance = result.newBalance
 
         // Update local cache
         db.contributionDao().upsertContributions(listOf(inserted.toEntity()))
         
         // Update member and group cache locally to match DB state
-        val updatedMember = member.copy(totalContributions = (member.totalContributions ?: 0) + 1)
-        val updatedGroup = group.copy(balance = group.balance + finalAmount)
+        // Only increment totalContributions if it was an actual contribution (matching RPC logic)
+        val isActualContribution = contribution.type != "member_fee" && contribution.type != "platform_fee"
+        val updatedMember = if (isActualContribution) {
+            member.copy(
+                totalContributions = (member.totalContributions ?: 0) + 1,
+                totalPaid = (member.totalPaid ?: 0.0) + finalAmount
+            )
+        } else member
+
+        val updatedGroup = group.copy(balance = newBalance)
         
         db.memberDao().upsertMember(updatedMember.toEntity())
         db.groupDao().upsertGroup(updatedGroup.toEntity())
+
+        // Emit event for real-time audit logs
+        EventBus.emit(
+            LedgerEntryCreatedEvent(
+                LedgerEntry(
+                    groupId = contribution.groupId,
+                    amount = finalAmount,
+                    balanceAfter = newBalance,
+                    description = "Contribution: ${contribution.type}",
+                    category = if (contribution.type == "member_fee") "platform_fee" else "contribution",
+                    transactionId = contribution.transactionId
+                )
+            )
+        )
         
         Unit
     }
 
     override suspend fun updateMemberStatus(memberId: String, status: MemberStatus): Result<Unit> = runCatching {
-        // Use mapOf for automatic serialization respecting @SerialName
-        supabase.postgrest["members"].update(buildJsonObject { put("status", status.name.lowercase()) }) {
-            filter { eq("id", memberId) } 
-        }
-        
-        // Update local cache
-        val member = getMemberById(memberId).getOrNull()
-        if (member != null) {
-            db.memberDao().upsertMember(member.toEntity())
-        }
+        val updated = supabase.postgrest["members"].update(buildJsonObject { put("status", status.name.lowercase()) }) {
+            filter { eq("id", memberId) }
+            select(columns = Columns.raw(PostgrestColumns.MEMBERS_SAFE))
+        }.decodeSingle<Member>()
+
+        db.memberDao().upsertMember(updated.toEntity())
         Unit
     }
 
     override suspend fun getAllProbationMembers(): Result<List<Member>> = runCatching {
-        val members = supabase.postgrest["members"].select(columns = Columns.raw(MEMBER_COLUMNS_SAFE)) {
+        val members = fetchMembersList {
             filter { eq("status", MemberStatus.PROBATION.name.lowercase()) }
-        }.decodeList<Member>()
+        }
         db.memberDao().upsertMembers(members.map { it.toEntity() })
         members
     }
@@ -460,17 +534,14 @@ class MemberRepositoryImpl @Inject constructor(
         status: DocumentStatus
     ): Result<Unit> = runCatching {
         val field = "document_${docIndex}_status"
-        supabase.postgrest["members"].update(buildJsonObject {
+        val updated = supabase.postgrest["members"].update(buildJsonObject {
             put(field, status.name.lowercase())
         }) {
             filter { eq("id", memberId) }
-        }
-        
-        // Update local cache
-        val member = getMemberById(memberId).getOrNull()
-        if (member != null) {
-            db.memberDao().upsertMember(member.toEntity())
-        }
+            select(columns = Columns.raw(PostgrestColumns.MEMBERS_SAFE))
+        }.decodeSingle<Member>()
+
+        db.memberDao().upsertMember(updated.toEntity())
     }
 
     override suspend fun updateMemberDocuments(
@@ -673,10 +744,10 @@ class MemberRepositoryImpl @Inject constructor(
         val isOver65 = try {
             val dobString = beneficiary.dateOfBirth
             if (!dobString.isNullOrBlank()) {
-                val dob = kotlinx.datetime.LocalDate.parse(dobString)
-                val today = kotlinx.datetime.Clock.System.now().toLocalDateTime(kotlinx.datetime.TimeZone.currentSystemDefault()).date
+                val dob = java.time.LocalDate.parse(dobString)
+                val today = java.time.LocalDate.now()
                 var age = today.year - dob.year
-                if (today.monthNumber < dob.monthNumber || (today.monthNumber == dob.monthNumber && today.dayOfMonth < dob.dayOfMonth)) {
+                if (today.monthValue < dob.monthValue || (today.monthValue == dob.monthValue && today.dayOfMonth < dob.dayOfMonth)) {
                     age--
                 }
                 age >= 65
@@ -844,4 +915,5 @@ class MemberRepositoryImpl @Inject constructor(
         db.memberDocumentDao().upsertDocument(updated.toEntity())
         updated
     }
+
 }

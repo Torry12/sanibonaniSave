@@ -1,3 +1,0 @@
-SanibonaniSave release build.
-See CHANGELOG.md for full details.
-

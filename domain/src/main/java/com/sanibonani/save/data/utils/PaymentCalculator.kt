@@ -87,7 +87,10 @@ object PaymentCalculator {
 
         val totalPaid = contributions
             .asSequence()
-            .filter { it.status == ContributionStatus.PAID || it.status == ContributionStatus.PARTIAL }
+            .filter { 
+                it.type == "contribution" && 
+                (it.status == ContributionStatus.PAID || it.status == ContributionStatus.PARTIAL) 
+            }
             .map { it.amount.money() }
             .fold(BigDecimal.ZERO) { acc, amount -> acc.add(amount) }
 
@@ -219,6 +222,10 @@ object PaymentCalculator {
         joinedDate: LocalDate,
         totalPaidBefore: Double
     ): Triple<Double, Double, String> {
+        if (inputAmount <= 0.0) {
+            return Triple(currentShortfall, currentOverpayment, calculateNextDueDate(group, joinedDate, monthlyContribution, totalPaidBefore))
+        }
+
         // Subtract late fee from input amount first if they are overdue
         val netAmountForBalance = (inputAmount.money() - lateFee.money()).max(MONEY_ZERO).moneyDouble()
 

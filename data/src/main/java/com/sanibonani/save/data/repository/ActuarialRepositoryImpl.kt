@@ -1,42 +1,29 @@
 package com.sanibonani.save.data.repository
 
-import com.sanibonani.save.domain.repository.*
-import com.sanibonani.save.domain.model.*
-import com.sanibonani.save.domain.usecase.actuarial.GroupTypeActuarialEngine
 import com.sanibonani.save.data.utils.PaymentCalculator
+import com.sanibonani.save.domain.model.*
+import com.sanibonani.save.domain.repository.ActuarialRepository
+import com.sanibonani.save.domain.repository.GroupRepository
+import com.sanibonani.save.domain.repository.MemberRepository
+import com.sanibonani.save.domain.usecase.actuarial.GroupTypeActuarialEngine
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
+import kotlin.time.Duration.Companion.seconds
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
 import java.util.Locale
 import javax.inject.Inject
 import javax.inject.Provider
-import kotlin.math.*
+import kotlin.math.max
+import kotlin.math.min
+import kotlin.math.round
+import kotlin.math.abs
 
 class ActuarialRepositoryImpl @Inject constructor(
     private val groupRepo: GroupRepository,
     private val memberRepo: Provider<MemberRepository>
 ) : BaseRepository("ActuarialRepository"), ActuarialRepository {
-
-    data class ActuarialScalarInput(
-        val membersCount: Int,
-        val balance: Double,
-        val mortalityRatePct: Double,
-        val avgClaim: Double,
-        val safetyLoadingPct: Double,
-        val adminCostPerMember: Double,
-        val annualDiscountRatePct: Double,
-        val currentPremium: Double,
-        val claimsPaid: Double,
-        val totalContributions: Double,
-        val paymentRatePct: Double,
-        val totalExpectedContributionsAnnual: Double
-    )
-
-    // ══════════════════════════════════════════════════════════════════════
-    //  Public async API
-    // ══════════════════════════════════════════════════════════════════════
 
     override suspend fun computeMetrics(groupId: String): Result<ActuarialMetrics> =
         withContext(Dispatchers.IO) {
@@ -47,8 +34,7 @@ class ActuarialRepositoryImpl @Inject constructor(
                 val members = memberRepo.get().getGroupMembers(groupId).first().getOrElse {
                     return@withContext Result.failure(it)
                 }
-                val metrics = withContext(Dispatchers.Default) { calculateMetrics(group, members) }
-                Result.success(metrics)
+                withContext(Dispatchers.Default) { calculateMetrics(group, members) }
             } catch (e: Exception) {
                 Result.failure(e)
             }
@@ -62,11 +48,9 @@ class ActuarialRepositoryImpl @Inject constructor(
                 withContext(Dispatchers.Default) {
                     val memberCount = max(1, members.count { it.status != MemberStatus.SUSPENDED })
                     val baseFee = group.joiningFee
-                    // Equity buy-in: 40% of accumulated reserve share
                     val reservesPerMember = group.balance / memberCount
                     val equityContribution = reservesPerMember * 0.40
                     val dynamicFee = baseFee + equityContribution
-                    // Cap at 5× base fee to keep accessible for the community
                     roundMoney(min(dynamicFee, baseFee * 5.0))
                 }
             }
@@ -77,11 +61,13 @@ class ActuarialRepositoryImpl @Inject constructor(
         goalAmount: Double,
         periodMonths: Int
     ): Result<ViabilityPlan> = withContext(Dispatchers.IO) {
-        kotlinx.coroutines.withTimeoutOrNull(10_000) {
+        kotlinx.coroutines.withTimeoutOrNull(10.seconds) {
             runCatching {
                 val group = groupRepo.getGroupById(groupId).getOrThrow()
                 val members = memberRepo.get().getGroupMembers(groupId).first().getOrThrow()
-                withContext(Dispatchers.Default) { buildViabilityPlan(group, members, goalAmount, periodMonths) }
+                withContext(Dispatchers.Default) {
+                    GroupTypeActuarialEngine.calculateViabilityPlan(group, members, goalAmount, periodMonths)
+                }
             }
         } ?: Result.failure(Exception("Calculation timed out. Please try again."))
     }
@@ -91,28 +77,17 @@ class ActuarialRepositoryImpl @Inject constructor(
             runCatching {
                 val group = groupRepo.getGroupById(groupId).getOrThrow()
                 val members = memberRepo.get().getGroupMembers(groupId).first().getOrThrow()
-                withContext(Dispatchers.Default) { computeGroupInsight(group, members) }
+                withContext(Dispatchers.Default) { computeGroupInsight(group, members).getOrThrow() }
             }
         }
 
-    // ══════════════════════════════════════════════════════════════════════
-    //  Pure synchronous calculation methods
-    // ══════════════════════════════════════════════════════════════════════
+    override fun calculateMetrics(group: Group, members: List<Member>): Result<ActuarialMetrics> = runCatching {
+        val stats = getGroupStats(group, members)
+        val activeList = stats.activeMembers
+        val n = stats.activeMemberCount
+        val totalExpectedAnnual = stats.totalExpectedAnnualContributions
+        val monthsActive = stats.monthsActive
 
-    override fun calculateMetrics(group: Group, members: List<Member>): ActuarialMetrics {
-        val activeList = members.filter {
-            it.status == MemberStatus.ACTIVE || it.status == MemberStatus.PROBATION
-        }
-        val n = max(1, activeList.size)
-        val totalExpectedAnnual = activeList.sumOf { calculateMemberContribution(group, it) } * 12
-        val monthsActive = estimateMonthsActive(group, members)
-
-        // ── Payment-rate ──────────────────────────────────────────────
-        val paymentRatePct = if (totalExpectedAnnual > 0)
-            min(100.0, (group.balance / totalExpectedAnnual) * 100.0)
-        else 100.0
-
-        // ── Type-specific claim assumptions ──────────────────────────
         val estimatedAnnualClaims = when (group.type) {
             GroupType.BURIAL_SOCIETY -> {
                 val q = GroupTypeActuarialEngine.SA_WORKING_AGE_MORT_PER_1000 / 1000.0
@@ -126,43 +101,39 @@ class ActuarialRepositoryImpl @Inject constructor(
         }
 
         val mortalityRatePct = if (group.type == GroupType.ROSCA) 0.0
-        else GroupTypeActuarialEngine.SA_WORKING_AGE_MORT_PER_1000 / 10.0  // expressed as %
+        else GroupTypeActuarialEngine.SA_WORKING_AGE_MORT_PER_1000 / 10.0
 
-        // ── Core actuarial scalars ────────────────────────────────────
-        val coreMetrics = computeActuarialScalars(
+        val coreMetrics = GroupTypeActuarialEngine.computeActuarialScalars(
             membersCount = n,
             balance = group.balance,
             mortalityRatePct = mortalityRatePct,
             avgClaim = if (n > 0) estimatedAnnualClaims / n else 0.0,
             safetyLoadingPct = GroupTypeActuarialEngine.BURIAL_SAFETY_LOADING_PCT,
-            adminCostPerMember = 25.0,
+            adminCostPerMember = GroupTypeActuarialEngine.ADMIN_COST_PER_MEMBER,
             annualDiscountRatePct = GroupTypeActuarialEngine.SA_REPO_RATE_PCT,
             currentPremium = if (n > 0) totalExpectedAnnual / 12.0 / n
                              else group.monthlyContribution,
             claimsPaid = estimatedAnnualClaims * 0.1,
             totalContributions = group.balance,
-            paymentRatePct = paymentRatePct,
+            paymentRatePct = stats.paymentRatePct,
             totalExpectedContributionsAnnual = totalExpectedAnnual
         )
 
-        // ── Extended fields: cash-flow projections ────────────────────
         val cashFlowProjections = GroupTypeActuarialEngine.computeCashFlowProjections(
             group = group,
             memberCount = n,
             currentBalance = group.balance,
-            paymentCompliancePct = paymentRatePct
+            paymentCompliancePct = stats.paymentRatePct
         )
         val projM3  = cashFlowProjections.getOrNull(2)?.projectedBalance ?: group.balance
         val projM6  = cashFlowProjections.getOrNull(5)?.projectedBalance ?: group.balance
         val projM12 = cashFlowProjections.lastOrNull()?.projectedBalance ?: group.balance
         val cashFlowRiskScore = cashFlowProjections.count { it.riskFlag } * 100 / cashFlowProjections.size.coerceAtLeast(1)
 
-        // ── Collection efficiency ─────────────────────────────────────
         val collectionEfficiencyPct = if (totalExpectedAnnual > 0.0)
             min(100.0, (group.balance / (totalExpectedAnnual / 12.0 * monthsActive.coerceAtLeast(1))) * 100.0)
         else 100.0
 
-        // ── Type-specific warnings (surface from engine) ──────────────
         val typeWarnings: List<String> = when (group.type) {
             GroupType.BURIAL_SOCIETY -> GroupTypeActuarialEngine.computeBurialSocietyMetrics(
                 group, n, group.balance, totalExpectedAnnual
@@ -190,7 +161,7 @@ class ActuarialRepositoryImpl @Inject constructor(
 
         val riskLevel = GroupTypeActuarialEngine.classifyRiskLevel(coreMetrics.compositeRiskScore)
 
-        return coreMetrics.copy(
+        coreMetrics.copy(
             riskLevel                = riskLevel,
             cashFlowRiskScore        = cashFlowRiskScore,
             collectionEfficiencyPct  = roundMoney(collectionEfficiencyPct),
@@ -201,18 +172,14 @@ class ActuarialRepositoryImpl @Inject constructor(
         )
     }
 
-    override fun computeGroupInsight(group: Group, members: List<Member>): GroupFinancialInsight {
-        val activeList = members.filter {
-            it.status == MemberStatus.ACTIVE || it.status == MemberStatus.PROBATION
-        }
-        val n = max(1, activeList.size)
-        val monthsActive = estimateMonthsActive(group, members)
-        val totalExpectedAnnual = activeList.sumOf { calculateMemberContribution(group, it) } * 12
-        val paymentRatePct = if (totalExpectedAnnual > 0.0)
-            min(100.0, (group.balance / totalExpectedAnnual) * 100.0)
-        else 100.0
+    override fun computeGroupInsight(group: Group, members: List<Member>): Result<GroupFinancialInsight> = runCatching {
+        val stats = getGroupStats(group, members)
+        val activeList = stats.activeMembers
+        val n = stats.activeMemberCount
+        val monthsActive = stats.monthsActive
+        val totalExpectedAnnual = stats.totalExpectedAnnualContributions
+        val paymentRatePct = stats.paymentRatePct
 
-        // ── 12-month cash-flow projections ────────────────────────────
         val projections = GroupTypeActuarialEngine.computeCashFlowProjections(
             group = group,
             memberCount = n,
@@ -220,14 +187,11 @@ class ActuarialRepositoryImpl @Inject constructor(
             paymentCompliancePct = paymentRatePct
         )
 
-        // ── Industry benchmark ────────────────────────────────────────
         val benchmark = GroupTypeActuarialEngine.getIndustryBenchmark(group, n, group.balance)
 
-        // ── Type-specific analytics ───────────────────────────────────
         val keyFindings   = mutableListOf<String>()
         val recommendations = mutableListOf<String>()
 
-        // Start with a partially-built insight, then add type fields
         val base = GroupFinancialInsight(
             groupId             = group.id ?: "",
             groupType           = group.type,
@@ -235,7 +199,7 @@ class ActuarialRepositoryImpl @Inject constructor(
             industryBenchmark   = benchmark
         )
 
-        return when (group.type) {
+        when (group.type) {
             GroupType.BURIAL_SOCIETY -> {
                 val m = GroupTypeActuarialEngine.computeBurialSocietyMetrics(
                     group, n, group.balance, totalExpectedAnnual
@@ -419,7 +383,7 @@ class ActuarialRepositoryImpl @Inject constructor(
                 )
             }
 
-            else -> {  // COMMUNITY_SAVINGS, OTHER
+            GroupType.COMMUNITY_SAVINGS -> {
                 val m = GroupTypeActuarialEngine.computeCommunitySavingsMetrics(
                     group, n, group.balance, monthsActive
                 )
@@ -431,11 +395,38 @@ class ActuarialRepositoryImpl @Inject constructor(
                 keyFindings += "Goal progress: ${m.goalProgressPct}%"
                 keyFindings += "Savings per member: R${money(m.savingsPerMember)}"
                 keyFindings += "Annual dividend projection (money-market): R${money(m.annualDividendProjection)}"
-                recommendations += "${m.projectedGoalReachDescription}"
-                recommendations += "Deposit pooled savings into a money-market account to earn interest."
+                recommendations += m.projectedGoalReachDescription
+                recommendations += "Channel pooled community savings into a low-risk money-market account to preserve liquidity and earn yield."
                 base.copy(
                     riskLevel                = riskLevel,
-                    statusSummary            = "Goal: ${m.goalProgressPct}% achieved. ${m.projectedGoalReachDescription}.",
+                    statusSummary            = "Community goal is ${m.goalProgressPct}% funded. ${m.projectedGoalReachDescription}.",
+                    recommendations          = recommendations,
+                    keyFindings              = keyFindings,
+                    savingsPerMember         = m.savingsPerMember,
+                    annualDividendProjection = m.annualDividendProjection,
+                    growthRatePct            = m.growthRatePct,
+                    goalProgressPct          = m.goalProgressPct
+                )
+            }
+
+            else -> {
+                val m = GroupTypeActuarialEngine.computeCommunitySavingsMetrics(
+                    group, n, group.balance, monthsActive
+                )
+                val riskLevel = when {
+                    m.goalProgressPct >= 75.0 -> RiskLevel.LOW
+                    m.goalProgressPct >= 35.0 -> RiskLevel.MODERATE
+                    else -> RiskLevel.HIGH
+                }
+                keyFindings += "Custom goal progress: ${m.goalProgressPct}%"
+                keyFindings += "Savings per member: R${money(m.savingsPerMember)}"
+                keyFindings += "Annual dividend projection (money-market): R${money(m.annualDividendProjection)}"
+                recommendations += m.projectedGoalReachDescription
+                recommendations += "Review this custom group's purpose and tune contributions, fees, and payout rules to match the actual savings objective."
+                recommendations += "Keep surplus funds in a low-risk interest-bearing account until the group adopts a more specific operating model."
+                base.copy(
+                    riskLevel                = riskLevel,
+                    statusSummary            = "Custom savings group is ${m.goalProgressPct}% toward its configured target. ${m.projectedGoalReachDescription}.",
                     recommendations          = recommendations,
                     keyFindings              = keyFindings,
                     savingsPerMember         = m.savingsPerMember,
@@ -450,310 +441,26 @@ class ActuarialRepositoryImpl @Inject constructor(
     override fun calculateMemberContribution(group: Group, member: Member): Double =
         PaymentCalculator.calculateMonthlyContribution(group, member)
 
-    // ══════════════════════════════════════════════════════════════════════
-    //  Core actuarial math (generic – used by calculateMetrics)
-    // ══════════════════════════════════════════════════════════════════════
-
-    /**
-     * Computes all scalar actuarial indicators from raw parameters.
-     * Pure function – no side effects.
-     *
-     * Renamed from `computeMetrics` to `computeActuarialScalars` to avoid
-     * ambiguity with the public suspend override [computeMetrics(groupId)].
-     */
-    fun computeActuarialScalars(
-        membersCount: Int,
-        balance: Double,
-        mortalityRatePct: Double,
-        avgClaim: Double,
-        safetyLoadingPct: Double,
-        adminCostPerMember: Double,
-        annualDiscountRatePct: Double,
-        currentPremium: Double,
-        claimsPaid: Double,
-        totalContributions: Double,
-        paymentRatePct: Double,
-        totalExpectedContributionsAnnual: Double
-    ): ActuarialMetrics = computeActuarialScalars(
-        ActuarialScalarInput(
-            membersCount = membersCount,
-            balance = balance,
-            mortalityRatePct = mortalityRatePct,
-            avgClaim = avgClaim,
-            safetyLoadingPct = safetyLoadingPct,
-            adminCostPerMember = adminCostPerMember,
-            annualDiscountRatePct = annualDiscountRatePct,
-            currentPremium = currentPremium,
-            claimsPaid = claimsPaid,
-            totalContributions = totalContributions,
-            paymentRatePct = paymentRatePct,
-            totalExpectedContributionsAnnual = totalExpectedContributionsAnnual
-        )
-    )
-
-    fun computeActuarialScalars(input: ActuarialScalarInput): ActuarialMetrics {
-        val sanitizedMembers = input.membersCount.coerceAtLeast(1)
-        val sanitizedBalance = input.balance.coerceAtLeast(0.0)
-        val sanitizedMortalityPct = input.mortalityRatePct.coerceIn(0.0, 100.0)
-        val sanitizedAvgClaim = input.avgClaim.coerceAtLeast(0.0)
-        val sanitizedSafetyLoadingPct = input.safetyLoadingPct.coerceAtLeast(0.0)
-        val sanitizedAdminCost = input.adminCostPerMember.coerceAtLeast(0.0)
-        val sanitizedDiscountPct = input.annualDiscountRatePct.coerceAtLeast(0.0)
-        val sanitizedCurrentPremium = input.currentPremium.coerceAtLeast(0.0)
-        val sanitizedClaimsPaid = input.claimsPaid.coerceAtLeast(0.0)
-        val sanitizedTotalContributions = input.totalContributions.coerceAtLeast(0.0)
-        val sanitizedPaymentRatePct = input.paymentRatePct.coerceIn(0.0, 100.0)
-        val sanitizedExpectedAnnualContrib = input.totalExpectedContributionsAnnual.coerceAtLeast(0.0)
-
-        val q = sanitizedMortalityPct / 100.0
-        val expectedAnnualClaims = sanitizedMembers * q * sanitizedAvgClaim
-
-        val i = sanitizedDiscountPct / 100.0
-        val v = 1.0 / (1.0 + i)
-        val actuarialPresentValue = expectedAnnualClaims * v
-
-        val purePremium = expectedAnnualClaims / sanitizedMembers
-        val safetyLoading = purePremium * (sanitizedSafetyLoadingPct / 100.0)
-        val grossPremium = purePremium + safetyLoading + sanitizedAdminCost
-
-        val reserveAdequacyPct = if (expectedAnnualClaims > 0)
-            (sanitizedBalance / expectedAnnualClaims) * 100.0 else 1_000.0
-        val solvencyMarginPct = ((sanitizedBalance + sanitizedTotalContributions - sanitizedClaimsPaid) /
-            max(1.0, expectedAnnualClaims)) * 100.0
-        val lossRatioPct = if (sanitizedTotalContributions > 0)
-            (sanitizedClaimsPaid / sanitizedTotalContributions) * 100.0 else 0.0
-
-        val contributionSufficiencyPct = if (grossPremium > 0)
-            (sanitizedCurrentPremium / grossPremium) * 100.0 else 0.0
-        val breakEvenDenominator = sanitizedCurrentPremium - purePremium - safetyLoading
-        val breakEvenMembers = if (breakEvenDenominator <= 0.0) Int.MAX_VALUE
-            else ceil((sanitizedAdminCost * sanitizedMembers) / breakEvenDenominator).toInt()
-
-        val fundingRatioPct = if (actuarialPresentValue > 0)
-            (sanitizedBalance / actuarialPresentValue) * 100.0 else 1_000.0
-
-        val score = (
-            min(100.0, reserveAdequacyPct * 0.3) +
-            min(100.0, contributionSufficiencyPct * 0.4) +
-            min(100.0, sanitizedPaymentRatePct * 0.3)
-        ).roundToInt().coerceIn(0, 100)
-
-        val monthlyNetFlow = (sanitizedExpectedAnnualContrib / 12.0 * (sanitizedPaymentRatePct / 100.0)) -
-            (expectedAnnualClaims / 12.0) -
-            (sanitizedMembers * sanitizedAdminCost / 12.0)
-        val insolvencyMonths = if (monthlyNetFlow >= 0.0) Int.MAX_VALUE
-            else (sanitizedBalance / abs(monthlyNetFlow)).toInt().coerceAtLeast(0)
-
-        return ActuarialMetrics(
-            purePremium                 = roundMoney(purePremium),
-            grossPremium                = roundMoney(grossPremium),
-            reserveAdequacyPct          = roundMoney(reserveAdequacyPct),
-            solvencyMarginPct           = roundMoney(solvencyMarginPct),
-            lossRatioPct                = roundMoney(lossRatioPct),
-            contributionSufficiencyPct  = roundMoney(contributionSufficiencyPct),
-            breakEvenMembers            = breakEvenMembers,
-            actuarialPresentValue       = roundMoney(actuarialPresentValue),
-            fundingRatioPct             = roundMoney(fundingRatioPct),
-            paymentRatePct              = roundMoney(sanitizedPaymentRatePct),
-            compositeRiskScore          = score,
-            insolvencyMonths            = insolvencyMonths,
-            expectedAnnualClaims        = roundMoney(expectedAnnualClaims)
-        )
-    }
-
-    // ══════════════════════════════════════════════════════════════════════
-    //  Viability plan builder (private)
-    // ══════════════════════════════════════════════════════════════════════
-
-    private fun buildViabilityPlan(
-        group: Group,
-        members: List<Member>,
-        goalAmount: Double,
-        periodMonths: Int
-    ): ViabilityPlan {
-        val activeMembers = members.count {
+    private fun getGroupStats(group: Group, members: List<Member>): GroupTypeActuarialEngine.GroupStats {
+        val activeList = members.filter {
             it.status == MemberStatus.ACTIVE || it.status == MemberStatus.PROBATION
         }
-        val n = max(1, activeMembers)
-        val messages = mutableListOf<String>()
+        val n = max(1, activeList.size)
+        val totalExpectedAnnual = activeList.sumOf { calculateMemberContribution(group, it) } * 12
+        val monthsActive = estimateMonthsActive(group, members)
+        val paymentRatePct = if (totalExpectedAnnual > 0)
+            min(100.0, (group.balance / totalExpectedAnnual) * 100.0)
+        else 100.0
 
-        val effectiveGoal   = if (goalAmount > 0) goalAmount else group.goalAmount
-        val effectivePeriod = if (periodMonths > 0) periodMonths else max(1, group.periodMonths)
-        val baseMonthly = effectiveGoal / (n * effectivePeriod)
-        val activeRatio = if (members.isEmpty()) 1.0 else n.toDouble() / members.size.toDouble()
-        val inflationAdjustmentFactor = 1.0 +
-            ((GroupTypeActuarialEngine.SA_CPI_INFLATION_PCT / 100.0) * (effectivePeriod / 12.0))
-
-        // Persist explicit factors on the plan so UI diagnostics match the actual math path.
-        var claimReadinessFactor = 1.0
-        var mortalityBufferFactor = 1.0
-        var reserveAdequacyFactor = 1.0
-        var marketReturnPremiumFactor = 1.0
-        var volatilityHaircutFactor = 1.0
-        var collectionEfficiencyFactor = 1.0
-        var festivePayoutPressureFactor = 1.0
-        var defaultRiskFactor = 1.0
-        var cycleSlippageFactor = 1.0
-        var withdrawalPressureFactor = 1.0
-        var inflationSafetyFactor = 1.0
-        var survivorUncertaintyFactor = 1.0
-        var horizonCompoundingFactor = 1.0
-        var goalStretchRatio = 1.0
-        var growthConservatismFactor = 1.0
-
-        // ── Type-specific monthly suggestion ─────────────────────────
-        val suggestedMonthly = when (group.type) {
-            GroupType.BURIAL_SOCIETY -> {
-                mortalityBufferFactor = 1.0 +
-                    (GroupTypeActuarialEngine.SA_WORKING_AGE_MORT_PER_1000 / 1000.0)
-                val reserveCoverageMonths = if (n > 0 && group.monthlyContribution > 0.0) {
-                    (group.balance / (group.monthlyContribution * n)).coerceAtLeast(0.0)
-                } else {
-                    0.0
-                }
-                reserveAdequacyFactor = if (reserveCoverageMonths >= 3.0) 1.0 else 1.15
-                claimReadinessFactor = 1.25
-                val adjusted = baseMonthly * claimReadinessFactor * mortalityBufferFactor * reserveAdequacyFactor
-                messages += "Burial Society factors: claim_readiness=${roundMoney(claimReadinessFactor)}, mortality_buffer=${roundMoney(mortalityBufferFactor)}, reserve_adequacy=${roundMoney(reserveAdequacyFactor)}."
-                adjusted
-            }
-            GroupType.INVESTMENT_CLUB -> {
-                val rate = GroupTypeActuarialEngine.SA_REPO_RATE_PCT / 100.0 / 12.0
-                val denom = (Math.pow(1.0 + rate, effectivePeriod.toDouble()) - 1.0) / rate
-                marketReturnPremiumFactor = 0.93
-                volatilityHaircutFactor = if (effectivePeriod < 18) 1.10 else 1.04
-                val adjusted = (effectiveGoal / (n * denom)) * marketReturnPremiumFactor * volatilityHaircutFactor
-                messages += "Investment Club factors: annual_rate=${GroupTypeActuarialEngine.SA_REPO_RATE_PCT}%, return_premium=${roundMoney(marketReturnPremiumFactor)}, volatility_haircut=${roundMoney(volatilityHaircutFactor)}."
-                adjusted
-            }
-            GroupType.STOKVEL -> {
-                collectionEfficiencyFactor = if (group.allowPartialPayment) 0.98 else 1.0
-                festivePayoutPressureFactor = if (effectivePeriod >= 11) 1.03 else 1.0
-                val adjusted = baseMonthly * festivePayoutPressureFactor / collectionEfficiencyFactor
-                messages += "Stokvel factors: collection_efficiency=${roundMoney(collectionEfficiencyFactor)}, payout_pressure=${roundMoney(festivePayoutPressureFactor)}."
-                adjusted
-            }
-            GroupType.ROSCA -> {
-                val baseDefault = GroupTypeActuarialEngine.ROSCA_DEFAULT_RISK_BASE_PCT / 100.0
-                val participationPenalty = (1.0 - activeRatio).coerceAtLeast(0.0) * 0.30
-                val cycleLengthPenalty = (n - 12).coerceAtLeast(0) * 0.003
-                defaultRiskFactor = 1.0 + baseDefault + participationPenalty + cycleLengthPenalty
-                cycleSlippageFactor = when {
-                    activeRatio >= 0.95 -> 1.0
-                    activeRatio >= 0.85 -> 1.03
-                    else -> 1.07
-                }
-                val adjusted = baseMonthly * defaultRiskFactor * cycleSlippageFactor
-                messages += "ROSCA factors: default_risk=${roundMoney(defaultRiskFactor)} (base=${roundMoney(baseDefault)}, participation_penalty=${roundMoney(participationPenalty)}, cycle_length_penalty=${roundMoney(cycleLengthPenalty)}), cycle_slippage=${roundMoney(cycleSlippageFactor)}, active_ratio=${roundMoney(activeRatio * 100.0)}%."
-                messages += "ROSCA: Monthly pot = R${money(adjusted * n)} (${n} members)."
-                adjusted
-            }
-            GroupType.EMERGENCY_FUND -> {
-                val target = group.monthlyContribution * n * GroupTypeActuarialEngine.EMERGENCY_TARGET_MONTHS
-                withdrawalPressureFactor = if (group.autoSuspendAfter <= 1) 1.10 else 1.03
-                inflationSafetyFactor = inflationAdjustmentFactor
-                val emergMonthly = (target / (n * effectivePeriod)) * withdrawalPressureFactor * inflationSafetyFactor
-                messages += "Emergency Fund factors: withdrawal_pressure=${roundMoney(withdrawalPressureFactor)}, inflation_safety=${roundMoney(inflationSafetyFactor)}."
-                messages += "Emergency Fund: Target is ${GroupTypeActuarialEngine.EMERGENCY_TARGET_MONTHS.toInt()} months of pooled expenses."
-                emergMonthly
-            }
-            GroupType.TONTINE -> {
-                survivorUncertaintyFactor = if (n < 10) 1.08 else 1.03
-                horizonCompoundingFactor = if (effectivePeriod >= 24) 0.97 else 1.0
-                val adjusted = baseMonthly * survivorUncertaintyFactor * horizonCompoundingFactor
-                messages += "Tontine factors: survivor_uncertainty=${roundMoney(survivorUncertaintyFactor)}, horizon_compounding=${roundMoney(horizonCompoundingFactor)}."
-                messages += "Tontine: Contributions accumulate for ${effectivePeriod/12} years; survivor benefit grows as membership thins."
-                adjusted
-            }
-            else -> {
-                goalStretchRatio = if (group.balance > 0.0) {
-                    (effectiveGoal / group.balance).coerceAtLeast(1.0)
-                } else {
-                    1.2
-                }
-                growthConservatismFactor = if (goalStretchRatio > 4.0) 1.10 else 1.03
-                val adjusted = baseMonthly * growthConservatismFactor
-                messages += "Savings Group factors: goal_stretch_ratio=${roundMoney(goalStretchRatio)}, conservatism=${roundMoney(growthConservatismFactor)}."
-                messages += "Savings Group: Linear projection over $effectivePeriod months."
-                adjusted
-            }
-        }
-
-        val initialContribution = when (group.type) {
-            GroupType.BURIAL_SOCIETY -> suggestedMonthly * 2  // 2-month upfront reserve
-            else -> suggestedMonthly
-        }
-
-        // ── Projected value (base linear & compound) ──────────────────
-        val projectionRetentionFactor = when (group.type) {
-            GroupType.ROSCA -> (0.99 - ((1.0 - activeRatio).coerceAtLeast(0.0) * 0.08)).coerceIn(0.90, 0.99)
-            GroupType.BURIAL_SOCIETY -> 0.99
-            GroupType.EMERGENCY_FUND -> 0.99
-            GroupType.STOKVEL -> if (group.allowPartialPayment) 0.98 else 1.0
-            else -> 1.0
-        }
-        val projectedValue = n * suggestedMonthly * effectivePeriod * projectionRetentionFactor
-        val rate = GroupTypeActuarialEngine.SA_REPO_RATE_PCT / 100.0 / 12.0
-        val compoundedBase = if (rate > 0.0)
-            n * suggestedMonthly * ((Math.pow(1.0 + rate, effectivePeriod.toDouble()) - 1.0) / rate)
-        else projectedValue
-        val compoundedProjectedValue = compoundedBase * projectionRetentionFactor
-
-        // Scenario analysis: ±15% contribution compliance
-        val optimistic   = n * (suggestedMonthly * 1.15) * effectivePeriod * projectionRetentionFactor
-        val pessimistic  = n * (suggestedMonthly * 0.85) * effectivePeriod * projectionRetentionFactor
-
-        // ── Shortfall & break-even ────────────────────────────────────
-        val shortfall = (effectiveGoal - projectedValue).coerceAtLeast(0.0)
-        val requiredMonthly = if (n > 0 && effectivePeriod > 0)
-            effectiveGoal / (n * effectivePeriod) else suggestedMonthly
-        val breakEvenMonths = if (n > 0 && suggestedMonthly > 0.0)
-            ceil(group.balance / (suggestedMonthly * n)).toInt()
-        else effectivePeriod
-
-        if (n < 5)
-            messages += "Warning: Low member count ($n) increases individual burden. Recruiting more members reduces monthly cost."
-
-        return ViabilityPlan(
-            initialContribution            = roundMoney(initialContribution),
-            suggestedMonthlyContribution   = roundMoney(suggestedMonthly),
-            projectedValue                 = roundMoney(projectedValue),
-            isViable                       = compoundedProjectedValue >= effectiveGoal,
-            goalAmount                     = effectiveGoal,
-            periodMonths                   = effectivePeriod,
-            messages                       = messages,
-            requiredMonthlyToMeetGoal      = roundMoney(requiredMonthly),
-            shortfallAmount                = roundMoney(shortfall),
-            breakEvenMonths                = breakEvenMonths,
-            compoundedProjectedValue       = roundMoney(compoundedProjectedValue),
-            optimisticProjectedValue       = roundMoney(optimistic),
-            pessimisticProjectedValue      = roundMoney(pessimistic),
-            activeMemberRatio              = roundMoney(activeRatio),
-            inflationAdjustmentFactor      = roundMoney(inflationAdjustmentFactor),
-            projectionRetentionFactor      = roundMoney(projectionRetentionFactor),
-            claimReadinessFactor           = roundMoney(claimReadinessFactor),
-            mortalityBufferFactor          = roundMoney(mortalityBufferFactor),
-            reserveAdequacyFactor          = roundMoney(reserveAdequacyFactor),
-            marketReturnPremiumFactor      = roundMoney(marketReturnPremiumFactor),
-            volatilityHaircutFactor        = roundMoney(volatilityHaircutFactor),
-            collectionEfficiencyFactor     = roundMoney(collectionEfficiencyFactor),
-            festivePayoutPressureFactor    = roundMoney(festivePayoutPressureFactor),
-            defaultRiskFactor              = roundMoney(defaultRiskFactor),
-            cycleSlippageFactor            = roundMoney(cycleSlippageFactor),
-            withdrawalPressureFactor       = roundMoney(withdrawalPressureFactor),
-            inflationSafetyFactor          = roundMoney(inflationSafetyFactor),
-            survivorUncertaintyFactor      = roundMoney(survivorUncertaintyFactor),
-            horizonCompoundingFactor       = roundMoney(horizonCompoundingFactor),
-            goalStretchRatio               = roundMoney(goalStretchRatio),
-            growthConservatismFactor       = roundMoney(growthConservatismFactor)
+        return GroupTypeActuarialEngine.GroupStats(
+            activeMemberCount = n,
+            monthsActive = monthsActive,
+            totalExpectedAnnualContributions = totalExpectedAnnual,
+            paymentRatePct = paymentRatePct,
+            activeMembers = activeList
         )
     }
 
-    // ══════════════════════════════════════════════════════════════════════
-    //  Helpers
-    // ══════════════════════════════════════════════════════════════════════
-
-    /** Estimate months since group formation from createdAt or earliest member joinedAt. */
     private fun estimateMonthsActive(group: Group, members: List<Member>): Int {
         val dateStr = group.createdAt
             ?: members.mapNotNull { it.joinedAt }.minOrNull()
@@ -761,7 +468,7 @@ class ActuarialRepositoryImpl @Inject constructor(
             val created = LocalDate.parse(dateStr?.substringBefore("T") ?: "")
             ChronoUnit.MONTHS.between(created, LocalDate.now()).toInt().coerceAtLeast(1)
         } catch (_: Exception) {
-            12  // default 1 year if no date available
+            12
         }
     }
 
@@ -784,10 +491,8 @@ class ActuarialRepositoryImpl @Inject constructor(
     }
 
     private fun r(v: Double): Double = roundMoney(v)
+
+    private fun roundMoney(value: Double): Double = round(value * 100.0) / 100.0
+
+    private fun money(value: Double): String = String.format(Locale.US, "%.2f", roundMoney(value))
 }
-
-// ── Module-level helpers ───────────────────────────────────────────────────────
-private fun roundMoney(value: Double): Double = kotlin.math.round(value * 100.0) / 100.0
-
-private fun money(value: Double): String = String.format(Locale.US, "%.2f", roundMoney(value))
-

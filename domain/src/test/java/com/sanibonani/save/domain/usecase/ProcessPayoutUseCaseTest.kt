@@ -38,7 +38,7 @@ class ProcessPayoutUseCaseTest {
         coEvery { notificationRepository.sendNotification(any()) } returns Result.success(Unit)
 
         // When
-        val result = processPayoutUseCase(payoutId, groupId, PayoutStatus.COMPLETED)
+        val result = processPayoutUseCase(payoutId, groupId, PayoutStatus.COMPLETED, "PLATFORM_ADMIN")
 
         // Then
         assertTrue(result.isSuccess)
@@ -58,7 +58,7 @@ class ProcessPayoutUseCaseTest {
         coEvery { notificationRepository.sendNotification(any()) } returns Result.success(Unit)
 
         // When
-        val result = processPayoutUseCase(payoutId, groupId, PayoutStatus.PROCESSING)
+        val result = processPayoutUseCase(payoutId, groupId, PayoutStatus.PROCESSING, "PLATFORM_ADMIN")
 
         // Then
         assertTrue(result.isSuccess)
@@ -75,7 +75,7 @@ class ProcessPayoutUseCaseTest {
         coEvery { payoutRepository.getPayoutById(payoutId) } returns Result.failure(Exception("Not found"))
 
         // When
-        val result = processPayoutUseCase(payoutId, groupId, PayoutStatus.COMPLETED)
+        val result = processPayoutUseCase(payoutId, groupId, PayoutStatus.COMPLETED, "PLATFORM_ADMIN")
 
         // Then
         assertTrue(result.isFailure)

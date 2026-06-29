@@ -1,7 +1,6 @@
 package com.sanibonani.save.ui.components.maps
 
 import android.annotation.SuppressLint
-import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import android.webkit.ConsoleMessage
@@ -22,9 +21,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
 import com.sanibonani.save.domain.model.Group
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlin.coroutines.resume
+
+private class Ref<T> {
+    var value: T? = null
+}
 
 @Serializable
 private data class LeafletGroupMarker(
@@ -38,11 +44,9 @@ private data class LeafletGroupMarker(
 private class LeafletBridge(
 	private val onMarkerClickCallback: (String) -> Unit
 ) {
-	private val mainHandler = Handler(Looper.getMainLooper())
-
 	@JavascriptInterface
 	fun onMarkerClick(groupId: String) {
-		mainHandler.post { onMarkerClickCallback(groupId) }
+		onMarkerClickCallback(groupId)
 	}
 }
 
@@ -85,77 +89,31 @@ fun LeafletGroupsMap(
 	}
 
 	var pageReady by remember { mutableStateOf(false) }
-
-	val webView = remember {
-		WebView(context).apply {
-			settings.javaScriptEnabled = true
-			settings.domStorageEnabled = true
-			settings.cacheMode = WebSettings.LOAD_DEFAULT
-			// The map HTML is loaded from file:///android_asset. Without universal access,
-			// some devices block the page from fetching https resources (Leaflet CDN + tiles).
-			// This is the most common reason the map appears blank.
-			settings.allowFileAccessFromFileURLs = true
-			settings.allowUniversalAccessFromFileURLs = true
-			settings.mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
-
-			// Basic hardening (still allow assets + required network requests)
-			settings.allowFileAccess = true
-			settings.allowContentAccess = false
-
-			webChromeClient = object : WebChromeClient() {
-				override fun onConsoleMessage(consoleMessage: ConsoleMessage?): Boolean {
-					if (consoleMessage != null) {
-						Log.d(
-							tag,
-							"JS: ${consoleMessage.message()} (${consoleMessage.sourceId()}:${consoleMessage.lineNumber()})"
-						)
-					}
-					return super.onConsoleMessage(consoleMessage)
-				}
-			}
-			webViewClient = object : WebViewClient() {
-				override fun onPageFinished(view: WebView?, url: String?) {
-					super.onPageFinished(view, url)
-					pageReady = true
-				}
-
-				override fun onReceivedError(
-					view: WebView?,
-					errorCode: Int,
-					description: String?,
-					failingUrl: String?
-				) {
-					super.onReceivedError(view, errorCode, description, failingUrl)
-					Log.w(tag, "WebView error: code=$errorCode url=$failingUrl desc=$description")
-				}
-			}
-
-			addJavascriptInterface(LeafletBridge { id -> onMarkerState(id) }, "Android")
-			loadUrl("file:///android_asset/leaflet/groups_map.html")
-		}
-	}
+	val webViewRef = remember { Ref<WebView?>() }
 
 	DisposableEffect(Unit) {
 		onDispose {
-			runCatching {
-				webView.stopLoading()
-				webView.loadUrl("about:blank")
-				webView.clearHistory()
-				webView.removeAllViews()
-				webView.destroy()
+			webViewRef.value?.let { webView ->
+				runCatching {
+					webView.stopLoading()
+					webView.loadUrl("about:blank")
+					webView.clearHistory()
+					webView.removeAllViews()
+					webView.destroy()
+				}
 			}
+			webViewRef.value = null
 		}
 	}
 
 	LaunchedEffect(pageReady, markersJson) {
+		val webView = webViewRef.value ?: return@LaunchedEffect
 		if (!pageReady) return@LaunchedEffect
 
 		var attempt = 0
 		val maxAttempts = 10
 
-		fun pushMarkers() {
-			if (attempt >= maxAttempts) return
-
+		while (attempt < maxAttempts) {
 			// Guard against race conditions where onPageFinished fires before Leaflet finishes loading.
 			val js = """
 				(function(){
@@ -169,23 +127,68 @@ fun LeafletGroupsMap(
 				})()
 			""".trimIndent()
 
-			webView.evaluateJavascript(js) { result ->
-				// WebView returns "true" / "false" (or null on older devices)
-				val ok = result?.contains("true", ignoreCase = true) == true
-				if (!ok && attempt < maxAttempts) {
-					attempt++
-					// Use postDelayed on background-ish timing, but limit attempt count
-					Handler(Looper.getMainLooper()).postDelayed({ pushMarkers() }, 200)
+			val success = suspendCancellableCoroutine<Boolean> { cont ->
+				webView.evaluateJavascript(js) { result ->
+					if (cont.isActive) {
+						cont.resume(result?.contains("true", ignoreCase = true) == true)
+					}
 				}
 			}
+			
+			if (success) break
+			
+			delay(200)
+			attempt++
 		}
-
-		pushMarkers()
 	}
 
 	AndroidView(
 		modifier = modifier,
-		factory = { webView },
+		factory = { ctx ->
+			WebView(ctx).apply {
+				settings.javaScriptEnabled = true
+				settings.domStorageEnabled = true
+				settings.cacheMode = WebSettings.LOAD_DEFAULT
+				settings.allowFileAccessFromFileURLs = true
+				settings.allowUniversalAccessFromFileURLs = true
+				settings.mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
+
+				settings.allowFileAccess = true
+				settings.allowContentAccess = false
+
+				webChromeClient = object : WebChromeClient() {
+					override fun onConsoleMessage(consoleMessage: ConsoleMessage?): Boolean {
+						if (consoleMessage != null) {
+							Log.d(
+								tag,
+								"JS: ${consoleMessage.message()} (${consoleMessage.sourceId()}:${consoleMessage.lineNumber()})"
+							)
+						}
+						return super.onConsoleMessage(consoleMessage)
+					}
+				}
+				webViewClient = object : WebViewClient() {
+					override fun onPageFinished(view: WebView?, url: String?) {
+						super.onPageFinished(view, url)
+						pageReady = true
+					}
+
+					override fun onReceivedError(
+						view: WebView?,
+						errorCode: Int,
+						description: String?,
+						failingUrl: String?
+					) {
+						super.onReceivedError(view, errorCode, description, failingUrl)
+						Log.w(tag, "WebView error: code=$errorCode url=$failingUrl desc=$description")
+					}
+				}
+
+				addJavascriptInterface(LeafletBridge { id -> onMarkerState(id) }, "Android")
+				loadUrl("file:///android_asset/leaflet/groups_map.html")
+				webViewRef.value = this
+			}
+		},
 		update = { /* updates are driven by LaunchedEffect */ }
 	)
 }

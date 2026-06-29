@@ -64,7 +64,12 @@ class MemberViewModelTest {
 
         // Basic stubs to prevent initialization crashes
         every { supabaseRepo.currentUserId } returns "user_123"
-        every { supabaseRepo.currentSession } returns null
+        val mockSession = mockk<io.github.jan.supabase.auth.user.UserSession>(relaxed = true)
+        val mockUser = mockk<io.github.jan.supabase.auth.user.UserInfo>(relaxed = true)
+        every { mockUser.id } returns "user_123"
+        every { mockSession.user } returns mockUser
+        every { supabaseRepo.sessionFlow } returns MutableStateFlow(mockSession)
+        every { supabaseRepo.currentSession } returns mockSession
         coEvery { supabaseRepo.getUserRole() } returns UserRole.MEMBER
         
         every { memberRepo.observeMemberships(any()) } returns flowOf(Result.success(emptyList()))
@@ -94,6 +99,7 @@ class MemberViewModelTest {
             getGroupBusinessInsightsUseCase, geoapifyService, contextCacheService,
             userProfileCacheService
         )
+        viewModel.setActive(true)
     }
 
     @After

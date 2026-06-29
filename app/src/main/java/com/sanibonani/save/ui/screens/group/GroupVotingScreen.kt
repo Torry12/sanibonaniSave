@@ -17,6 +17,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -27,6 +28,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.sanibonani.save.ui.utils.rememberClickDebouncer
 import com.sanibonani.save.domain.model.PollStatus
 import com.sanibonani.save.viewmodel.GroupVotingViewModel
 
@@ -38,6 +40,14 @@ fun GroupVotingScreen(
     onBack: () -> Unit
 ) {
     val state by vm.state.collectAsState()
+    val clickDebouncer = rememberClickDebouncer()
+
+    DisposableEffect(Unit) {
+        vm.setActive(true)
+        onDispose {
+            vm.setActive(false)
+        }
+    }
 
     LaunchedEffect(groupId, memberId) {
         vm.loadPolls(groupId, memberId)
@@ -124,7 +134,7 @@ fun GroupVotingScreen(
             }
         }
 
-        Button(onClick = onBack, modifier = Modifier.fillMaxWidth()) { Text("Back") }
+        Button(onClick = { clickDebouncer.processClick(onBack) }, modifier = Modifier.fillMaxWidth()) { Text("Back") }
     }
 }
 

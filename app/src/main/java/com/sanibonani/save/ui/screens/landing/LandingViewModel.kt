@@ -17,6 +17,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -44,13 +45,11 @@ class LandingViewModel @Inject constructor(
 
     private val _uiState = MutableStateFlow(LandingUiState())
     val uiState: StateFlow<LandingUiState> = _uiState.asStateFlow()
-
-    // init {
-    //     refreshData()
-    // }
+    private var refreshJob: Job? = null
 
     fun refreshData() {
-        viewModelScope.launch {
+        refreshJob?.cancel()
+        refreshJob = viewModelScope.launch {
             AppAnalytics.track(AnalyticsTaxonomy.Events.LANDING_REFRESH_STARTED)
             _uiState.update { it.copy(isLoading = true, error = null) }
 
@@ -61,6 +60,7 @@ class LandingViewModel @Inject constructor(
             var isQualifyingPlatformAdmin = false
             var userRole = UserRole.MEMBER
             var pendingGroup: Group? = null
+            var syncError: String? = null
             val isLoggedIn = supabaseRepository.isLoggedIn
             val userId = supabaseRepository.currentUserId
             val email = supabaseRepository.currentSessionEmail
@@ -71,24 +71,39 @@ class LandingViewModel @Inject constructor(
                 userRole = supabaseRepository.getUserRole()
 
                 val membershipsResult = memberRepository.getMemberships(userId)
-                if (membershipsResult.isSuccess) {
-                    val memberships = membershipsResult.getOrThrow()
+                membershipsResult.onSuccess { memberships ->
                     if (memberships.isNotEmpty()) {
                         isMemberOrAdmin = true
                     }
+                }.onFailure { e ->
+                    syncError = e.toUserMessage()
                 }
                 
                 // Check for pending registration
-                val managedGroupsResult = groupRepository.getGroupsByAdmin(userId)
-                if (managedGroupsResult.isSuccess) {
-                    pendingGroup = managedGroupsResult.getOrThrow().find { !it.registrationPaid }
-                }
+                groupRepository.getGroupsByAdmin(userId)
+                    .onSuccess { managed ->
+                        pendingGroup = managed.find { !it.registrationPaid }
+                        if (managed.isNotEmpty()) {
+                            isMemberOrAdmin = true
+                        }
+                    }
+                    .onFailure { e ->
+                        syncError = listOfNotNull(syncError, e.toUserMessage())
+                            .distinct()
+                            .joinToString(" ")
+                            .ifBlank { null }
+                    }
             }
+
+            fun combinedError(primary: String?): String? =
+                listOfNotNull(syncError, primary).distinct().joinToString(" ").ifBlank { null }
 
             when {
                 analyticsResult.isFailure -> {
-                    val message = analyticsResult.exceptionOrNull()?.toUserMessage()
-                        ?: "Failed to load platform data. Please check your connection and try again."
+                    val message = combinedError(
+                        analyticsResult.exceptionOrNull()?.toUserMessage()
+                            ?: "Failed to load platform data. Please check your connection and try again."
+                    )
                     _uiState.update {
                         it.copy(
                             isLoading = false,
@@ -106,8 +121,10 @@ class LandingViewModel @Inject constructor(
                     )
                 }
                 settingsResult.isFailure -> {
-                    val message = settingsResult.exceptionOrNull()?.toUserMessage()
-                        ?: "Failed to load settings. Please check your connection and try again."
+                    val message = combinedError(
+                        settingsResult.exceptionOrNull()?.toUserMessage()
+                            ?: "Failed to load settings. Please check your connection and try again."
+                    )
                     _uiState.update {
                         it.copy(
                             isLoading = false,
@@ -144,7 +161,7 @@ class LandingViewModel @Inject constructor(
                             isLoggedIn = isLoggedIn,
                             userRole = userRole,
                             pendingGroup = pendingGroup,
-                            error = null
+                            error = syncError
                         )
                     }
                     AppAnalytics.track(

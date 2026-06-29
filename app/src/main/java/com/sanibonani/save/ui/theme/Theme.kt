@@ -24,6 +24,14 @@ val Charcoal     = Color(0xFF332D2D)
 val MidGray      = Color(0xFF7D746D)
 val LightGray    = Color(0xFFE5DED0)
 
+// ── Sophisticated UI Accents ──────────────────────────────────────────────────
+val SurfaceGlass = Color(0xFFFFFFFF).copy(alpha = 0.7f)
+val ForestDeep   = Color(0xFF132711)
+val GoldMuted    = Color(0xFFC68C00)
+val GradientForest = listOf(Forest, ForestMid)
+val GradientGold   = listOf(Gold, Color(0xFFF9A825))
+val GradientTerra  = listOf(Terra, Color(0xFFBF360C))
+
 val SuccessGreen = Color(0xFF16A34A)
 val SuccessBg    = Color(0xFFD1FAE5)
 val WarningYellow = Color(0xFFFFB300) // Vibrant Warning Yellow

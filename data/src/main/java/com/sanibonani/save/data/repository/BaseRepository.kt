@@ -24,7 +24,6 @@ abstract class BaseRepository(protected val tag: String) {
         cacheSync: suspend (List<E>) -> Unit
     ): Flow<Result<List<T>>> = channelFlow {
         var hasEmittedFromDb = false
-        var syncCompleted = false
 
         val dbJob = launch {
             dbFlow.collect { list ->
@@ -47,13 +46,11 @@ abstract class BaseRepository(protected val tag: String) {
                 val remoteData = retryWithExponentialBackoff { networkFetch() }
                 AppLogger.d(tag, "Network fetch completed, syncing ${remoteData.size} items to cache")
                 cacheSync(remoteData.map { toEntity(it) })
-                syncCompleted = true
                 AppLogger.d(tag, "Cache sync completed")
                 } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) return@launch
                 val userMsg = e.logAndGetMessage(tag)
                 AppLogger.e(tag, "Sync failed: $userMsg")
-                syncCompleted = true
                 if (!hasEmittedFromDb) {
                     send(Result.failure(e))
                 }
@@ -73,13 +70,13 @@ abstract class BaseRepository(protected val tag: String) {
         cacheSync: suspend (E) -> Unit
     ): Flow<Result<T?>> = channelFlow {
         var hasEmittedFromDb = false
-        
+        var hasEmittedNull = false
+
         val dbJob = launch {
             dbFlow.collect { item ->
                 if (item != null) {
                     hasEmittedFromDb = true
-                }
-                if (item != null) {
+                    hasEmittedNull = false
                     runCatching { mapper(item) }
                         .onSuccess { send(Result.success(it)) }
                         .onFailure { e ->
@@ -87,8 +84,8 @@ abstract class BaseRepository(protected val tag: String) {
                             AppLogger.e(tag, "Local item mapping failed: $userMsg")
                             send(Result.failure(e))
                         }
-                } else {
-                    // Emit null to unblock combine flows
+                } else if (!hasEmittedFromDb && !hasEmittedNull) {
+                    hasEmittedNull = true
                     send(Result.success(null))
                 }
             }

@@ -1,7 +1,7 @@
 package com.sanibonani.save
 
 import androidx.compose.ui.test.*
-import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.sanibonani.save.domain.model.Group
 import com.sanibonani.save.domain.model.GroupType

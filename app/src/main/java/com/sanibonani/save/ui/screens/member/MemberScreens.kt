@@ -1,32 +1,35 @@
 package com.sanibonani.save.ui.screens.member
 
-import androidx.compose.material.icons.filled.PictureAsPdf
-import androidx.compose.material.icons.filled.UploadFile
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Upload
-import androidx.compose.material.icons.filled.Description
+import android.content.ContentResolver
+import android.content.Context
+import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AdminPanelSettings
@@ -34,17 +37,16 @@ import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Circle
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.KeyboardArrowUp
-import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
-import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.filled.SwapHoriz
+import androidx.compose.material.icons.filled.UploadFile
 import androidx.compose.material3.*
+import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -53,35 +55,83 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.foundation.layout.offset
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
+import com.sanibonani.save.ui.utils.rememberClickDebouncer
+import kotlinx.coroutines.*
+import com.sanibonani.save.ui.theme.Charcoal
+import com.sanibonani.save.ui.theme.Forest
+import com.sanibonani.save.ui.components.GlassCard
+import com.sanibonani.save.ui.components.SectionTitle
+import com.sanibonani.save.ui.components.LogoutButton
+import com.sanibonani.save.ui.components.LogoutButtonStyle
+import com.sanibonani.save.ui.components.*
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
-import coil.request.CachePolicy
 import coil.request.ImageRequest
-import com.sanibonani.save.domain.config.FileUploadLimits
-import com.sanibonani.save.domain.config.SaReferenceData
 import com.sanibonani.save.data.utils.PaymentCalculation
 import com.sanibonani.save.data.utils.PaymentCalculator
-import com.sanibonani.save.domain.model.*
-import com.sanibonani.save.ui.components.*
-import com.sanibonani.save.ui.theme.*
+import com.sanibonani.save.domain.config.SaReferenceData
+import com.sanibonani.save.domain.model.AppNotification
+import com.sanibonani.save.domain.model.Beneficiary
+import com.sanibonani.save.domain.model.Contribution
+import com.sanibonani.save.domain.model.ContributionStatus
+import com.sanibonani.save.domain.model.DocumentStatus
+import com.sanibonani.save.domain.model.Group
+import com.sanibonani.save.domain.model.GroupType
+import com.sanibonani.save.domain.model.Loan
+import com.sanibonani.save.domain.model.LoanRepayment
+import com.sanibonani.save.domain.model.LoanStatus
+import com.sanibonani.save.domain.model.Member
+import com.sanibonani.save.domain.model.MemberStatus
+import com.sanibonani.save.domain.model.UserRole
+import com.sanibonani.save.domain.usecase.groups.GetGroupBusinessInsightsUseCase
+import com.sanibonani.save.ui.components.AutoCompleteTextField
+import com.sanibonani.save.ui.components.DashboardHeaderWithNotif
+import com.sanibonani.save.ui.components.DetailRow
+import com.sanibonani.save.ui.components.DetailSection
+import com.sanibonani.save.ui.components.DocumentUploadCard
+import com.sanibonani.save.ui.components.EmptyState
+import com.sanibonani.save.ui.components.FileActionDialog
+import com.sanibonani.save.ui.components.FileViewerDialog
+import com.sanibonani.save.ui.components.IDNumberTransformation
+import com.sanibonani.save.ui.components.InfoBox
+import com.sanibonani.save.ui.components.InfoType
+import com.sanibonani.save.ui.components.InvestmentClubInsights
+import com.sanibonani.save.ui.components.ModernNavigationLink
+import com.sanibonani.save.ui.components.PhoneNumberTransformation
+import com.sanibonani.save.ui.components.RoscaInsights
+import com.sanibonani.save.ui.components.SanibonaniButton
+import com.sanibonani.save.ui.components.SanibonaniDatePickerField
+import com.sanibonani.save.ui.components.SanibonaniTextField
+import com.sanibonani.save.ui.components.SanibonaniTopBar
+import com.sanibonani.save.ui.components.SectionHeader
+import com.sanibonani.save.ui.components.StatCard
+import com.sanibonani.save.ui.components.StatusChip
+import com.sanibonani.save.ui.components.StokvelInsights
+import com.sanibonani.save.ui.components.formatPct
+import com.sanibonani.save.ui.components.formatZAR
+import com.sanibonani.save.ui.screens.admin.components.FullInsightWidget
+import com.sanibonani.save.ui.theme.Cream
+import com.sanibonani.save.ui.theme.ErrorRed
+import com.sanibonani.save.ui.theme.Forest
+import com.sanibonani.save.ui.theme.ForestLight
+import com.sanibonani.save.ui.theme.Gold
+import com.sanibonani.save.ui.theme.LightGray
+import com.sanibonani.save.ui.theme.MidGray
+import com.sanibonani.save.ui.theme.SuccessGreen
+import com.sanibonani.save.ui.theme.WarningAmber
 import com.sanibonani.save.ui.utils.ToastUtils
 import com.sanibonani.save.viewmodel.MemberViewModel
 import com.sanibonani.save.viewmodel.state.MemberEvent
 import com.sanibonani.save.viewmodel.state.MemberUiState
-import com.sanibonani.save.domain.usecase.groups.GetGroupBusinessInsightsUseCase
-import java.time.LocalDate
-import java.time.LocalDateTime
-import java.time.format.DateTimeFormatter
-import java.time.temporal.ChronoUnit
-import java.io.ByteArrayOutputStream
-import android.content.ContentResolver
-import android.net.Uri
-import android.content.Context
 
 private fun isBurialSocietyLike(group: Group?): Boolean {
     return group?.type == GroupType.BURIAL_SOCIETY ||
@@ -107,12 +157,39 @@ fun MemberDashboardScreen(
     onNavigatePayment : (type: String, amount: String, groupId: String) -> Unit,
     onNavigateAdmin   : () -> Unit,
     onLogout          : () -> Unit,
-    vm                : MemberViewModel = hiltViewModel()
+    vm                : MemberViewModel = hiltViewModel<MemberViewModel>()
 ) {
-    val state by vm.uiState.collectAsState()
+    val state by vm.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
-    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+    val clickDebouncer = rememberClickDebouncer()
+
+    DisposableEffect(Unit) {
+        vm.setActive(true)
+        onDispose {
+            vm.setActive(false)
+        }
+    }
     val tabs  = listOf("Overview", "Transactions", "Insights", "Loans", "Beneficiaries", "Documents", "Messages", "Notifications", "Profile")
+
+    val pagerState = rememberPagerState(initialPage = 0, pageCount = { tabs.size })
+
+    // Sync PagerState with ViewModel State (Logical selection)
+    LaunchedEffect(state.selectedTab) {
+        val targetPage = state.selectedTab.takeIf { it in tabs.indices } ?: 0
+        if (targetPage != state.selectedTab) {
+            vm.selectTab(targetPage)
+        } else if (pagerState.currentPage != targetPage) {
+            pagerState.animateScrollToPage(targetPage)
+        }
+    }
+
+    // Sync ViewModel State with PagerState (Swipe)
+    LaunchedEffect(pagerState.currentPage) {
+        if (state.selectedTab != pagerState.currentPage) {
+            vm.selectTab(pagerState.currentPage)
+        }
+    }
 
     // In-app file viewing state
     var viewFileData by remember { mutableStateOf<Triple<String, String, Map<String, String>>?>(null) }
@@ -193,12 +270,12 @@ fun MemberDashboardScreen(
                     title = "Member Portal",
                     subtitle = state.member?.fullName ?: "Loading...",
                     notifCount = state.notifications.size,
-                    onProfileClick = { vm.selectTab(7) },
-                    onNotifClick = { vm.selectTab(6) },
+                    onProfileClick = { vm.selectTab(8) },
+                    onNotifClick = { vm.selectTab(7) },
                     profileImageUrl = state.member?.profilePhotoUrl,
                     profileImageVersion = state.profileImageVersion,
-                    onLogoutClick = onLogout,
-                    onSwitchPortal = onNavigateAdmin,
+                    onLogoutClick = { clickDebouncer.processClick(onLogout) },
+                    onSwitchPortal = { clickDebouncer.processClick(onNavigateAdmin) },
                     isPortalSwitchable = true
                 )
                 
@@ -299,11 +376,11 @@ fun MemberDashboardScreen(
                     } else {
                         member?.totalPaid ?: 0.0
                     }
-                    item { StatCard(icon = "💰", label = "Total Contributed", value = formatZAR(totalAmount), subtitle = "${member?.totalContributions ?: 0} payments", accentColor = Forest) }
+                    item { StatCard(icon = "💰", label = "Total Contributed", value = formatZAR(totalAmount), subtitle = "${state.paymentsCount} payments", accentColor = Forest) }
 
                     val memberMonthlyAmount = if (member != null && group != null) PaymentCalculator.calculateMonthlyContribution(group, member) else group?.monthlyContribution ?: 0.0
                     val nextAmount = if ((calculation?.totalDueNow ?: 0.0) > 0.0) calculation!!.totalDueNow else memberMonthlyAmount
-                    item { StatCard(icon = "📅", label = "Next Payment", value = formatZAR(nextAmount), subtitle = "Due ${calculation?.nextDueDate ?: "N/A"}", accentColor = WarningAmber) }
+                    item { StatCard(icon = "📅", label = "Next Payment", value = formatZAR(nextAmount), subtitle = state.nextPaymentInfo, accentColor = WarningAmber) }
 
                     val rate = if (calculation != null) {
                         val expected = (calculation.periodsAhead) + (member?.totalContributions ?: 0)
@@ -312,29 +389,94 @@ fun MemberDashboardScreen(
                     item { StatCard(icon = "✅", label = "Payment Rate", value = formatPct(rate.coerceIn(0.0, 100.0)), subtitle = if (calculation?.isOverdue == true) "OVERDUE" else "Up to date", accentColor = if (calculation?.isOverdue == true) ErrorRed else SuccessGreen) }
                 }
 
-                ScrollableTabRow(selectedTabIndex = state.selectedTab, containerColor = Color.White, edgePadding = 0.dp) {
-                    tabs.forEachIndexed { i, t -> Tab(selected = state.selectedTab == i, onClick = { vm.selectTab(i) }, text = { Text(t, style = MaterialTheme.typography.labelSmall) }) }
+                ScrollableTabRow(
+                    selectedTabIndex = pagerState.currentPage,
+                    containerColor = Color.White,
+                    edgePadding = 0.dp,
+                    indicator = { tabPositions ->
+                        if (pagerState.currentPage < tabPositions.size) {
+                            TabRowDefaults.SecondaryIndicator(
+                                modifier = Modifier.tabIndicatorOffset(tabPositions[pagerState.currentPage]),
+                                color = Forest
+                            )
+                        }
+                    }
+                ) {
+                    tabs.forEachIndexed { i, t ->
+                        Tab(
+                            selected = pagerState.currentPage == i,
+                            onClick = { 
+                                scope.launch {
+                                    pagerState.animateScrollToPage(i)
+                                    vm.selectTab(i)
+                                }
+                            },
+                            text = { Text(t, style = MaterialTheme.typography.labelSmall) }
+                        )
+                    }
                 }
 
                 Box(Modifier.weight(1f)) {
-                    when (state.selectedTab) {
-                        0 -> MemberOverviewTab(member, group, state.userRole, state.contributions, calculation, state.profileImageVersion, onNavigatePayment, onNavigateAdmin, vm)
-                        1 -> MemberTransactionsTab(state.contributions, state.isExporting, { vm.exportMyStatement() }, { vm.downloadPdfStatement() })
-                        2 -> MemberInsightsTab(state)
-                        3 -> MemberLoansTab(state.loans, state.loanRepayments, group, vm, onFileAction = { url, name, headers -> showFileActionDialog = Triple(url, name, headers) })
-                        4 -> MemberBeneficiariesTab(state.beneficiaries, group, vm, onFileAction = { url, name, headers -> showFileActionDialog = Triple(url, name, headers) })
-                        5 -> MemberDocumentsTab(member, group, vm, onFileAction = { url, name, headers -> showFileActionDialog = Triple(url, name, headers) })
-                        6 -> MemberMessagesTab(state.messages, vm)
-                        7 -> MemberNotificationsTab(state.notifications)
-                        8 -> MemberProfileTab(member, group, vm, state.profileImageVersion)
+                    HorizontalPager(
+                        state = pagerState,
+                        modifier = Modifier.fillMaxSize(),
+                        userScrollEnabled = true,
+                        beyondViewportPageCount = 1
+                    ) { page ->
+                        when (page) {
+                            0 -> MemberOverviewTab(
+                                member = state.member,
+                                group = state.group,
+                                userRole = state.userRole,
+                                contributions = state.contributions,
+                                calculation = state.calculation,
+                                profileImageVersion = state.profileImageVersion,
+                                onPay = { type, amount, gid -> 
+                                    clickDebouncer.processClick { onNavigatePayment(type, amount, gid) } 
+                                },
+                                onNavigateAdmin = { clickDebouncer.processClick(onNavigateAdmin) },
+                                vm = vm,
+                                recentActivity = state.recentActivity
+                            )
+                            1 -> MemberTransactionsTab(
+                                state.contributions, 
+                                state.isExporting, 
+                                { vm.exportMyStatement() }, 
+                                { vm.downloadPdfStatement() },
+                                onItemClick = { vm.selectContribution(it) }
+                            )
+                            2 -> MemberInsightsTab(state)
+                            3 -> MemberLoansTab(state.loans, state.group, vm, onFileAction = { url, name, headers -> showFileActionDialog = Triple(url, name, headers) })
+                            4 -> MemberBeneficiariesTab(
+                                beneficiaries = state.beneficiaries,
+                                group = state.group,
+                                member = state.member,
+                                vm = vm,
+                                onFileAction = { url, name, headers -> showFileActionDialog = Triple(url, name, headers) }
+                            )
+                            5 -> MemberDocumentsTab(state.member, state.group, vm, onFileAction = { url, name, headers -> showFileActionDialog = Triple(url, name, headers) })
+                            6 -> MemberMessagesTab(state.messages)
+                            7 -> MemberNotificationsTab(state.notifications)
+                            8 -> MemberProfileTab(state.member, state.group, vm, state.profileImageVersion)
+                        }
                     }
                 }
             }
         }
     }
 
+    state.selectedContribution?.let { contribution ->
+        ContributionDetailDialog(
+            contribution = contribution,
+            onDismiss = { vm.selectContribution(null) }
+        )
+    }
+
     // ── File Handling Dialogs ───────────────────────────────────────────
-    showFileActionDialog?.let { (url, name, headers) ->
+    showFileActionDialog?.let { fileData: Triple<String, String, Map<String, String>> ->
+        val url = fileData.first
+        val name = fileData.second
+        val headers = fileData.third
         FileActionDialog(
             onDismiss = { showFileActionDialog = null },
             onView = { viewFileData = Triple(url, name, headers) },
@@ -347,12 +489,16 @@ fun MemberDashboardScreen(
                     else -> "application/octet-stream"
                 }
                 com.sanibonani.save.domain.utils.FileDownloader.downloadFile(context, url, name, mimeType, headers)
+                showFileActionDialog = null
             },
             fileName = name
         )
     }
 
-    viewFileData?.let { (url, name, headers) ->
+    viewFileData?.let { fileData: Triple<String, String, Map<String, String>> ->
+        val url = fileData.first
+        val name = fileData.second
+        val headers = fileData.third
         FileViewerDialog(
             url = url,
             fileName = name,
@@ -363,50 +509,144 @@ fun MemberDashboardScreen(
 }
 
 @Composable
-fun MemberOverviewTab(member: Member?, group: Group?, userRole: UserRole, contributions: List<Contribution>, calculation: PaymentCalculation?, profileImageVersion: Long, onPay: (String, String, String) -> Unit, onNavigateAdmin: () -> Unit, vm: MemberViewModel) {
+fun MemberOverviewTab(
+    member: Member?,
+    group: Group?,
+    userRole: UserRole,
+    contributions: List<Contribution>,
+    calculation: PaymentCalculation?,
+    profileImageVersion: Long,
+    onPay: (String, String, String) -> Unit,
+    onNavigateAdmin: () -> Unit,
+    vm: MemberViewModel,
+    recentActivity: List<Contribution>
+) {
     val context = LocalContext.current
     val profileLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { handleProfilePhotoSelection(context, vm, it) }
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+    
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(20.dp),
+        verticalArrangement = Arrangement.spacedBy(20.dp)
+    ) {
         if (userRole == UserRole.GROUP_ADMIN) {
-            item { ModernNavigationLink(title = "Admin Dashboard", subtitle = "Manage members and settings", icon = Icons.Default.AdminPanelSettings, onClick = onNavigateAdmin, accentColor = Gold, containerColor = Gold.copy(alpha = 0.05f)) }
+            item { 
+                ModernNavigationLink(
+                    title = "Admin Dashboard", 
+                    subtitle = "Manage members and group settings", 
+                    icon = Icons.Default.AdminPanelSettings, 
+                    onClick = onNavigateAdmin, 
+                    accentColor = Gold, 
+                    containerColor = Gold.copy(alpha = 0.05f)
+                ) 
+            }
         }
+        
         item {
-            Card(colors = CardDefaults.cardColors(containerColor = ForestLight.copy(alpha = 0.1f)), modifier = Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(20.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) {
-                            val isJoiningFeePaid = (member?.totalContributions ?: 0) > 0
-                            val isJoiningFeeRequired = member?.status == MemberStatus.PENDING_PAYMENT || !isJoiningFeePaid
-                            val memberMonthlyContribution = if (member != null && group != null) PaymentCalculator.calculateMonthlyContribution(group, member) else group?.monthlyContribution ?: 0.0
-                            val amount = if (isJoiningFeeRequired) group?.joiningFee ?: 0.0 else (if ((calculation?.totalDueNow ?: 0.0) > 0.0) calculation!!.totalDueNow else memberMonthlyContribution)
-                            Text(if (isJoiningFeeRequired) "Joining Fee Required" else "Monthly Contribution Due", fontWeight = FontWeight.Bold)
-                            if (calculation?.isOverdue == true) Text("YOUR ACCOUNT IS OVERDUE", color = ErrorRed, fontWeight = FontWeight.ExtraBold, fontSize = 12.sp)
-                            Spacer(Modifier.height(16.dp))
-                            Button(onClick = { onPay(if (isJoiningFeeRequired) "joining_fee" else "contribution", amount.toString(), member?.groupId ?: "") }, colors = ButtonDefaults.buttonColors(containerColor = if (calculation?.isOverdue == true) ErrorRed else Forest), modifier = Modifier.fillMaxWidth()) {
-                                Text(if (isJoiningFeeRequired) "Pay Joining Fee (${formatZAR(amount)})" else "Make Contribution (${formatZAR(amount)})", fontWeight = FontWeight.Bold)
+            GlassCard(accentColor = Forest) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        val feePaid = (member?.totalContributions ?: 0) > 0
+                        val feeRequired = member?.status == MemberStatus.PENDING_PAYMENT || feePaid == false
+                        val memberMonthlyContribution = if (member != null && group != null) PaymentCalculator.calculateMonthlyContribution(group, member) else group?.monthlyContribution ?: 0.0
+                        val amount = if (feeRequired) group?.joiningFee ?: 0.0 else (if ((calculation?.totalDueNow ?: 0.0) > 0.0) calculation!!.totalDueNow else memberMonthlyContribution)
+                        
+                        Text(
+                            text = if (feeRequired) "Action Required" else "Account Overview",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MidGray,
+                            letterSpacing = 1.sp
+                        )
+                        
+                        Text(
+                            text = if (feeRequired) "Joining Fee Due" else "Monthly Contribution",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Black,
+                            color = Charcoal
+                        )
+
+                        if (calculation?.isOverdue == true) {
+                            Surface(
+                                color = ErrorRed.copy(0.1f),
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.padding(top = 8.dp)
+                            ) {
+                                Text(
+                                    "ACCOUNT OVERDUE", 
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                    color = ErrorRed, 
+                                    fontWeight = FontWeight.Black, 
+                                    style = MaterialTheme.typography.labelSmall
+                                )
                             }
                         }
-                        Spacer(Modifier.width(12.dp))
-                        Box(Modifier.clickable { profileLauncher.launch("image/*") }, contentAlignment = Alignment.BottomEnd) {
-                            AsyncImage(model = ImageRequest.Builder(context).data(member?.profilePhotoUrl).memoryCacheKey("${member?.profilePhotoUrl}-$profileImageVersion").crossfade(true).build(), contentDescription = "Photo", modifier = Modifier.size(64.dp).clip(CircleShape).border(2.dp, Forest, CircleShape), contentScale = ContentScale.Crop)
-                            Icon(Icons.Default.Edit, null, modifier = Modifier.size(20.dp).background(Forest, CircleShape).padding(4.dp), tint = Color.White)
+                        
+                        Spacer(Modifier.height(20.dp))
+                        
+                        SanibonaniButton(
+                            text = if (feeRequired) "Pay Joining Fee (${formatZAR(amount)})" else "Make Contribution (${formatZAR(amount)})",
+                            onClick = { onPay(if (feeRequired) "joining_fee" else "contribution", amount.toString(), member?.groupId ?: "") },
+                            containerColor = if (calculation?.isOverdue == true) ErrorRed else Forest,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                    
+                    Spacer(Modifier.width(20.dp))
+                    
+                    Box(
+                        modifier = Modifier.clickable { profileLauncher.launch("image/*") }, 
+                        contentAlignment = Alignment.BottomEnd
+                    ) {
+                        AsyncImage(
+                            model = ImageRequest.Builder(context)
+                                .data(member?.profilePhotoUrl)
+                                .memoryCacheKey("${member?.profilePhotoUrl}-$profileImageVersion")
+                                .crossfade(true)
+                                .build(), 
+                            contentDescription = "Photo", 
+                            modifier = Modifier
+                                .size(80.dp)
+                                .clip(RoundedCornerShape(20.dp))
+                                .border(2.5.dp, Forest.copy(alpha = 0.1f), RoundedCornerShape(20.dp)), 
+                            contentScale = ContentScale.Crop
+                        )
+                        Surface(
+                            color = Forest,
+                            shape = CircleShape,
+                            modifier = Modifier.size(24.dp).offset(x = 4.dp, y = 4.dp),
+                            shadowElevation = 2.dp
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(Icons.Default.Edit, null, modifier = Modifier.size(12.dp), tint = Color.White)
+                            }
                         }
                     }
                 }
             }
         }
+        
         item {
-            SectionHeader("Recent Activity")
-            if (contributions.isEmpty()) EmptyState("💸", "No transactions", "History will appear here.")
-            else {
-                contributions.take(3).forEach { ContributionItem(it) }
+            SectionTitle("Recent Activity", "Your latest transactions")
+            if (recentActivity.isEmpty()) {
+                EmptyState("💸", "No transactions", "Your financial history will appear here.")
+            } else {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    recentActivity.take(3).forEach { ContributionItem(it, onClick = { vm.selectContribution(it) }) }
+                }
             }
         }
     }
 }
 
 @Composable
-fun MemberTransactionsTab(contributions: List<Contribution>, isExporting: Boolean, onExportCsv: () -> Unit, onDownloadPdf: () -> Unit) {
+fun MemberTransactionsTab(
+    contributions: List<Contribution>, 
+    isExporting: Boolean, 
+    onExportCsv: () -> Unit, 
+    onDownloadPdf: () -> Unit,
+    onItemClick: (Contribution) -> Unit
+) {
     Column(Modifier.fillMaxSize()) {
         if (contributions.isNotEmpty()) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -416,7 +656,7 @@ fun MemberTransactionsTab(contributions: List<Contribution>, isExporting: Boolea
         }
         LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             if (contributions.isEmpty()) item { EmptyState("💸", "No transactions", "No payments yet.") }
-            else items(contributions) { ContributionItem(it) }
+            else items(items = contributions) { contrib -> ContributionItem(contrib, onItemClick) }
         }
         if (isExporting) LinearProgressIndicator(Modifier.fillMaxWidth(), color = Forest)
     }
@@ -426,11 +666,12 @@ fun MemberTransactionsTab(contributions: List<Contribution>, isExporting: Boolea
 fun MemberBeneficiariesTab(
     beneficiaries: List<Beneficiary>, 
     group: Group?, 
+    member: Member?,
     vm: MemberViewModel,
     onFileAction: (String, String, Map<String, String>) -> Unit = { _, _, _ -> }
 ) {
     var showAddDialog by remember { mutableStateOf(false) }
-    val context = LocalContext.current
+    LocalContext.current
     val isBurial = isBurialSocietyLike(group)
     val limit = group?.maxBeneficiaries ?: 0
     val count = beneficiaries.size
@@ -448,7 +689,7 @@ fun MemberBeneficiariesTab(
         }
         LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             if (beneficiaries.isEmpty()) item { EmptyState("👥", "No beneficiaries", "Add dependents here.") }
-            else items(beneficiaries) { b ->
+            else items(items = beneficiaries) { b: Beneficiary ->
                 var showEdit by remember { mutableStateOf(false) }
                 var showClaim by remember { mutableStateOf(false) }
                 BeneficiaryItem(
@@ -466,7 +707,18 @@ fun MemberBeneficiariesTab(
                     }
                 )
                 if (showEdit) AddBeneficiaryDialog(b, { showEdit = false }, { n, id, r, d, i -> b.id?.let { vm.updateBeneficiary(it, n, id, r, d, i) }; showEdit = false })
-                if (showClaim) ClaimBeneficiaryDialog(b, { showClaim = false }, { c, d, a, bk, ac, br, h, nt -> vm.submitBeneficiaryClaim(b, c, d, a, bk, ac, br, h, nt); showClaim = false })
+                if (showClaim) {
+                    ClaimBeneficiaryDialog(
+                        beneficiary = b,
+                        group = group,
+                        member = member,
+                        onDismiss = { showClaim = false },
+                        onConfirm = { c, d, a, bk, ac, br, h, nt ->
+                            vm.submitBeneficiaryClaim(b, c, d, a, bk, ac, br, h, nt)
+                            showClaim = false
+                        }
+                    )
+                }
             }
         }
     }
@@ -495,8 +747,21 @@ fun BeneficiaryItem(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.size(40.dp).clip(CircleShape).background(Cream), contentAlignment = Alignment.Center) { Icon(Icons.Default.Person, null, tint = Forest) }
                 Column(Modifier.weight(1f).padding(start = 12.dp)) {
-                    Text(beneficiary.fullName, fontWeight = FontWeight.Bold)
-                    Text("${beneficiary.relationship} • ${beneficiary.idNumber}", style = MaterialTheme.typography.labelMedium, color = Color.Gray)
+                    Text(
+                        text = beneficiary.fullName,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        text = "${beneficiary.relationship} • ${beneficiary.idNumber}",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = Color.Gray,
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Ellipsis
+                    )
                 }
                 IconButton(onClick = onEdit) { Icon(Icons.Default.Edit, null, tint = Forest, modifier = Modifier.size(20.dp)) }
                 IconButton(onClick = onDelete) { Icon(Icons.Default.Delete, null, tint = Color.LightGray, modifier = Modifier.size(20.dp)) }
@@ -524,9 +789,29 @@ fun BeneficiaryItem(
 }
 
 @Composable
-fun ClaimBeneficiaryDialog(beneficiary: Beneficiary, onDismiss: () -> Unit, onConfirm: (String, String, Double, String, String, String, String, String?) -> Unit) {
-    var cause by remember { mutableStateOf("") }; var date by remember { mutableStateOf("") }; var amount by remember { mutableStateOf("5000.0") }
-    var bk by remember { mutableStateOf("") }; var ac by remember { mutableStateOf("") }; var br by remember { mutableStateOf("") }; var h by remember { mutableStateOf("") }; var nt by remember { mutableStateOf("") }
+fun ClaimBeneficiaryDialog(
+    beneficiary: Beneficiary,
+    group: Group?,
+    member: Member?,
+    onDismiss: () -> Unit,
+    onConfirm: (String, String, Double, String, String, String, String, String?) -> Unit
+) {
+    var cause by remember { mutableStateOf("") }
+    var date by remember { mutableStateOf("") }
+    var amount by remember { mutableStateOf("5000.0") }
+    var bk by remember(group?.id) { mutableStateOf(group?.bankName.orEmpty()) }
+    var ac by remember(group?.id) { mutableStateOf(group?.accountNumber.orEmpty()) }
+    var br by remember(group?.id) { mutableStateOf(group?.branchCode.orEmpty()) }
+    var h by remember(member?.id) { mutableStateOf(member?.fullName.orEmpty()) }
+    var nt by remember { mutableStateOf("") }
+
+    val hasPrefilledBanking = bk.isNotBlank() && ac.isNotBlank() && br.isNotBlank() && h.isNotBlank()
+    val canSubmit =
+        cause.isNotBlank() &&
+            date.isNotBlank() &&
+            (amount.toDoubleOrNull() ?: 0.0) > 0.0 &&
+            hasPrefilledBanking
+
     AlertDialog(onDismissRequest = onDismiss, title = { Text("Submit Payout Claim", fontWeight = FontWeight.Bold) }, text = {
         Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("Beneficiary: ${beneficiary.fullName}", fontWeight = FontWeight.Bold)
@@ -537,14 +822,37 @@ fun ClaimBeneficiaryDialog(beneficiary: Beneficiary, onDismiss: () -> Unit, onCo
                 onValueChange = { date = it }
             )
             SanibonaniTextField(amount, { amount = it }, "Claim Amount (R)", keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
-            Text("Payout Banking Details", fontWeight = FontWeight.Bold)
-            SanibonaniTextField(bk, { bk = it }, "Bank Name")
-            SanibonaniTextField(ac, { ac = it }, "Account Number")
-            SanibonaniTextField(br, { br = it }, "Branch Code")
-            SanibonaniTextField(h, { h = it }, "Account Holder")
+            Text("Payout Banking Details (View-only)", fontWeight = FontWeight.Bold)
+            if (!hasPrefilledBanking) {
+                InfoBox(
+                    "Missing group/member banking profile data. Please ask a group admin to complete group banking details before submitting a claim.",
+                    InfoType.WARNING
+                )
+            }
+            SanibonaniTextField(bk, { }, "Bank Name", readOnly = true)
+            SanibonaniTextField(ac, { }, "Account Number", readOnly = true)
+            SanibonaniTextField(br, { }, "Branch Code", readOnly = true)
+            SanibonaniTextField(h, { }, "Account Holder", readOnly = true)
             SanibonaniTextField(nt, { nt = it }, "Notes (Optional)")
         }
-    }, confirmButton = { Button(onClick = { onConfirm(cause, date, amount.toDoubleOrNull() ?: 0.0, bk, ac, br, h, nt.takeIf { it.isNotBlank() }) }, enabled = bk.isNotBlank() && ac.isNotBlank(), colors = ButtonDefaults.buttonColors(containerColor = Color.Red)) { Text("Submit Claim") } }, dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } })
+    }, confirmButton = {
+        Button(
+            onClick = {
+                onConfirm(
+                    cause,
+                    date,
+                    amount.toDoubleOrNull() ?: 0.0,
+                    bk,
+                    ac,
+                    br,
+                    h,
+                    nt.takeIf { it.isNotBlank() }
+                )
+            },
+            enabled = canSubmit,
+            colors = ButtonDefaults.buttonColors(containerColor = Color.Red)
+        ) { Text("Submit Claim") }
+    }, dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } })
 }
 
 @Composable
@@ -595,7 +903,9 @@ fun MemberDocumentsTab(
             "Marriage Certificate" to member?.document4Url,
             "Signed Constitution" to member?.document5Url
         )
-        docs.forEachIndexed { i, (name, url) ->
+        docs.forEachIndexed { i, doc ->
+            val name = doc.first
+            val url = doc.second
             DocumentUploadCard(
                 name = name,
                 isUploaded = !url.isNullOrBlank(),
@@ -675,56 +985,103 @@ fun MemberProfileTab(member: Member?, group: Group?, vm: MemberViewModel, profil
     val context = LocalContext.current
     val state by vm.uiState.collectAsState()
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { handleProfilePhotoSelection(context, vm, it) }
-    Column(Modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState()), horizontalAlignment = Alignment.CenterHorizontally) {
+    
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(20.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(24.dp)
+    ) {
         Box(contentAlignment = Alignment.BottomEnd) {
-            Surface(Modifier.size(100.dp), shape = CircleShape, color = Forest.copy(alpha = 0.1f), border = BorderStroke(2.dp, Forest)) {
-                if (!member?.profilePhotoUrl.isNullOrBlank()) AsyncImage(model = ImageRequest.Builder(context).data(member?.profilePhotoUrl).memoryCacheKey("${member?.profilePhotoUrl}-$profileImageVersion").crossfade(true).build(), contentDescription = "Photo", contentScale = ContentScale.Crop)
-                else Icon(Icons.Default.Person, null, modifier = Modifier.size(48.dp).align(Alignment.Center), tint = Forest)
+            Surface(
+                modifier = Modifier.size(120.dp), 
+                shape = RoundedCornerShape(32.dp), 
+                color = Forest.copy(alpha = 0.05f), 
+                border = BorderStroke(2.dp, Forest.copy(alpha = 0.1f))
+            ) {
+                if (!member?.profilePhotoUrl.isNullOrBlank()) {
+                    AsyncImage(
+                        model = ImageRequest.Builder(context)
+                            .data(member?.profilePhotoUrl)
+                            .memoryCacheKey("${member?.profilePhotoUrl}-$profileImageVersion")
+                            .crossfade(true)
+                            .build(), 
+                        contentDescription = "Photo", 
+                        contentScale = ContentScale.Crop
+                    )
+                } else {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(Icons.Default.Person, null, modifier = Modifier.size(56.dp), tint = Forest.copy(0.3f))
+                    }
+                }
             }
-            SmallFloatingActionButton(onClick = { launcher.launch("image/*") }, containerColor = Forest, contentColor = Color.White, modifier = Modifier.size(32.dp), shape = CircleShape) { Icon(Icons.Default.Edit, null, modifier = Modifier.size(16.dp)) }
+            Surface(
+                onClick = { launcher.launch("image/*") },
+                color = Forest,
+                shape = CircleShape,
+                modifier = Modifier.size(36.dp).offset(x = 8.dp, y = 8.dp),
+                shadowElevation = 4.dp
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(Icons.Default.Edit, null, modifier = Modifier.size(16.dp), tint = Color.White)
+                }
+            }
         }
-        Spacer(Modifier.height(24.dp))
-        DetailSection("Account Information") { 
-            DetailRow("Full Name", member?.fullName ?: "N/A")
-            DetailRow("Email", member?.email ?: "N/A")
-            DetailRow("Phone", member?.phone ?: "N/A") 
-        }
-        DetailSection("Membership") { 
-            DetailRow("Group", group?.name ?: "N/A")
-            DetailRow("Status", member?.status?.displayName ?: "N/A")
-            DetailRow("Member Since", member?.joinedAt?.substringBefore("T") ?: "N/A") 
+        
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(member?.fullName ?: "N/A", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Black, color = Charcoal)
+            Text(member?.email ?: "N/A", style = MaterialTheme.typography.bodyMedium, color = MidGray)
         }
 
-        DetailSection("Security") {
+        GlassCard(accentColor = Forest) {
+            SectionTitle("Account Details")
+            DetailRow("Phone", member?.phone ?: "Not captured")
+            DetailRow("Joined", member?.joinedAt?.substringBefore("T") ?: "N/A")
+            DetailRow("Group", group?.name ?: "N/A")
+            DetailRow("Member Status", member?.status?.displayName ?: "N/A")
+        }
+
+        GlassCard(accentColor = Gold) {
+            SectionTitle("Security & Access")
             Row(
-                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text("Biometric Login", fontWeight = FontWeight.Bold)
-                    Text("Use fingerprint or face to sign in faster.", style = MaterialTheme.typography.labelSmall, color = MidGray)
+                    Text("Biometric Sign-in", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.ExtraBold, color = Charcoal)
+                    Text("Secure access with fingerprint or face.", style = MaterialTheme.typography.labelSmall, color = MidGray)
                 }
                 Switch(
                     checked = state.biometricEnabled,
                     onCheckedChange = { vm.toggleBiometric(it) },
-                    colors = SwitchDefaults.colors(checkedThumbColor = Forest, checkedTrackColor = Forest.copy(alpha = 0.5f))
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = Color.White, 
+                        checkedTrackColor = Forest,
+                        uncheckedThumbColor = Color.White,
+                        uncheckedTrackColor = LightGray
+                    )
                 )
             }
         }
+        
+        LogoutButton(onClick = { /* ViewModel signout handled by parent */ }, style = LogoutButtonStyle.Outlined)
+        
+        Spacer(Modifier.height(40.dp))
     }
 }
 
 @Composable
 fun MemberLoansTab(
     loans: List<Loan>, 
-    repayments: List<LoanRepayment>, 
     group: Group?, 
     vm: MemberViewModel,
     onFileAction: (String, String, Map<String, String>) -> Unit = { _, _, _ -> }
 ) {
     var showRequest by remember { mutableStateOf(false) }
-    val context = LocalContext.current
+    LocalContext.current
     Column(Modifier.fillMaxSize()) {
         Surface(color = Forest.copy(alpha = 0.1f), modifier = Modifier.fillMaxWidth().padding(16.dp), shape = RoundedCornerShape(12.dp)) {
             Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -734,10 +1091,9 @@ fun MemberLoansTab(
         }
         LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             if (loans.isEmpty()) item { EmptyState("🏦", "No loans", "You haven't requested any loans yet.") }
-            else items(loans) { loan -> 
+            else items(items = loans) { loan: Loan -> 
                 LoanItem(
                     loan = loan, 
-                    repayments = repayments.filter { r -> r.loanId == loan.id },
                     onDownloadContract = { 
                         val url = loan.contractUrl
                         if (!url.isNullOrBlank()) {
@@ -754,7 +1110,7 @@ fun MemberLoansTab(
 }
 
 @Composable
-fun LoanItem(loan: Loan, repayments: List<LoanRepayment>, onDownloadContract: (() -> Unit)? = null) {
+fun LoanItem(loan: Loan, onDownloadContract: (() -> Unit)? = null) {
     Card(colors = CardDefaults.cardColors(containerColor = Color.White), modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp)) {
         Column(Modifier.padding(16.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
@@ -765,7 +1121,7 @@ fun LoanItem(loan: Loan, repayments: List<LoanRepayment>, onDownloadContract: ((
                 
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     if (!loan.contractUrl.isNullOrBlank() && onDownloadContract != null) {
-                        val context = LocalContext.current
+                        LocalContext.current
                         IconButton(onClick = onDownloadContract) {
                             Icon(Icons.Default.Description, "Download Agreement", tint = Forest)
                         }
@@ -820,7 +1176,7 @@ fun LoanRequestDialog(group: Group?, onDismiss: () -> Unit, onConfirm: (Double, 
 fun MemberNotificationsTab(notifications: List<AppNotification>) {
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         if (notifications.isEmpty()) item { EmptyState("🔔", "No notifications", "You're all caught up!") }
-        else items(notifications) { NotificationItem(it) }
+        else items(items = notifications) { n: AppNotification -> NotificationItem(n) }
     }
 }
 
@@ -835,12 +1191,12 @@ fun NotificationItem(n: AppNotification) {
 }
 
 @Composable
-fun MemberMessagesTab(messages: List<AppNotification>, vm: MemberViewModel) {
+fun MemberMessagesTab(messages: List<AppNotification>) {
     Column(Modifier.fillMaxSize().padding(16.dp)) {
         SectionHeader("Messages from Admin")
         LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             if (messages.isEmpty()) item { EmptyState("✉️", "No messages", "Admins haven't sent any messages yet.") }
-            else items(messages) { MessageItem(it) }
+            else items(items = messages) { m: AppNotification -> MessageItem(m) }
         }
     }
 }
@@ -857,12 +1213,22 @@ fun MessageItem(m: AppNotification) {
 }
 
 @Composable
-fun ContributionItem(c: Contribution) {
-    Card(colors = CardDefaults.cardColors(containerColor = Color.White), modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp)) {
+fun ContributionItem(c: Contribution, onClick: (Contribution) -> Unit) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = Color.White), 
+        modifier = Modifier.fillMaxWidth().clickable { onClick(c) }, 
+        shape = RoundedCornerShape(12.dp)
+    ) {
         Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(40.dp).background(Forest.copy(alpha = 0.1f), CircleShape), contentAlignment = Alignment.Center) { Text(if (c.type == "joining_fee") "🎟️" else "💰") }
             Column(Modifier.weight(1f).padding(start = 16.dp)) {
-                Text(if (c.type == "joining_fee") "Joining Fee" else "Monthly Contribution", fontWeight = FontWeight.Bold)
+                Text(
+                    text = if (c.type == "joining_fee") "Joining Fee" else "Monthly Contribution",
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    softWrap = false,
+                    overflow = TextOverflow.Ellipsis
+                )
                 Text(c.createdAt?.substringBefore("T") ?: "", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
             }
             Column(horizontalAlignment = Alignment.End) {
@@ -871,6 +1237,48 @@ fun ContributionItem(c: Contribution) {
             }
         }
     }
+}
+
+@Composable
+fun ContributionDetailDialog(
+    contribution: Contribution,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Transaction Proof", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                InfoBox(
+                    message = "This record is verified on the digital ledger. Use the Transaction ID below for external verification.",
+                    type = InfoType.INFO
+                )
+                
+                DetailRow("Type", if (contribution.type == "joining_fee") "Joining Fee" else "Monthly Contribution")
+                DetailRow("Amount", formatZAR(contribution.amount))
+                DetailRow("Due Date", contribution.dueDate)
+                DetailRow("Paid Date", contribution.paidAt?.substringBefore("T") ?: "N/A")
+                DetailRow("Status", contribution.status.displayName)
+                
+                HorizontalDivider(color = LightGray.copy(alpha = 0.3f))
+                
+                Column {
+                    Text("Transaction Reference", style = MaterialTheme.typography.labelSmall, color = MidGray)
+                    Text(
+                        contribution.transactionId ?: "PENDING_VERIFICATION",
+                        style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("Close", color = Forest) }
+        },
+        shape = RoundedCornerShape(16.dp),
+        containerColor = Color.White
+    )
 }
 
 
@@ -900,11 +1308,12 @@ fun MemberInsightsTab(state: MemberUiState) {
             is GetGroupBusinessInsightsUseCase.GroupBusinessInsight.Rosca -> RoscaInsights(insight.schedule)
             is GetGroupBusinessInsightsUseCase.GroupBusinessInsight.InvestmentClub -> InvestmentClubInsights(insight.valuation)
             is GetGroupBusinessInsightsUseCase.GroupBusinessInsight.Stokvel -> StokvelInsights(insight.projection)
+            is GetGroupBusinessInsightsUseCase.GroupBusinessInsight.FullInsight -> FullInsightWidget(insight.insight)
             else -> {
                 EmptyState(
                     icon = "📊",
                     title = "No specialized insights",
-                    description = "Specialized business tools are available for ROSCA, Investment Club, and Stokvel group types."
+                    description = "Insights are still being calculated for your group. Check back soon!"
                 )
             }
         }
@@ -928,7 +1337,8 @@ fun RegisterMemberScreen(
     vm: MemberViewModel = hiltViewModel()
 ) {
     val state by vm.registerState.collectAsState()
-    val context = LocalContext.current
+    val clickDebouncer = rememberClickDebouncer()
+    LocalContext.current
 
     LaunchedEffect(groupId) {
         vm.initializeRegistration(groupId)
@@ -941,7 +1351,7 @@ fun RegisterMemberScreen(
     }
 
     Scaffold(
-        topBar = { SanibonaniTopBar("Member Registration", onBack = onBack) },
+        topBar = { SanibonaniTopBar("Member Registration", onBack = { clickDebouncer.processClick(onBack) }) },
         containerColor = Cream
     ) { padding ->
         Column(
@@ -1042,7 +1452,7 @@ fun RegisterMemberScreen(
 
             SanibonaniButton(
                 text = if (state.isSubmitting) "Processing..." else "Register & Pay Joining Fee",
-                onClick = { vm.submit(groupId, null) },
+                onClick = { clickDebouncer.processClick { vm.submit(groupId, null) } },
                 enabled = state.canSubmit && !state.isSubmitting,
                 modifier = Modifier.fillMaxWidth()
             )

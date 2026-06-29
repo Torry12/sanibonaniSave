@@ -120,8 +120,8 @@ class BehaviorTrackingRepositoryImpl @Inject constructor(
             memberStatus = BehaviorScoringUtils.determineBehaviorStatus(track.behaviorScore, track.fraudScore, track),
             isFlaggedForReview = BehaviorScoringUtils.shouldFlagForReview(track),
             isSuspended = BehaviorScoringUtils.shouldSuspend(track),
-            lastActivityAt = Clock.System.now().toString(),
-            updatedAt = Clock.System.now().toString()
+            lastActivityAt = Instant.now().toString(),
+            updatedAt = Instant.now().toString()
         )
 
         // Save to database
@@ -133,7 +133,7 @@ class BehaviorTrackingRepositoryImpl @Inject constructor(
                 select(columns = Columns.raw(BEHAVIOR_COLUMNS_SAFE))
             }
         } catch (e: Exception) {
-            // Log error silently - sync failure is not critical
+            com.sanibonani.save.data.logging.AppLogger.e("BehaviorTracking", "Failed to sync behavior track to Supabase", e)
         }
 
         track
@@ -186,7 +186,7 @@ class BehaviorTrackingRepositoryImpl @Inject constructor(
         val resolved = event.copy(
             actionTaken = actionTaken,
             resolved = true,
-            updatedAt = Clock.System.now().toString()
+            updatedAt = Instant.now().toString()
         ).toModel()
 
         db.fraudDetectionEventDao().update(resolved.toEntity())
@@ -208,9 +208,9 @@ class BehaviorTrackingRepositoryImpl @Inject constructor(
         val updated = track.copy(
             isFlaggedForReview = true,
             reviewNotes = reviewNotes ?: reason,
-            lastReviewedAt = Clock.System.now().toString(),
+            lastReviewedAt = Instant.now().toString(),
             reviewedBy = try { supabase.auth.currentUserOrNull()?.id } catch (e: Exception) { null },
-            updatedAt = Clock.System.now().toString()
+            updatedAt = Instant.now().toString()
         )
 
         db.memberBehaviorTrackDao().update(updated.toEntity())
@@ -222,9 +222,9 @@ class BehaviorTrackingRepositoryImpl @Inject constructor(
 
         val updated = track.copy(
             isFlaggedForReview = false,
-            lastReviewedAt = Clock.System.now().toString(),
+            lastReviewedAt = Instant.now().toString(),
             reviewedBy = try { supabase.auth.currentUserOrNull()?.id } catch (e: Exception) { null },
-            updatedAt = Clock.System.now().toString()
+            updatedAt = Instant.now().toString()
         )
 
         db.memberBehaviorTrackDao().update(updated.toEntity())
@@ -238,7 +238,7 @@ class BehaviorTrackingRepositoryImpl @Inject constructor(
             isSuspended = true,
             suspensionReason = reason,
             memberStatus = BehaviorStatus.SUSPENDED,
-            updatedAt = Clock.System.now().toString()
+            updatedAt = Instant.now().toString()
         )
 
         db.memberBehaviorTrackDao().update(updated.toEntity())
@@ -251,7 +251,7 @@ class BehaviorTrackingRepositoryImpl @Inject constructor(
         val updated = track.copy(
             isSuspended = false,
             suspensionReason = null,
-            updatedAt = Clock.System.now().toString()
+            updatedAt = Instant.now().toString()
         )
 
         db.memberBehaviorTrackDao().update(updated.toEntity())
@@ -273,7 +273,7 @@ class BehaviorTrackingRepositoryImpl @Inject constructor(
         if (tracks.isEmpty()) {
             return@runCatching BehaviorAnalyticsSummary(
                 groupId = groupId,
-                calculatedAt = Clock.System.now().toString()
+                calculatedAt = Instant.now().toString()
             )
         }
 
@@ -310,7 +310,7 @@ class BehaviorTrackingRepositoryImpl @Inject constructor(
             averageFraudScore = averageFraudScore,
             onTimePaymentRate = onTimeRate,
             loanDefaultRate = defaultRate,
-            calculatedAt = Clock.System.now().toString()
+            calculatedAt = Instant.now().toString()
         )
 
         db.behaviorAnalyticsSummaryDao().upsert(summary.toEntity())
@@ -356,7 +356,7 @@ class BehaviorTrackingRepositoryImpl @Inject constructor(
             groupId = groupId,
             monthsInGroup = monthsInGroup,
             joinedAt = member.joinedAt,
-            createdAt = Clock.System.now().toString()
+            createdAt = Instant.now().toString()
         )
     }
 
@@ -364,7 +364,7 @@ class BehaviorTrackingRepositoryImpl @Inject constructor(
         val contributions = db.contributionDao()
             .observeContributions(memberId)
             .first()
-            .filter { it.groupId == track.groupId }
+            .filter { it.groupId == track.groupId && it.type == "contribution" }
             .map { it.toModel() }
 
         if (contributions.isEmpty()) {
@@ -448,6 +448,7 @@ class BehaviorTrackingRepositoryImpl @Inject constructor(
             .mapNotNull { contribution ->
                 parseInstantOrNull(contribution.paidAt)?.toEpochMilli()?.let { paidAtMillis ->
                     mapOf(
+                        "id" to (contribution.id ?: ""),
                         "member_id" to memberId,
                         "amount" to contribution.amount,
                         "timestamp" to paidAtMillis,
@@ -456,13 +457,18 @@ class BehaviorTrackingRepositoryImpl @Inject constructor(
                 }
             }
 
-        val duplicateTransactionCount = paidTransactions
-            .count { candidate ->
-                BehaviorScoringUtils.detectDuplicateTransaction(
-                    transactions = paidTransactions.filterNot { it === candidate },
-                    newTransaction = candidate
-                )
+        // Fix: Detect unique duplicate pairs to avoid double counting (A counts B, then B counts A)
+        val duplicateIds = mutableSetOf<String>()
+        paidTransactions.forEachIndexed { index, tx ->
+            val matches = paidTransactions.filterIndexed { i, other -> 
+                i > index && BehaviorScoringUtils.detectDuplicateTransaction(listOf(other), tx) 
             }
+            if (matches.isNotEmpty()) {
+                duplicateIds.add(tx["id"] as String)
+                matches.forEach { duplicateIds.add(it["id"] as String) }
+            }
+        }
+        val duplicateTransactionCount = duplicateIds.size
 
         val velocityCheckFailed = BehaviorScoringUtils.detectVelocitySpike(
             transactions = paidTransactions,
@@ -547,7 +553,6 @@ class BehaviorTrackingRepositoryImpl @Inject constructor(
         val rapidDisbursementAttempts = loans
             .mapNotNull { parseInstantOrNull(it.createdAt) }
             .count { ChronoUnit.HOURS.between(it, Instant.now()) <= 24 }
-            .coerceAtLeast(track.rapidDisbursementAttempts)
 
         return track.copy(
             totalLoansRequested = totalLoansRequested,

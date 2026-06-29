@@ -1,7 +1,8 @@
 package com.sanibonani.save.domain.usecase.emergency
 
 import com.sanibonani.save.domain.model.*
-import com.sanibonani.save.domain.repository.GroupRepository
+import com.sanibonani.save.domain.repository.LedgerRepository
+import java.time.Instant
 import javax.inject.Inject
 
 /**
@@ -14,10 +15,11 @@ import javax.inject.Inject
  *  3. Requested amount must not exceed the current group balance.
  *  4. Single-transaction limit: max 50% of total fund.
  *
- * On success, the group balance is decremented via [GroupRepository].
+ * On success, a compensating ledger entry is recorded. Balance is derived from the ledger,
+ * never mutated directly.
  */
 class ProcessEmergencyWithdrawalUseCase @Inject constructor(
-    private val groupRepository: GroupRepository
+    private val ledgerRepository: LedgerRepository
 ) {
 
     sealed class WithdrawalResult {
@@ -35,19 +37,16 @@ class ProcessEmergencyWithdrawalUseCase @Inject constructor(
             return WithdrawalResult.Failure("Group is not an Emergency Fund.")
         }
 
-        // 1. Check Member Standing
         if (member.status != MemberStatus.ACTIVE) {
             return WithdrawalResult.Failure("Only active members can request emergency withdrawals.")
         }
 
-        // 2. Liquidity Check
         if (amount > group.balance) {
             return WithdrawalResult.Failure(
                 "Insufficient funds in group account. Requested: R$amount, Available: R${group.balance}."
             )
         }
 
-        // 3. Single-transaction limit: max 50% of fund
         val maxWithdrawal = group.balance * 0.5
         if (amount > maxWithdrawal) {
             return WithdrawalResult.Failure(
@@ -55,18 +54,20 @@ class ProcessEmergencyWithdrawalUseCase @Inject constructor(
             )
         }
 
-        // 4. Persist the balance change (Atomic with Ledger)
-        val updateResult = groupRepository.recordDisbursement(
+        // Record ledger entry — balance is derived from sum of all entries
+        val entry = LedgerEntry(
             groupId = group.id ?: return WithdrawalResult.Failure("Group ID missing."),
-            amount = amount,
+            amount = -amount,
+            balanceAfter = group.balance - amount,
             description = "Emergency Withdrawal: $purpose",
-            category = "emergency_withdrawal"
+            category = "emergency_withdrawal",
+            transactionId = "emergency_wd_${group.id}_${member.id}_${Instant.now().epochSecond}"
         )
-        if (updateResult.isFailure) {
-            return WithdrawalResult.Failure("Failed to update group balance. Please try again.")
+        val result = ledgerRepository.logPlatformEvent(entry)
+        if (result.isFailure) {
+            return WithdrawalResult.Failure("Failed to record withdrawal. Please try again.")
         }
-        val newBalance = updateResult.getOrThrow()
 
-        return WithdrawalResult.Success(amount = amount, balanceRemaining = newBalance)
+        return WithdrawalResult.Success(amount = amount, balanceRemaining = group.balance - amount)
     }
 }

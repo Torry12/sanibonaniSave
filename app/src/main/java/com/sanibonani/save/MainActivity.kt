@@ -161,6 +161,11 @@ class SplashViewModel @Inject constructor(
             }
         }
     }
+
+    override fun onCleared() {
+        super.onCleared()
+        _connectionError.value = null
+    }
 }
 
 @HiltViewModel
@@ -180,6 +185,12 @@ class StartupDataViewModel @Inject constructor(
             }
         }
     }
+
+    override fun onCleared() {
+        super.onCleared()
+        // Ensure preloaded flag is reset if ViewModel is recreated (rare for activity scope but good practice)
+        preloaded = false
+    }
 }
 
 @AndroidEntryPoint
@@ -187,9 +198,21 @@ class MainActivity : FragmentActivity() {
 
     private val authViewModel: AuthViewModel by viewModels()
     private val startupDataViewModel: StartupDataViewModel by viewModels()
+    private val splashViewModel: SplashViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        val splashScreen = installSplashScreen()
         super.onCreate(savedInstanceState)
+
+        enableEdgeToEdge()
+
+        // Initialize synchronized date
+        AppDateSync.syncOnLaunch(this)
+
+        // Keep the splash screen on-screen until connection check finishes
+        splashScreen.setKeepOnScreenCondition {
+            splashViewModel.isConnecting.value
+        }
 
         startupDataViewModel.preloadMapData()
 
@@ -202,8 +225,26 @@ class MainActivity : FragmentActivity() {
         }
 
         setContent {
+            val isConnecting by splashViewModel.isConnecting.collectAsState()
+            val connectionError by splashViewModel.connectionError.collectAsState()
+
             SanibonaniTheme {
-                SanibonaniNavGraph()
+                Surface(color = MaterialTheme.colorScheme.background) {
+                    when {
+                        isConnecting -> {
+                            BrandingSplashScreen(splashViewModel)
+                        }
+                        connectionError != null -> {
+                            ConnectionErrorScreen(
+                                message = connectionError!!,
+                                onRetry = { splashViewModel.checkConnection() }
+                            )
+                        }
+                        else -> {
+                            SanibonaniNavGraph()
+                        }
+                    }
+                }
             }
         }
     }

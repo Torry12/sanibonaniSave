@@ -1,5 +1,6 @@
 package com.sanibonani.save.data.repository
 
+import com.sanibonani.save.data.local.SanibonaniDatabase
 import com.sanibonani.save.domain.model.Group
 import com.sanibonani.save.domain.model.Member
 import com.sanibonani.save.domain.repository.GroupRepository
@@ -7,6 +8,7 @@ import com.sanibonani.save.domain.repository.MemberRepository
 import com.sanibonani.save.domain.repository.NotificationRepository
 import com.sanibonani.save.domain.repository.SupabaseRepository
 import com.sanibonani.save.domain.repository.SyncStatus
+import io.github.jan.supabase.SupabaseClient
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
@@ -19,20 +21,24 @@ import org.junit.Test
 
 class SyncRepositoryImplTest {
 
+    private val supabase = mockk<SupabaseClient>(relaxed = true)
     private val supabaseRepo = mockk<SupabaseRepository>()
     private val memberRepo = mockk<MemberRepository>()
     private val groupRepo = mockk<GroupRepository>()
     private val notificationRepo = mockk<NotificationRepository>()
+    private val db = mockk<SanibonaniDatabase>(relaxed = true)
 
     private lateinit var repository: SyncRepositoryImpl
 
     @Before
     fun setUp() {
         repository = SyncRepositoryImpl(
+            supabase = supabase,
             supabaseRepo = supabaseRepo,
             memberRepo = memberRepo,
             groupRepo = groupRepo,
-            notificationRepo = notificationRepo
+            notificationRepo = notificationRepo,
+            db = db
         )
     }
 
@@ -62,9 +68,11 @@ class SyncRepositoryImplTest {
                 Member(id = "m2", groupId = "")
             )
         )
+        coEvery { groupRepo.getGroupsByAdmin("user_1") } returns Result.success(emptyList())
         coEvery { groupRepo.getGroupById("group_1") } returns Result.success(
             Group(id = "group_1", name = "Group One")
         )
+        coEvery { memberRepo.syncGroupMembers("group_1") } returns Result.success(emptyList())
         coEvery { notificationRepo.syncNotifications("group_1") } returns Result.success(Unit)
 
         val result = repository.syncAllData()
@@ -73,6 +81,7 @@ class SyncRepositoryImplTest {
         assertTrue(repository.syncStatus.value is SyncStatus.Completed)
         coVerify(exactly = 1) { memberRepo.getMemberships("user_1") }
         coVerify(exactly = 1) { groupRepo.getGroupById("group_1") }
+        coVerify(exactly = 1) { memberRepo.syncGroupMembers("group_1") }
         coVerify(exactly = 1) { notificationRepo.syncNotifications("group_1") }
     }
 }

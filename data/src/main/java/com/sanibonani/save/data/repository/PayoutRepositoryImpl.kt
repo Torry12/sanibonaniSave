@@ -1,13 +1,25 @@
 package com.sanibonani.save.data.repository
 
 import com.sanibonani.save.data.local.SanibonaniDatabase
+import com.sanibonani.save.domain.event.EventBus
+
+
+import com.sanibonani.save.domain.event.PaymentProcessedEvent
+import com.sanibonani.save.domain.model.Payment
+import com.sanibonani.save.domain.model.PaymentMethod
+import com.sanibonani.save.domain.model.PaymentStatus
+import com.sanibonani.save.domain.model.PaymentType
 import com.sanibonani.save.domain.model.PayoutRequest
 import com.sanibonani.save.domain.model.PayoutStatus
+import com.sanibonani.save.domain.repository.GroupRepository
 import com.sanibonani.save.domain.repository.PayoutRepository
+import dagger.Lazy
 import io.github.jan.supabase.SupabaseClient
+import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.postgrest.query.Columns
 import kotlinx.coroutines.flow.Flow
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import java.time.OffsetDateTime
@@ -16,7 +28,8 @@ import javax.inject.Inject
 
 class PayoutRepositoryImpl @Inject constructor(
     private val supabase: SupabaseClient,
-    private val db: SanibonaniDatabase
+    private val db: SanibonaniDatabase,
+    private val groupRepo: Lazy<GroupRepository>
 ) : BaseRepository("PayoutRepository"), PayoutRepository {
 
     private val PAYOUT_COLUMNS_SAFE = """
@@ -104,19 +117,37 @@ class PayoutRepositoryImpl @Inject constructor(
         payoutReference: String?
     ): Result<Unit> = retryWithExponentialBackoff {
         runCatching {
-            val rpcParams = buildJsonObject {
-                put("p_payout_id", payoutId)
-                put("p_admin_id", adminId)
-                payoutReference?.let { put("p_payout_reference", it) }
-            }
+            val rpcParams = buildCompletePayoutRpcParams(
+                payoutId = payoutId,
+                adminId = adminId,
+                fallbackAdminId = supabase.auth.currentUserOrNull()?.id,
+                payoutReference = payoutReference
+            )
             supabase.postgrest.rpc("complete_payout_v1", rpcParams)
 
             // Refresh local cache for this payout
             getPayoutById(payoutId).onSuccess { updated ->
                 db.payoutDao().upsertPayout(updated.toEntity())
+                
+                // Refresh group balance locally
+                groupRepo.get().getGroupById(updated.groupId)
+
+                // Emit payment event for payout (outflow)
+                EventBus.emit(
+                    PaymentProcessedEvent(
+                        Payment(
+                            memberId = updated.processedBy ?: "",
+                            groupId = updated.groupId,
+                            amount = updated.amount,
+                            paymentType = PaymentType.CLAIM, // Use CLAIM for group disbursements
+                            paymentMethod = PaymentMethod.BANK,
+                            transactionId = updated.payoutReference ?: updated.id,
+                            status = PaymentStatus.COMPLETED,
+                            processedAt = updated.processedAt
+                        )
+                    )
+                )
             }
-            // Note: Group balance in Room will be updated when the next group sync occurs,
-            // or we could manually trigger a group refresh here.
             Unit
         }
     }
@@ -132,4 +163,25 @@ class PayoutRepositoryImpl @Inject constructor(
         },
         cacheSync = { list -> db.payoutDao().syncPayouts(groupId, list) }
     )
+
+    companion object {
+        private val UUID_REGEX = Regex(
+            "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+        )
+
+        internal fun buildCompletePayoutRpcParams(
+            payoutId: String,
+            adminId: String,
+            fallbackAdminId: String?,
+            payoutReference: String?
+        ): JsonObject = buildJsonObject {
+            put("p_payout_id", payoutId)
+            val safeAdminId = adminId.takeIf { it.isValidUuid() }
+                ?: fallbackAdminId?.takeIf { it.isValidUuid() }
+            safeAdminId?.let { put("p_admin_id", it) }
+            payoutReference?.let { put("p_payout_reference", it) }
+        }
+
+        private fun String.isValidUuid(): Boolean = UUID_REGEX.matches(trim())
+    }
 }

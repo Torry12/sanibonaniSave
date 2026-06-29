@@ -60,6 +60,8 @@ class AdminViewModelPayoutAutomationTest {
     private val validateLoanEligibilityUseCase = mockk<ValidateLoanEligibilityUseCase>(relaxed = true)
     private val generateLoanContractUseCase = mockk<GenerateLoanContractUseCase>(relaxed = true)
     private val getGroupBusinessInsightsUseCase = mockk<GetGroupBusinessInsightsUseCase>(relaxed = true)
+    private val calculateGroupHealthScoreUseCase = mockk<CalculateGroupHealthScoreUseCase>(relaxed = true)
+    private val healthScoreRepo = mockk<HealthScoreRepository>(relaxed = true)
 
     private val testDispatcher = StandardTestDispatcher()
 
@@ -146,8 +148,12 @@ class AdminViewModelPayoutAutomationTest {
             validateLoanEligibilityUseCase,
             generateLoanContractUseCase,
             getGroupBusinessInsightsUseCase,
+            calculateGroupHealthScoreUseCase,
+            healthScoreRepo,
             ledgerRepo
         )
+
+        vm.setActive(true)
 
         advanceUntilIdle()
 
@@ -240,8 +246,12 @@ class AdminViewModelPayoutAutomationTest {
             validateLoanEligibilityUseCase,
             generateLoanContractUseCase,
             getGroupBusinessInsightsUseCase,
+            calculateGroupHealthScoreUseCase,
+            healthScoreRepo,
             ledgerRepo
         )
+
+        vm.setActive(true)
 
         advanceUntilIdle()
 
@@ -327,8 +337,12 @@ class AdminViewModelPayoutAutomationTest {
             validateLoanEligibilityUseCase,
             generateLoanContractUseCase,
             getGroupBusinessInsightsUseCase,
+            calculateGroupHealthScoreUseCase,
+            healthScoreRepo,
             ledgerRepo
         )
+
+        vm.setActive(true)
 
         advanceUntilIdle()
 
@@ -422,8 +436,12 @@ class AdminViewModelPayoutAutomationTest {
             validateLoanEligibilityUseCase,
             generateLoanContractUseCase,
             getGroupBusinessInsightsUseCase,
+            calculateGroupHealthScoreUseCase,
+            healthScoreRepo,
             ledgerRepo
         )
+
+        vm.setActive(true)
 
         advanceUntilIdle()
 
