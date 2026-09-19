@@ -1,0 +1,80 @@
+package com.sanibonani.save.data.remote.supabase
+
+import com.sanibonani.save.data.datasource.RemoteContributionDataSource
+import com.sanibonani.save.domain.model.*
+import io.github.jan.supabase.SupabaseClient
+import io.github.jan.supabase.postgrest.postgrest
+import io.github.jan.supabase.postgrest.query.Columns
+import io.github.jan.supabase.postgrest.rpc
+import kotlinx.serialization.json.*
+import javax.inject.Inject
+import javax.inject.Singleton
+
+@Singleton
+class SupabaseContributionDataSourceImpl @Inject constructor(
+    private val client: SupabaseClient
+) : RemoteContributionDataSource {
+
+    override suspend fun recordContribution(contribution: Contribution): Result<Unit> = runCatching {
+        val rpcParams = buildJsonObject {
+            put("p_member_id", contribution.memberId)
+            put("p_group_id", contribution.groupId)
+            put("p_amount", contribution.amount.amount.toPlainString())
+            put("p_due_date", contribution.dueDate)
+            put("p_paid_at", contribution.paidAt ?: java.time.Instant.now().toString())
+            put("p_status", contribution.status.name.lowercase())
+            put("p_type", contribution.type)
+            put("p_tx_id", contribution.transactionId ?: "app_${java.time.Instant.now().toEpochMilli()}")
+        }
+        client.postgrest.rpc("record_contribution_v2", rpcParams)
+    }
+
+    override suspend fun getMemberContributions(memberId: String, groupId: String): Result<List<Contribution>> = runCatching {
+        client.postgrest["contributions"].select {
+            filter {
+                eq("member_id", memberId)
+                eq("group_id", groupId)
+            }
+        }.decodeList<Contribution>()
+    }
+
+    override suspend fun getGroupContributions(groupId: String): Result<List<Contribution>> = runCatching {
+        client.postgrest["contributions"].select { filter { eq("group_id", groupId) } }.decodeList<Contribution>()
+    }
+
+    override suspend fun recordPayment(payment: Payment): Result<String> = runCatching {
+        val created = client.postgrest["payments"].upsert(payment) {
+            onConflict = "id"
+            select()
+        }.decodeSingle<Payment>()
+        created.id!!
+    }
+
+    override suspend fun getPayments(groupId: String): Result<List<Payment>> = runCatching {
+        client.postgrest["payments"].select { filter { eq("group_id", groupId) } }.decodeList<Payment>()
+    }
+
+    override suspend fun processComplexPayment(
+        groupId: String,
+        memberId: String,
+        totalAmount: Money,
+        txId: String,
+        allocations: JsonArray,
+        method: PaymentMethod,
+        paymentType: PaymentType,
+        destination: PaymentDestination
+    ): Result<Money> = runCatching {
+        val rpcParams = buildJsonObject {
+            put("p_group_id", groupId)
+            put("p_member_id", memberId)
+            put("p_total_amount", totalAmount.amount.toPlainString())
+            put("p_tx_id", txId)
+            put("p_allocations", allocations)
+            put("p_method", method.name.lowercase())
+            put("p_payment_type", paymentType.name.lowercase())
+            put("p_destination", destination.name.lowercase())
+        }
+        val res = client.postgrest.rpc("process_complex_payment_v4", rpcParams).decodeAs<JsonObject>()
+        Money(res["new_balance"]?.jsonPrimitive?.content ?: "0.00")
+    }
+}

@@ -1,0 +1,22 @@
+# Task List - Repository Refactoring
+
+- [ ] **Phase 1: Domain Interfaces**
+    - [ ] Create `MemberContributionRepository`
+    - [ ] Create `GroupFinancialRepository`
+    - [ ] Create `GroupDocumentRepository`
+    - [ ] Refactor `MemberRepository`
+    - [ ] Refactor `GroupRepository`
+- [ ] **Phase 2: Data Implementations**
+    - [ ] Create `MemberContributionRepositoryImpl`
+    - [ ] Create `GroupFinancialRepositoryImpl`
+    - [ ] Create `GroupDocumentRepositoryImpl`
+    - [ ] Refactor `MemberRepositoryImpl`
+    - [ ] Refactor `GroupRepositoryImpl`
+- [ ] **Phase 3: Dependency Injection**
+    - [ ] Update `RepoModule`
+- [ ] **Phase 4: Consumption Layer**
+    - [ ] Update UseCases
+    - [ ] Update ViewModels
+- [ ] **Phase 5: Verification**
+    - [ ] Run Unit Tests
+    - [ ] Run Instrumentation Tests

@@ -1,0 +1,12 @@
+- [ ] Update Supabase Backend Orchestrator and Schema
+    - [ ] Add columns to `public.groups` in `01_DATABASE_SCHEMA.sql`
+    - [ ] Update `00_REBUILD_ALL.sql` with missing migrations
+- [ ] Implement Room Database Version 66
+    - [ ] Create `FinancialProviderEntity.kt`
+    - [ ] Add `FinancialProviderDao` to `PlatformDao.kt`
+    - [ ] Update `SanibonaniDatabase.kt` (Entities, DAO, Converters, Version)
+    - [ ] Implement `MIGRATION_65_66` in `Migrations.kt`
+- [ ] Update Repositories
+    - [ ] Refactor `FinancialProviderRepositoryImpl.kt` to use `observeAndSync`
+- [ ] Verification
+    - [ ] Compile `:data` module

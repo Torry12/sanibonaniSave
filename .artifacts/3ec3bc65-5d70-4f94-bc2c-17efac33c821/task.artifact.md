@@ -1,0 +1,6 @@
+- [ ] Create `PayoutExceptions.kt`
+- [ ] Create `PayoutGuard.kt`
+- [ ] Refactor `RequestPayoutUseCase.kt` to use `PayoutGuard`
+- [ ] Refactor `ExecuteRoscaPayoutUseCase.kt` to align with high-integrity guards
+- [ ] Update `PayoutRepositoryImpl.kt` with duplicate request protection
+- [ ] Verification via tests and manual check

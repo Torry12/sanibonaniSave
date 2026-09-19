@@ -1,0 +1,6 @@
+gradle.allprojects {
+    dependencies.metaClass.mapPath = { path -> path }
+}
+gradle.beforeSettings { settings ->
+    settings.metaClass.mapPath = { path -> path }
+}

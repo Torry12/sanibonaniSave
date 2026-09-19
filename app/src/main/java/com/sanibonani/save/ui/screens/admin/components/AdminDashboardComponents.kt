@@ -1,0 +1,252 @@
+package com.sanibonani.save.ui.screens.admin.components
+
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import com.sanibonani.save.R
+import com.sanibonani.save.domain.model.*
+import com.sanibonani.save.ui.theme.*
+import com.sanibonani.save.ui.utils.AdminMemberPortalAccess
+import com.sanibonani.save.viewmodel.AdminOverviewUiState
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun AdminDashboardTopBar(
+    state: AdminOverviewUiState,
+    isSupportMode: Boolean,
+    memberPortalAccess: AdminMemberPortalAccess,
+    onNavigateBack: () -> Unit,
+    onNavigateToMemberPortal: (String, String?) -> Unit
+) {
+    TopAppBar(
+        title = {
+            Column {
+                Text(
+                    if (isSupportMode) "Admin View (Support)" else "Admin Dashboard",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                state.group?.name?.let {
+                    Text(
+                        it,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+            }
+        },
+        navigationIcon = {
+            if (isSupportMode) {
+                IconButton(onClick = onNavigateBack) {
+                    Icon(
+                        Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "Back",
+                        tint = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+            }
+        },
+        actions = {
+            IconButton(
+                onClick = {
+                    val gid = memberPortalAccess.groupId
+                    if (!gid.isNullOrBlank() && memberPortalAccess.enabled) {
+                        onNavigateToMemberPortal(gid, memberPortalAccess.memberId)
+                    }
+                },
+                enabled = memberPortalAccess.enabled
+            ) {
+                Icon(
+                    Icons.Default.Person,
+                    contentDescription = memberPortalAccess.buttonLabel,
+                    tint = if (memberPortalAccess.enabled) Navy else MidGray
+                )
+            }
+        },
+        colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface)
+    )
+}
+
+@Composable
+fun AdminDashboardBannerSection(
+    state: AdminOverviewUiState,
+    onConsolidateLedger: () -> Unit,
+    onNavigateToPayment: (String, Money, String) -> Unit
+) {
+    Column {
+        // ── Integrity Warnings ──
+        if (!state.verificationResult.isValid) {
+            IntegrityBanner(
+                issue = state.verificationResult.issues.firstOrNull(),
+                onAction = onConsolidateLedger
+            )
+        }
+
+        if (state.isAirplaneMode) {
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                color = Color.Red,
+                contentColor = Color.White
+            ) {
+                Row(Modifier.padding(horizontal = 20.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.AirplanemodeActive, null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Airplane Mode Active — Turn off to sync data.", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                }
+            }
+        } else if (!state.isSystemOnline) {
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                color = WarningAmber,
+                contentColor = Color.Black
+            ) {
+                Row(Modifier.padding(horizontal = 20.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.CloudOff, null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Offline Mode — Using cached data.", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+
+        if (state.feeStatus == AdminFeeState.PENDING_ACTIVATION) {
+            state.group?.let { group ->
+                AdminFeeBanner(
+                    group = group,
+                    status = state.feeStatus,
+                    daysOverdue = state.daysOverdue,
+                    onAction = {
+                        group.id?.let { groupId ->
+                            onNavigateToPayment("registration", group.registrationFee, groupId)
+                        }
+                    }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun AdminDashboardBottomBar(
+    memberPortalAccess: AdminMemberPortalAccess,
+    onNavigateToMemberPortal: (String, String?) -> Unit
+) {
+    val portalGroupId = memberPortalAccess.groupId
+    if (!portalGroupId.isNullOrBlank()) {
+        Surface(shadowElevation = 8.dp, tonalElevation = 2.dp, color = MaterialTheme.colorScheme.surface) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 10.dp)
+                    .navigationBarsPadding()
+                    .imePadding(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Button(
+                    onClick = {
+                        val gid = memberPortalAccess.groupId
+                        if (!gid.isNullOrBlank() && memberPortalAccess.enabled) {
+                            onNavigateToMemberPortal(gid, memberPortalAccess.memberId)
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = memberPortalAccess.enabled,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary
+                    ),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Icon(Icons.Default.Person, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        text = memberPortalAccess.buttonLabel,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun GroupSwitchSelector(
+    currentGroup: Group?,
+    managedGroups: List<Group>,
+    onGroupSelected: (String) -> Unit
+) {
+    if (managedGroups.size <= 1) return
+
+    var showMenu by remember { mutableStateOf(false) }
+    Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+        OutlinedButton(
+            onClick = { showMenu = true },
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(12.dp),
+            border = BorderStroke(1.dp, Navy.copy(0.3f)),
+            colors = ButtonDefaults.outlinedButtonColors(containerColor = MaterialTheme.colorScheme.surface)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.SwapHoriz, null, tint = Navy, modifier = Modifier.size(20.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        stringResource(R.string.ui_switch_group) + ": ${currentGroup?.name ?: "..."}",
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+                Icon(Icons.Default.ArrowDropDown, null, tint = Navy)
+            }
+        }
+
+        DropdownMenu(
+            expanded = showMenu,
+            onDismissRequest = { showMenu = false },
+            modifier = Modifier.fillMaxWidth(0.9f).background(MaterialTheme.colorScheme.surface)
+        ) {
+            managedGroups.forEach { group ->
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            group.name,
+                            fontWeight = if (group.id == currentGroup?.id) FontWeight.Bold else FontWeight.Normal
+                        )
+                    },
+                    onClick = {
+                        group.id?.let { onGroupSelected(it) }
+                        showMenu = false
+                    },
+                    leadingIcon = {
+                        Icon(
+                            if (group.id == currentGroup?.id) Icons.Default.CheckCircle else Icons.Default.Circle,
+                            contentDescription = null,
+                            tint = if (group.id == currentGroup?.id) Navy else LightGray,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                )
+            }
+        }
+    }
+}

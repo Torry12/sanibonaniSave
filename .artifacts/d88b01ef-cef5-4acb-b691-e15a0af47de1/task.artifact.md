@@ -1,0 +1,7 @@
+- [ ] Rebuild local Supabase database
+- [ ] Define `AuditLogEntity` in Room
+- [ ] Create `AuditLogDao` and `BankTransactionDao`
+- [ ] Update `SanibonaniDatabase` to version 62 and add new DAOs/Entities
+- [ ] Add `MIGRATION_61_62` to `Migrations.kt`
+- [ ] Update `SyncRepositoryImpl` to sync Audit Logs and Bank Transactions
+- [ ] Verify migration and synchronization

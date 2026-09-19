@@ -1,0 +1,17 @@
+allprojects {
+    gradle.projectsLoaded {
+        rootProject.allprojects {
+            def mapPathPolyfill = { it }
+            if (dependencies.hasProperty('metaClass')) {
+                dependencies.metaClass.mapPath = mapPathPolyfill
+            }
+            extensions.extraProperties.set("mapPath", mapPathPolyfill)
+        }
+    }
+}
+gradle.settingsEvaluated { settings ->
+    settings.gradle.allprojects {
+        def mapPathPolyfill = { it }
+        extensions.extraProperties.set("mapPath", mapPathPolyfill)
+    }
+}

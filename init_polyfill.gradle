@@ -1,0 +1,10 @@
+
+gradle.beforeSettings { settings ->
+    settings.classLoader.rootLoader.addURL(new File(".").toURI().toURL())
+}
+
+// Define mapPath globally in the init script scope
+def mapPath(path) { path }
+
+// Also add it to DependencyHandler for good measure
+org.gradle.api.artifacts.dsl.DependencyHandler.metaClass.mapPath = { path -> path }

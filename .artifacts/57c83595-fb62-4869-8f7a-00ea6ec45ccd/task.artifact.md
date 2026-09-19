@@ -1,0 +1,3 @@
+- `[ ]` Update `SupabaseConnectionManager.kt` for synchronous initial setup
+- `[ ]` Refactor `BankSimulationGatewayImpl.kt` to use `Provider<SupabaseClient>`
+- `[ ]` Verify build success
