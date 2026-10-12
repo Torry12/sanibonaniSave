@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.VerifiedUser
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -15,7 +16,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.sanibonani.save.domain.model.*
 import com.sanibonani.save.ui.components.*
-import com.sanibonani.save.ui.screens.admin.components.SectionHeaderCard
+import com.sanibonani.save.ui.components.*
 import com.sanibonani.save.features.member.ui.getFileNameFromUri
 import com.sanibonani.save.features.member.presentation.MemberProfileViewModel
 import com.sanibonani.save.features.member.presentation.MemberOverviewViewModel
@@ -36,7 +37,7 @@ fun MemberDocumentsTab(
     val personalLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         uri?.let {
             val bytes = context.contentResolver.openInputStream(it)?.readBytes()
-            if (bytes != null) vm.uploadDocument(activeIdx, bytes, getFileNameFromUri(context.contentResolver, it), "Document")
+            bytes?.let { vm.uploadDocument(activeIdx, it, getFileNameFromUri(context.contentResolver, uri), "Document") }
         }
     }
 
@@ -56,58 +57,51 @@ fun MemberDocumentsTab(
         SectionHeaderCard(
             title = "Personal Documents",
             subtitle = "Core KYC documents for your profile",
-            icon = "👤",
+            emoji = "ðŸ‘¤",
             isExpanded = expandedPersonal,
             onClick = { expandedPersonal = !expandedPersonal }
         )
 
-        if (expandedPersonal) {
-            Spacer(Modifier.height(12.dp))
-            val docs = listOf(
-                "Identity Document (ID)" to member?.document1Url,
-                "Membership Contract" to member?.contractUrl,
-                "Proof of Residence" to member?.document2Url,
-                "Beneficiary Documents" to member?.document3Url,
-                "Marriage Certificate" to member?.document4Url,
-                "Signed Constitution" to member?.document5Url
-            )
-            docs.forEachIndexed { i, doc ->
-                val name = doc.first
-                val url = doc.second
-                DocumentUploadCard(
-                    label = name,
-                    isUploaded = !url.isNullOrBlank(),
-                    status = when(i) {
-                        0 -> member?.document1Status ?: DocumentStatus.PENDING
-                        1 -> member?.contractStatus ?: DocumentStatus.PENDING
-                        2 -> member?.document2Status ?: DocumentStatus.PENDING
-                        3 -> member?.document3Status ?: DocumentStatus.PENDING
-                        4 -> member?.document4Status ?: DocumentStatus.PENDING
-                        5 -> member?.document5Status ?: DocumentStatus.PENDING
-                        else -> DocumentStatus.PENDING
-                    },
-                    onUpload = {
-                        if (i == 1) {
-                             activeIdx = 100
-                        } else {
-                             activeIdx = if (i > 1) i else i + 1
-                        }
-                        personalLauncher.launch("*/*")
-                    },
-                    onView = if (!url.isNullOrBlank()) {
-                        {
-                            val h = vm.getDownloadParams(url)
-                            val ext = url.substringAfterLast(".", "pdf").substringBefore("?")
-                            val fileName = "${name.replace(" ", "_")}_${System.currentTimeMillis()}.$ext"
-                            onFileAction(url, fileName, h)
-                        }
-                    } else null,
-                    onDownloadTemplate = when(i) {
-                        1 -> { { overviewVm.downloadMembershipContract() } }
-                        5 -> { { overviewVm.downloadGroupConstitution() } }
-                        else -> null
-                    }
+        androidx.compose.animation.AnimatedVisibility(visible = expandedPersonal) {
+            Column {
+                Spacer(Modifier.height(12.dp))
+                val docs = listOf(
+                    "Identity Document (ID)" to member?.document1Url,
+                    "Proof of Residence" to member?.document2Url,
+                    "Marriage Certificate" to member?.document4Url
                 )
+                docs.forEachIndexed { i, doc ->
+                    val name = doc.first
+                    val url = doc.second
+                    DocumentUploadCard(
+                        label = name,
+                        isUploaded = !url.isNullOrBlank(),
+                        imageUrl = url,
+                        status = when(i) {
+                            0 -> member?.document1Status ?: DocumentStatus.PENDING
+                            1 -> member?.document2Status ?: DocumentStatus.PENDING
+                            2 -> member?.document4Status ?: DocumentStatus.PENDING
+                            else -> DocumentStatus.PENDING
+                        },
+                        onUpload = {
+                            activeIdx = when(i) {
+                                0 -> 1
+                                1 -> 2
+                                2 -> 4
+                                else -> 1
+                            }
+                            personalLauncher.launch("*/*")
+                        },
+                        onView = if (!url.isNullOrBlank()) {
+                            {
+                                val h = vm.getDownloadParams(url)
+                                val ext = url.substringAfterLast(".", "pdf").substringBefore("?")
+                                val fileName = "${name.replace(" ", "_")}_${System.currentTimeMillis()}.$ext"
+                                onFileAction(url, fileName, h)
+                            }
+                        } else null
+                    )
+                }
             }
         }
 
@@ -116,29 +110,32 @@ fun MemberDocumentsTab(
             SectionHeaderCard(
                 title = "Group Specific Documents",
                 subtitle = "Additional files required by ${group?.name ?: "your group"}",
-                icon = "📂",
+                emoji = "ðŸ“‚",
                 isExpanded = expandedGroup,
                 onClick = { expandedGroup = !expandedGroup }
             )
 
-            if (expandedGroup) {
-                Spacer(Modifier.height(12.dp))
-                state.documents.forEach { doc ->
-                    DocumentUploadCard(
-                        label = doc.label,
-                        isUploaded = true,
-                        status = doc.status,
-                        onUpload = {
-                            activeRelationalLabel = doc.label
-                            relationalLauncher.launch("*/*")
-                        },
-                        onView = {
-                            val h = vm.getDownloadParams(doc.documentUrl)
-                            val ext = doc.documentUrl.substringAfterLast(".", "pdf").substringBefore("?")
-                            val fileName = "${doc.label.replace(" ", "_")}_${System.currentTimeMillis()}.$ext"
-                            onFileAction(doc.documentUrl, fileName, h)
-                        }
-                    )
+            androidx.compose.animation.AnimatedVisibility(visible = expandedGroup) {
+                Column {
+                    Spacer(Modifier.height(12.dp))
+                    state.documents.forEach { doc ->
+                        DocumentUploadCard(
+                            label = doc.label,
+                            isUploaded = true,
+                            imageUrl = doc.documentUrl,
+                            status = doc.status,
+                            onUpload = {
+                                activeRelationalLabel = doc.label
+                                relationalLauncher.launch("*/*")
+                            },
+                            onView = {
+                                val h = vm.getDownloadParams(doc.documentUrl)
+                                val ext = doc.documentUrl.substringAfterLast(".", "pdf").substringBefore("?")
+                                val fileName = "${doc.label.replace(" ", "_")}_${System.currentTimeMillis()}.$ext"
+                                onFileAction(doc.documentUrl, fileName, h)
+                            }
+                        )
+                    }
                 }
             }
         }
@@ -160,8 +157,16 @@ fun MemberDocumentsTab(
             }
         )
 
+        Spacer(Modifier.height(16.dp))
+        ModernNavigationLink(
+            title = "Membership Certificate",
+            subtitle = "Download your official membership document",
+            icon = Icons.Default.VerifiedUser,
+            onClick = { overviewVm.downloadMembershipContract() }
+        )
+
         Spacer(Modifier.height(24.dp))
-        InfoBox("Documents are encrypted and only accessible by admins.", InfoType.INFO)
+        InfoBox("Documents are encrypted and only accessible by admins.", type = InfoType.INFO)
         Spacer(Modifier.height(40.dp))
     }
 }

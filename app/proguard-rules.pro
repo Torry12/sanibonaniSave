@@ -25,7 +25,7 @@
 -dontwarn retrofit2.**
 -dontwarn okhttp3.**
 -dontwarn okio.**
--keep class com.jakewharton.retrofit2.** { *; }
+
 
 # ── Hilt ───────────────────────────────────────────────────────────────────────
 -keep class dagger.hilt.** { *; }

@@ -55,19 +55,6 @@ object BankAccountValidation {
     const val BRANCH_CODE_REGEX = "^[0-9]{6}$"
 }
 
-// ── Actuarial Defaults ────────────────────────────────────────────────────
-object ActuarialDefaults {
-    const val DEFAULT_SAFETY_LOADING_PCT = 35.0      // 35% loading above pure premium
-    const val DEFAULT_MORTALITY_RATE_PCT = 0.82      // 0.82% annual mortality (SA typical)
-    const val RESERVE_ADEQUACY_MONTHS = 6            // 6 months emergency reserve
-    const val ANNUAL_DISCOUNT_RATE_PCT = 8.5         // 8.5% discount rate for APV
-    
-    // Risk score weighting
-    const val RESERVE_ADEQUACY_WEIGHT = 0.3
-    const val CONTRIBUTION_SUFFICIENCY_WEIGHT = 0.4
-    const val PAYMENT_RATE_WEIGHT = 0.3
-}
-
 // ── Notification Channels ──────────────────────────────────────────────────
 object NotificationDefaults {
     const val DEFAULT_CHANNEL = "both"  // WhatsApp + Email by default

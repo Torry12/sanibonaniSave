@@ -1,9 +1,10 @@
 package com.sanibonani.save.service
 
-import com.sanibonani.save.data.utils.filterNotificationsForMember
-import com.sanibonani.save.data.utils.partitionMemberNotifications
-import com.sanibonani.save.data.utils.PaymentCalculation
-import com.sanibonani.save.data.utils.PaymentCalculator
+import com.sanibonani.save.domain.utils.safeRunCatching
+import com.sanibonani.save.domain.utils.PaymentCalculation
+import com.sanibonani.save.domain.utils.PaymentCalculator
+import com.sanibonani.save.domain.utils.filterNotificationsForMember
+import com.sanibonani.save.domain.utils.partitionMemberNotifications
 import com.sanibonani.save.domain.model.AppNotification
 import com.sanibonani.save.domain.model.Beneficiary
 import com.sanibonani.save.domain.model.Contribution
@@ -11,11 +12,11 @@ import com.sanibonani.save.domain.model.Group
 import com.sanibonani.save.domain.model.Loan
 import com.sanibonani.save.domain.model.LoanRepayment
 import com.sanibonani.save.domain.model.Member
-import com.sanibonani.save.domain.repository.BeneficiaryRepository
-import com.sanibonani.save.domain.repository.GroupRepository
-import com.sanibonani.save.domain.repository.LoanRepository
-import com.sanibonani.save.domain.repository.MemberRepository
-import com.sanibonani.save.domain.repository.NotificationRepository
+import com.sanibonani.save.domain.repository.credit.LoanRepository
+import com.sanibonani.save.domain.repository.group.GroupRepository
+import com.sanibonani.save.domain.repository.member.BeneficiaryRepository
+import com.sanibonani.save.domain.repository.member.MemberRepository
+import com.sanibonani.save.domain.repository.system.NotificationRepository
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
@@ -35,7 +36,8 @@ class MemberGroupContextCacheService @Inject constructor(
 	private val groupRepo: GroupRepository,
 	private val beneficiaryRepo: BeneficiaryRepository,
 	private val notificationRepo: NotificationRepository,
-	private val loanRepo: LoanRepository
+	private val loanRepo: LoanRepository,
+	private val paymentCalculator: PaymentCalculator
 ) {
 
 	private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -78,6 +80,21 @@ class MemberGroupContextCacheService @Inject constructor(
 		warmMembershipsInBackground(userId, memberships)
 	}
 
+	/**
+	 * Hydrates the cache for a member an admin is impersonating (support mode).
+	 * The member record is fetched by id rather than by the caller's user id so
+	 * the portal reflects the impersonated member, never the operator.
+	 */
+	suspend fun impersonateMember(memberId: String, groupId: String): Result<CachedGroupContext> =
+		safeRunCatching {
+			val member = memberRepo.getMemberById(memberId).getOrThrow()
+			val userId = member.userId
+			if (!userId.isNullOrBlank()) {
+				warmGroupContext(userId = userId, groupId = groupId, membership = member)
+			}
+			_contexts.value[groupId] ?: CachedGroupContext(member = member)
+		}
+
 	fun updateContext(
 		groupId: String,
 		reducer: (CachedGroupContext) -> CachedGroupContext
@@ -111,7 +128,7 @@ class MemberGroupContextCacheService @Inject constructor(
 			emptyList()
 		}
 
-		val notifications = runCatching {
+		val notifications = safeRunCatching {
 			notificationRepo.syncNotifications(groupId)
 			notificationRepo.observeNotifications(groupId).first().getOrElse { emptyList() }
 		}.getOrElse { emptyList() }
@@ -121,7 +138,7 @@ class MemberGroupContextCacheService @Inject constructor(
 		)
 
 		val calculation = group?.let {
-			PaymentCalculator.calculateStatus(it, member, contributions)
+			paymentCalculator.calculateStatus(it, member, contributions)
 		}
 
 		updateContext(groupId) {

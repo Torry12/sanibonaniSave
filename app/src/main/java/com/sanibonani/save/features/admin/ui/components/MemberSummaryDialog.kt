@@ -20,6 +20,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.sanibonani.save.domain.model.*
+import com.sanibonani.save.ui.components.InitialsAvatar
 import com.sanibonani.save.ui.theme.*
 import com.sanibonani.save.ui.utils.formatZAR
 
@@ -46,14 +47,11 @@ fun MemberSummaryDialog(
             // ── HEADER ──
             item {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    AsyncImage(
-                        model = summary.member.profilePhotoUrl,
-                        contentDescription = null,
-                        modifier = Modifier
-                            .size(64.dp)
-                            .clip(CircleShape)
-                            .background(Navy.copy(alpha = 0.1f)),
-                        contentScale = ContentScale.Crop
+                    InitialsAvatar(
+                        initials = summary.member.fullName,
+                        size = 64.dp,
+                        background = Navy,
+                        photoUrl = summary.member.profilePhotoUrl
                     )
                     Spacer(Modifier.width(16.dp))
                     Column {

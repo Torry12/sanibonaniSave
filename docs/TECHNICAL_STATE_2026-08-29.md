@@ -6,8 +6,10 @@ Today's update focused on **Documentation Integrity** and **Database Synchroniza
 ## 🛠 Documentation Updates
 
 ### 1. Database Schema Hardening
+- **SQL Schema Sync**: `supabase/01_DATABASE_SCHEMA.sql` is now fully synchronized with Room entities. Added `bank_connections` and `pending_operations` tables for cloud-native offline sync and precision fields for contributions, loans, and payouts.
 - **SQL Documentation Sync**: `supabase/SQL_DOCUMENTATION.md` has been expanded to cover all 29 tables present in the Room database, including behavior tracking, audit logs, and voting governance.
 - **Precision Verification**: Confirmed that all financial fields in the documentation are explicitly marked as `NUMERIC` (Postgres) or `Money` (Kotlin), reinforcing the "No Double" rule for currency.
+- **Room Entity Alignment**: Migrated all `updated_at` fields in Room entities from `Long` to `String` (ISO-8601) to ensure perfect type alignment with Supabase `TIMESTAMPTZ` and consistent synchronization logic.
 - **Table Mapping Update**: `docs/DATA_ARCHITECTURE.md` was updated with the full entity-to-table mapping, including new indices and primary key structures.
 
 ### 2. Synchronization Strategy
@@ -18,7 +20,8 @@ Today's update focused on **Documentation Integrity** and **Database Synchroniza
 
 | Item | Status | Notes |
 | :--- | :--- | :--- |
-| `SQL_DOCUMENTATION.md` | **SYNCED** | V7.0 Hardened |
+| `01_DATABASE_SCHEMA.sql` | **SYNCED** | Fields & Tables aligned |
+| `SQL_DOCUMENTATION.md` | **SYNCED** | V7.1 Hardened |
 | `DATA_ARCHITECTURE.md` | **UPDATED** | Full Mapping Included |
 | `AGENTS.md` | **V7.1** | Documentation Sync Complete |
 | Room Entities | **VERIFIED** | All financial fields use `Money` |

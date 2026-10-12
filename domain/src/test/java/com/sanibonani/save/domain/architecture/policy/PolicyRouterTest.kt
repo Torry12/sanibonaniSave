@@ -1,6 +1,7 @@
 package com.sanibonani.save.domain.architecture.policy
 
 import com.sanibonani.save.domain.architecture.FinancialGroupModel
+import com.sanibonani.save.domain.model.Money
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -18,7 +19,7 @@ class PolicyRouterTest {
                 model = FinancialGroupModel.ROSCA,
                 commandType = PolicyCommandType.PAYOUT_REQUEST,
                 actorId = "admin1",
-                amount = 100.0
+                amount = Money(100.0)
             )
         ).getOrThrow()
 
@@ -29,7 +30,7 @@ class PolicyRouterTest {
     @Test
     fun `dual approval rule applies for large amounts`() {
         val router = InMemoryPolicyRouter(
-            listOf(LargeAmountDualApprovalRule(threshold = 5000.0))
+            listOf(LargeAmountDualApprovalRule(threshold = Money(5000.0)))
         )
 
         val decision = router.evaluate(
@@ -38,7 +39,7 @@ class PolicyRouterTest {
                 model = FinancialGroupModel.BUSINESS_CAPITAL_GROUP,
                 commandType = PolicyCommandType.DISBURSEMENT_RELEASE,
                 actorId = "admin1",
-                amount = 8000.0
+                amount = Money(8000.0)
             )
         ).getOrThrow()
 
@@ -51,7 +52,7 @@ class PolicyRouterTest {
     fun `suspended group deny rule blocks operation`() {
         val router = InMemoryPolicyRouter(
             listOf(
-                LargeAmountDualApprovalRule(threshold = 5000.0),
+                LargeAmountDualApprovalRule(threshold = Money(5000.0)),
                 SuspendedGroupBlockRule()
             )
         )
@@ -62,7 +63,7 @@ class PolicyRouterTest {
                 model = FinancialGroupModel.ROSCA,
                 commandType = PolicyCommandType.PAYOUT_REQUEST,
                 actorId = "admin1",
-                amount = 9000.0,
+                amount = Money(9000.0),
                 metadata = mapOf("is_platform_suspended" to "true")
             )
         ).getOrThrow()

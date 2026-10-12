@@ -1,6 +1,7 @@
 package com.sanibonani.save.data.repository
 
 import io.github.jan.supabase.SupabaseClient
+import com.sanibonani.save.data.repository.system.StorageRepositoryImpl
 import io.github.jan.supabase.storage.Storage
 import io.github.jan.supabase.storage.BucketApi
 import io.github.jan.supabase.storage.FileUploadResponse
@@ -53,7 +54,7 @@ class StorageRepositoryImplTest {
         val result = storageRepository.uploadFile(bucketName, path, byteArray)
 
         // If the test fails, surface the underlying exception in the test report.
-        result.exceptionOrNull()?.let { throw it }
+        result.getOrThrow()
 
         // Then
         assertTrue(result.isSuccess)
@@ -67,7 +68,7 @@ class StorageRepositoryImplTest {
         val bucketName = "avatars"
         val path = "members/test-member-id/profile.jpg"
         val expectedUrl = "https://project.supabase.co/storage/v1/object/public/avatars/$path"
-        
+
         every { bucketApi.publicUrl(path) } returns expectedUrl
 
         // When
@@ -105,7 +106,7 @@ class StorageRepositoryImplTest {
         val result = storageRepository.downloadFile(bucketName, path)
 
         // If the test fails, surface the underlying exception in the test report.
-        result.exceptionOrNull()?.let { throw it }
+        result.getOrThrow()
 
         // Then
         assertTrue(result.isSuccess)
@@ -124,7 +125,7 @@ class StorageRepositoryImplTest {
         val result = storageRepository.deleteFile(bucketName, path)
 
         // If the test fails, surface the underlying exception in the test report.
-        result.exceptionOrNull()?.let { throw it }
+        result.getOrThrow()
 
         // Then
         assertTrue(result.isSuccess)

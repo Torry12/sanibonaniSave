@@ -1,16 +1,17 @@
 package com.sanibonani.save.features.member.presentation
 
 import com.sanibonani.save.domain.model.*
-import com.sanibonani.save.domain.repository.equity.*
+
 import com.sanibonani.save.domain.repository.system.*
+import com.sanibonani.save.domain.repository.auth.*
+import com.sanibonani.save.domain.repository.member.*
+import com.sanibonani.save.domain.repository.group.*
 import com.sanibonani.save.service.MemberGroupContextCacheService
-import com.sanibonani.save.viewmodel.BaseViewModel
+import com.sanibonani.save.features.common.presentation.BaseViewModel
 import com.sanibonani.save.features.member.presentation.state.MemberUiState
-import com.sanibonani.save.viewmodel.state.UIEvent
+import com.sanibonani.save.features.common.presentation.UIEvent
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.*
-import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 @HiltViewModel
@@ -44,7 +45,7 @@ class MemberProfileViewModel @Inject constructor(
         launchJob("context_observation") {
             combine(memberContextCacheService.contexts, uiState.map { it.selectedGroupId }.distinctUntilChanged()) { contexts, id -> contexts[id] }
                 .collect { context ->
-                    if (context == null || uiState.value.isImpersonating) return@collect
+                    if ((context == null) || uiState.value.isImpersonating) return@collect
                     updateState { it.copy(member = context.member, group = context.group) }
                     context.member?.id?.let { observeDocuments(it) }
                 }
@@ -69,11 +70,11 @@ class MemberProfileViewModel @Inject constructor(
         launchJob("update_banking") {
             updateState { it.copy(isLoading = true) }
             memberRepo.updateMemberBankingDetails(member.id!!, bank, account, branch).onSuccess {
-                updateState { it.copy(isLoading = false) }
+                updateState { s -> s.copy(isLoading = false) }
                 sendEvent(UIEvent.ShowMessage("Banking details updated"))
                 memberContextCacheService.warmUpForUser(supabaseRepo.currentUserId!!)
             }.onFailure {
-                updateState { it.copy(isLoading = false) }
+                updateState { s -> s.copy(isLoading = false) }
                 handleError(it)
             }
         }
@@ -83,8 +84,23 @@ class MemberProfileViewModel @Inject constructor(
         val member = uiState.value.member ?: return
         launchJob("upload_doc_$index") {
             updateState { it.copy(isUploading = true) }
-            memberRepo.uploadMemberDocument(member.id!!, index, data, name, mime).onSuccess {
-                updateState { it.copy(isUploading = false) }
+            memberRepo.uploadMemberDocument(member.id!!, index, data, name, mime).onSuccess { url ->
+                val updatedMember = when (index) {
+                    0 -> uiState.value.member?.copy(profilePhotoUrl = url)
+                    1 -> uiState.value.member?.copy(document1Url = url, document1Type = mime)
+                    2 -> uiState.value.member?.copy(document2Url = url, document2Type = mime)
+                    3 -> uiState.value.member?.copy(document3Url = url, document3Type = mime)
+                    4 -> uiState.value.member?.copy(document4Url = url, document4Type = mime)
+                    5 -> uiState.value.member?.copy(document5Url = url, document5Type = mime)
+                    else -> uiState.value.member
+                }
+                updateState {
+                    it.copy(
+                        isUploading = false,
+                        member = updatedMember,
+                        profileImageVersion = if (index == 0) it.profileImageVersion + 1 else it.profileImageVersion
+                    )
+                }
                 showMessage("Document uploaded successfully")
             }.onFailure {
                 updateState { it.copy(isUploading = false) }

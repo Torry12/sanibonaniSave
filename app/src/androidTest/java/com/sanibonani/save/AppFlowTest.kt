@@ -1,21 +1,24 @@
 package com.sanibonani.save
 
 import androidx.compose.ui.test.*
-import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
+import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.sanibonani.save.di.TestDataStore
+import com.sanibonani.save.di.TestAuthSessionController
+import com.sanibonani.save.domain.model.UserRole
 import dagger.hilt.android.testing.HiltAndroidRule
 import dagger.hilt.android.testing.HiltAndroidTest
-import org.junit.Ignore
+import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 
 /**
  * UI Test for the main app flow starting from the Landing Screen.
+ * Verified: Landing -> Browse Groups, Landing -> Login.
  */
 @HiltAndroidTest
 @RunWith(AndroidJUnit4::class)
-@Ignore("Temporarily disabled: startup flow is not exposing a stable Compose hierarchy in instrumentation.")
 class AppFlowTest {
 
     @get:Rule(order = 0)
@@ -24,36 +27,43 @@ class AppFlowTest {
     @get:Rule(order = 1)
     val composeTestRule = createAndroidComposeRule<MainActivity>()
 
+    @Before
+    fun setup() {
+        hiltRule.inject()
+        TestAuthSessionController.reset(UserRole.GROUP_ADMIN)
+        TestDataStore.reset()
+        composeTestRule.activityRule.scenario.recreate()
+    }
+
     @Test
     fun testLandingScreenToBrowseGroups() {
-        // GIVEN: The app starts. We wait for the Splash Screen to finish.
-        // The SplashViewModel performs a connection check.
-        composeTestRule.waitUntil(timeoutMillis = 20000) {
-            composeTestRule.onAllNodesWithText("Savings Groups,\nUnified & Empowered").fetchSemanticsNodes().isNotEmpty()
+        // Wait for splash to finish and landing screen to appear
+        composeTestRule.waitUntil(timeoutMillis = 15000) {
+            composeTestRule.onAllNodesWithText("Browse Groups").fetchSemanticsNodes().isNotEmpty()
         }
-        
-        // THEN: Verify the hero text is displayed
-        composeTestRule.onNodeWithText("Savings Groups,\nUnified & Empowered").assertIsDisplayed()
-        
-        // WHEN: Clicking "Browse Groups" button
+
+        // Click on "Browse Groups" (Hero action for guest)
         composeTestRule.onNodeWithText("Browse Groups").performClick()
-        
-        // THEN: We should see the "Browse Groups" screen content
-        composeTestRule.onNodeWithContentDescription("Back").assertExists()
+
+        // Verify we are on Browse Groups screen by checking for "Discover Groups" title in TopBar
+        composeTestRule.onNodeWithText("Discover Groups").assertIsDisplayed()
+
+        // Verify search bar is present
+        composeTestRule.onNodeWithText("Search groups...").assertIsDisplayed()
     }
 
     @Test
     fun testLandingScreenToLogin() {
-        // GIVEN: Wait for app to settle on Landing Screen
-        composeTestRule.waitUntil(timeoutMillis = 20000) {
-            composeTestRule.onAllNodesWithText("Already a member? Log in →").fetchSemanticsNodes().isNotEmpty()
+        // Wait for landing screen
+        composeTestRule.waitUntil(timeoutMillis = 15000) {
+            composeTestRule.onAllNodesWithText("Already a member? Log in").fetchSemanticsNodes().isNotEmpty()
         }
-        
-        // WHEN: Clicking "Already a member? Log in →"
-        composeTestRule.onNodeWithText("Already a member? Log in →").performClick()
-        
-        // THEN: Verify Login screen is shown
-        composeTestRule.onNodeWithText("Email").assertExists()
-        composeTestRule.onNodeWithText("Password").assertExists()
+
+        // Click on login text
+        composeTestRule.onNodeWithText("Already a member? Log in").performClick()
+
+        // Verify we are on Login screen
+        composeTestRule.onNodeWithText("Welcome Back").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Email Address").assertIsDisplayed()
     }
 }

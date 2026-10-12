@@ -1,13 +1,7 @@
 package com.sanibonani.save.data.datasource
 
-import com.sanibonani.save.domain.model.Contribution
-import com.sanibonani.save.domain.model.Payment
-import com.sanibonani.save.domain.model.Money
-import com.sanibonani.save.domain.model.PaymentMethod
-import com.sanibonani.save.domain.model.PaymentType
-import com.sanibonani.save.domain.model.PaymentDestination
+import com.sanibonani.save.domain.model.*
 import kotlinx.coroutines.flow.Flow
-import kotlinx.serialization.json.JsonArray
 
 interface RemoteContributionDataSource {
     suspend fun recordContribution(contribution: Contribution): Result<Unit>
@@ -20,7 +14,7 @@ interface RemoteContributionDataSource {
         memberId: String,
         totalAmount: Money,
         txId: String,
-        allocations: JsonArray,
+        allocations: List<PaymentAllocation>,
         method: PaymentMethod,
         paymentType: PaymentType,
         destination: PaymentDestination

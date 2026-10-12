@@ -2,7 +2,7 @@ package com.sanibonani.save.data.service
 
 import com.sanibonani.save.domain.model.GroupType
 import com.sanibonani.save.domain.model.Money
-import com.sanibonani.save.domain.repository.GroupRepository
+import com.sanibonani.save.domain.repository.group.GroupRepository
 import com.sanibonani.save.domain.service.TreasuryService
 import javax.inject.Inject
 

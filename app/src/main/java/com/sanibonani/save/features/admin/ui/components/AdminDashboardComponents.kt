@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -35,7 +36,7 @@ fun AdminDashboardTopBar(
         title = {
             Column {
                 Text(
-                    if (isSupportMode) "Admin View (Support)" else "Admin Dashboard",
+                    if (isSupportMode) stringResource(R.string.ui_admin_view_support) else stringResource(R.string.ui_admin_dashboard),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface
@@ -61,6 +62,18 @@ fun AdminDashboardTopBar(
             }
         },
         actions = {
+            if (isSupportMode) {
+                TextButton(
+                    onClick = onNavigateBack,
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("Exit", fontWeight = FontWeight.Bold)
+                }
+                Spacer(Modifier.width(4.dp))
+            }
+
             IconButton(
                 onClick = {
                     val gid = memberPortalAccess.groupId
@@ -104,7 +117,7 @@ fun AdminDashboardBannerSection(
                     Icon(Icons.Default.SupportAgent, contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(Modifier.width(8.dp))
                     Text(
-                        "Support Mode Active — Access is logged.",
+                        stringResource(R.string.ui_support_mode_active_access_is_logged),
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.Bold
                     )
@@ -138,7 +151,7 @@ fun AdminDashboardBannerSection(
                 Row(Modifier.padding(horizontal = 20.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Default.AirplanemodeActive, null, modifier = Modifier.size(16.dp))
                     Spacer(Modifier.width(8.dp))
-                    Text("Airplane Mode Active — Turn off to sync data.", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                    Text(stringResource(R.string.ui_airplane_mode_active_turn_off_to_sync), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
                 }
             }
         } else if (!state.isSystemOnline) {
@@ -150,7 +163,7 @@ fun AdminDashboardBannerSection(
                 Row(Modifier.padding(horizontal = 20.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Default.CloudOff, null, modifier = Modifier.size(16.dp))
                     Spacer(Modifier.width(8.dp))
-                    Text("Offline Mode — Using cached data.", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                    Text(stringResource(R.string.ui_offline_mode_using_cached_data), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
                 }
             }
         }
@@ -163,7 +176,7 @@ fun AdminDashboardBannerSection(
                     daysOverdue = state.daysOverdue,
                     onAction = {
                         group.id?.let { groupId ->
-                            onNavigateToPayment("registration", group.registrationFee, groupId)
+                            onNavigateToPayment("registration", state.platformRegistrationFee, groupId)
                         }
                     }
                 )

@@ -30,18 +30,17 @@ import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
 import coil.request.CachePolicy
 import coil.request.ImageRequest
-import com.sanibonani.save.BuildConfig
 import com.sanibonani.save.ui.utils.formatZAR
 import com.sanibonani.save.domain.model.*
 import com.sanibonani.save.domain.utils.PaymentCalculation
 import com.sanibonani.save.ui.components.*
+import com.sanibonani.save.ui.components.*
 import com.sanibonani.save.ui.theme.*
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun MemberDetailDialog(
     member: Member,
-    group: Group?,
     beneficiaries: List<Beneficiary>,
     documents: List<MemberDocument>,
     calculation: PaymentCalculation?,
@@ -55,9 +54,8 @@ fun MemberDetailDialog(
     onMessageChange: (String) -> Unit,
     selectedNotifChannel: NotifChannel = NotifChannel.BOTH,
     onNotifChannelChange: (NotifChannel) -> Unit = {},
-    onBroadcast: () -> Unit,
-    isSending: Boolean,
-    messageSuccess: Boolean,
+    isSending: Boolean = false,
+    messageSuccess: Boolean = false,
     onEditBeneficiary: (Beneficiary) -> Unit,
     onExportMemberStatement: (Member, Boolean) -> Unit = { _, _ -> },
     getDownloadParams: (String) -> Map<String, String> = { emptyMap() },
@@ -84,29 +82,11 @@ fun MemberDetailDialog(
                 TopAppBar(
                     title = {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            val profileUrl = member.profilePhotoUrl
-                            val profileRequest = remember(profileUrl) {
-                                if (profileUrl.isNullOrBlank()) null
-                                else ImageRequest.Builder(context)
-                                    .data(profileUrl)
-                                    .memoryCachePolicy(CachePolicy.ENABLED)
-                                    .diskCachePolicy(CachePolicy.ENABLED)
-                                    .crossfade(true)
-                                    .build()
-                            }
-                            val personPainter = androidx.compose.ui.graphics.vector.rememberVectorPainter(Icons.Default.Person)
-
-                            AsyncImage(
-                                model = profileRequest,
-                                contentDescription = null,
-                                modifier = Modifier
-                                    .size(32.dp)
-                                    .clip(CircleShape)
-                                    .border(1.dp, Navy.copy(alpha = 0.2f), CircleShape),
-                                contentScale = ContentScale.Crop,
-                                placeholder = personPainter,
-                                error = personPainter,
-                                fallback = personPainter
+                            InitialsAvatar(
+                                initials = member.fullName,
+                                size = 32.dp,
+                                background = Navy,
+                                photoUrl = member.profilePhotoUrl
                             )
                             Spacer(Modifier.width(12.dp))
                             Text(member.fullName, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
@@ -116,11 +96,11 @@ fun MemberDetailDialog(
                         IconButton(onClick = onDismiss) { Icon(Icons.Default.Close, null) }
                     },
                     actions = {
-                        if (isSupportMode && onEnterPortal != null) {
+                        if (isSupportMode && (onEnterPortal != null)) {
                             TextButton(onClick = onEnterPortal) {
-                                Icon(Icons.AutoMirrored.Filled.Login, null, tint = Navy)
+                                Icon(Icons.AutoMirrored.Filled.Login, null, tint = MaterialTheme.colorScheme.primary)
                                 Spacer(Modifier.width(4.dp))
-                                Text(stringResource(R.string.ui_enter_portal), color = Navy, fontWeight = FontWeight.Bold)
+                                Text(stringResource(R.string.ui_enter_portal), color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
                             }
                         }
                     },
@@ -162,7 +142,7 @@ fun MemberDetailDialog(
                                 }
                             }
                             DetailRow("Status", member.status.displayName, isBold = true, color = if (member.status == MemberStatus.SUSPENDED) ErrorRed else Navy)
-                            DetailRow("Total Paid", formatZAR(member.totalPaid ?: Money.ZERO))
+                            DetailRow("Total Paid", formatZAR(member.totalPaid))
                             calculation?.let {
                                 DetailRow("Shortfall", formatZAR(it.shortfall), color = if (it.isOverdue) ErrorRed else Navy)
                                 DetailRow("Overpayment", formatZAR(it.overpayment), color = SuccessGreen)
@@ -177,9 +157,9 @@ fun MemberDetailDialog(
                             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                                 Text(stringResource(R.string.ui_loan_eligibility), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
                                 val (color, text) = if (isEligibleForLoan) {
-                                    Navy to "✅ QUALIFIED"
+                                    Navy to "âœ… QUALIFIED"
                                 } else {
-                                    ErrorRed to "❌ NOT QUALIFIED"
+                                    ErrorRed to "âŒ NOT QUALIFIED"
                                 }
                                 Text(text, color = color, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodySmall)
                             }
@@ -191,7 +171,7 @@ fun MemberDetailDialog(
 
                     DetailSection("Personal Information") {
                         DetailRow("ID Number", member.idNumber?.takeIf { it.isNotBlank() } ?: "Not captured")
-                        DetailRow("Phone", member.phone?.ifBlank { "Not captured" } ?: "Not captured")
+                        DetailRow("Phone", member.phone.ifBlank { "Not captured" })
                         DetailRow("Joined", member.joinedAt?.substringBefore("T") ?: "N/A")
 
                         val addressParts = listOfNotNull(
@@ -268,7 +248,7 @@ fun MemberDetailDialog(
                                 Row(Modifier.padding(12.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                                     Column(modifier = Modifier.weight(1f)) {
                                         Text(b.fullName, fontWeight = FontWeight.Bold)
-                                        Text("${b.relationship} • ${b.idNumber ?: "N/A"}", style = MaterialTheme.typography.labelSmall)
+                                        Text("${b.relationship} â€¢ ${b.idNumber ?: "N/A"}", style = MaterialTheme.typography.labelSmall)
 
                                         if (b.documentUrl != null) {
                                             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
@@ -317,21 +297,19 @@ fun MemberDetailDialog(
                     // Documents
                     DetailSection("Documents") {
                         var hasAnyDoc = false
-                        // Legacy Documents (Indexed 1-5)
-                        for (i in 1..6) { // Expanded to 6 to handle Membership Contract specifically if indexed
+                        // Core KYC Documents (Indexed 1-4)
+                        for (i in 1..4) {
                             val url = when(i) {
-                                1 -> member.document1Url; 2 -> member.document2Url; 3 -> member.document3Url; 4 -> member.document4Url; 5 -> member.document5Url; 6 -> member.contractUrl; else -> null
+                                1 -> member.document1Url; 2 -> member.document2Url; 3 -> member.document3Url; 4 -> member.document4Url; else -> null
                             }
                             val status = when(i) {
-                                1 -> member.document1Status; 2 -> member.document2Status; 3 -> member.document3Status; 4 -> member.document4Status; 5 -> member.document5Status; 6 -> member.contractStatus; else -> DocumentStatus.PENDING
+                                1 -> member.document1Status; 2 -> member.document2Status; 3 -> member.document3Status; 4 -> member.document4Status; else -> DocumentStatus.PENDING
                             }
                             val label = when(i) {
                                 1 -> "Identity Document (ID)"
                                 2 -> "Proof of Residence"
                                 3 -> "Beneficiary Form / Documents"
                                 4 -> "Marriage Certificate"
-                                5 -> "Group Constitution (Signed)"
-                                6 -> "Membership Contract (Signed)"
                                 else -> ""
                             }
 
@@ -342,8 +320,7 @@ fun MemberDetailDialog(
                                     url = url,
                                     status = status,
                                     onVerify = { approve ->
-                                        val idx = if (i == 6) 100 else i
-                                        onVerifyDoc(idx, approve)
+                                        onVerifyDoc(i, approve)
                                     },
                                     onDownload = { dUrl, dLabel ->
                                         val (dlUrl, headers) = downloadMemberDocument(dUrl, dLabel)
@@ -386,51 +363,78 @@ fun MemberDetailDialog(
                             value = messageText,
                             onValueChange = onMessageChange,
                             label = stringResource(R.string.ui_message_text),
+                            singleLine = false,
                             modifier = Modifier.height(100.dp)
                         )
 
-                        Text("Send Via:", style = MaterialTheme.typography.labelMedium)
-                        Row(
+                        Text(
+                            "Send Via:",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+
+                        FlowRow(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             NotifChannel.entries.forEach { channel ->
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    RadioButton(
-                                        selected = selectedNotifChannel == channel,
-                                        onClick = { onNotifChannelChange(channel) },
-                                        colors = RadioButtonDefaults.colors(selectedColor = Navy)
-                                    )
-                                    Text(
-                                        text = when(channel) {
-                                            NotifChannel.IN_APP -> "In-App"
-                                            NotifChannel.EMAIL -> "Email"
-                                            NotifChannel.BOTH -> "Both"
-                                        },
-                                        style = MaterialTheme.typography.bodySmall,
-                                        modifier = Modifier.padding(start = 4.dp)
-                                    )
+                                val isSelected = selectedNotifChannel == channel
+                                val (label, icon) = when (channel) {
+                                    NotifChannel.PUSH -> "In-App" to Icons.Default.NotificationsActive
+                                    NotifChannel.EMAIL -> "Email" to Icons.Default.Email
+                                    NotifChannel.SMS -> "SMS" to Icons.Default.Sms
+                                    NotifChannel.WHATSAPP -> "WhatsApp" to Icons.AutoMirrored.Filled.Chat
+                                    NotifChannel.BOTH -> "Both" to Icons.Default.AllInclusive
                                 }
+
+                                FilterChip(
+                                    selected = isSelected,
+                                    onClick = { onNotifChannelChange(channel) },
+                                    label = { Text(label, style = MaterialTheme.typography.labelSmall) },
+                                    leadingIcon = {
+                                        Icon(
+                                            imageVector = icon,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    },
+                                    colors = FilterChipDefaults.filterChipColors(
+                                        selectedContainerColor = MaterialTheme.colorScheme.primary,
+                                        selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
+                                        selectedLeadingIconColor = MaterialTheme.colorScheme.onPrimary,
+                                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                        labelColor = MaterialTheme.colorScheme.onSurfaceVariant
+                                    ),
+                                    border = FilterChipDefaults.filterChipBorder(
+                                        enabled = true,
+                                        selected = isSelected,
+                                        borderColor = Color.Transparent,
+                                        selectedBorderColor = Color.Transparent
+                                    ),
+                                    shape = RoundedCornerShape(12.dp)
+                                )
                             }
                         }
 
                         if (messageSuccess) {
-                            Text(stringResource(R.string.ui_message_sent), color = Navy, style = MaterialTheme.typography.labelSmall)
+                            InfoBox("Message sent successfully!", type = InfoType.SUCCESS)
                         }
-                        Button(
+
+                        Spacer(Modifier.height(4.dp))
+
+                        SanibonaniButton(
+                            text = "Send Message",
                             onClick = {
                                 member.id?.let { id ->
                                     onSendMessage(messageText, id)
                                 }
                             },
+                            isLoading = isSending,
                             enabled = messageText.isNotBlank() && !isSending,
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = ButtonDefaults.buttonColors(containerColor = Navy)
-                        ) {
-                            if (isSending) CircularProgressIndicator(modifier = Modifier.size(20.dp), color = MaterialTheme.colorScheme.onPrimary)
-                            else Text("Send Message")
-                        }
+                            modifier = Modifier.fillMaxWidth()
+                        )
                     }
                 }
             }

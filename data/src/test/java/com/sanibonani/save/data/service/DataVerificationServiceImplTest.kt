@@ -1,6 +1,9 @@
 package com.sanibonani.save.data.service
 
 import com.sanibonani.save.domain.model.*
+import com.sanibonani.save.domain.utils.PaymentCalculator
+import io.mockk.mockk
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -9,10 +12,12 @@ import org.junit.Test
 class DataVerificationServiceImplTest {
 
     private lateinit var service: DataVerificationServiceImpl
+    private lateinit var paymentCalculator: PaymentCalculator
 
     @Before
     fun setup() {
-        service = DataVerificationServiceImpl()
+        paymentCalculator = mockk(relaxed = true)
+        service = DataVerificationServiceImpl(paymentCalculator)
     }
 
     @Test
@@ -43,7 +48,7 @@ class DataVerificationServiceImplTest {
         )
 
         // When: Verifying data
-        val result = service.verifyMemberData(member, group, contributions)
+        val result = runBlocking { service.verifyMemberData(member, group, contributions) }
 
         // Then: Result should be valid (no discrepancy warning)
         assertTrue("Data should be valid when extractions are included in calculation", result.isValid)
@@ -69,7 +74,7 @@ class DataVerificationServiceImplTest {
         )
 
         // When: Verifying data
-        val result = service.verifyMemberData(member, group, contributions)
+        val result = runBlocking { service.verifyMemberData(member, group, contributions) }
 
         // Then: Result should be invalid
         assertFalse("Data should be invalid when transactions do not match", result.isValid)

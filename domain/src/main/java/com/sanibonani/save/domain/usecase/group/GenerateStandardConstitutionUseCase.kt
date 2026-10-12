@@ -1,7 +1,6 @@
 package com.sanibonani.save.domain.usecase.group
 
 import com.sanibonani.save.domain.model.Group
-import com.sanibonani.save.domain.repository.admin.ActuarialRepository
 import javax.inject.Inject
 
 class GenerateStandardConstitutionUseCase @Inject constructor() {

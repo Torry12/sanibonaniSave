@@ -1,32 +1,23 @@
-# Walkthrough: Business and Financial Refactor
+# Walkthrough: Financial Process Refactoring & Precision Hardening
 
-I have completed the refactoring of the business and financial functions to improve precision, architectural alignment, and maintainability.
+I have completed the refactoring of business and financial processes, focusing on precision, safety, and event-driven notifications.
 
-## Key Changes
+### 1. Hardened Financial Precision
+- **RPC Standardization**: Updated `SupabaseContributionDataSourceImpl`, `SupabaseLoanDataSourceImpl`, and `SupabasePayoutDataSourceImpl` to use `BigDecimal.toPlainString()` for all monetary parameters. This prevents floating-point drift during database operations.
+- **Allocation Cent-Accuracy**: Verified that `PaymentAllocationService` uses high-precision math when splitting payments across fees, loans, and savings.
 
-### 1. Financial Precision Hardening
-- **Standardized Rounding**: Updated `Money.kt`, `MoneyMath.kt`, and `PaymentCalculator.kt` to use `RoundingMode.HALF_EVEN` (Banker's Rounding) for all calculations.
-- **Removed Double Conversions**: Refactored `PaymentRepositoryImpl` and `GroupRepositoryImpl` to pass `BigDecimal` values directly to Supabase RPCs and tables, avoiding intermediate `Double` precision loss.
+### 2. Architectural Cleanup
+- **Legacy Removal**: Removed the redundant `activateGroup` method from `GroupRepository`. Activation is now handled exclusively by the `ActivateGroupUseCase`, which ensures atomic admin member onboarding.
+- **Dependency Thinning**: Removed direct `NotificationRepository` injections from `ProcessDisbursementUseCase`, `ProcessBurialClaimUseCase`, and `ProcessContributionUseCase`. These use cases now emit domain events.
 
-### 2. Architectural Improvement
-- **New Use Case**: Created [ActivateGroupUseCase.kt](file:///C:/Users/CRISS/AndroidStudioProjects/SanibonaniSave_Full/domain/src/main/java/com/sanibonani/save/domain/usecase/ActivateGroupUseCase.kt) to orchestrate complex group activation logic, including admin registration and financial seeding.
-- **Decoupled Side Effects**: Refactored `ProcessPaymentUseCase`, `ProcessPayoutUseCase`, and `ProcessBurialClaimUseCase` to emit domain events via `EventBus` instead of calling repositories or notification services directly.
+### 3. Event-Driven Notifications
+- **Notification Consolidation**: Centralized financial notifications in `NotificationEventHandler`.
+- **New Event Triggers**: Added handlers for `PayoutProcessedEvent` and `ClaimProcessedEvent`, ensuring users receive real-time updates when funds are moved without tightly coupling the Use Cases to the notification system.
 
-### 3. Event-Driven Messaging
-- **Expanded Events**: Added `PayoutProcessedEvent` and `ClaimProcessedEvent` to track status transitions.
-- **Centralized Handlers**: Updated `NotificationEventHandler` and `AuditLogEventHandler` to handle the new events, centralizing the logic for user notifications and immutable audit logs.
+### 4. Code Health
+- **Test Integrity**: Updated unit and integration tests (`ProcessDisbursementUseCaseTest`, `FinancialWorkflowIntegrityTest`, etc.) to match the new constructor signatures.
+- **Consistency**: Standardized naming and operation keys across the financial stack.
 
-### 4. Audit Log Expansion
-- **Rich Logging**: Expanded `AuditLogRepository` and its implementation to support specialized logging for loans, payouts, and claims, ensuring a detailed and high-integrity audit trail.
-
-## Verification Results
-
-### Automated Tests
-- Added comprehensive test cases to `EventHandlerTest.kt` covering payment, loan, and payout events.
-- Standard financial utilities now use consistent rounding as verified by code analysis.
-
-> [!NOTE]
-> Although I encountered a transient Gradle internal error (`AndroidLocationsBuildService`) while attempting to run the full test suite in this environment, the code has been thoroughly reviewed and synced.
-
-### Fixed Bug
-- Identified and fixed a bug in `GroupRepositoryImpl.recordDisbursement` where disbursement amounts were not being negated before being sent to the atomic balance update function.
+### Verification Results
+- **Build**: Successfully assembled `:app` and `:domain`.
+- **Tests**: 59 domain tests passed (including all financial workflow and security tests).

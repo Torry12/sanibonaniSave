@@ -77,7 +77,7 @@ SELECT * FROM public.group_ledger ORDER BY created_at DESC LIMIT 5;
 
 If you are modifying or creating a new seed script, you **MUST** follow these platform rules to ensure the app functions correctly:
 
-1.  **Tiered Allocation**: Do not insert directly into `groups.balance`. Always use the `public.record_contribution_v1` or `public.increment_group_balance` RPCs. This ensures the `group_ledger` and `platform_ledger` are updated atomically.
+1.  **Tiered Allocation**: Do not insert directly into `groups.balance`. Always use the `public.record_contribution_v2` or `public.increment_group_balance` RPCs. This ensures the `group_ledger` and `platform_ledger` are updated atomically.
 2.  **ID Number Format**: Valid South African ID numbers (13 digits) are required for KYC status indicators in the UI.
 3.  **Member Keys**: All seed members must have a `member_key` starting with `SEED-` to allow for clean targeted deletion during script re-runs.
 4.  **Transaction History**: Seeding members without at least 3 months of history will result in "High Risk" flags in the actuarial engine.

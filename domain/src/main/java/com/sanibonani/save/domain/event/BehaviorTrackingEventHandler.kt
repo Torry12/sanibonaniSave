@@ -1,11 +1,7 @@
 package com.sanibonani.save.domain.event
 
 import com.sanibonani.save.domain.logging.AppLogger
-import com.sanibonani.save.domain.repository.dynamics.BehaviorTrackingRepository
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.launch
+import com.sanibonani.save.domain.repository.admin.BehaviorTrackingRepository
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -18,26 +14,14 @@ class BehaviorTrackingEventHandler @Inject constructor(
     private val behaviorRepository: BehaviorTrackingRepository
 ) : EventHandler<DomainEvent> {
 
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-
-    override fun registerListeners() {
-        EventBus.subscribe<PaymentProcessedEvent>(this)
-        EventBus.subscribe<LoanApprovedEvent>(this)
-        EventBus.subscribe<LoanDisbursedEvent>(this)
-        EventBus.subscribe<MemberStatusChangedEvent>(this)
-        EventBus.subscribe<ClaimProcessedEvent>(this)
-        AppLogger.i("BehaviorTrackingEventHandler", "Registered for financial and status events")
-    }
-
-    override fun onEvent(event: DomainEvent) {
-        scope.launch {
-            when (event) {
-                is PaymentProcessedEvent -> handlePayment(event)
-                is LoanApprovedEvent -> handleLoanUpdate(event.loan.memberId, event.loan.groupId)
-                is LoanDisbursedEvent -> handleLoanUpdate(event.loan.memberId, event.loan.groupId)
-                is MemberStatusChangedEvent -> handleStatusChange(event)
-                is ClaimProcessedEvent -> handleClaimUpdate(event.claim.memberId, event.claim.groupId)
-            }
+    override suspend fun handle(event: DomainEvent) {
+        when (event) {
+            is PaymentProcessedEvent -> handlePayment(event)
+            is LoanApprovedEvent -> handleLoanUpdate(event.loan.memberId, event.loan.groupId)
+            is LoanDisbursedEvent -> handleLoanUpdate(event.loan.memberId, event.loan.groupId)
+            is MemberStatusChangedEvent -> handleStatusChange(event)
+            is ClaimProcessedEvent -> handleClaimUpdate(event.claim.memberId, event.claim.groupId)
+            else -> {}
         }
     }
 

@@ -1,8 +1,6 @@
 package com.sanibonani.save.domain.repository.equity
-
 import com.sanibonani.save.domain.model.*
 import kotlinx.coroutines.flow.Flow
-import kotlinx.serialization.json.JsonArray
 
 /**
  * Authoritative repository for all fund inflows (Equity).
@@ -21,14 +19,14 @@ interface ContributionRepository {
     /**
      * Executes a multi-allocation payment atomically on the server.
      * Maps to process_complex_payment_v4 in Postgres.
-     * @param allocations JsonArray of {type, amount, loan_id?, due_date}
+     * @param allocations List of [PaymentAllocation]
      */
     suspend fun processComplexPayment(
         groupId: String,
         memberId: String,
         totalAmount: Money,
         txId: String,
-        allocations: JsonArray,
+        allocations: List<PaymentAllocation>,
         method: PaymentMethod,
         paymentType: PaymentType = PaymentType.CONTRIBUTION,
         destination: PaymentDestination = PaymentDestination.GROUP

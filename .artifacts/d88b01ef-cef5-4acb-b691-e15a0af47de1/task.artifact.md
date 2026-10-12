@@ -1,7 +1,5 @@
-- [ ] Rebuild local Supabase database
-- [ ] Define `AuditLogEntity` in Room
-- [ ] Create `AuditLogDao` and `BankTransactionDao`
-- [ ] Update `SanibonaniDatabase` to version 62 and add new DAOs/Entities
-- [ ] Add `MIGRATION_61_62` to `Migrations.kt`
-- [ ] Update `SyncRepositoryImpl` to sync Audit Logs and Bank Transactions
-- [ ] Verify migration and synchronization
+- [x] Refactor `DataVerificationServiceImpl.kt` to filter contribution types
+- [x] Remove redundant integrity check from `MemberOverviewViewModel.kt`
+- [x] Remove `dataIntegrityMessage` from `MemberUiState.kt`
+- [x] Remove redundant `DataIntegrityAlert` from `MemberDashboardScreen.kt`
+- [x] Verify fix by running the app/simulation

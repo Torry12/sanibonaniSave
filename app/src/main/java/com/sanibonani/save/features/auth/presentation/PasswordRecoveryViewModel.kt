@@ -1,12 +1,9 @@
 package com.sanibonani.save.features.auth.presentation
 
-import androidx.lifecycle.viewModelScope
-import com.sanibonani.save.domain.utils.toUserMessage
-import com.sanibonani.save.domain.repository.system.SupabaseRepository
-import com.sanibonani.save.viewmodel.BaseViewModel
+import com.sanibonani.save.domain.repository.auth.SupabaseRepository
+import com.sanibonani.save.features.common.presentation.BaseViewModel
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 data class PasswordRecoveryState(
@@ -15,8 +12,6 @@ data class PasswordRecoveryState(
     val error: String? = null,
     val success: Boolean = false
 )
-
-enum class RecoveryMethod { EMAIL }
 
 @HiltViewModel
 class PasswordRecoveryViewModel @Inject constructor(
@@ -35,7 +30,7 @@ class PasswordRecoveryViewModel @Inject constructor(
             updateState { it.copy(error = "Please enter a valid email address.") }
             return
         }
-        viewModelScope.launch {
+        launchJob("send_recovery") {
             updateState { it.copy(isLoading = true, error = null, success = false) }
             supabaseRepo.sendPasswordResetEmail(input).onSuccess {
                 updateState { it.copy(isLoading = false, success = true, input = "") }

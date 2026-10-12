@@ -2,9 +2,6 @@ package com.sanibonani.save.data.repository.system
 
 import com.sanibonani.save.data.remote.EdgeFunctionGateway
 import com.sanibonani.save.domain.logging.AppLogger
-import com.sanibonani.save.domain.model.AppNotification
-import com.sanibonani.save.domain.utils.logAndGetMessage
-import io.github.jan.supabase.SupabaseClient
 import kotlinx.serialization.json.addJsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put

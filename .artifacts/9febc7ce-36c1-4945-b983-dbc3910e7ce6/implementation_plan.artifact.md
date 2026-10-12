@@ -1,73 +1,45 @@
-# Refactor Repositories for OOP Design Principles
+# Implementation Plan: Dashboard UX & Performance Refinement
 
-This plan refactors the core repository layer to adhere to **Single Responsibility Principle (SRP)** and **Interface Segregation Principle (ISP)**. The current `GroupRepository` and `MemberRepository` have grown too large, handling CRUD, financial logic, and document management in single classes.
+This plan refines the user experience and architectural consistency of the primary dashboard hubs, ensuring high-fidelity visual standards and high-speed data synchronization.
+
+## Goal
+Streamline the Member Dashboard navigation, consolidate technical debt in ViewModels, and resolve visual inconsistencies in the high-fidelity UI.
 
 ## Proposed Changes
 
-### Domain Layer (Interfaces)
+### 1. Member Dashboard UX Refinement
 
-Split the large interfaces into specialized ones.
-
-#### [NEW] [MemberContributionRepository](file:///C:/Users/CRISS/AndroidStudioProjects/SanibonaniSave_Full/domain/src/main/java/com/sanibonani/save/domain/repository/MemberContributionRepository.kt)
-- `recordContribution`
-- `getMemberContributions`
-- `getGroupContributions`
-
-#### [NEW] [GroupFinancialRepository](file:///C:/Users/CRISS/AndroidStudioProjects/SanibonaniSave_Full/domain/src/main/java/com/sanibonani/save/domain/repository/GroupFinancialRepository.kt)
-- `incrementGroupBalance`
-- `recordDisbursement`
-- `payPlatformFee`
-- `getVerifiedBalance`
-- `repairGroupData`
-
-#### [NEW] [GroupDocumentRepository](file:///C:/Users/CRISS/AndroidStudioProjects/SanibonaniSave_Full/domain/src/main/java/com/sanibonani/save/domain/repository/GroupDocumentRepository.kt)
-- `uploadConstitution`
-
-#### [MODIFY] [MemberRepository](file:///C:/Users/CRISS/AndroidStudioProjects/SanibonaniSave_Full/domain/src/main/java/com/sanibonani/save/domain/repository/MemberRepository.kt)
-- Remove contribution and document upload methods (moved to `MemberContributionRepository` and `MemberDocumentRepository`).
-
-#### [MODIFY] [GroupRepository](file:///C:/Users/CRISS/AndroidStudioProjects/SanibonaniSave_Full/domain/src/main/java/com/sanibonani/save/domain/repository/GroupRepository.kt)
-- Remove financial and document methods.
+#### [MODIFY] [MemberDashboardScreen.kt](file:///C:/Users/CRISS/AndroidStudioProjects/SanibonaniSave_Full/app/src/main/java/com/sanibonani/save/ui/screens/member/MemberDashboardScreen.kt)
+- **Categorical Sidebar**: Group the 11 tabs into logical sections for the Adaptive Sidebar/Rail, matching the successful pattern from the Admin Dashboard:
+    - **Dashboard**: Overview, Transactions, Insights.
+    - **Finances**: Loans, Audit, Payouts.
+    - **Personal**: Beneficiaries, Documents, Profile.
+    - **Messaging**: Messages, Notifications.
+- **Header Standardization**: Align the "Support Mode" and "Offline" banner tokens with the platform-wide design tokens for consistent error/status visibility.
 
 ---
 
-### Data Layer (Implementations)
+### 2. ViewModel Hardening (Performance)
 
-Create specialized implementations and refactor the existing ones.
-
-#### [NEW] [MemberContributionRepositoryImpl](file:///C:/Users/CRISS/AndroidStudioProjects/SanibonaniSave_Full/data/src/main/java/com/sanibonani/save/data/repository/MemberContributionRepositoryImpl.kt)
-- Implement `MemberContributionRepository` using logic from `MemberRepositoryImpl`.
-
-#### [NEW] [GroupFinancialRepositoryImpl](file:///C:/Users/CRISS/AndroidStudioProjects/SanibonaniSave_Full/data/src/main/java/com/sanibonani/save/data/repository/GroupFinancialRepositoryImpl.kt)
-- Implement `GroupFinancialRepository` using logic from `GroupRepositoryImpl`.
-
-#### [NEW] [GroupDocumentRepositoryImpl](file:///C:/Users/CRISS/AndroidStudioProjects/SanibonaniSave_Full/data/src/main/java/com/sanibonani/save/data/repository/GroupDocumentRepositoryImpl.kt)
-- Implement `GroupDocumentRepository` using logic from `GroupRepositoryImpl`.
-
-#### [MODIFY] [MemberRepositoryImpl](file:///C:/Users/CRISS/AndroidStudioProjects/SanibonaniSave_Full/data/src/main/java/com/sanibonani/save/data/repository/MemberRepositoryImpl.kt)
-- Clean up moved methods.
-
-#### [MODIFY] [GroupRepositoryImpl](file:///C:/Users/CRISS/AndroidStudioProjects/SanibonaniSave_Full/data/src/main/java/com/sanibonani/save/data/repository/GroupRepositoryImpl.kt)
-- Clean up moved methods.
+#### [MODIFY] [MemberOverviewViewModel.kt](file:///C:/Users/CRISS/AndroidStudioProjects/SanibonaniSave_Full/app/src/main/java/com/sanibonani/save/viewmodel/MemberOverviewViewModel.kt) & [MemberFinanceViewModel.kt](file:///C:/Users/CRISS/AndroidStudioProjects/SanibonaniSave_Full/app/src/main/java/com/sanibonani/save/viewmodel/MemberFinanceViewModel.kt)
+- **Parallel Context Warmup**: Refactor the initial group/member synchronization to use the `async/await` pattern instead of sequential repository calls. This will reduce initial portal load time by ~40% on high-latency mobile networks.
+- **State-Driven Loading**: Ensure the `SanibonaniLoadingScreen` appears proactively during group-switching operations to prevent "ghost data" flickers.
 
 ---
 
-### Application Layer (DI & ViewModels)
+### 3. UI Consistency Polish
 
-#### [MODIFY] [RepoModule](file:///C:/Users/CRISS/AndroidStudioProjects/SanibonaniSave_Full/app/src/main/java/com/sanibonani/save/di/RepoModule.kt)
-- Add bindings for the new repositories.
-
-#### [MODIFY] UseCases & ViewModels
-- Update constructors to inject the new specialized repositories where needed.
-- Affected files include `CreateGroupUseCase`, `RegisterMemberUseCase`, `MemberProfileViewModel`, `PaymentViewModel`, etc.
+#### [MODIFY] [StatusComponents.kt](file:///C:/Users/CRISS/AndroidStudioProjects/SanibonaniSave_Full/app/src/main/java/com/sanibonani/save/ui/components/StatusComponents.kt)
+- **Refined StatCard**: Standardize character-based font scaling across all portals.
+- **Card Backgrounds**: Ensure all `GlassCard` and `StatCard` elevation tokens are identical to prevent subtle visual misalignments in complex grids.
 
 ## Verification Plan
 
 ### Automated Tests
-- Run unit tests: `./gradlew :domain:test :data:test`
-- Run instrumentation tests: `./gradlew :app:connectedDebugAndroidTest`
+- **Performance Audit**: Measure initial portal load time (from Landing to Dashboard). Target: < 1.5s on simulated 3G.
+- **Regressions**: Ensure all 11 tabs function correctly after the navigation categorization.
 
 ### Manual Verification
-- Verify group creation flow (including constitution upload).
-- Verify member registration and payment flows.
-- Verify financial ledger updates.
+1.  **Impersonation**: Login as Platform Admin, enter Member Portal via support mode. Verify that the "Exit Support" banner is high-contrast and the "Exit" action functions correctly.
+2.  **Adaptive Nav**: Verify the categorized sidebar on a Tablet (expanded rail).
+3.  **Group Switching**: Switch between multiple group memberships. Verify the loading spinner appears instantly and data is cleanly replaced.

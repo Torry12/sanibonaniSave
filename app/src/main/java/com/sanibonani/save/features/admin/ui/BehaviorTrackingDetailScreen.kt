@@ -16,14 +16,18 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.sanibonani.save.R
 import com.sanibonani.save.domain.model.*
-import com.sanibonani.save.ui.components.DetailRow
-import com.sanibonani.save.ui.components.SanibonaniLoadingScreen
+import com.sanibonani.save.ui.components.*
+import com.sanibonani.save.ui.components.*
+import com.sanibonani.save.ui.components.*
+import com.sanibonani.save.ui.components.*
 import com.sanibonani.save.ui.theme.Navy
 import com.sanibonani.save.ui.utils.formatZAR
 import com.sanibonani.save.features.admin.presentation.BehaviorTrackingViewModel
@@ -38,13 +42,13 @@ fun BehaviorTrackingDetailScreen(
     val state by vm.state.collectAsStateWithLifecycle()
 
     LaunchedEffect(memberId) {
-        vm.loadTrack(memberId)
+        vm.loadMemberData(memberId)
     }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Behavior Insights", fontWeight = FontWeight.Bold) },
+                title = { Text(stringResource(R.string.ui_behavior_insights), fontWeight = FontWeight.Bold) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, null)
@@ -53,11 +57,12 @@ fun BehaviorTrackingDetailScreen(
             )
         }
     ) { padding ->
+        val track = state.track
         if (state.isLoading) {
-            SanibonaniLoadingScreen("Analyzing member behavior...")
-        } else if (state.track != null) {
+            SanibonaniLoadingScreen(stringResource(R.string.ui_analyzing_member_behavior))
+        } else if (track != null) {
             BehaviorDetailContent(
-                track = state.track!!,
+                track = track,
                 modifier = Modifier.padding(padding),
                 onFlag = { vm.flagMember(memberId, it) },
                 onUnflag = { vm.unflagMember(memberId) },
@@ -66,7 +71,7 @@ fun BehaviorTrackingDetailScreen(
             )
         } else {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("Behavior data not found for this member.")
+                Text(stringResource(R.string.ui_behavior_data_not_found))
             }
         }
     }
@@ -99,37 +104,37 @@ private fun BehaviorDetailContent(
         }
 
         item {
-            MetricSection("Payment Performance", Icons.Default.Payments) {
+            MetricSection(stringResource(R.string.ui_payment_performance), Icons.Default.Payments) {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    DetailRow("On-Time Payments", track.onTimeContributions.toString())
-                    DetailRow("Late Payments", track.lateContributions.toString())
-                    DetailRow("Overdue Now", track.overdueCount.toString())
-                    DetailRow("Current Streak", "${track.currentPaymentStreak} months")
-                    DetailRow("Total Contributed", formatZAR(track.totalAmountContributed))
+                    DetailRow(stringResource(R.string.ui_on_time_payments), track.onTimeContributions.toString())
+                    DetailRow(stringResource(R.string.ui_late_payments), track.lateContributions.toString())
+                    DetailRow(stringResource(R.string.ui_overdue_now), track.overdueCount.toString())
+                    DetailRow(stringResource(R.string.ui_current_streak), stringResource(R.string.ui_current_streak_months, track.currentPaymentStreak.toString()))
+                    DetailRow(stringResource(R.string.ui_total_contributed), formatZAR(track.totalAmountContributed))
                 }
             }
         }
 
         item {
-            MetricSection("Loan History", Icons.AutoMirrored.Filled.TrendingUp) {
+            MetricSection(stringResource(R.string.ui_loan_history), Icons.AutoMirrored.Filled.TrendingUp) {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    DetailRow("Loans Requested", track.totalLoansRequested.toString())
-                    DetailRow("Loans Approved", track.totalLoansApproved.toString())
-                    DetailRow("Loans Completed", track.totalLoansCompleted.toString())
-                    DetailRow("Active Loans", track.activeLoans.toString())
-                    DetailRow("Completion Rate", "${track.loanCompletionRate.toInt()}%")
+                    DetailRow(stringResource(R.string.ui_loans_requested), track.totalLoansRequested.toString())
+                    DetailRow(stringResource(R.string.ui_loans_approved), track.totalLoansApproved.toString())
+                    DetailRow(stringResource(R.string.ui_loans_completed), track.totalLoansCompleted.toString())
+                    DetailRow(stringResource(R.string.ui_active_loans), track.activeLoans.toString())
+                    DetailRow(stringResource(R.string.ui_completion_rate), "${track.loanCompletionRate.toInt()}%")
                 }
             }
         }
 
         item {
-            MetricSection("Fraud Indicators", Icons.Default.Shield) {
+            MetricSection(stringResource(R.string.ui_fraud_indicators), Icons.Default.Shield) {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    DetailRow("Duplicate Transactions", track.duplicateTransactionCount.toString())
-                    DetailRow("Suspicious Activities", track.suspiciousActivityCount.toString())
-                    DetailRow("Velocity Check Failures", if (track.velocityCheckFailed) "YES" else "NO")
-                    DetailRow("Rapid Disbursements", track.rapidDisbursementAttempts.toString())
-                    DetailRow("Unusual Pattern Detected", if (track.unusualPaymentPatterns) "YES" else "NO")
+                    DetailRow(stringResource(R.string.ui_duplicate_transactions), track.duplicateTransactionCount.toString())
+                    DetailRow(stringResource(R.string.ui_suspicious_activities), track.suspiciousActivityCount.toString())
+                    DetailRow(stringResource(R.string.ui_velocity_check_failures), if (track.velocityCheckFailed) "YES" else "NO")
+                    DetailRow(stringResource(R.string.ui_rapid_disbursements), track.rapidDisbursementAttempts.toString())
+                    DetailRow(stringResource(R.string.ui_unusual_pattern_detected), if (track.unusualPaymentPatterns) "YES" else "NO")
                 }
             }
         }
@@ -148,12 +153,12 @@ private fun BehaviorDetailContent(
     if (showFlagDialog) {
         AlertDialog(
             onDismissRequest = { showFlagDialog = false },
-            title = { Text("Flag Member for Review") },
+            title = { Text(stringResource(R.string.ui_flag_member_for_review)) },
             text = {
                 OutlinedTextField(
                     value = actionReason,
                     onValueChange = { actionReason = it },
-                    label = { Text("Reason for flagging") },
+                    label = { Text(stringResource(R.string.ui_reason_for_flagging)) },
                     modifier = Modifier.fillMaxWidth()
                 )
             },
@@ -162,21 +167,21 @@ private fun BehaviorDetailContent(
                     onFlag(actionReason)
                     showFlagDialog = false
                     actionReason = ""
-                }) { Text("Confirm") }
+                }) { Text(stringResource(R.string.ui_ok)) }
             },
-            dismissButton = { TextButton(onClick = { showFlagDialog = false }) { Text("Cancel") } }
+            dismissButton = { TextButton(onClick = { showFlagDialog = false }) { Text(stringResource(R.string.ui_cancel)) } }
         )
     }
 
     if (showSuspendDialog) {
         AlertDialog(
             onDismissRequest = { showSuspendDialog = false },
-            title = { Text("Suspend Member") },
+            title = { Text(stringResource(R.string.ui_suspend_member)) },
             text = {
                 OutlinedTextField(
                     value = actionReason,
                     onValueChange = { actionReason = it },
-                    label = { Text("Reason for suspension") },
+                    label = { Text(stringResource(R.string.ui_reason_for_suspension)) },
                     modifier = Modifier.fillMaxWidth()
                 )
             },
@@ -188,9 +193,9 @@ private fun BehaviorDetailContent(
                         actionReason = ""
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
-                ) { Text("Suspend") }
+                ) { Text(stringResource(R.string.ui_suspend)) }
             },
-            dismissButton = { TextButton(onClick = { showSuspendDialog = false }) { Text("Cancel") } }
+            dismissButton = { TextButton(onClick = { showSuspendDialog = false }) { Text(stringResource(R.string.ui_cancel)) } }
         )
     }
 }
@@ -209,8 +214,8 @@ private fun MemberHeader(track: MemberBehaviorTrack) {
         }
         Spacer(Modifier.width(16.dp))
         Column {
-            Text("Member ID: ${track.memberIdNumber}", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
-            Text("In group for ${track.monthsInGroup} months", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+            Text(stringResource(R.string.ui_member_id_label, track.memberIdNumber), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+            Text(stringResource(R.string.ui_tenure_months, track.monthsInGroup), style = MaterialTheme.typography.bodySmall, color = Color.Gray)
         }
     }
 }
@@ -218,8 +223,8 @@ private fun MemberHeader(track: MemberBehaviorTrack) {
 @Composable
 private fun ScoreCards(track: MemberBehaviorTrack) {
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        ScoreCard("Behavior", track.behaviorScore.toInt(), Modifier.weight(1f), Navy)
-        ScoreCard("Fraud Risk", track.fraudScore.toInt(), Modifier.weight(1f), MaterialTheme.colorScheme.error)
+        ScoreCard(stringResource(R.string.ui_behavior), track.behaviorScore.toInt(), Modifier.weight(1f), Navy)
+        ScoreCard(stringResource(R.string.ui_fraud_risk), track.fraudScore.toInt(), Modifier.weight(1f), MaterialTheme.colorScheme.error)
     }
 }
 
@@ -250,8 +255,8 @@ private fun MetricSection(title: String, icon: ImageVector, content: @Composable
         Spacer(Modifier.height(8.dp))
         Card(
             modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = Color.White),
-            border = BorderStroke(1.dp, Color.LightGray.copy(alpha = 0.5f))
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.1f))
         ) {
             Box(Modifier.padding(12.dp)) { content() }
         }
@@ -267,16 +272,16 @@ private fun AdminActionSection(
     onUnsuspend: () -> Unit
 ) {
     Column {
-        Text("Administrative Actions", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall)
+        Text(stringResource(R.string.ui_administrative_actions), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall)
         Spacer(Modifier.height(12.dp))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             if (track.isFlaggedForReview) {
                 Button(onClick = onUnflag, modifier = Modifier.weight(1f), shape = RoundedCornerShape(8.dp)) {
-                    Text("Unflag Member")
+                    Text(stringResource(R.string.ui_unflag_member))
                 }
             } else {
                 OutlinedButton(onClick = onFlag, modifier = Modifier.weight(1f), shape = RoundedCornerShape(8.dp)) {
-                    Text("Flag for Review")
+                    Text(stringResource(R.string.ui_flag_for_review))
                 }
             }
 
@@ -287,7 +292,7 @@ private fun AdminActionSection(
                     shape = RoundedCornerShape(8.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = Navy)
                 ) {
-                    Text("Unsuspend")
+                    Text(stringResource(R.string.ui_unsuspend))
                 }
             } else {
                 Button(
@@ -296,7 +301,7 @@ private fun AdminActionSection(
                     shape = RoundedCornerShape(8.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
                 ) {
-                    Text("Suspend")
+                    Text(stringResource(R.string.ui_suspend))
                 }
             }
         }

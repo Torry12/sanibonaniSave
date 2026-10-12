@@ -20,11 +20,23 @@ class SyncTriggerServiceImpl @Inject constructor(
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val tag = "SyncTriggerService"
 
+    override fun start() {
+        AppLogger.i(tag, "SyncTriggerService started. Listening for refresh events.")
+    }
+
     override suspend fun handle(event: DomainEvent) {
         if (event is PillarRefreshRequestedEvent) {
-            AppLogger.i(tag, "Manual refresh requested for pillar: ${event.pillar} (Group: ${event.groupId})")
+            AppLogger.i(tag, "Manual refresh requested for pillar: ${event.pillar} (Group: ${event.groupId ?: "GLOBAL"})")
             scope.launch {
-                syncRepo.syncRefresh(event.pillar, event.groupId)
+                val groupId = event.groupId
+                if (groupId != null) {
+                    syncRepo.syncRefresh(event.pillar, groupId)
+                } else {
+                    // Global pillar refresh (not tied to a specific group)
+                    // Currently, syncRefresh handles mostly group-based data.
+                    // For Global, we might want to sync platform settings or similar.
+                    syncRepo.syncAllData()
+                }
             }
         }
     }

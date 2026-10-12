@@ -17,12 +17,37 @@ BEGIN
     -- 1. Setup Environment
     SELECT id INTO v_admin_id FROM auth.users LIMIT 1;
 
-    INSERT INTO public.groups (name, type, balance, admin_user_id, registration_paid)
-    VALUES (v_group_name, 'stokvel', 10000.00, v_admin_id, TRUE) RETURNING id INTO v_group_id;
+    INSERT INTO public.groups (
+        name, type, balance, admin_user_id, registration_paid,
+        province, city, township, latitude, longitude
+    )
+    VALUES (
+        v_group_name, 'stokvel', 0.00, v_admin_id, TRUE,
+        'Gauteng', 'Johannesburg', 'Soweto', -26.2361, 27.8583
+    ) RETURNING id INTO v_group_id;
 
-    INSERT INTO public.members (group_id, full_name, status, joined_at, total_paid, member_key)
-    VALUES (v_group_id, 'Test Borrower', 'active', now() - interval '180 days', v_initial_savings, 'SIM-EXTRACT-' || v_group_id)
+    -- Authoritative Liquidity Injection
+    PERFORM public.increment_group_balance(
+        v_group_id, 10000.00,
+        'Initial System Liquidity',
+        'adjustment',
+        'INIT-LIQ-' || v_group_id
+    );
+
+    INSERT INTO public.members (group_id, full_name, status, joined_at, member_key)
+    VALUES (v_group_id, 'Test Borrower', 'active', now() - interval '180 days', 'SIM-EXTRACT-' || v_group_id)
     RETURNING id INTO v_member_id;
+
+    -- Record Initial Savings as a contribution to satisfy trigger-based total_paid
+    PERFORM public.record_contribution_v2(
+        v_member_id, v_group_id, v_initial_savings,
+        (now() - interval '180 days')::date,
+        now() - interval '179 days',
+        'paid',
+        'INIT-SAVINGS-' || v_member_id,
+        'contribution',
+        'Initial Savings Principal'
+    );
 
     -- 2. Create Expired Loan (4 months old)
     INSERT INTO public.loans (

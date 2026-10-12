@@ -31,18 +31,22 @@ import com.sanibonani.save.domain.model.BankTransaction
 import com.sanibonani.save.domain.model.LedgerEntry
 import com.sanibonani.save.domain.model.ReconciliationStatus
 import com.sanibonani.save.ui.components.*
+import com.sanibonani.save.ui.components.*
 import com.sanibonani.save.ui.theme.*
 import com.sanibonani.save.ui.utils.formatZAR
 import com.sanibonani.save.ui.utils.formatDate
 import com.sanibonani.save.features.admin.presentation.AdminFinancialViewModel
 import com.sanibonani.save.features.admin.presentation.state.AdminFinancialUiState
+import com.sanibonani.save.ui.components.DetailRow
+import com.sanibonani.save.ui.components.SanibonaniButton
+import com.sanibonani.save.ui.components.SanibonaniSectionHeader
+import com.sanibonani.save.ui.components.SanibonaniTextField
 
 @OptIn(ExperimentalMaterial3AdaptiveApi::class)
 @Composable
 fun LedgerTab(
     state: AdminFinancialUiState,
-    vm: AdminFinancialViewModel? = null,
-    windowSizeClass: WindowSizeClass
+    vm: AdminFinancialViewModel? = null
 ) {
     val navigator = rememberListDetailPaneScaffoldNavigator<LedgerEntry>()
     var selectedLedgerEntry by remember { mutableStateOf<LedgerEntry?>(null) }
@@ -115,7 +119,8 @@ fun LedgerListSection(
                         onClick = { vm.performReconciliation() },
                         isLoading = state.isReconciling,
                         containerColor = Navy,
-                        modifier = Modifier.width(110.dp)
+                        contentColor = Color.White,
+                        modifier = Modifier.width(110.dp).height(38.dp)
                     )
 
                     IconButton(onClick = { vm.downloadGroupStatement() }) {
@@ -172,7 +177,7 @@ fun LedgerListSection(
                 title = stringResource(R.string.ui_no_transactions),
                 description = stringResource(R.string.ui_once_payments_start_they_will_be_logged_h),
                 actionLabel = "Refresh",
-                onAction = { vm?.consolidateLedger() }
+                onAction = { vm?.refreshBankData() }
             )
         } else {
             LazyColumn(
@@ -199,16 +204,27 @@ fun LedgerListSection(
                     Text("Select a corresponding ledger entry to link this transaction.", style = MaterialTheme.typography.bodySmall)
 
                     LazyColumn(Modifier.heightIn(max = 300.dp)) {
-                        val candidates = state.ledger.asSequence().filter { it.amount.abs() == tx.amount.abs() }.toList()
-                        items(candidates) { entry ->
-                            ListItem(
-                                headlineContent = { Text(entry.description) },
-                                supportingContent = { Text("${formatDate(entry.createdAt)} • ${formatZAR(entry.amount)}") },
-                                modifier = Modifier.clickable {
-                                    vm?.reconcileManual(tx.id!!, entry.id!!)
-                                    selectedBankTx = null
-                                }
-                            )
+                        val candidates = state.ledger.filter { it.amount.abs() == tx.amount.abs() }
+                        if (candidates.isEmpty()) {
+                            item {
+                                Text(
+                                    text = "No ledger entries match this transaction amount. Please check the ledger or ignore this transaction if it's a duplicate.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.padding(vertical = 16.dp)
+                                )
+                            }
+                        } else {
+                            items(candidates) { entry ->
+                                ListItem(
+                                    headlineContent = { Text(entry.description) },
+                                    supportingContent = { Text("${formatDate(entry.createdAt)} • ${formatZAR(entry.amount)}") },
+                                    modifier = Modifier.clickable {
+                                        vm?.reconcileManual(tx.id!!, entry.id!!)
+                                        selectedBankTx = null
+                                    }
+                                )
+                            }
                         }
                     }
                 }
@@ -311,17 +327,9 @@ fun LedgerDetailSection(entry: LedgerEntry) {
         DetailRow("Description", entry.description)
         DetailRow("Category", entry.category.uppercase())
         DetailRow("Amount", formatZAR(entry.amount))
-        DetailRow("Balance After", formatZAR(entry.balanceAfter ?: com.sanibonani.save.domain.model.Money.ZERO))
+        DetailRow("Balance After", formatZAR(entry.balanceAfter))
         DetailRow("Date", formatDate(entry.createdAt))
         DetailRow("Platform Transaction", if (entry.isPlatform) "Yes" else "No")
-    }
-}
-
-@Composable
-fun DetailRow(label: String, value: String) {
-    Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-        Text(label, style = MaterialTheme.typography.bodyMedium, color = Color.Gray)
-        Text(value, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold)
     }
 }
 

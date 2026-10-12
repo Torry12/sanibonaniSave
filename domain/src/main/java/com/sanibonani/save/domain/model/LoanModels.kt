@@ -56,7 +56,7 @@ data class Loan(
     @SerialName("created_at")     val createdAt: String? = null
 ) : Parcelable {
     val balanceRemaining: Money get() = (totalToRepay - totalRepaid).let { if (it.isNegative) Money.ZERO else it }
-    val progress: Float get() = if (totalToRepay.isPositive) (totalRepaid.toDouble() / totalToRepay.toDouble()).toFloat() else 0f
+    val progress: Float get() = if (totalToRepay.isPositive) (totalRepaid.ratio(totalToRepay)).toFloat() else 0f
 }
 
 @Serializable
@@ -68,7 +68,8 @@ enum class LoanStatus(val displayName: String) {
     @SerialName("completed") COMPLETED("Completed"),
     @SerialName("rejected")  REJECTED("Rejected"),
     @SerialName("overdue")   OVERDUE("Overdue"),
-    @SerialName("cancelled") CANCELLED("Cancelled")
+    @SerialName("cancelled") CANCELLED("Cancelled"),
+    @SerialName("defaulted") DEFAULTED("Defaulted")
 }
 
 @Serializable

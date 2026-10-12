@@ -30,9 +30,12 @@ import com.sanibonani.save.R
 import com.sanibonani.save.domain.utils.PaymentCalculation
 import com.sanibonani.save.domain.model.Member
 import com.sanibonani.save.domain.model.MemberStatus
-import com.sanibonani.save.ui.components.EmptyState
-import com.sanibonani.save.ui.components.OfflineBanner
-import com.sanibonani.save.ui.components.SanibonaniSectionHeader
+import com.sanibonani.save.ui.components.*
+import com.sanibonani.save.ui.components.*
+import com.sanibonani.save.ui.components.*
+import com.sanibonani.save.ui.components.*
+import com.sanibonani.save.ui.components.*
+import com.sanibonani.save.ui.components.*
 import com.sanibonani.save.ui.theme.*
 import com.sanibonani.save.features.admin.presentation.state.AdminMemberUiState
 
@@ -82,14 +85,14 @@ fun MemberListSection(
 ) {
     var searchQuery by remember { mutableStateOf("") }
     val filteredMembers = state.members.filter {
-        it.fullName.contains(searchQuery, ignoreCase = true) || it.idNumber?.contains(searchQuery) == true
+        it.fullName.contains(searchQuery, ignoreCase = true) || (it.idNumber?.contains(searchQuery) == true)
     }
 
     val membersCountDiscrepancy = (state.group?.currentMembers ?: 0) != state.members.size
 
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         if (membersCountDiscrepancy && state.members.isEmpty()) {
-             OfflineBanner(message = "⚠️ Member list may be out of sync. Try refreshing.")
+             OfflineBanner(isOnline = false, message = "⚠️ Member list may be out of sync. Try refreshing.")
         }
 
         SanibonaniSectionHeader(

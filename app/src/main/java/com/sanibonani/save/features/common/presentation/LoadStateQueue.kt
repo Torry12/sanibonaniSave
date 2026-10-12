@@ -29,14 +29,6 @@ class LoadStateQueue @Inject constructor() {
     fun failStep(key: String, error: String) {
         _steps.update { it + (key to StepStatus.Error(error)) }
     }
-
-    fun isStepComplete(key: String): Boolean {
-        return _steps.value[key] == StepStatus.Success
-    }
-
-    fun canProceed(requiredSteps: List<String>): Boolean {
-        return requiredSteps.all { isStepComplete(it) }
-    }
 }
 
 sealed interface StepStatus {

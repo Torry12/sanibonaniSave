@@ -1,7 +1,6 @@
 package com.sanibonani.save.features.admin.presentation.state
 
 import com.sanibonani.save.domain.model.*
-import com.sanibonani.save.domain.usecase.groups.GetGroupBusinessInsightsUseCase
 
 data class AdminOverviewUiState(
     val groupContext: AsyncResult<AdminGroupContext> = AsyncResult.Uninitialized,
@@ -9,7 +8,7 @@ data class AdminOverviewUiState(
     val members: List<Member> = emptyList(),
     val managedGroups: AsyncResult<List<Group>> = AsyncResult.Uninitialized,
     val metrics: ActuarialMetrics = ActuarialMetrics(),
-    val businessInsight: GetGroupBusinessInsightsUseCase.GroupBusinessInsight = GetGroupBusinessInsightsUseCase.GroupBusinessInsight.Empty,
+    val businessInsight: Result<GroupFinancialInsight>? = null,
     val healthScore: GroupHealthScore? = null,
     val feeStatus: AdminFeeState = AdminFeeState.DUE,
     val daysOverdue: Int = 0,
@@ -29,13 +28,31 @@ data class AdminOverviewUiState(
     val isSendingMessage: Boolean = false,
     val messageSentSuccess: Boolean = false,
     val selectedNotifChannel: NotifChannel = NotifChannel.BOTH,
-    val syncMetrics: Map<String, com.sanibonani.save.data.sync.RealtimeSyncManager.SyncStatus> = emptyMap(),
+    val syncMetrics: Map<String, RealtimeSyncStatus> = emptyMap(),
     val isSupportMode: Boolean = false,
     val isImpersonationBannerDismissed: Boolean = false,
     val currentUserId: String? = null,
     val groupAuditReport: AsyncResult<GroupAuditReport> = AsyncResult.Uninitialized,
-    val isLoadingAuditReport: Boolean = false
-)
+    val isLoadingAuditReport: Boolean = false,
+    val platformRegistrationFee: Money = Money.ZERO,
+    val outstandingPlatformFees: List<PlatformFee> = emptyList(),
+    val isPayingPlatformFee: Boolean = false,
+    val platformBankDetails: PlatformConfig = PlatformConfig()
+) {
+    fun clearGroupContext() = copy(
+        group = null,
+        members = emptyList(),
+        metrics = ActuarialMetrics(),
+        businessInsight = null,
+        healthScore = null,
+        notifications = emptyList(),
+        memberMessages = emptyList(),
+        groupContext = AsyncResult.Uninitialized,
+        isLoading = true,
+        error = null,
+        groupAuditReport = AsyncResult.Uninitialized
+    )
+}
 
 data class AdminGroupContext(
     val group: Group,

@@ -7,10 +7,13 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.MedicalServices
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -19,13 +22,15 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.sanibonani.save.R
 import com.sanibonani.save.domain.model.*
 import com.sanibonani.save.ui.components.*
+import com.sanibonani.save.ui.components.*
 import com.sanibonani.save.ui.theme.ErrorRed
 import com.sanibonani.save.ui.theme.Navy
+import com.sanibonani.save.ui.theme.SuccessGreen
 import com.sanibonani.save.ui.utils.ToastUtils
 import com.sanibonani.save.features.member.ui.BeneficiaryItem
 import com.sanibonani.save.features.member.ui.ClaimBeneficiaryDialog
 import com.sanibonani.save.features.member.ui.AddBeneficiaryDialog
-import com.sanibonani.save.viewmodel.disbursement.MemberBeneficiaryViewModel
+import com.sanibonani.save.features.member.presentation.MemberBeneficiaryViewModel
 
 @Composable
 fun MemberBeneficiaryTab(
@@ -41,18 +46,17 @@ fun MemberBeneficiaryTab(
     val isBurial = group?.type == GroupType.BURIAL_SOCIETY
     val limit = group?.maxBeneficiaries ?: 0
     val count = beneficiaries.size
-    Column(Modifier.fillMaxSize()) {
-        Column(Modifier.padding(horizontal = 20.dp, vertical = 16.dp)) {
-            SanibonaniSectionHeader(
-                title = "Beneficiaries & Dependents",
-                subtitle = if (isBurial) {
-                    if (limit <= 0) "Manage covered individuals ($count added)"
-                    else "$count of $limit slots used"
-                } else "Manage covered individuals"
-            )
 
-            Spacer(Modifier.height(12.dp))
+    LazyColumn(
+        Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(20.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        item {
+            BeneficiaryContextCard(group, count, limit)
+        }
 
+        item {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -88,49 +92,117 @@ fun MemberBeneficiaryTab(
             }
         }
 
-        LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            if (beneficiaries.isEmpty()) {
-                item {
-                    EmptyState(
-                        icon = "👥",
-                        title = "No Beneficiaries",
-                        description = "Add your dependents and loved ones to ensure they are covered by the group.",
-                        actionLabel = "Add First Dependent",
-                        onAction = { showAddDialog = true }
-                    )
-                }
-            } else {
-                items(items = beneficiaries) { b: Beneficiary ->
-                    var showEdit by remember { mutableStateOf(false) }
-                    var showClaim by remember { mutableStateOf(false) }
-                    BeneficiaryItem(
+        item {
+            SanibonaniSectionHeader(
+                title = if (isBurial) "Covered Dependents" else "Beneficiaries",
+                subtitle = "Manage individuals assigned to your account"
+            )
+        }
+
+        if (beneficiaries.isEmpty()) {
+            item {
+                EmptyState(
+                    icon = "👥",
+                    title = "No Beneficiaries",
+                    description = if (isBurial) "Add your dependents and loved ones to ensure they are covered by the group." else "Add beneficiaries to ensure your savings are distributed according to your wishes.",
+                    actionLabel = "Add First Dependent",
+                    onAction = { showAddDialog = true }
+                )
+            }
+        } else {
+            items(items = beneficiaries) { b: Beneficiary ->
+                var showEdit by remember { mutableStateOf(false) }
+                var showClaim by remember { mutableStateOf(false) }
+                BeneficiaryItem(
+                    beneficiary = b,
+                    isBurial = isBurial,
+                    onEdit = { showEdit = true },
+                    onDelete = { /* vm.deleteBeneficiary(it) */ },
+                    onUpload = { bytes, name -> b.id?.let { vm.uploadBeneficiaryDocument(it, bytes, name) } },
+                    onClaim = { showClaim = true },
+                    onDownload = { url, label ->
+                        val headers = emptyMap<String, String>()
+                        val ext = url.substringAfterLast(".", "pdf").substringBefore("?")
+                        val fileName = "Beneficiary_ID_${label.replace(" ", "_")}_${System.currentTimeMillis()}.$ext"
+                        onFileAction(url, fileName, headers)
+                    }
+                )
+                if (showEdit) AddBeneficiaryDialog(b, { showEdit = false }, { n, id, r, d, i -> /* b.id?.let { vm.updateBeneficiary(it, n, id, r, d, i) } */; showEdit = false })
+                if (showClaim) {
+                    ClaimBeneficiaryDialog(
                         beneficiary = b,
-                        isBurial = isBurial,
-                        onEdit = { showEdit = true },
-                        onDelete = { /* vm.deleteBeneficiary(it) */ },
-                        onUpload = { bytes, name -> /* b.id?.let { vm.uploadBeneficiaryDocument(it, bytes, name) } */ },
-                        onClaim = { showClaim = true },
-                        onDownload = { url, label ->
-                            val headers = emptyMap<String, String>()
-                            val ext = url.substringAfterLast(".", "pdf").substringBefore("?")
-                            val fileName = "Beneficiary_ID_${label.replace(" ", "_")}_${System.currentTimeMillis()}.$ext"
-                            onFileAction(url, fileName, headers)
+                        vm = vm,
+                        onDismiss = {
+                            showClaim = false
+                            vm.clearClaimState()
                         }
                     )
-                    if (showEdit) AddBeneficiaryDialog(b, { showEdit = false }, { n, id, r, d, i -> /* b.id?.let { vm.updateBeneficiary(it, n, id, r, d, i) } */; showEdit = false })
-                    if (showClaim) {
-                        ClaimBeneficiaryDialog(
-                            beneficiary = b,
-                            vm = vm,
-                            onDismiss = {
-                                showClaim = false
-                                vm.clearClaimState()
-                            }
-                        )
-                    }
                 }
             }
         }
+
+        item { Spacer(Modifier.height(80.dp)) }
     }
+
     if (showAddDialog) AddBeneficiaryDialog(null, { showAddDialog = false }, { n, id, r, d, i -> vm.addBeneficiary(n, id, r, d, i); showAddDialog = false })
+}
+
+@Composable
+fun BeneficiaryContextCard(group: Group?, count: Int, limit: Int) {
+    val isBurial = group?.type == GroupType.BURIAL_SOCIETY
+
+    Card(
+        colors = CardDefaults.cardColors(
+            containerColor = (if (isBurial) SuccessGreen else Navy).copy(alpha = 0.05f)
+        ),
+        border = BorderStroke(1.dp, (if (isBurial) SuccessGreen else Navy).copy(alpha = 0.1f))
+    ) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Default.Info,
+                    contentDescription = null,
+                    tint = if (isBurial) SuccessGreen else Navy,
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(Modifier.width(12.dp))
+                Text(
+                    text = if (isBurial) "Burial Coverage Status" else "Estate Planning",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = if (isBurial) SuccessGreen else Navy
+                )
+            }
+
+            Text(
+                text = when (group?.type) {
+                    GroupType.BURIAL_SOCIETY -> "Your membership covers up to $limit dependents. Ensure all details are correct for immediate claim processing."
+                    GroupType.INVESTMENT_CLUB, GroupType.STOKVEL -> "Registered beneficiaries will receive your accumulated savings in the event of your passing."
+                    else -> "Manage individuals who are authorized to act on your behalf or receive payouts."
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            if (isBurial && limit > 0) {
+                Spacer(Modifier.height(4.dp))
+                LinearProgressIndicator(
+                    progress = { count.toFloat() / limit.toFloat() },
+                    modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)),
+                    color = if (count >= limit) ErrorRed else SuccessGreen,
+                    trackColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
+                )
+                Text(
+                    text = when {
+                        count >= limit -> "Maximum slots reached — cannot add more."
+                        count == 0 -> "No dependents added yet."
+                        else -> "$count of $limit slots used"
+                    },
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = if (count >= limit) ErrorRed else MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+    }
 }

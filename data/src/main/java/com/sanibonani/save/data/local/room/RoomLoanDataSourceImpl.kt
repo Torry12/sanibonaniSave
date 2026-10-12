@@ -22,6 +22,9 @@ class RoomLoanDataSourceImpl @Inject constructor(
     override fun observeGroupLoans(groupId: String): Flow<List<Loan>> =
         loanDao.observeGroupLoans(groupId).map { list -> list.map { it.toModel() } }
 
+    override suspend fun getLoanById(loanId: String): Loan? =
+        loanDao.getLoanById(loanId)?.toModel()
+
     override suspend fun saveLoans(loans: List<Loan>) {
         loanDao.upsertLoans(loans.map { it.toEntity() })
     }

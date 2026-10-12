@@ -7,7 +7,8 @@ import kotlin.math.abs
 data class ViabilityFactorUi(
     val key: String,
     val label: String,
-    val value: Double
+    val value: String,
+    val numericValue: Double? = null
 )
 
 data class ViabilityPanelUi(
@@ -48,7 +49,7 @@ fun ViabilityPlan.toViabilityFactors(
     if (includeNeutral) return factors
 
     return factors.filter { factor ->
-        factor.key == "active_member_ratio" || abs(factor.value - 1.0) > 0.0001
+        factor.key == "active_member_ratio" || (factor.numericValue != null && abs(factor.numericValue - 1.0) > 0.0001)
     }
 }
 
@@ -61,7 +62,7 @@ fun ViabilityPlan.toViabilityPanels(
     return panelSpecsFor(groupType).mapNotNull { spec ->
         val scopedFactors = spec.factorKeys.mapNotNull { factorByKey[it] }
             .filter { factor ->
-                includeNeutral || factor.key == "active_member_ratio" || abs(factor.value - 1.0) > 0.0001
+                includeNeutral || factor.key == "active_member_ratio" || (factor.numericValue != null && abs(factor.numericValue - 1.0) > 0.0001)
             }
 
         if (scopedFactors.isEmpty()) {
@@ -79,24 +80,30 @@ fun ViabilityPlan.toViabilityPanels(
 
 private fun ViabilityPlan.allFactors(): List<ViabilityFactorUi> {
     return listOf(
-        ViabilityFactorUi("active_member_ratio", "Active Member Ratio", activeMemberRatio),
-        ViabilityFactorUi("inflation_adjustment_factor", "Inflation Adjustment", inflationAdjustmentFactor),
-        ViabilityFactorUi("projection_retention_factor", "Projection Retention", projectionRetentionFactor),
-        ViabilityFactorUi("claim_readiness_factor", "Claim Readiness", claimReadinessFactor),
-        ViabilityFactorUi("mortality_buffer_factor", "Mortality Buffer", mortalityBufferFactor),
-        ViabilityFactorUi("reserve_adequacy_factor", "Reserve Adequacy", reserveAdequacyFactor),
-        ViabilityFactorUi("market_return_premium_factor", "Market Return Premium", marketReturnPremiumFactor),
-        ViabilityFactorUi("volatility_haircut_factor", "Volatility Haircut", volatilityHaircutFactor),
-        ViabilityFactorUi("collection_efficiency_factor", "Collection Efficiency", collectionEfficiencyFactor),
-        ViabilityFactorUi("festive_payout_pressure_factor", "Festive Payout Pressure", festivePayoutPressureFactor),
-        ViabilityFactorUi("default_risk_factor", "Default Risk", defaultRiskFactor),
-        ViabilityFactorUi("cycle_slippage_factor", "Cycle Slippage", cycleSlippageFactor),
-        ViabilityFactorUi("withdrawal_pressure_factor", "Withdrawal Pressure", withdrawalPressureFactor),
-        ViabilityFactorUi("inflation_safety_factor", "Inflation Safety", inflationSafetyFactor),
-        ViabilityFactorUi("survivor_uncertainty_factor", "Survivor Uncertainty", survivorUncertaintyFactor),
-        ViabilityFactorUi("horizon_compounding_factor", "Horizon Compounding", horizonCompoundingFactor),
-        ViabilityFactorUi("goal_stretch_ratio", "Goal Stretch Ratio", goalStretchRatio),
-        ViabilityFactorUi("growth_conservatism_factor", "Growth Conservatism", growthConservatismFactor)
+        ViabilityFactorUi("initial_contribution", "Initial Contribution", initialContribution.toPlainString()),
+        ViabilityFactorUi("suggested_monthly", "Suggested Monthly", suggestedMonthlyContribution.toPlainString()),
+        ViabilityFactorUi("projected_value", "Projected Value", projectedValue.toPlainString()),
+        ViabilityFactorUi("required_monthly", "Required Monthly", requiredMonthlyToMeetGoal.toPlainString()),
+        ViabilityFactorUi("shortfall_amount", "Shortfall Amount", shortfallAmount.toPlainString()),
+        ViabilityFactorUi("break_even_months", "Break Even Months", breakEvenMonths.toString(), breakEvenMonths.toDouble()),
+        ViabilityFactorUi("active_member_ratio", "Active Member Ratio", activeMemberRatio.toString(), activeMemberRatio),
+        ViabilityFactorUi("inflation_adjustment_factor", "Inflation Adjustment", inflationAdjustmentFactor.toString(), inflationAdjustmentFactor),
+        ViabilityFactorUi("projection_retention_factor", "Projection Retention", projectionRetentionFactor.toString(), projectionRetentionFactor),
+        ViabilityFactorUi("claim_readiness_factor", "Claim Readiness", claimReadinessFactor.toString(), claimReadinessFactor),
+        ViabilityFactorUi("mortality_buffer_factor", "Mortality Buffer", mortalityBufferFactor.toString(), mortalityBufferFactor),
+        ViabilityFactorUi("reserve_adequacy_factor", "Reserve Adequacy", reserveAdequacyFactor.toString(), reserveAdequacyFactor),
+        ViabilityFactorUi("market_return_premium_factor", "Market Return Premium", marketReturnPremiumFactor.toString(), marketReturnPremiumFactor),
+        ViabilityFactorUi("volatility_haircut_factor", "Volatility Haircut", volatilityHaircutFactor.toString(), volatilityHaircutFactor),
+        ViabilityFactorUi("collection_efficiency_factor", "Collection Efficiency", collectionEfficiencyFactor.toString(), collectionEfficiencyFactor),
+        ViabilityFactorUi("festive_payout_pressure_factor", "Festive Payout Pressure", festivePayoutPressureFactor.toString(), festivePayoutPressureFactor),
+        ViabilityFactorUi("default_risk_factor", "Default Risk", defaultRiskFactor.toString(), defaultRiskFactor),
+        ViabilityFactorUi("cycle_slippage_factor", "Cycle Slippage", cycleSlippageFactor.toString(), cycleSlippageFactor),
+        ViabilityFactorUi("withdrawal_pressure_factor", "Withdrawal Pressure", withdrawalPressureFactor.toString(), withdrawalPressureFactor),
+        ViabilityFactorUi("inflation_safety_factor", "Inflation Safety", inflationSafetyFactor.toString(), inflationSafetyFactor),
+        ViabilityFactorUi("survivor_uncertainty_factor", "Survivor Uncertainty", survivorUncertaintyFactor.toString(), survivorUncertaintyFactor),
+        ViabilityFactorUi("horizon_compounding_factor", "Horizon Compounding", horizonCompoundingFactor.toString(), horizonCompoundingFactor),
+        ViabilityFactorUi("goal_stretch_ratio", "Goal Stretch Ratio", goalStretchRatio.toString(), goalStretchRatio),
+        ViabilityFactorUi("growth_conservatism_factor", "Growth Conservatism", growthConservatismFactor.toString(), growthConservatismFactor)
     )
 }
 
@@ -162,13 +169,13 @@ private fun panelSpecsFor(groupType: GroupType): List<ViabilityPanelSpec> {
                 "inflation_safety_factor"
             )
         )
-        GroupType.TONTINE -> ViabilityPanelSpec(
-            key = "tontine_survivor_projection",
-            title = "Survivor Projection",
-            subtitle = "Models survivor uncertainty and long-horizon accumulation effects.",
+        GroupType.HYBRID_SAVINGS_GROUP -> ViabilityPanelSpec(
+            key = "hybrid_multi_pot",
+            title = "Multi-Pot Allocation",
+            subtitle = "Manages separate virtual pots for savings, lending, social, and investment.",
             factorKeys = listOf(
-                "survivor_uncertainty_factor",
-                "horizon_compounding_factor"
+                "active_member_ratio",
+                "projection_retention_factor"
             )
         )
         GroupType.COMMUNITY_SAVINGS,
@@ -187,15 +194,22 @@ private fun panelSpecsFor(groupType: GroupType): List<ViabilityPanelSpec> {
 }
 
 fun ViabilityFactorUi.trend(epsilon: Double = 0.0001): ViabilityFactorTrend {
+    val v = numericValue ?: return ViabilityFactorTrend.NEUTRAL
     return when {
-        value > 1.0 + epsilon -> ViabilityFactorTrend.LIFT
-        value < 1.0 - epsilon -> ViabilityFactorTrend.HAIRCUT
+        v > 1.0 + epsilon -> ViabilityFactorTrend.LIFT
+        v < 1.0 - epsilon -> ViabilityFactorTrend.HAIRCUT
         else -> ViabilityFactorTrend.NEUTRAL
     }
 }
 
 fun ViabilityFactorUi.description(): String {
     return when (key) {
+        "initial_contribution" -> "The starting amount you contribute to initiate the savings pool."
+        "suggested_monthly" -> "The recommended monthly amount to reach your goal within the desired period."
+        "projected_value" -> "The estimated total value of the fund at the end of the term."
+        "required_monthly" -> "The absolute minimum monthly contribution needed to break even with your goal."
+        "shortfall_amount" -> "The gap between your current trajectory and the target goal."
+        "break_even_months" -> "How many months it will take for your contributions to equal your goal."
         "active_member_ratio" -> "Shows how many enrolled members are actively contributing to support the plan."
         "inflation_adjustment_factor" -> "Adjusts the target for inflation so the future goal keeps its purchasing power."
         "projection_retention_factor" -> "Reflects how much of projected savings is expected to remain after normal leakage or churn."

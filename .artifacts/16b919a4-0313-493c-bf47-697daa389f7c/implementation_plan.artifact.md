@@ -1,34 +1,43 @@
-# Fix Unit Test Failures
+# Refactor and Polish Implementation Plan
 
-The goal is to resolve the unit test failures across `:app`, `:data`, `:domain`, and `:simulation` modules.
+The goal is to clean up the codebase, extract hardcoded UI strings, and ensure consistent component usage across the application.
+
+## User Review Required
+
+> [!NOTE]
+> This task involves widespread non-breaking changes to UI code (extracting strings) and minor logic cleanup.
 
 ## Proposed Changes
 
-### [Domain Model]
+### [UI & Localization]
 
-#### [MODIFY] [Money.kt](file:///C:/Users/CRISS/AndroidStudioProjects/SanibonaniSave_Full/domain/src/main/java/com/sanibonani/save/domain/model/Money.kt)
-- Update `Money.ZERO` to have scale 2 to ensure consistent equality with other `Money` instances.
+#### [MODIFY] [strings.xml](file:///C:/Users/CRISS/AndroidStudioProjects/SanibonaniSave_Full/app/src/main/res/values/strings.xml)
+- Add missing strings for Platform Admin portal: "Financial Escalations", "Payout Requests", "High-Risk Watchlist", "Impersonate", "Summary", etc.
 
-### [UI/ViewModel]
+#### [MODIFY] [DisbursementsTab.kt](file:///C:/Users/CRISS/AndroidStudioProjects/SanibonaniSave_Full/app/src/main/java/com/sanibonani/save/features/admin/ui/tabs/platform/DisbursementsTab.kt)
+- Replace hardcoded strings with resource references.
+- Ensure consistent spacing and alignment.
 
-#### [MODIFY] [BehaviorTrackingViewModel.kt](file:///C:/Users/CRISS/AndroidStudioProjects/SanibonaniSave_Full/app/src/main/java/com/sanibonani/save/features/admin/presentation/BehaviorTrackingViewModel.kt)
-- Change `first()` to `firstOrNull()` when observing fraud events to prevent `NoSuchElementException` on empty flows.
+#### [MODIFY] [PlatformComponents.kt](file:///C:/Users/CRISS/AndroidStudioProjects/SanibonaniSave_Full/app/src/main/java/com/sanibonani/save/features/admin/ui/components/PlatformComponents.kt)
+- Standardize `StatusChip` internal logic.
+- Extract button labels and detail row headers.
 
-### [Data/Networking]
+### [Code Quality & Optimization]
 
-#### [MODIFY] [libs.versions.toml](file:///C:/Users/CRISS/AndroidStudioProjects/SanibonaniSave_Full/gradle/libs.versions.toml)
-- Verify and potentially adjust `ktor` and `okhttp` versions if they are causing `NoClassDefFoundError`. *Initial investigation suggests Ktor 3.5.0 might be incorrect; will try 3.0.0.*
+#### [MODIFY] [ActuarialConstants.kt](file:///C:/Users/CRISS/AndroidStudioProjects/SanibonaniSave_Full/domain/src/main/java/com/sanibonani/save/domain/usecase/admin/ActuarialConstants.kt) & [ActuarialMath.kt](file:///C:/Users/CRISS/AndroidStudioProjects/SanibonaniSave_Full/domain/src/main/java/com/sanibonani/save/domain/usecase/admin/ActuarialMath.kt)
+- Clean up unused imports and properties identified during the actuarial refactor.
 
-### [Simulation/Database]
+#### [MODIFY] [MemberComponents.kt](file:///C:/Users/CRISS/AndroidStudioProjects/SanibonaniSave_Full/app/src/main/java/com/sanibonani/save/features/member/ui/MemberComponents.kt)
+- Clean up unused imports.
 
-#### [MODIFY] [LiveSimulationRunner.kt](file:///C:/Users/CRISS/AndroidStudioProjects/SanibonaniSave_Full/simulation/src/main/java/com/sanibonani/save/simulation/LiveSimulationRunner.kt) (and related)
-- Fix the `IllegalStateException` in JVM tests by providing a custom `SessionManager` for Supabase Auth that doesn't depend on Android context.
-- Investigate foreign key violation in simulation.
+#### [MODIFY] [BaseViewModel.kt](file:///C:/Users/CRISS/AndroidStudioProjects/SanibonaniSave_Full/app/src/main/java/com/sanibonani/save/features/common/presentation/BaseViewModel.kt)
+- Ensure consistent error handling propagation.
 
 ## Verification Plan
 
 ### Automated Tests
-- Run `:app:testDebugUnitTest`
-- Run `:data:testDebugUnitTest`
-- Run `:domain:testDebugUnitTest`
-- Run `:simulation:testDebugUnitTest`
+- Run `:app:testDebugUnitTest` to ensure UI refactors didn't break ViewModel state logic.
+
+### Manual Verification
+- Cold start the app to verify bootloader strings.
+- Navigate through all Platform Admin tabs to check for consistent styling and translated strings.

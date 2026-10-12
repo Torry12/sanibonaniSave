@@ -1,6 +1,7 @@
 package com.sanibonani.save.data.local
 
 import androidx.room.*
+import androidx.room.Transaction as RoomTransaction
 import com.sanibonani.save.domain.model.*
 import kotlinx.coroutines.flow.Flow
 
@@ -35,7 +36,7 @@ data class LoanEntity(
     @ColumnInfo(name = "amortization_type") val amortizationType: AmortizationType = AmortizationType.FLAT,
     @ColumnInfo(name = "effective_apr") val effectiveApr: Double? = null,
     @ColumnInfo(name = "created_at") val createdAt: String?,
-    @ColumnInfo(name = "updated_at") val updatedAt: Long = System.currentTimeMillis(),
+    @ColumnInfo(name = "updated_at") val updatedAt: String? = null,
 )
 
 @Entity(
@@ -56,7 +57,7 @@ data class LoanRepaymentEntity(
     @ColumnInfo(name = "payment_method") val paymentMethod: PaymentMethod,
     @ColumnInfo(name = "transaction_id") val transactionId: String?,
     @ColumnInfo(name = "created_at") val createdAt: String?,
-    @ColumnInfo(name = "updated_at") val updatedAt: Long = System.currentTimeMillis(),
+    @ColumnInfo(name = "updated_at") val updatedAt: String? = null,
 )
 
 @Dao
@@ -85,7 +86,7 @@ interface LoanDao {
     @Query("DELETE FROM loans")
     suspend fun clearAllLoans()
 
-    @androidx.room.Transaction
+    @RoomTransaction
     suspend fun syncGroupLoans(groupId: String, loans: List<LoanEntity>) {
         val current = getGroupLoans(groupId).map { it.id }.toSet()
         val incoming = loans.map { it.id }.toSet()
@@ -108,6 +109,85 @@ interface LoanDao {
     @Query("DELETE FROM loan_repayments WHERE loan_id = :loanId")
     suspend fun deleteRepaymentsByLoanId(loanId: String)
 
+    @Query("DELETE FROM loan_repayments WHERE id = :id")
+    suspend fun deleteRepaymentById(id: String)
+
     @Query("DELETE FROM loan_repayments")
     suspend fun clearAllRepayments()
 }
+
+// ── Mappers ──────────────────────────────────────────────────────────────────
+
+fun LoanEntity.toModel() = Loan(
+    id = id,
+    memberId = memberId,
+    groupId = groupId,
+    amount = amount,
+    interestRate = interestRate,
+    totalToRepay = totalToRepay,
+    totalRepaid = totalRepaid,
+    monthlyRepayment = monthlyRepayment,
+    startDate = startDate,
+    endDate = endDate,
+    nextPaymentDate = nextPaymentDate,
+    status = status,
+    purpose = purpose,
+    contractUrl = contractUrl,
+    suretyAmount = suretyAmount,
+    reviewedBy = reviewedBy,
+    reviewedAt = reviewedAt,
+    adminNotes = adminNotes,
+    rejectionReason = rejectionReason,
+    amortizationType = amortizationType,
+    effectiveApr = effectiveApr,
+    createdAt = createdAt
+)
+
+fun Loan.toEntity() = LoanEntity(
+    id = id ?: java.util.UUID.randomUUID().toString(),
+    memberId = memberId,
+    groupId = groupId,
+    amount = amount,
+    interestRate = interestRate,
+    totalToRepay = totalToRepay,
+    totalRepaid = totalRepaid,
+    monthlyRepayment = monthlyRepayment,
+    startDate = startDate,
+    endDate = endDate,
+    nextPaymentDate = nextPaymentDate,
+    status = status,
+    purpose = purpose,
+    contractUrl = contractUrl,
+    suretyAmount = suretyAmount,
+    reviewedBy = reviewedBy,
+    reviewedAt = reviewedAt,
+    adminNotes = adminNotes,
+    rejectionReason = rejectionReason,
+    amortizationType = amortizationType,
+    effectiveApr = effectiveApr,
+    createdAt = createdAt
+)
+
+fun LoanRepaymentEntity.toModel() = LoanRepayment(
+    id = id,
+    loanId = loanId,
+    memberId = memberId,
+    groupId = groupId,
+    amount = amount,
+    paidAt = paidAt,
+    paymentMethod = paymentMethod,
+    transactionId = transactionId,
+    createdAt = createdAt
+)
+
+fun LoanRepayment.toEntity() = LoanRepaymentEntity(
+    id = id ?: java.util.UUID.randomUUID().toString(),
+    loanId = loanId,
+    memberId = memberId,
+    groupId = groupId,
+    amount = amount,
+    paidAt = paidAt,
+    paymentMethod = paymentMethod,
+    transactionId = transactionId,
+    createdAt = createdAt
+)

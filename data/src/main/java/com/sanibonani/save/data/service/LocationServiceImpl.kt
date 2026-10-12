@@ -1,11 +1,10 @@
 package com.sanibonani.save.data.service
 
-import com.sanibonani.save.data.logging.AppLogger
 import com.sanibonani.save.data.remote.GeoapifyService
-import com.sanibonani.save.data.utils.LocationUtils
 import com.sanibonani.save.domain.service.GeocodedCoordinates
 import com.sanibonani.save.domain.service.LocationAddress
 import com.sanibonani.save.domain.service.LocationService
+import com.sanibonani.save.domain.utils.LocationUtils
 import javax.inject.Inject
 import javax.inject.Named
 
@@ -33,7 +32,7 @@ class LocationServiceImpl @Inject constructor(
         val address = listOfNotNull(township, city, province)
             .filter { it.isNotBlank() }
             .joinToString(", ")
-        
+
         if (address.isBlank()) throw IllegalArgumentException("Address components are empty")
 
         val response = geoapifyService.autocomplete("$address, South Africa", apiKey)

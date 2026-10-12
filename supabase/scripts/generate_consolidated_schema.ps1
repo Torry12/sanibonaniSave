@@ -19,8 +19,8 @@ Always review the generated SQL before running in production and backup your DB.
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$root = Resolve-Path "..\.."  # script is in supabase/scripts
-$repoRoot = $root.Path
+$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
+$repoRoot = (Get-Item $scriptDir).Parent.Parent.FullName
 Write-Output "Repository root: $repoRoot"
 
 $dst = Join-Path $repoRoot "supabase\CONSOLIDATED_SCHEMA_FOR_DASHBOARD.sql"
@@ -32,38 +32,27 @@ if (Test-Path $dst) {
 
 Write-Output "Creating consolidated SQL: $dst"
 
-# 1) Base consolidated schema
-$base = Join-Path $repoRoot "supabase\01_DATABASE_SCHEMA.sql"
+# 1) Base ground zero schema
+$base = Join-Path $repoRoot "supabase\migrations\00000000000000_GROUND_ZERO.sql"
+if (-not (Test-Path $base)) {
+    $base = Join-Path $repoRoot "supabase\01_DATABASE_SCHEMA.sql"
+}
 if (-not (Test-Path $base)) { throw "Base schema not found: $base" }
 Get-Content $base | Add-Content $dst
 
-# 2) Ordered migrations (skip initial_schema which duplicates base)
-$migrations = @(
-  '20260514000200_security_and_rls.sql',
-  '20260514000300_platform_admin_setup.sql',
-  '20260514000400_migrations_and_updates.sql',
-  '20260514000500_platform_admin_auth_alignment.sql',
-  '20260514000600_platform_admin_rls_hotfix.sql',
-  '20260514000700_add_rosca_rotation_method.sql',
-  '20260514000800_architecture_model_schema_templates.sql',
-  '20260514000900_align_validation_constraints_with_app.sql',
-  '20260515000000_consolidated_rls_alignment.sql',
-  '20260515000100_atomic_balance_updates.sql',
-  '20260515000200_disbursement_rpcs.sql',
-  '20260515000200_group_voting_and_multi_admin.sql',
-  '20260518000100_backfill_group_ledger_from_payments.sql',
-  '20260518000200_recompute_group_balances_from_ledger.sql'
+# 2) Additional SQL modules if present
+$additionalModules = @(
+  'supabase\online\01_ONLINE_SPECIFIC_SETUP.sql',
+  'supabase\30_STORAGE_RLS.sql'
 )
 
-foreach ($m in $migrations) {
-    $p = Join-Path $repoRoot (Join-Path 'supabase\migrations' $m)
+foreach ($m in $additionalModules) {
+    $p = Join-Path $repoRoot $m
     if (Test-Path $p) {
         "`n-- =====================================================================" | Add-Content $dst
-        ("-- Inlined migration: $m") | Add-Content $dst
+        ("-- Inlined module: $m") | Add-Content $dst
         "-- =====================================================================`n" | Add-Content $dst
         Get-Content $p | Add-Content $dst
-    } else {
-        Write-Warning "Migration not found: $p (skipping)"
     }
 }
 

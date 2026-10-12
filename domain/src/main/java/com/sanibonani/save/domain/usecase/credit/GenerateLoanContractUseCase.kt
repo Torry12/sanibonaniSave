@@ -1,12 +1,10 @@
 package com.sanibonani.save.domain.usecase.credit
-
 import com.sanibonani.save.domain.model.Group
 import com.sanibonani.save.domain.model.Loan
 import com.sanibonani.save.domain.model.Member
-import com.sanibonani.save.domain.repository.ExportRepository
+import com.sanibonani.save.domain.repository.system.ExportRepository
 import java.io.File
 import javax.inject.Inject
-
 class GenerateLoanContractUseCase @Inject constructor(
     private val exportRepo: ExportRepository
 ) {

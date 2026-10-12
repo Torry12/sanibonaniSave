@@ -5,6 +5,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
@@ -23,19 +24,22 @@ import androidx.compose.ui.unit.dp
 import com.sanibonani.save.R
 import com.sanibonani.save.domain.model.GroupType
 import com.sanibonani.save.domain.model.PlatformFeeConfig
+import com.sanibonani.save.ui.components.InfoType
+import com.sanibonani.save.ui.components.*
 import com.sanibonani.save.ui.components.*
 import com.sanibonani.save.ui.theme.*
 import com.sanibonani.save.features.admin.ui.components.AccordionHeader
 import com.sanibonani.save.features.admin.ui.components.HeaderWithIcon
-import com.sanibonani.save.features.admin.presentation.PlatformAdminViewModel
-import com.sanibonani.save.features.admin.presentation.state.PlatformAdminUiState
+import com.sanibonani.save.features.admin.presentation.PlatformFeeConfigViewModel
+import com.sanibonani.save.features.admin.presentation.state.PlatformFeeConfigUiState
 
 @Composable
 fun FeeManagementTab(
-    state: PlatformAdminUiState,
-    vm: PlatformAdminViewModel
+    state: PlatformFeeConfigUiState,
+    vm: PlatformFeeConfigViewModel
 ) {
     var globalSettingsExpanded by rememberSaveable { mutableStateOf(true) }
+    var bankSettingsExpanded by rememberSaveable { mutableStateOf(true) }
     var tieredFeesExpanded by rememberSaveable { mutableStateOf(true) }
 
     LazyColumn(
@@ -55,7 +59,7 @@ fun FeeManagementTab(
 
         if (globalSettingsExpanded) {
             item {
-                GlassCard(color = MaterialTheme.colorScheme.surface) {
+                GlassCard(accentColor = MaterialTheme.colorScheme.primary) {
                     Text(
                         stringResource(R.string.ui_configure_core_fees_and_operational_cons),
                         style = MaterialTheme.typography.bodySmall,
@@ -115,6 +119,46 @@ fun FeeManagementTab(
                     Spacer(Modifier.height(16.dp))
 
                     SanibonaniTextField(
+                        value = state.loanInterestRate,
+                        onValueChange = vm::updateLoanInterestRate,
+                        label = "Default Loan Interest Rate (%)",
+                        suffix = { Text("% p.a.", color = MaterialTheme.colorScheme.onSurface) },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal)
+                    )
+
+                    Spacer(Modifier.height(16.dp))
+
+                    SanibonaniTextField(
+                        value = state.loanProcessingFee,
+                        onValueChange = vm::updateLoanProcessingFee,
+                        label = "Platform Loan Processing Fee (Flat)",
+                        prefix = { Text("R", color = MaterialTheme.colorScheme.onSurface) },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal)
+                    )
+
+                    Spacer(Modifier.height(16.dp))
+
+                    SanibonaniTextField(
+                        value = state.groupSuspensionLiftingFee,
+                        onValueChange = vm::updateGroupSuspensionLiftingFee,
+                        label = "Group Suspension Lifting Fee (Flat)",
+                        prefix = { Text("R", color = MaterialTheme.colorScheme.onSurface) },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal)
+                    )
+
+                    Spacer(Modifier.height(16.dp))
+
+                    SanibonaniTextField(
+                        value = state.memberSuspensionLiftingFee,
+                        onValueChange = vm::updateMemberSuspensionLiftingFee,
+                        label = "Member Suspension Lifting Fee (Flat)",
+                        prefix = { Text("R", color = MaterialTheme.colorScheme.onSurface) },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal)
+                    )
+
+                    Spacer(Modifier.height(16.dp))
+
+                    SanibonaniTextField(
                         value = state.autoSuspensionDays,
                         onValueChange = vm::updateAutoSuspensionDays,
                         label = stringResource(R.string.ui_autosuspension_inactivity_threshold),
@@ -122,17 +166,83 @@ fun FeeManagementTab(
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
                     )
 
-                    Spacer(Modifier.height(32.dp))
+                    Spacer(Modifier.height(20.dp))
 
-                    SanibonaniButton(
-                        text = "Update Global Configuration",
-                        onClick = { vm.saveGlobalFees() },
-                        isLoading = state.isSaving,
-                        containerColor = SuccessGreen,
-                        contentColor = MaterialTheme.colorScheme.onPrimary
+                    OutlinedButton(
+                        onClick = vm::mapGlobalToGranularFees,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Map Global Fields to Group Tiers")
+                    }
+                }
+            }
+        }
+
+        item {
+            AccordionHeader(
+                title = "Platform Bank Account",
+                icon = Icons.Default.AccountCircle,
+                isExpanded = bankSettingsExpanded,
+                onClick = { bankSettingsExpanded = !bankSettingsExpanded },
+                count = 0
+            )
+        }
+
+        if (bankSettingsExpanded) {
+            item {
+                GlassCard(accentColor = MaterialTheme.colorScheme.secondary) {
+                    Text(
+                        "Set the central bank account for platform fee collections.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    Spacer(Modifier.height(24.dp))
+
+                    SanibonaniTextField(
+                        value = state.platformAccountHolder,
+                        onValueChange = vm::updatePlatformAccountHolder,
+                        label = "Account Holder"
+                    )
+
+                    Spacer(Modifier.height(16.dp))
+
+                    SanibonaniTextField(
+                        value = state.platformBankName,
+                        onValueChange = vm::updatePlatformBankName,
+                        label = "Bank Name"
+                    )
+
+                    Spacer(Modifier.height(16.dp))
+
+                    SanibonaniTextField(
+                        value = state.platformAccountNumber,
+                        onValueChange = vm::updatePlatformAccountNumber,
+                        label = "Account Number",
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                    )
+
+                    Spacer(Modifier.height(16.dp))
+
+                    SanibonaniTextField(
+                        value = state.platformBranchCode,
+                        onValueChange = vm::updatePlatformBranchCode,
+                        label = "Branch Code",
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
                     )
                 }
             }
+        }
+
+        item {
+            SanibonaniButton(
+                text = "Update Global Configuration",
+                onClick = { vm.saveGlobalFees() },
+                isLoading = state.isSaving,
+                containerColor = SuccessGreen,
+                contentColor = MaterialTheme.colorScheme.onPrimary,
+                modifier = Modifier.fillMaxWidth()
+            )
         }
 
         item {
@@ -141,49 +251,61 @@ fun FeeManagementTab(
                 icon = Icons.Default.Settings,
                 isExpanded = tieredFeesExpanded,
                 onClick = { tieredFeesExpanded = !tieredFeesExpanded },
-                count = 0
+                count = state.granularFees.size
             )
         }
 
         if (tieredFeesExpanded) {
-            items(items = state.granularFees) { config ->
+            items(
+                items = state.granularFees,
+                key = { "${it.groupType}-${it.roscaCycle}" }
+            ) { config ->
                 val title = if (config.groupType == GroupType.ROSCA) {
                     "ROSCA (${config.roscaCycle} Months)"
                 } else {
                     config.groupType.name.replace("_", " ").uppercase()
                 }
 
-                GlassCard(color = MaterialTheme.colorScheme.surface) {
+                val regKey = "${config.groupType}_${config.roscaCycle}_registration"
+                val monthlyKey = "${config.groupType}_${config.roscaCycle}_monthly"
+                val shortfallKey = "${config.groupType}_${config.roscaCycle}_shortfall"
+
+                val regValue = state.granularFeeInputs[regKey] ?: config.registrationFee.toPlainString()
+                val monthlyValue = state.granularFeeInputs[monthlyKey] ?: config.monthlyFee.toPlainString()
+                val shortfallValue = state.granularFeeInputs[shortfallKey] ?: config.shortfallRecoveryFee.toPlainString()
+
+                GlassCard(accentColor = MaterialTheme.colorScheme.primary) {
                     Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                     Spacer(Modifier.height(16.dp))
 
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Column(Modifier.weight(1f)) {
-                            SanibonaniTextField(
-                                value = config.registrationFee.toDouble().toString(),
-                                onValueChange = { vm.updateGranularFee(config.groupType, config.roscaCycle, "registration", it) },
-                                label = "Registration Fee",
-                                prefix = { Text("R") },
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal)
-                            )
-                        }
-                        Column(Modifier.weight(1f)) {
-                            SanibonaniTextField(
-                                value = config.monthlyFee.toDouble().toString(),
-                                onValueChange = { vm.updateGranularFee(config.groupType, config.roscaCycle, "monthly", it) },
-                                label = "Monthly Fee",
-                                prefix = { Text("R") },
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal)
-                            )
-                        }
-                        Column(Modifier.weight(1f)) {
-                            SanibonaniTextField(
-                                value = config.shortfallRecoveryFee.toDouble().toString(),
-                                onValueChange = { vm.updateGranularFee(config.groupType, config.roscaCycle, "recovery", it) },
-                                label = "Recovery Fee",
-                                prefix = { Text("R") },
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal)
-                            )
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        SanibonaniTextField(
+                            value = regValue,
+                            onValueChange = { vm.updateGranularFeeInput(config.groupType, config.roscaCycle, "registration", it) },
+                            label = "Group Onboarding / Registration Fee (R)",
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Box(Modifier.weight(1f)) {
+                                SanibonaniTextField(
+                                    value = monthlyValue,
+                                    onValueChange = { vm.updateGranularFeeInput(config.groupType, config.roscaCycle, "monthly", it) },
+                                    label = "Monthly Service Fee per Member (R)",
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            }
+                            Box(Modifier.weight(1f)) {
+                                SanibonaniTextField(
+                                    value = shortfallValue,
+                                    onValueChange = { vm.updateGranularFeeInput(config.groupType, config.roscaCycle, "shortfall", it) },
+                                    label = "Shortfall Recovery Fee (Catch-up) (R)",
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            }
                         }
                     }
                 }
@@ -202,7 +324,7 @@ fun FeeManagementTab(
 
         if (state.saveSuccess) {
             item {
-                InfoBox("Configuration updated successfully across the entire ecosystem.", InfoType.SUCCESS)
+                InfoBox("Configuration updated successfully across the entire ecosystem.", type = InfoType.SUCCESS)
             }
         }
 

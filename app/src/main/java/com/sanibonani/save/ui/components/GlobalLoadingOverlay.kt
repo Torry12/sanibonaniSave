@@ -1,52 +1,60 @@
 package com.sanibonani.save.ui.components
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.hilt.navigation.compose.hiltViewModel
-import com.sanibonani.save.viewmodel.GlobalLoadingViewModel
+import androidx.compose.ui.zIndex
 
+/**
+ * Global "busy" overlay.
+ *
+ * Takes a plain [showSpinner] flag instead of a ViewModel, so the shared component
+ * library has no compile-time knowledge of the feature layer. Callers own their
+ * own state source and pass the flag in.
+ */
 @Composable
-fun GlobalLoadingOverlay(
-    viewModel: GlobalLoadingViewModel = hiltViewModel()
-) {
-    val showSpinner by viewModel.showSpinner.collectAsState()
-
-    if (showSpinner) {
+fun GlobalLoadingOverlay(showSpinner: Boolean) {
+    AnimatedVisibility(
+        visible = showSpinner,
+        enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
+        exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(),
+        modifier = Modifier.zIndex(100f)
+    ) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.4f))
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null,
-                    onClick = {} // Block clicks while loading
-                ),
-            contentAlignment = Alignment.Center
+                .navigationBarsPadding()
+                .padding(bottom = 24.dp, start = 16.dp, end = 16.dp),
+            contentAlignment = Alignment.BottomCenter
         ) {
             Surface(
-                color = MaterialTheme.colorScheme.surface,
-                shape = MaterialTheme.shapes.medium,
-                tonalElevation = 4.dp
+                color = MaterialTheme.colorScheme.surfaceVariant,
+                contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                shape = RoundedCornerShape(28.dp),
+                tonalElevation = 6.dp,
+                shadowElevation = 8.dp
             ) {
-                Column(
-                    modifier = Modifier.padding(24.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center
+                Row(
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center
                 ) {
                     CircularProgressIndicator(
+                        modifier = Modifier.size(20.dp),
                         color = MaterialTheme.colorScheme.primary,
-                        strokeWidth = 3.dp
+                        strokeWidth = 2.5.dp
                     )
-                    Spacer(Modifier.height(16.dp))
+                    Spacer(Modifier.width(12.dp))
                     Text(
                         "Loading...",
                         style = MaterialTheme.typography.bodyMedium,

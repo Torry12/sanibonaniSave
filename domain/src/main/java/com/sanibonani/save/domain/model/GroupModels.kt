@@ -73,6 +73,9 @@ data class Group(
     @SerialName("account_number")         val accountNumber: String? = null,
     @SerialName("branch_code")            val branchCode: String? = null,
     @SerialName("account_type")           val accountType: String = "Savings",
+    @SerialName("burial_claim_amount")    val burialClaimAmount: Money = Money("10000.00"),
+    @SerialName("min_members_for_claims") val minMembersForClaims: Int = 0,
+    @SerialName("min_reserve_percentage") val minReservePercentage: Double = 0.0,
     val balance: Money = Money.ZERO,
     @SerialName("goal_amount")            val goalAmount: Money = Money.ZERO,
     @SerialName("period_months")          val periodMonths: Int = 12,
@@ -108,26 +111,162 @@ data class Group(
     @SerialName("loan_max_amount")        val loanMaxAmount: Money? = null,
     @SerialName("loan_max_months")        val loanMaxMonths: Int? = null,
 
+    @SerialName("financial_provider_id") val financialProviderId: String? = null,
+
     // Transient data (not stored in 'groups' table)
     @Transient val members: List<Member>? = null
 ) : Parcelable {
-    val platformFeeAmount: Money get() = PlatformFees.MONTHLY_MEMBER_FEE * currentMembers.toDouble()
-    val registrationFee: Money   get() = PlatformFees.REGISTRATION
+    /**
+     * Monthly platform fee for the group's current size.
+     *
+     * Reads the singleton in `domain.config` — the same object `PlatformConfigRepository`
+     * writes to. An earlier second copy of `PlatformFees` lived in this package, so the
+     * unqualified reference silently resolved to it and **never observed fee-config
+     * updates** (an admin changing the monthly rate appeared to have no effect here).
+     */
+    val platformFeeAmount: Money get() = com.sanibonani.save.domain.config.PlatformFees.MONTHLY_MEMBER_FEE * currentMembers.toLong()
+    val registrationFee: Money get() = com.sanibonani.save.domain.config.PlatformFees.REGISTRATION
+    val isRegistrationFeeOutstanding: Boolean get() = !registrationPaid || feeStatus == AdminFeeState.DUE || feeStatus == AdminFeeState.PENDING_ACTIVATION
+    val isActiveGroup: Boolean get() = !isRegistrationFeeOutstanding && !isPlatformSuspended && feeStatus == AdminFeeState.PAID
 }
 
 @Serializable(with = GroupTypeSerializer::class)
-enum class GroupType(val displayName: String) {
-    BURIAL_SOCIETY("Burial Society"),
-    STOKVEL("Stokvel"),
-    ROSCA("ROSCA"),
-    INVESTMENT_CLUB("Investment Club"),
-    EMERGENCY_FUND("Emergency Fund"),
-    COMMUNITY_SAVINGS("Community Savings"),
-    TONTINE("Tontine"),
-    OTHER("Other");
+enum class GroupType(
+    val displayName: String,
+    val icon: String,
+    val description: String,
+    val payoutLabel: String
+) {
+    BURIAL_SOCIETY(
+        displayName = "Burial Society",
+        icon = "🕊️",
+        description = "Dedicated funds for funeral expenses and family support.",
+        payoutLabel = "Burial Claims"
+    ),
+    STOKVEL(
+        displayName = "Stokvel",
+        icon = "🤝",
+        description = "Traditional savings and social event support.",
+        payoutLabel = "Savings Payouts"
+    ),
+    ROSCA(
+        displayName = "ROSCA",
+        icon = "🔄",
+        description = "Rotating Savings and Credit Association with assigned pot cycles.",
+        payoutLabel = "Rotation Payouts"
+    ),
+    INVESTMENT_CLUB(
+        displayName = "Investment Club",
+        icon = "📈",
+        description = "Pooling capital for long-term equity growth and asset acquisition.",
+        payoutLabel = "Disinvestments"
+    ),
+    EMERGENCY_FUND(
+        displayName = "Emergency Fund",
+        icon = "🚨",
+        description = "Savings reserved for unexpected community and family emergencies.",
+        payoutLabel = "Emergency Withdrawals"
+    ),
+    COMMUNITY_SAVINGS(
+        displayName = "Community Savings",
+        icon = "🏛️",
+        description = "General community-driven cooperative savings group.",
+        payoutLabel = "Disbursements"
+    ),
+    HYBRID_SAVINGS_GROUP(
+        displayName = "Hybrid Savings Group",
+        icon = "🪴",
+        description = "Integrated multi-pot cooperative model combining savings, lending, and social funds.",
+        payoutLabel = "Multi-Pot Disbursements"
+    ),
+    OTHER(
+        displayName = "Other",
+        icon = "💰",
+        description = "Other specialized type of savings or cooperative group.",
+        payoutLabel = "Payouts"
+    );
+
+    val isBurialSociety: Boolean get() = this == BURIAL_SOCIETY
+    val isStokvel: Boolean get() = this == STOKVEL
+    val isRosca: Boolean get() = this == ROSCA
+    val isInvestmentClub: Boolean get() = this == INVESTMENT_CLUB
+    val isEmergencyFund: Boolean get() = this == EMERGENCY_FUND
+    val isCommunitySavings: Boolean get() = this == COMMUNITY_SAVINGS
+    val isHybridSavings: Boolean get() = this == HYBRID_SAVINGS_GROUP
+
+    val supportsLoans: Boolean get() = this != INVESTMENT_CLUB
+    val supportsBeneficiaries: Boolean get() = this == BURIAL_SOCIETY || this == STOKVEL
+    val supportsRotation: Boolean get() = this == ROSCA
 
     companion object {
         fun all() = entries.toList()
+    }
+}
+
+@Serializable
+@Parcelize
+data class HybridPotAllocation(
+    val personalSavingsPct: Double = 60.0,
+    val lendingPoolPct: Double = 20.0,
+    val socialFundPct: Double = 10.0,
+    val investmentPct: Double = 10.0
+) : Parcelable {
+    val isValidAllocation: Boolean
+        get() = Math.abs((personalSavingsPct + lendingPoolPct + socialFundPct + investmentPct) - 100.0) < 0.01
+
+    fun calculateSplit(total: Money): HybridPotSplit {
+        val personal = total * (personalSavingsPct / 100.0)
+        val lending = total * (lendingPoolPct / 100.0)
+        val social = total * (socialFundPct / 100.0)
+        val investment = (total - personal - lending - social).let { if (it.isNegative) Money.ZERO else it }
+        return HybridPotSplit(
+            personalSavings = personal,
+            lendingPool = lending,
+            socialFund = social,
+            investment = investment
+        )
+    }
+}
+
+@Serializable
+@Parcelize
+data class HybridPotSplit(
+    val personalSavings: Money,
+    val lendingPool: Money,
+    val socialFund: Money,
+    val investment: Money
+) : Parcelable {
+    fun toFormulaBreakdowns(allocation: HybridPotAllocation = HybridPotAllocation()): List<ActuarialFormulaBreakdown> {
+        return listOf(
+            ActuarialFormulaBreakdown(
+                title = "1. Personal Savings Pot (${allocation.personalSavingsPct.toInt()}%)",
+                formula = "PersonalSavings = Total × ${allocation.personalSavingsPct / 100.0}",
+                resultText = personalSavings.format(),
+                explanation = "Direct member accumulated capital reserve.",
+                status = "OK"
+            ),
+            ActuarialFormulaBreakdown(
+                title = "2. Lending Pool Pot (${allocation.lendingPoolPct.toInt()}%)",
+                formula = "LendingPool = Total × ${allocation.lendingPoolPct / 100.0}",
+                resultText = lendingPool.format(),
+                explanation = "Active loan capital reserve for member borrowing.",
+                status = "OK"
+            ),
+            ActuarialFormulaBreakdown(
+                title = "3. Social Emergency Fund (${allocation.socialFundPct.toInt()}%)",
+                formula = "SocialFund = Total × ${allocation.socialFundPct / 100.0}",
+                resultText = socialFund.format(),
+                explanation = "Hardship and emergency member relief fund.",
+                status = "OK"
+            ),
+            ActuarialFormulaBreakdown(
+                title = "4. Group Investment Pot (${allocation.investmentPct.toInt()}%)",
+                formula = "InvestmentPot = Total × ${allocation.investmentPct / 100.0}",
+                resultText = investment.format(),
+                explanation = "Long-term market growth and dividend pool.",
+                status = "OK"
+            )
+        )
     }
 }
 
@@ -149,7 +288,7 @@ object GroupTypeSerializer : KSerializer<GroupType> {
         GroupType.INVESTMENT_CLUB to "investment_club",
         GroupType.EMERGENCY_FUND to "emergency_fund",
         GroupType.COMMUNITY_SAVINGS to "community_savings",
-        GroupType.TONTINE to "tontine",
+        GroupType.HYBRID_SAVINGS_GROUP to "hybrid_savings_group",
         GroupType.OTHER to "other"
     )
 
@@ -176,7 +315,7 @@ object GroupTypeSerializer : KSerializer<GroupType> {
             "investment_club" -> GroupType.INVESTMENT_CLUB
             "emergency_fund" -> GroupType.EMERGENCY_FUND
             "community_savings" -> GroupType.COMMUNITY_SAVINGS
-            "tontine" -> GroupType.TONTINE
+            "hybrid_savings_group", "hybrid" -> GroupType.HYBRID_SAVINGS_GROUP
             "other" -> GroupType.OTHER
             else -> null
         }
@@ -234,11 +373,15 @@ data class GroupSettings(
     val accountType: String = "Savings",
     val maxBeneficiaries: String = "0",
     val beneficiaryIncreasePct: String = "0",
+    val burialClaimAmount: String = "10000",
+    val minMembersForClaims: String = "10",
+    val minReservePercentage: String = "20",
     val goalAmount: String = "10000",
     val periodMonths: String = "12",
     val loanInterestRate: String = "0",
     val loanMaxAmount: String = "0",
     val loanMaxMonths: String = "0",
+    val financialProviderId: String? = null,
     val rotationMethod: RoscaRotationMethod = RoscaRotationMethod.FIXED,
     val isSaving: Boolean = false,
     val savedSuccess: Boolean = false

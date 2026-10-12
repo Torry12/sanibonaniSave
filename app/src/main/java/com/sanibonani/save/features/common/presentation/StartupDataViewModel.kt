@@ -1,5 +1,6 @@
 package com.sanibonani.save.features.common.presentation
 
+import com.sanibonani.save.domain.utils.safeRunCatching
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.sanibonani.save.domain.repository.group.GroupRepository
@@ -21,8 +22,9 @@ class StartupDataViewModel @Inject constructor(
 
         viewModelScope.launch {
             // Warm public groups cache on app launch so map screens render faster.
+            // Using cache-only to prevent network block on startup.
             withTimeoutOrNull(7000) {
-                runCatching { groupRepository.getPublicGroups().first() }
+                safeRunCatching { groupRepository.getPublicGroupsFromCache().first() }
             }
         }
     }

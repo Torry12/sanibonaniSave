@@ -1,15 +1,13 @@
 package com.sanibonani.save.features.group.presentation
 
-import androidx.lifecycle.viewModelScope
 import com.sanibonani.save.domain.model.*
-import com.sanibonani.save.domain.repository.dynamics.VotingRepository
-import com.sanibonani.save.domain.usecase.voting.CastGroupPollVoteUseCase
-import com.sanibonani.save.domain.usecase.voting.CreateGroupPollUseCase
-import com.sanibonani.save.viewmodel.BaseViewModel
+import com.sanibonani.save.domain.repository.group.VotingRepository
+import com.sanibonani.save.domain.usecase.group.CastGroupPollVoteUseCase
+import com.sanibonani.save.domain.usecase.group.CreateGroupPollUseCase
+import com.sanibonani.save.features.common.presentation.BaseViewModel
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.*
-import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 data class GroupVotingUiState(
@@ -37,7 +35,7 @@ class GroupVotingViewModel @Inject constructor(
     fun loadPolls(groupId: String, memberId: String?) {
         updateState { it.copy(groupId = groupId, memberId = memberId) }
         pollsJob?.cancel()
-        pollsJob = viewModelScope.launch {
+        pollsJob = launchJob("load_polls") {
             votingRepository.observePolls(groupId, memberId).collectLatest { res ->
                 res.onSuccess { list -> updateState { it.copy(polls = list, isLoading = false) } }
                     .onFailure { updateState { it.copy(isLoading = false) } }
@@ -47,7 +45,7 @@ class GroupVotingViewModel @Inject constructor(
 
     fun createPoll(title: String, description: String?, options: List<String>, allowMultipleChoice: Boolean = false) {
         val s = uiState.value
-        viewModelScope.launch {
+        launchJob("create_poll") {
             updateState { it.copy(isSaving = true) }
             createGroupPollUseCase(s.groupId, s.memberId, title, description, options, allowMultipleChoice).onSuccess {
                 updateState { it.copy(isSaving = false, message = "Poll created") }
@@ -58,7 +56,7 @@ class GroupVotingViewModel @Inject constructor(
     fun castVote(pollId: String, optionId: String) {
         val s = uiState.value
         if (s.memberId == null) return
-        viewModelScope.launch {
+        launchJob("cast_vote") {
             castGroupPollVoteUseCase(s.groupId, pollId, optionId, s.memberId).onSuccess {
                 updateState { it.copy(message = "Vote submitted") }
             }
@@ -66,7 +64,7 @@ class GroupVotingViewModel @Inject constructor(
     }
 
     fun closePoll(pollId: String) {
-        viewModelScope.launch {
+        launchJob("close_poll") {
             votingRepository.closePoll(pollId).onSuccess {
                 updateState { it.copy(message = "Poll closed") }
             }

@@ -1,51 +1,132 @@
 package com.sanibonani.save.ui.components
 
-import androidx.compose.animation.core.*
+import java.util.Locale
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.sanibonani.save.domain.model.IssueSeverity
+import com.sanibonani.save.domain.model.VerificationResult
 import com.sanibonani.save.ui.theme.*
 
-@Composable
-fun SectionHeader(title: String, modifier: Modifier = Modifier) {
-    Text(
-        text = title,
-        style = MaterialTheme.typography.titleLarge,
-        fontWeight = FontWeight.ExtraBold,
-        color = Navy,
-        modifier = modifier.padding(vertical = 8.dp)
-    )
+/**
+ * Shared informational UI: severity enums, the inline [InfoBox], a data-integrity
+ * summary, a labelled detail section, and the global error banner.
+ *
+ * Consolidated here from the former `features.common.ui` and `ui.components`
+ * copies, which were importing each other. There is now exactly one home for
+ * shared UI (`com.sanibonani.save.ui.components`).
+ */
+
+/** Defines the visual style for the logout button. */
+enum class LogoutButtonStyle {
+    Filled,
+    Outlined,
+    MenuItem,
+    IconButton
+}
+
+/** Standard info box types. */
+enum class InfoType {
+    INFO,
+    SUCCESS,
+    WARNING,
+    ERROR
 }
 
 @Composable
-fun DetailRow(label: String, value: String, isBold: Boolean = false) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 4.dp),
-        horizontalArrangement = Arrangement.SpaceBetween
+fun InfoBox(
+    message: String,
+    modifier: Modifier = Modifier,
+    type: InfoType = InfoType.INFO
+) {
+    val (color, icon) = when (type) {
+        InfoType.INFO    -> InfoBlue to Icons.Default.Info
+        InfoType.SUCCESS -> SuccessGreen to Icons.Default.CheckCircle
+        InfoType.WARNING -> WarningAmber to Icons.Default.Warning
+        InfoType.ERROR   -> ErrorRed to Icons.Default.Error
+    }
+
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        color    = color.copy(alpha = 0.15f),
+        shape    = RoundedCornerShape(16.dp),
+        border   = BorderStroke(1.5.dp, color.copy(alpha = 0.3f))
     ) {
-        Text(label, style = MaterialTheme.typography.bodyMedium, color = Color.Gray)
-        Text(
-            value,
-            style = MaterialTheme.typography.bodyMedium,
-            fontWeight = if (isBold) FontWeight.Bold else FontWeight.Normal,
-            color = Charcoal
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .background(color.copy(alpha = 0.2f), CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(icon, null, tint = color, modifier = Modifier.size(20.dp))
+            }
+            Spacer(Modifier.width(16.dp))
+            Text(
+                text = message,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.onSurface,
+                lineHeight = 20.sp
+            )
+        }
+    }
+}
+
+@Composable
+fun VerificationSummary(
+    result: VerificationResult,
+    modifier: Modifier = Modifier
+) {
+    if (result.isValid) return
+
+    val issues = result.issues
+    if (issues.isEmpty()) return
+
+    val criticalIssues = issues.filter { it.severity == IssueSeverity.CRITICAL }
+    val warningIssues = issues.filter { it.severity == IssueSeverity.WARNING }
+
+    val primaryIssue = criticalIssues.firstOrNull() ?: warningIssues.firstOrNull() ?: issues.first()
+    val type = when (primaryIssue.severity) {
+        IssueSeverity.CRITICAL -> InfoType.ERROR
+        IssueSeverity.WARNING -> InfoType.WARNING
+        else -> InfoType.INFO
+    }
+
+    Column(modifier = modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        InfoBox(
+            message = "Data Integrity: ${primaryIssue.message}${if (issues.size > 1) " (+${issues.size - 1} more)" else ""}",
+            type = type
         )
     }
 }
@@ -54,19 +135,19 @@ fun DetailRow(label: String, value: String, isBold: Boolean = false) {
 fun DetailSection(title: String, content: @Composable ColumnScope.() -> Unit) {
     Column(Modifier.fillMaxWidth().padding(vertical = 12.dp)) {
         Text(
-            title.uppercase(),
+            title.uppercase(Locale.US),
             style = MaterialTheme.typography.labelSmall,
-            color = Navy,
+            color = MaterialTheme.colorScheme.onSurface,
             fontWeight = FontWeight.Bold,
             letterSpacing = 1.sp
         )
         Spacer(Modifier.height(8.dp))
         Card(
-            modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = Color.White),
+            modifier = Modifier.fillMaxWidth().animateContentSize(),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
             shape = RoundedCornerShape(16.dp),
             elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-            border = androidx.compose.foundation.BorderStroke(1.dp, Color.LightGray.copy(alpha = 0.3f))
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
         ) {
             Column(Modifier.padding(16.dp)) {
                 content()
@@ -79,84 +160,49 @@ fun DetailSection(title: String, content: @Composable ColumnScope.() -> Unit) {
 fun GlobalErrorBanner(
     message: String,
     onRetry: () -> Unit,
+    onDismiss: () -> Unit,
     isCritical: Boolean = false,
     actionLabel: String? = null,
     onAction: (() -> Unit)? = null
 ) {
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        color = if (isCritical) ErrorRed else WarningAmber,
-        contentColor = Color.White
+    var isVisible by remember { mutableStateOf(true) }
+
+    AnimatedVisibility(
+        visible = isVisible,
+        enter = expandVertically() + fadeIn(),
+        exit = shrinkVertically() + fadeOut()
     ) {
-        Row(
-            Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .statusBarsPadding(),
+            color = if (isCritical) ErrorRed else WarningAmber,
+            contentColor = if (isCritical) Color.White else Color.Black
         ) {
-            Icon(Icons.Default.Error, null, modifier = Modifier.size(20.dp))
-            Spacer(Modifier.width(12.dp))
-            Text(message, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
-            TextButton(
-                onClick = onAction ?: onRetry,
-                colors = ButtonDefaults.textButtonColors(contentColor = Color.White)
+            Row(
+                Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Text((actionLabel ?: "RETRY").uppercase(), fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                Icon(Icons.Default.Error, null, modifier = Modifier.size(20.dp))
+                Spacer(Modifier.width(12.dp))
+                Text(message, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
+
+                if (actionLabel != null) {
+                    TextButton(
+                        onClick = onAction ?: onRetry,
+                        colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onPrimary)
+                    ) {
+                        Text(actionLabel.uppercase(), fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    }
+                }
+
+                IconButton(onClick = {
+                    isVisible = false
+                    onDismiss()
+                }) {
+                    Icon(Icons.Default.Close, "Dismiss", tint = MaterialTheme.colorScheme.onPrimary)
+                }
             }
-        }
-    }
-}
-
-@Composable
-fun GroupCardShimmer() {
-    val shimmerColors = listOf(
-        Color.LightGray.copy(alpha = 0.6f),
-        Color.LightGray.copy(alpha = 0.2f),
-        Color.LightGray.copy(alpha = 0.6f),
-    )
-
-    val transition = rememberInfiniteTransition()
-    val translateAnim = transition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1000f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 1200, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Restart
-        )
-    )
-
-    val brush = Brush.linearGradient(
-        colors = shimmerColors,
-        start = Offset.Zero,
-        end = Offset(x = translateAnim.value, y = translateAnim.value)
-    )
-
-    Card(
-        modifier = Modifier.fillMaxWidth().height(120.dp).padding(vertical = 8.dp),
-        shape = RoundedCornerShape(24.dp)
-    ) {
-        Box(Modifier.fillMaxSize().background(brush))
-    }
-}
-
-@Composable
-fun EmptyState(
-    title: String,
-    description: String,
-    buttonText: String? = null,
-    onClick: (() -> Unit)? = null
-) {
-    Column(
-        modifier = Modifier.fillMaxWidth().padding(48.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
-    ) {
-        Icon(Icons.Default.Info, null, modifier = Modifier.size(64.dp), tint = Color.LightGray)
-        Spacer(Modifier.height(16.dp))
-        Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
-        Spacer(Modifier.height(8.dp))
-        Text(description, style = MaterialTheme.typography.bodyMedium, color = Color.Gray, textAlign = TextAlign.Center)
-        if (buttonText != null && onClick != null) {
-            Spacer(Modifier.height(24.dp))
-            SanibonaniButton(text = buttonText, onClick = onClick)
         }
     }
 }

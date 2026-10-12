@@ -2,6 +2,7 @@ package com.sanibonani.save.data.datasource
 
 import com.sanibonani.save.domain.model.BeneficiaryPayoutClaim
 import com.sanibonani.save.domain.model.BeneficiaryClaimStatus
+import com.sanibonani.save.domain.model.DocumentStatus
 import kotlinx.coroutines.flow.Flow
 
 interface RemoteClaimDataSource {
@@ -10,6 +11,7 @@ interface RemoteClaimDataSource {
     suspend fun getClaimsForGroup(groupId: String): Result<List<BeneficiaryPayoutClaim>>
     suspend fun getClaimById(id: String): Result<BeneficiaryPayoutClaim>
     suspend fun updateClaimStatus(claimId: String, status: BeneficiaryClaimStatus, reviewedBy: String?, adminNotes: String?, rejectionReason: String?): Result<Unit>
+    suspend fun updateClaimDocumentStatus(claimId: String, docKey: String, status: DocumentStatus): Result<Unit>
     suspend fun payClaimAtomic(claimId: String, adminId: String, notes: String?): Result<Unit>
     suspend fun getEscalatedClaims(): Result<List<BeneficiaryPayoutClaim>>
 }

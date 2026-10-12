@@ -30,6 +30,11 @@ interface BankSimulationGateway {
         groupId: String,
         transactions: List<SimulatedTransaction>
     ): Result<List<String>>
+
+    /**
+     * Retrieves the status of a simulated transaction by its bank reference.
+     */
+    suspend fun getTransactionByReference(reference: String): Result<SimulatedTransaction?>
 }
 
 data class SimulatedTransaction(

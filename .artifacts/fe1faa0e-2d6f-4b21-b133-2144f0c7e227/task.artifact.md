@@ -1,17 +1,17 @@
-# Task: Refactor, Debug, and Clean Financial Core
+# Task: Refactor and Harden Project Structure
 
-- `[ ]` Domain Core Refactoring
-    - `[ ]` Update `Money.kt` (toPlainString, hashCode, equals)
-    - `[ ]` Update `PlatformRepository.kt` interface
-- `[ ]` Data Layer Implementation Fixes
-    - `[ ]` Refactor `GroupFinancialRepositoryImpl.kt`
-    - `[ ]` Refactor `ContributionRepositoryImpl.kt`
-    - `[ ]` Refactor `LedgerRepositoryImpl.kt`
-    - `[ ]` Refactor `PlatformRepositoryImpl.kt`
-- `[ ]` UI & ViewModel Refactoring
-    - `[ ]` Update `PlatformAdminViewModel.kt`
-    - `[ ]` Update `NavGraph.kt` navigation parameters
-- `[ ]` Verification
-    - `[ ]` Run financial integration tests
-    - `[ ]` Verify Platform Admin fee updates
-    - `[ ]` Verify MFA challenge for large disbursements
+- `[ ]` Finalize Common Infrastructure
+    - `[ ]` Fix `BaseViewModel.kt` imports
+    - `[ ]` Fix `UIEvent.kt` content
+- `[ ]` Global Import Refactor
+    - `[ ]` Update all `BaseViewModel` imports
+    - `[ ]` Update all `UIEvent` imports
+    - `[ ]` Update all Repository imports (admin, auth, financial, group, member, system)
+    - `[ ]` Update all UseCase imports
+- `[ ]` Persistence Layer Alignment
+    - `[ ]` Harden `SanibonaniDatabase.kt`
+    - `[ ]` Update `RepoModule.kt` bindings
+- `[ ]` Navigation Hardening
+    - `[ ]` Fix `NavGraph.kt` types and imports
+- `[ ]` Final Verification
+    - `[ ]` Build `:domain`, `:data`, and `:app`

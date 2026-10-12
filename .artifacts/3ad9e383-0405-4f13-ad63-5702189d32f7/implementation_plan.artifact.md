@@ -1,41 +1,57 @@
-# Implementation Plan - Optimize Dashboard Loading Speed
+# Implementation Plan - Refactor, Streamline & Polish
 
-I will optimize the dashboard loading sequence by parallelizing data hydration and ensuring that cached data is displayed immediately to reduce perceived latency.
+I will perform a final polish pass on the application to standardize UI state observation, refine financial formatting, and harden the ViewModel lifecycle management.
 
 ## User Review Required
 
 > [!IMPORTANT]
-> I will be refactoring the "Context Cache Services" to perform network fetches in parallel. This will significantly reduce the time it takes for a group to become "fully hydrated" and dismiss the loading spinner.
-
-> [!TIP]
-> I will also update the Platform Admin's group discovery logic to show local groups first while syncing in the background, preventing a full-screen block when the network is slow or the group list is large.
+> I will be migrating all remaining `collectAsState()` calls in the UI layer to `collectAsStateWithLifecycle()`. This is a recommended Android best practice that prevents the app from consuming resources while the UI is in the background.
 
 ## Proposed Changes
 
-### app module
+### Core Models & Utils
 
-#### [MODIFY] [AdminGroupContextCacheService.kt](file:///C:/Users/CRISS/AndroidStudioProjects/SanibonaniSave_Full/app/src/main/java/com/sanibonani/save/service/AdminGroupContextCacheService.kt)
-- Refactor `warmGroupContext` to use `coroutineScope` and `async`.
-- Fetch `members`, `notifications`, `payouts`, and `metrics` in parallel.
-- Wrap network-heavy calls (like `syncGroupMembers`) in `withTimeoutOrNull(8.seconds)` to prevent indefinite hangs.
+#### [MODIFY] [Money.kt](file:///C:/Users/CRISS/AndroidStudioProjects/SanibonaniSave_Full/domain/src/main/java/com/sanibonani/save/domain/model/Money.kt)
+- Refine `formatShort()` to correctly handle negative values (e.g., "-R5.0K" instead of "R-5.0K").
+- Add a `formatWithSign()` helper for clear credit/debit representation in ledgers.
 
-#### [MODIFY] [MemberGroupContextCacheService.kt](file:///C:/Users/CRISS/AndroidStudioProjects/SanibonaniSave_Full/app/src/main/java/com/sanibonani/save/service/MemberGroupContextCacheService.kt)
-- Refactor `warmGroupContext` to use parallel execution for `contributions`, `beneficiaries`, `loans`, and `notifications`.
-- Implement consistent timeout logic.
+### app module - UI
 
-### domain module
+#### [MODIFY] [MainActivity.kt](file:///C:/Users/CRISS/AndroidStudioProjects/SanibonaniSave_Full/app/src/main/java/com/sanibonani/save/MainActivity.kt)
+- Standardize splash and sync state observation using `collectAsStateWithLifecycle`.
 
-#### [MODIFY] [GetManagedGroupsUseCase.kt](file:///C:/Users/CRISS/AndroidStudioProjects/SanibonaniSave_Full/domain/src/main/java/com/sanibonani/save/domain/usecase/GetManagedGroupsUseCase.kt)
-- Update `observeManagedGroups` for `isPlatformAdmin`.
-- Change the flow to emit local groups first (`fromNetwork = false`) followed by a network sync (`fromNetwork = true`).
+#### [MODIFY] [DevSettingsOverlay.kt](file:///C:/Users/CRISS/AndroidStudioProjects/SanibonaniSave_Full/app/src/main/java/com/sanibonani/save/ui/components/DevSettingsOverlay.kt)
+- Migrate to `collectAsStateWithLifecycle`.
+
+#### [MODIFY] [GlobalLoadingOverlay.kt](file:///C:/Users/CRISS/AndroidStudioProjects/SanibonaniSave_Full/app/src/main/java/com/sanibonani/save/ui/components/GlobalLoadingOverlay.kt)
+- Migrate to `collectAsStateWithLifecycle`.
+
+#### [MODIFY] [Screen Components]
+- Perform a sweep of `CreatePlatformAdminScreen.kt`, `PaymentSandboxScreen.kt`, `PasswordRecoveryScreen.kt`, `GroupVotingScreen.kt`, and `KycCaptureScreen.kt` to migrate to lifecycle-aware collection.
+
+### app module - ViewModels
+
+#### [MODIFY] [PlatformAdminViewModel.kt](file:///C:/Users/CRISS/AndroidStudioProjects/SanibonaniSave_Full/app/src/main/java/com/sanibonani/save/viewmodel/PlatformAdminViewModel.kt)
+- Ensure all repository listeners are correctly scoped and cleaned up.
+- Standardize error handling to use `toUserMessage()` globally.
+
+### test infrastructure
+
+#### [MODIFY] [TestAppModule.kt](file:///C:/Users/CRISS/AndroidStudioProjects/SanibonaniSave_Full/app/src/androidTest/java/com/sanibonani/save/di/TestAppModule.kt)
+- Replace `android.util.Log` and `println` with `AppLogger` for standardized test diagnostics.
 
 ## Verification Plan
 
 ### Automated Tests
-- Run `AdminOverviewViewModelTest` to verify that `managedGroups` are populated twice (local then network).
+- Run all instrumented and unit tests to ensure no regressions in state observation.
+  ```powershell
+  ./gradlew test
+  ./gradlew connectedDebugAndroidTest
+  ```
 
 ### Manual Verification
-- **Dashboard Load**: Log in and monitor the "Loading dashboard..." spinner. It should appear for a significantly shorter duration than before.
-- **Offline Reliability**: Turn on Airplane mode after logging in and restart the app. The dashboard should still load using cached data.
+- **Backgrounding**: Open the app, go to a dashboard, then put the app in the background. Verify in the Profiler that resource consumption drops as expected due to lifecycle-aware collection.
+- **Financial UI**: Check shortfalls and repayments to ensure negative currency values are formatted correctly.
+- **Dev Tools**: Verify the Dev Settings overlay still functions correctly after the collection refactor.
 
-Please approve this plan to proceed with the performance optimizations.
+Please approve this plan to finalize the app's quality hardening.

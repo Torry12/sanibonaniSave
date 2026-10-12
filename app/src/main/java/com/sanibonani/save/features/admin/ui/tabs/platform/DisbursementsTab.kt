@@ -15,9 +15,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.res.stringResource
+import com.sanibonani.save.R
 import com.sanibonani.save.domain.model.*
 import com.sanibonani.save.features.admin.ui.components.*
-import com.sanibonani.save.features.admin.presentation.PlatformAdminViewModel
+import com.sanibonani.save.features.admin.presentation.PlatformDisbursementsViewModel
+import com.sanibonani.save.ui.components.SanibonaniRefreshButton
+import com.sanibonani.save.ui.theme.ErrorRed
+import com.sanibonani.save.ui.theme.Navy
+import com.sanibonani.save.ui.utils.formatZAR
 
 data class DisbursementsTabState(
     val payoutRequests: List<PayoutRequest>,
@@ -30,6 +36,7 @@ data class DisbursementsTabState(
     val isProcessingPayout: Boolean = false,
     val isProcessingLoan: Boolean = false,
     val isProcessingClaim: Boolean = false,
+    val processingIds: Set<String> = emptySet(),
     val selectedMemberSummary: MemberSummary? = null,
     val isLoadingMemberSummary: Boolean = false,
     // Pre-computed groupings
@@ -41,7 +48,7 @@ data class DisbursementsTabState(
 @Composable
 fun DisbursementsTab(
     state: DisbursementsTabState,
-    vm: PlatformAdminViewModel,
+    vm: PlatformDisbursementsViewModel,
     onOpenMemberPortalFromDisbursement: (groupId: String, payoutId: String?) -> Unit,
     onImpersonateMember: (memberId: String, groupId: String) -> Unit,
     onNavigateToHealthScore: (groupId: String) -> Unit,
@@ -56,6 +63,8 @@ fun DisbursementsTab(
     val expandedLoanProvinces = remember { mutableStateMapOf<String, Boolean>() }
     val expandedClaimProvinces = remember { mutableStateMapOf<String, Boolean>() }
 
+    var payoutToConfirm by remember { mutableStateOf<Pair<PayoutRequest, PayoutStatus>?>(null) }
+
     Surface(
         modifier = Modifier.fillMaxSize(),
         color = MaterialTheme.colorScheme.background
@@ -67,20 +76,16 @@ fun DisbursementsTab(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    "FINANCIAL ESCALATIONS",
+                    stringResource(R.string.ui_financial_escalations),
                     style = MaterialTheme.typography.labelSmall,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.weight(1f)
                 )
-                TextButton(
-                    onClick = { vm.loadData() },
-                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.primary)
-                ) {
-                    Icon(Icons.Default.Refresh, null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(4.dp))
-                    Text("Refresh", style = MaterialTheme.typography.labelLarge)
-                }
+                SanibonaniRefreshButton(
+                    onRefresh = { vm.load() },
+                    text = stringResource(R.string.ui_refresh)
+                )
             }
 
             LazyColumn(
@@ -91,10 +96,10 @@ fun DisbursementsTab(
                 // --- 1. PAYOUT REQUESTS ---
                 item {
                     AccordionHeader(
-                        title = "Payout Requests",
+                        title = stringResource(R.string.ui_payout_requests),
                         icon = Icons.Default.Payments,
                         count = state.payoutRequests.size,
-                        label = "requests",
+                        label = stringResource(R.string.ui_requests_count),
                         isExpanded = expandedPayouts,
                         onClick = { expandedPayouts = !expandedPayouts }
                     )
@@ -112,7 +117,7 @@ fun DisbursementsTab(
                                     count = payouts.size,
                                     isExpanded = isExp,
                                     onClick = { expandedPayoutProvinces[province] = !isExp },
-                                    label = "requests"
+                                    label = stringResource(R.string.ui_requests_count)
                                 )
                             }
                             if (isExp) {
@@ -120,12 +125,12 @@ fun DisbursementsTab(
                                     PayoutCard(
                                         payout = payout,
                                         groupName = state.groupNames[payout.groupId] ?: "Unknown Group",
-                                        isProcessing = state.isProcessingPayout,
+                                        isProcessing = state.processingIds.contains(payout.id),
                                         onViewSummary = { vm.fetchMemberSummary(payout.memberId ?: "", payout.groupId) },
                                         onVerifyProfile = { onOpenMemberPortalFromDisbursement(payout.groupId, payout.id) },
-                                        onApprove = { vm.approvePayout(payout.id ?: "", payout.groupId) },
-                                        onReject = { vm.rejectPayout(payout.id ?: "", payout.groupId) },
-                                        onComplete = { vm.completePayout(payout.id ?: "", payout.groupId) }
+                                        onApprove = { payoutToConfirm = payout to PayoutStatus.GROUP_APPROVED },
+                                        onReject = { payoutToConfirm = payout to PayoutStatus.REJECTED },
+                                        onComplete = { payoutToConfirm = payout to PayoutStatus.COMPLETED }
                                     )
                                 }
                             }
@@ -137,10 +142,10 @@ fun DisbursementsTab(
                 // --- 2. LOAN ESCALATIONS ---
                 item {
                     AccordionHeader(
-                        title = "Escalated Loan Requests",
+                        title = stringResource(R.string.ui_escalated_loan_requests),
                         icon = Icons.AutoMirrored.Filled.TrendingUp,
                         count = state.loanEscalations.size,
-                        label = "loans",
+                        label = stringResource(R.string.ui_loans_count),
                         isExpanded = expandedLoans,
                         onClick = { expandedLoans = !expandedLoans }
                     )
@@ -158,7 +163,7 @@ fun DisbursementsTab(
                                     count = loans.size,
                                     isExpanded = isExp,
                                     onClick = { expandedLoanProvinces[province] = !isExp },
-                                    label = "loans"
+                                    label = stringResource(R.string.ui_loans_count)
                                 )
                             }
                             if (isExp) {
@@ -167,7 +172,7 @@ fun DisbursementsTab(
                                         loan = loan,
                                         memberName = state.loanMemberNames[loan.memberId] ?: "Member ${loan.memberId.takeLast(4)}",
                                         groupName = state.groupNames[loan.groupId] ?: "Unknown Group",
-                                        isProcessing = state.isProcessingLoan,
+                                        isProcessing = state.processingIds.contains(loan.id),
                                         onViewSummary = { vm.fetchMemberSummary(loan.memberId, loan.groupId) },
                                         onVerifyProfile = { onImpersonateMember(loan.memberId, loan.groupId) },
                                         onApprove = { vm.approveLoanRequest(loan) },
@@ -184,10 +189,10 @@ fun DisbursementsTab(
                 // --- 3. BURIAL CLAIM ESCALATIONS ---
                 item {
                     AccordionHeader(
-                        title = "Burial Claim Escalations",
+                        title = stringResource(R.string.ui_burial_claim_escalations),
                         icon = Icons.Default.Shield,
                         count = state.claimEscalations.size,
-                        label = "claims",
+                        label = stringResource(R.string.ui_claims_count),
                         isExpanded = expandedClaims,
                         onClick = { expandedClaims = !expandedClaims }
                     )
@@ -205,7 +210,7 @@ fun DisbursementsTab(
                                     count = claims.size,
                                     isExpanded = isExp,
                                     onClick = { expandedClaimProvinces[province] = !isExp },
-                                    label = "claims"
+                                    label = stringResource(R.string.ui_claims_count)
                                 )
                             }
                             if (isExp) {
@@ -213,7 +218,7 @@ fun DisbursementsTab(
                                     BurialClaimCard(
                                         claim = claim,
                                         groupName = state.groupNames[claim.groupId] ?: "Unknown Group",
-                                        isProcessing = state.isProcessingClaim,
+                                        isProcessing = state.processingIds.contains(claim.id),
                                         onViewSummary = { vm.fetchMemberSummary(claim.memberId, claim.groupId) },
                                         onVerifyProfile = { onImpersonateMember(claim.memberId, claim.groupId) },
                                         onApprove = { vm.approveBurialClaim(claim.id ?: "", "Approved by Platform Admin") },
@@ -230,10 +235,10 @@ fun DisbursementsTab(
                 // --- 4. BEHAVIOR ANALYTICS (RISK WATCHLIST) ---
                 item {
                     AccordionHeader(
-                        title = "High-Risk Watchlist",
+                        title = stringResource(R.string.ui_high_risk_watchlist),
                         icon = Icons.Default.Warning,
                         count = state.behaviorInsights.size,
-                        label = "members",
+                        label = stringResource(R.string.ui_members_count),
                         isExpanded = expandedWatchlist,
                         onClick = { expandedWatchlist = !expandedWatchlist }
                     )
@@ -256,17 +261,56 @@ fun DisbursementsTab(
             }
         }
 
-        if (state.selectedMemberSummary != null) {
-            MemberSummaryDialog(
-                summary = state.selectedMemberSummary,
-                onDismiss = { vm.dismissMemberSummary() }
-            )
-        }
+        state.selectedMemberSummary?.let { summary ->
+        MemberSummaryDialog(
+            summary = summary,
+            onDismiss = { vm.dismissMemberSummary() }
+        )
+    }
 
         if (state.isLoadingMemberSummary) {
             Box(Modifier.fillMaxSize().background(Color.Black.copy(0.3f)), Alignment.Center) {
                 CircularProgressIndicator(color = Color.White)
             }
+        }
+
+        payoutToConfirm?.let { (payout, targetStatus) ->
+            AlertDialog(
+                onDismissRequest = { payoutToConfirm = null },
+                title = { Text("Confirm Payout Action") },
+                text = {
+                    val actionName = when (targetStatus) {
+                        PayoutStatus.GROUP_APPROVED -> "approve"
+                        PayoutStatus.REJECTED -> "reject"
+                        PayoutStatus.COMPLETED -> "complete"
+                        else -> "process"
+                    }
+                    Text("Are you sure you want to $actionName this payout request of ${formatZAR(payout.amount)}?")
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            when (targetStatus) {
+                                PayoutStatus.GROUP_APPROVED -> vm.approvePayout(payout.id ?: "", payout.groupId)
+                                PayoutStatus.REJECTED -> vm.rejectPayout(payout.id ?: "", payout.groupId)
+                                PayoutStatus.COMPLETED -> vm.completePayout(payout.id ?: "", payout.groupId)
+                                else -> {}
+                            }
+                            payoutToConfirm = null
+                        },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (targetStatus == PayoutStatus.REJECTED) ErrorRed else Navy
+                        )
+                    ) {
+                        Text("Confirm")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { payoutToConfirm = null }) {
+                        Text(stringResource(R.string.ui_cancel))
+                    }
+                }
+            )
         }
     }
 }

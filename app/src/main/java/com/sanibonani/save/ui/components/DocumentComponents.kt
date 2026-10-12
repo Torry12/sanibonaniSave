@@ -1,18 +1,24 @@
 package com.sanibonani.save.ui.components
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import com.sanibonani.save.domain.model.DocumentStatus
 import com.sanibonani.save.ui.theme.*
 
@@ -20,77 +26,79 @@ import com.sanibonani.save.ui.theme.*
 fun DocumentUploadCard(
     label: String,
     isUploaded: Boolean,
-    status: DocumentStatus,
+    status: DocumentStatus = DocumentStatus.PENDING,
     onUpload: () -> Unit,
-    onView: (() -> Unit)? = null
+    onView: (() -> Unit)? = null,
+    imageUrl: String? = null
 ) {
     Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 8.dp),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
-        border = BorderStroke(1.dp, if (isUploaded) SuccessGreen.copy(alpha = 0.3f) else Color.LightGray),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+            .padding(vertical = 4.dp),
+        shape = RoundedCornerShape(12.dp),
+        border = BorderStroke(1.dp, if (isUploaded) MaterialTheme.colorScheme.primary.copy(alpha = 0.1f) else MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
     ) {
         Row(
-            modifier = Modifier
-                .padding(16.dp)
-                .fillMaxWidth(),
+            Modifier.padding(16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Surface(
-                color = if (isUploaded) SuccessGreen.copy(alpha = 0.1f) else Color.Gray.copy(alpha = 0.1f),
-                shape = RoundedCornerShape(12.dp),
-                modifier = Modifier.size(48.dp)
+            Box(
+                modifier = Modifier
+                    .size(48.dp)
+                    .background(
+                        if (isUploaded) SuccessBg.copy(alpha = if (isSystemInDarkTheme()) 0.2f else 1f) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f),
+                        RoundedCornerShape(8.dp)
+                    )
+                    .clip(RoundedCornerShape(8.dp)),
+                contentAlignment = Alignment.Center
             ) {
-                Box(contentAlignment = Alignment.Center) {
+                if (isUploaded && !imageUrl.isNullOrBlank() && (imageUrl.endsWith(".jpg", true) || imageUrl.endsWith(".png", true) || imageUrl.endsWith(".jpeg", true))) {
+                    AsyncImage(
+                        model = ImageRequest.Builder(LocalContext.current)
+                            .data(imageUrl)
+                            .crossfade(true)
+                            .build(),
+                        contentDescription = "Document Thumbnail",
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop
+                    )
+                } else {
                     Icon(
-                        imageVector = if (isUploaded) Icons.Default.Description else Icons.Default.CloudUpload,
-                        contentDescription = null,
-                        tint = if (isUploaded) SuccessGreen else Color.Gray
+                        if (isUploaded) Icons.Default.Check else Icons.Default.CloudUpload,
+                        null,
+                        tint = if (isUploaded) SuccessGreen else MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(24.dp)
                     )
                 }
             }
 
             Spacer(Modifier.width(16.dp))
 
-            Column(modifier = Modifier.weight(1f)) {
-                Text(label, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyLarge)
+            Column(Modifier.weight(1f)) {
+                Text(label, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
                 if (isUploaded) {
-                    val statusText = when (status) {
-                        DocumentStatus.PENDING -> "Pending Verification"
-                        DocumentStatus.VERIFIED -> "Verified"
-                        DocumentStatus.REJECTED -> "Rejected"
-                    }
-                    val statusColor = when (status) {
-                        DocumentStatus.PENDING -> WarningAmber
-                        DocumentStatus.VERIFIED -> SuccessGreen
-                        DocumentStatus.REJECTED -> ErrorRed
-                    }
-                    Text(statusText, color = statusColor, style = MaterialTheme.typography.labelSmall)
-                } else {
-                    Text("Not uploaded", color = Color.Gray, style = MaterialTheme.typography.labelSmall)
+                    Text(
+                        status.name,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = when (status) {
+                            DocumentStatus.VERIFIED -> SuccessGreen
+                            DocumentStatus.REJECTED -> ErrorRed
+                            else -> MaterialTheme.colorScheme.onSurfaceVariant
+                        }
+                    )
                 }
             }
 
             if (isUploaded && onView != null) {
                 IconButton(onClick = onView) {
-                    Icon(Icons.Default.Visibility, "View", tint = Navy)
+                    Icon(Icons.Default.Visibility, null, tint = MaterialTheme.colorScheme.primary)
                 }
             }
-
-            Button(
-                onClick = onUpload,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = if (isUploaded) Navy.copy(alpha = 0.1f) else Navy,
-                    contentColor = if (isUploaded) Navy else Color.White
-                ),
-                shape = RoundedCornerShape(8.dp),
-                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                modifier = Modifier.height(36.dp)
-            ) {
-                Text(if (isUploaded) "Update" else "Upload", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            if (!isUploaded || status == DocumentStatus.REJECTED) {
+                IconButton(onClick = onUpload) {
+                    Icon(if (isUploaded) Icons.Default.Refresh else Icons.Default.Add, null, tint = MaterialTheme.colorScheme.primary)
+                }
             }
         }
     }
@@ -102,64 +110,101 @@ fun DocumentAdminCard(
     url: String?,
     status: DocumentStatus,
     onVerify: (Boolean) -> Unit,
-    onReject: (String, String) -> Unit
+    onDownload: (String, String) -> Unit
 ) {
+    val isUploaded = !url.isNullOrBlank()
     Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 8.dp),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+            .padding(vertical = 4.dp),
+        shape = RoundedCornerShape(12.dp),
+        border = BorderStroke(1.dp, if (isUploaded) MaterialTheme.colorScheme.primary.copy(alpha = 0.1f) else MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
     ) {
-        Column(Modifier.padding(16.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(label, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                val (statusText, statusColor) = when (status) {
-                    DocumentStatus.PENDING -> "Pending" to WarningAmber
-                    DocumentStatus.VERIFIED -> "Verified" to SuccessGreen
-                    DocumentStatus.REJECTED -> "Rejected" to ErrorRed
-                }
-                Surface(
-                    color = statusColor.copy(alpha = 0.1f),
-                    shape = RoundedCornerShape(8.dp)
-                ) {
+        Row(
+            Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .background(
+                        if (isUploaded) MaterialTheme.colorScheme.primary.copy(alpha = 0.1f) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f),
+                        RoundedCornerShape(8.dp)
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = if (isUploaded) Icons.Default.Description else Icons.Default.Info,
+                    contentDescription = null,
+                    tint = if (isUploaded) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+
+            Spacer(Modifier.width(16.dp))
+
+            Column(Modifier.weight(1f)) {
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                if (isUploaded) {
+                    val (color, statusLabel) = when (status) {
+                        DocumentStatus.VERIFIED -> SuccessGreen to "VERIFIED"
+                        DocumentStatus.REJECTED -> ErrorRed to "REJECTED"
+                        DocumentStatus.PENDING -> WarningAmber to "PENDING"
+                    }
                     Text(
-                        statusText,
-                        color = statusColor,
+                        text = statusLabel,
                         style = MaterialTheme.typography.labelSmall,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                        color = color,
+                        fontWeight = FontWeight.Bold
+                    )
+                } else {
+                    Text(
+                        text = "NOT UPLOADED",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                        fontWeight = FontWeight.Bold
                     )
                 }
             }
 
-            Spacer(Modifier.height(16.dp))
-
-            if (url.isNullOrBlank()) {
-                Text("No document uploaded", color = Color.Gray, style = MaterialTheme.typography.bodySmall)
-            } else {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(
-                        onClick = { /* View Logic */ },
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(8.dp)
+            if (isUploaded) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(
+                        onClick = { onDownload(url.orEmpty(), label) },
+                        modifier = Modifier.size(36.dp)
                     ) {
-                        Icon(Icons.Default.Visibility, null, modifier = Modifier.size(16.dp))
-                        Spacer(Modifier.width(8.dp))
-                        Text("View")
+                        Icon(Icons.Default.Visibility, "View Document", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(22.dp))
                     }
 
                     if (status == DocumentStatus.PENDING) {
-                        Button(
-                            onClick = { onVerify(true) },
-                            modifier = Modifier.weight(1f),
-                            colors = ButtonDefaults.buttonColors(containerColor = SuccessGreen),
-                            shape = RoundedCornerShape(8.dp)
+                        Spacer(Modifier.width(8.dp))
+                        IconButton(
+                            onClick = { onVerify(false) },
+                            modifier = Modifier
+                                .size(32.dp)
+                                .background(ErrorRed.copy(0.1f), CircleShape)
                         ) {
-                            Icon(Icons.Default.Check, null, modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(8.dp))
-                            Text("Verify")
+                            Icon(Icons.Default.Close, "Reject", tint = ErrorRed, modifier = Modifier.size(18.dp))
                         }
+                        Spacer(Modifier.width(6.dp))
+                        IconButton(
+                            onClick = { onVerify(true) },
+                            modifier = Modifier
+                                .size(32.dp)
+                                .background(SuccessGreen.copy(0.1f), CircleShape)
+                        ) {
+                            Icon(Icons.Default.Check, "Approve", tint = SuccessGreen, modifier = Modifier.size(18.dp))
+                        }
+                    } else if (status == DocumentStatus.VERIFIED) {
+                        Icon(Icons.Default.CheckCircle, null, tint = SuccessGreen, modifier = Modifier.size(24.dp))
+                    } else if (status == DocumentStatus.REJECTED) {
+                        Icon(Icons.Default.Cancel, null, tint = ErrorRed, modifier = Modifier.size(24.dp))
                     }
                 }
             }

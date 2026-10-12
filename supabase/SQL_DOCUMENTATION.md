@@ -1,109 +1,184 @@
 # 🏦 SanibonaniSave — SQL Database Documentation
 
-**Version**: 1.0 (June 2026)
-**Platform**: Supabase (PostgreSQL)
+**Version**: 7.1 (August 2026 - Financial Precision & SQL Sync)
+**Platform**: Supabase (PostgreSQL) / Room (SQLite)
 
-This document provides a comprehensive overview of the SanibonaniSave database schema, including tables, key fields, and core business logic implemented via functions and triggers.
-
----
-
-## 🏗️ Core Schema (`01_DATABASE_SCHEMA.sql`)
-
-### 1. Identity & Profiles
-- **`profiles`**: Extends the `auth.users` table with application-specific metadata.
-    - `id`: Maps directly to `auth.users.id`.
-    - `role`: `platform_admin`, `group_admin`, or `member`.
-
-### 2. Group Management
-- **`groups`**: The central entity representing a savings group (Stokvel, Burial Society, etc.).
-    - `type`: Defines the group's operational logic (e.g., `burial_society`, `rosca`).
-    - `balance`: Atomic balance tracking (see atomic balance helpers).
-    - `joining_fee` & `monthly_contribution`: Standard financial parameters.
-    - `rosca_rotation_method`: Strategy for rotation (fixed, random, etc.).
-
-### 3. Membership
-- **`members`**: Links users to groups with status tracking.
-    - `status`: `active`, `probation`, `suspended`, or `pending_payment`.
-    - `joined_at` & `probation_end_at`: Lifecycle tracking.
-    - `total_paid`: Running total of all contributions.
-
-### 4. Financials
-- **`contributions`**: Records expected and paid periods.
-    - `status`: `paid`, `due`, `overdue`, or `partial`.
-    - `type`: `contribution`, `joining_fee`, `late_fee`, etc.
-- **`payments`**: Raw transaction records from payment gateways (YoCo, Stitch, etc.).
-- **`group_ledger`**: Immutable audit trail for every group balance change.
-- **`platform_ledger`**: Tracks revenue earned by the platform.
-
-### 5. Credit & Loans
-- **`loans`**: Loan lifecycle management.
-    - `status`: `pending`, `approved`, `active`, `completed`, etc.
-    - `total_to_repay`: Includes interest calculated at disbursement.
-- **`loan_repayments`**: Individual payments made against an active loan.
-
-### 6. Burial Society Specifics
-- **`beneficiaries`**: Registered dependents for burial society members.
-- **`beneficiary_payout_claims`**: Claims submitted upon the death of a beneficiary.
+This document provides a comprehensive overview of the SanibonaniSave database schema, including tables, key fields, and core business logic. The local Room database mirrors this schema for offline-first capabilities.
 
 ---
 
-## ⚙️ Business Logic (`02_FUNCTIONS_AND_TRIGGERS.sql`)
+## 🏗️ 1. Identity & Profiles
 
-### 1. Atomic Balance Helpers
-To prevent race conditions and ensure data integrity, all balance updates must go through:
-- **`increment_group_balance`**: Updates `groups.balance` and automatically inserts a record into `group_ledger`.
-
-### 2. Core RPCs (Remote Procedure Calls)
-These functions encapsulate multi-step business operations:
-- **`record_contribution_v1`**:
-    - Inserts into `contributions`.
-    - Updates group balance (via `increment_group_balance`).
-    - Handles platform fees if the contribution type is `member_fee`.
-- **`record_loan_repayment_v1`**:
-    - Inserts into `loan_repayments`.
-    - Updates `loans.total_repaid`.
-    - Updates group balance.
-- **`approve_and_disburse_loan_v1`**:
-    - Validates group balance sufficiency.
-    - Updates loan status to `active`.
-    - Subtracts the loan amount from the group balance.
-
-### 3. Automatic Triggers
-- **`update_updated_at_column`**: Ensures every `updated_at` field is accurate.
-- **`fn_sync_group_member_count`**: Keeps `groups.current_members` in sync with the actual number of rows in `members`.
+### `user_profiles`
+Extends `auth.users` with application metadata.
+- `id` (UUID): Maps to `auth.users.id`.
+- `full_name` (TEXT): Member's display name.
+- `email` (TEXT): Primary contact.
+- `role` (TEXT): `platform_admin`, `group_admin`, or `member`.
 
 ---
 
-## 📈 Analytics & Behavior Tracking
+## 🏛️ 2. Group Management
 
-- **`group_actuarial_metrics`**: Advanced risk and solvency scores for group health.
-- **`member_behavior_track`**: Scores members (0–100) based on payment history and loan defaults.
-- **`fraud_detection_events`**: Audit trail for suspicious activities (velocity spikes, duplicate transactions).
+### `groups`
+The central container for all cooperative activities.
+- `id` (UUID): Unique group identifier.
+- `name` (TEXT): Group name.
+- `type` (TEXT): `burial_society`, `stokvel`, `rosca`, `investment_club`, `emergency_fund`, `tontine`.
+- `balance` (NUMERIC): Atomic balance tracking (Precision: 2 decimals).
+- `joining_fee` (NUMERIC): One-time entry fee.
+- `monthly_contribution` (NUMERIC): Recurring obligation.
+- `late_fee` (NUMERIC): Penalty for missed deadlines.
+- `goal_amount` (NUMERIC): Target savings for the cycle.
+- `rosca_rotation_method` (TEXT): `FIXED`, `RANDOM`, `VOTED`.
+- `loan_interest_rate` (DOUBLE): Default interest for the group.
+- `loan_max_amount` (NUMERIC): Borrowing cap.
+
+### `group_polls`
+Governance and voting for group decisions.
+- `id` (UUID): Poll identifier.
+- `groupId` (UUID): Parent group.
+- `type` (TEXT): `rotation_order`, `policy_change`, `disbursement_approval`.
+- `status` (TEXT): `DRAFT`, `OPEN`, `CLOSED`, `EXECUTED`.
 
 ---
 
-## 🔐 Security & RLS (`03_SECURITY_AND_RLS.sql`)
+## 👥 3. Membership & Documents
 
-The system enforces strict **Row Level Security (RLS)**:
-- **Members**: Can only read data for groups they belong to.
-- **Group Admins**: Can manage members and financials within their group.
-- **Platform Admins**: Full access across all groups and platform ledgers.
+### `members`
+Links users to groups with status tracking.
+- `id` (UUID): Member identifier.
+- `group_id` (UUID): Reference to `groups`.
+- `user_id` (UUID): Reference to `user_profiles` (nullable for offline adds).
+- `status` (TEXT): `ACTIVE`, `PROBATION`, `SUSPENDED`, `PENDING_PAYMENT`.
+- `member_key` (TEXT): Unique short-code for offline identification.
+- `total_paid` (NUMERIC): Cumulative contributions.
+- `contract_status` (TEXT): Verification state of the legal contract.
+
+### `beneficiaries`
+Registered dependents for Burial Societies.
+- `member_id` (UUID): Reference to `members`.
+- `relationship` (TEXT): e.g., Spouse, Child, Parent.
+- `is_over_65` (BOOLEAN): Affects actuarial risk and premiums.
+
+### `member_documents`
+KYC and legal compliance files.
+- `member_id` (UUID): Reference to `members`.
+- `label` (TEXT): e.g., "ID Document", "Proof of Residence".
+- `status` (TEXT): `PENDING`, `VERIFIED`, `REJECTED`.
 
 ---
 
-## 📝 Example SQL Comments
+## 💰 4. Financials & Ledger
 
-When writing new SQL, follow these commenting standards:
+### `contributions`
+Records expected and paid obligations.
+- `id` (UUID): Contribution ID.
+- `status` (TEXT): `PAID`, `DUE`, `OVERDUE`, `PARTIAL`.
+- `type` (TEXT): `contribution`, `joining_fee`, `late_fee`, `penalty`.
+- `principal_amount` (NUMERIC): The base contribution amount.
+- `late_fee_amount` (NUMERIC): Accrued penalties.
 
-```sql
--- Use double dashes for single-line comments
-/* Use block comments
-   for complex logic descriptions */
+### `payouts`
+- `amount` (NUMERIC): Disbursement value.
+- `status` (TEXT): `PENDING`, `PROCESSING`, `COMPLETED`, `FAILED`.
+- `supporting_document_url` (TEXT): Link to proof of payment or claim document.
+- `metadata` (JSONB): Extensible field for specific group type data.
 
--- 1. HEADER SECTIONS (All caps, numbered)
--- 2. FIELD EXPLANATIONS (Inline or above the field)
-CREATE TABLE public.example (
-    id UUID PRIMARY KEY, -- Unique identifier
-    status TEXT DEFAULT 'pending' -- Initial state for all new records
-);
-```
+### `group_ledger`
+**The Source of Truth.** Immutable audit trail for all balance changes.
+- `id` (UUID): Ledger entry ID.
+- `amount` (NUMERIC): Change in balance (positive or negative).
+- `balance_after` (NUMERIC): Snapshot of balance after transaction.
+- `category` (TEXT): `contribution`, `loan_disbursement`, `loan_repayment`, `payout`.
+
+### `bank_connections`
+Secure linkage to external financial accounts.
+- `group_id` (UUID): The group owning the connection.
+- `provider_id` (TEXT): Link to `financial_providers`.
+- `status` (TEXT): `active`, `expired`, `disconnected`, `pending`.
+- `account_number_hidden` (TEXT): Masked account for display.
+- `linked_at` (TIMESTAMPTZ): Connection establishment time.
+
+### `settlements`
+Tracks the clearing of funds from payment gateways.
+- `transaction_id` (TEXT): Link to raw payment.
+- `fee_deducted` (NUMERIC): Platform or gateway fee.
+- `status` (TEXT): `PENDING`, `SETTLED`, `FAILED`.
+
+---
+
+## 💳 5. Credit & Loans
+
+### `loans`
+Lifecycle management for credit features.
+- `id` (UUID): Loan identifier.
+- `amount` (NUMERIC): Principal borrowed.
+- `total_to_repay` (NUMERIC): Principal + calculated interest.
+- `total_repaid` (NUMERIC): Amount paid back to date.
+- `amortization_type` (TEXT): `flat`, `reducing_balance`, `bullet`.
+- `effective_apr` (NUMERIC): Actual cost of borrowing.
+- `status` (TEXT): `PENDING`, `APPROVED`, `ACTIVE`, `COMPLETED`, `DEFAULTED`.
+
+### `loan_repayments`
+Individual payments made against an active loan.
+- `loan_id` (UUID): Reference to `loans`.
+- `amount` (NUMERIC): Repayment value.
+
+---
+
+## 📊 6. Analytics & Behavior (ML-Ready)
+
+### `member_behavior_track`
+Data points for finetuning Azure AI Foundry models.
+- `payment_consistency_score` (DOUBLE): Weighted score of on-time payments.
+- `loan_default_count` (INT): Number of defaulted loans.
+- `fraud_risk_level` (TEXT): `LOW`, `MEDIUM`, `HIGH`, `CRITICAL`.
+- `behavior_score` (DOUBLE): Aggregated score for reliability (0-100).
+
+### `fraud_detection_events`
+Audit trail for suspicious activities.
+- `event_type` (TEXT): `velocity_spike`, `duplicate_transaction`, `unusual_withdrawal`.
+- `severity` (TEXT): `INFO`, `WARNING`, `CRITICAL`.
+
+---
+
+## 🔄 7. System & Sync
+
+### `pending_operations`
+Offline outbox for synchronization.
+- `type` (TEXT): The RPC or operation to perform (e.g., `record_contribution`).
+- `payload` (TEXT): JSON representation of the entity.
+- `retry_count` (INT): Number of failed sync attempts.
+- `created_at` (BIGINT): Epoch timestamp matching mobile device state.
+
+### `audit_logs`
+System-wide activity tracking.
+- `actor_id` (UUID): Who performed the action.
+- `action` (TEXT): e.g., `GROUP_CREATED`, `MEMBER_SUSPENDED`.
+
+### `platform_fee_config`
+Pricing tiers for different group types.
+- `group_type` (TEXT): Primary key part.
+- `rosca_cycle` (INTEGER): Cycle duration for ROSCA.
+- `registration_fee` (NUMERIC): One-time setup fee.
+- `monthly_fee` (NUMERIC): Ongoing maintenance fee.
+- `shortfall_recovery_fee` (NUMERIC): Fee for processing under-contributions.
+
+---
+
+## ⚙️ Business Logic (Supabase RPCs)
+
+### Atomic Balance Helpers
+- **`increment_group_balance`**: Updates `groups.balance` and inserts into `group_ledger`.
+
+### Core RPCs
+- **`record_contribution_v2`**: Atomically records payment, updates balance, and logs to ledger.
+- **`approve_and_disburse_loan_v1`**: Validates solvency, updates loan status, and subtracts from balance.
+
+---
+
+## 🔐 Security
+
+- **Row Level Security (RLS)**: Enforced on all tables based on `group_id` and `user_id`.
+- **Financial Integrity**: `Double` is forbidden for currency. All math is performed using `NUMERIC` in Postgres and `Money` (BigDecimal) in Kotlin.

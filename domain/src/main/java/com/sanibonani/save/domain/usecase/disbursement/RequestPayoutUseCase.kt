@@ -1,14 +1,11 @@
 package com.sanibonani.save.domain.usecase.disbursement
-
 import com.sanibonani.save.domain.model.*
-import com.sanibonani.save.domain.repository.*
+import com.sanibonani.save.domain.repository.group.*
+import com.sanibonani.save.domain.repository.member.*
 import com.sanibonani.save.domain.repository.disbursement.PayoutRepository
-import com.sanibonani.save.domain.service.TreasuryService
-import com.sanibonani.save.domain.usecase.rosca.ExecuteRoscaPayoutUseCase
-import com.sanibonani.save.domain.usecase.stokvel.CalculateStokvelPayoutsUseCase
-import com.sanibonani.save.domain.usecase.dynamics.CalculateInvestmentClubValuationUseCase
+import com.sanibonani.save.domain.service.PayoutGuard
 import javax.inject.Inject
-
+import com.sanibonani.save.domain.usecase.financialResult
 /**
  * Handles the logic for a Group Admin requesting a disbursement from the platform.
  */
@@ -16,7 +13,7 @@ class RequestPayoutUseCase @Inject constructor(
     private val payoutRepository: PayoutRepository,
     private val groupRepository: GroupRepository,
     private val memberRepository: MemberRepository,
-    private val treasuryService: TreasuryService,
+    private val payoutGuard: PayoutGuard,
     private val executeRoscaPayoutUseCase: ExecuteRoscaPayoutUseCase,
     private val calculateStokvelPayoutsUseCase: CalculateStokvelPayoutsUseCase,
     private val calculateInvestmentClubValuationUseCase: CalculateInvestmentClubValuationUseCase
@@ -28,22 +25,23 @@ class RequestPayoutUseCase @Inject constructor(
         bankNameOverride: String? = null,
         accountNoOverride: String? = null,
         branchCodeOverride: String? = null
-    ): Result<String> {
+    ): Result<String> = financialResult {
         val group = groupRepository.getGroupById(groupId).getOrNull()
-            ?: return Result.failure(Exception("Group not found."))
+            ?: throw Exception("Group not found.")
 
         if (group.type == GroupType.ROSCA) {
-            return executeRoscaPayoutUseCase(groupId)
+            return@financialResult executeRoscaPayoutUseCase(groupId).getOrThrow()
         }
 
         var bankName: String? = bankNameOverride
         var accountNo: String? = accountNoOverride
         var branchCode: String? = branchCodeOverride
         var amountToPay = requestedAmount
+        var member: Member? = null
 
         if (memberId != null) {
-            val member = memberRepository.syncGroupMembers(groupId).getOrNull()?.find { it.id == memberId }
-                ?: return Result.failure(Exception("Member not found."))
+            member = memberRepository.syncGroupMembers(groupId).getOrNull()?.find { it.id == memberId }
+                ?: throw Exception("Member not found.")
 
             if (bankName.isNullOrBlank()) bankName = member.bankName
             if (accountNo.isNullOrBlank()) accountNo = member.accountNo
@@ -52,9 +50,10 @@ class RequestPayoutUseCase @Inject constructor(
             if (amountToPay == null || !amountToPay.isPositive) {
                 if (group.type == GroupType.STOKVEL) {
                     val members = memberRepository.syncGroupMembers(groupId).getOrNull() ?: emptyList()
-                    amountToPay = calculateStokvelPayoutsUseCase(group, members)
+                    amountToPay = calculateStokvelPayoutsUseCase(group, members, member)
                 } else if (group.type == GroupType.INVESTMENT_CLUB) {
-                    amountToPay = calculateInvestmentClubValuationUseCase(group, member)
+                    val valuation = calculateInvestmentClubValuationUseCase(group, listOf(member)).getOrNull()
+                    amountToPay = valuation?.memberValuations?.firstOrNull()?.marketValue ?: Money.ZERO
                 }
             }
         } else {
@@ -64,17 +63,25 @@ class RequestPayoutUseCase @Inject constructor(
         }
 
         if (amountToPay == null || !amountToPay.isPositive) {
-            return Result.failure(Exception("Amount required."))
+            throw Exception("Amount required.")
         }
 
-        treasuryService.schedulePayout(groupId, amountToPay).onFailure { return Result.failure(it) }
+        val payoutType = when (group.type) {
+            GroupType.STOKVEL -> PayoutType.ANNUAL
+            GroupType.EMERGENCY_FUND -> PayoutType.EMERGENCY
+            GroupType.INVESTMENT_CLUB -> PayoutType.DISINVESTMENT
+            else -> PayoutType.STANDARD
+        }
 
-        if (bankName.isNullOrBlank()) return Result.failure(Exception("Bank name required."))
+        // Apply Guards
+        payoutGuard.validateRequest(group, member, amountToPay, payoutType).getOrThrow()
+
+        if (bankName.isNullOrBlank()) throw Exception("Bank name required.")
         if (accountNo.isNullOrBlank() || !ACCOUNT_NO_REGEX.matches(accountNo.trim())) {
-            return Result.failure(Exception("Invalid account number."))
+            throw Exception("Invalid account number.")
         }
         if (branchCode.isNullOrBlank() || !BRANCH_CODE_REGEX.matches(branchCode.trim())) {
-            return Result.failure(Exception("Invalid branch code."))
+            throw Exception("Invalid branch code.")
         }
 
         val request = PayoutRequest(
@@ -84,10 +91,11 @@ class RequestPayoutUseCase @Inject constructor(
             bankName = bankName.trim(),
             accountNo = accountNo.trim(),
             branchCode = branchCode.trim(),
-            status = PayoutStatus.PENDING
+            status = PayoutStatus.PENDING,
+            type = payoutType,
+            metadata = null
         )
-
-        return payoutRepository.requestPayout(request)
+        payoutRepository.requestPayout(request).getOrThrow()
     }
 
     companion object {

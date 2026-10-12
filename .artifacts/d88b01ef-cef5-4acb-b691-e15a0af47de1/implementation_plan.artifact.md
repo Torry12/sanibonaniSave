@@ -1,47 +1,38 @@
-# Implementation Plan - Update and Sync All Databases
+# Implementation Plan - Resolve Error Duplication and Discrepancy Reason
 
-This plan addresses the request to "update and sync all databases" by ensuring structural alignment between the Supabase backend and the Room local cache, applying the latest financial and audit patches, and performing a full data synchronization.
+This plan addresses the duplicated error messages on the Member Dashboard and fixes the underlying mathematical discrepancy in the "Total Paid" verification logic.
 
-## User Review Required
-
-> [!IMPORTANT]
-> This process involves resetting the local Supabase database. If you have any unsaved local test data that is NOT part of the seed scripts, it will be lost. The Room database will be migrated to version 62.
+## Problem Description
+1.  **Message Duplication**: Identical "Data Integrity" warnings are displayed twice. This is caused by redundant logic in both the `DataVerificationService` and the `MemberOverviewViewModel` being rendered independently in the UI.
+2.  **False Discrepancy**: The verification logic currently sums **all** transactions, including Late Fees and Member Fees. However, the system's canonical `totalPaid` (Investment Principal) field intentionally excludes fees to ensure accurate equity valuations. A R50 discrepancy usually indicates a paid Late Fee that the verification logic incorrectly included in its sum.
 
 ## Proposed Changes
 
-### 1. Supabase Backend
-Ensure the local Supabase instance is running the latest schema (Version 7.1) including the new Audit and Ledger consolidation facilities.
+### 1. Data Layer (Verification Logic)
+Harden the verification service to align with the platform's "Equity Logic".
 
-#### [ACTION] Execute Local Reset
-- Run `scripts/run-supabase-local-reset.ps1` to rebuild the local Supabase environment.
+#### [MODIFY] [DataVerificationServiceImpl.kt](file:///C:/Users/CRISS/AndroidStudioProjects/SanibonaniSave_Full/data/src/main/java/com/sanibonani/save/data/service/DataVerificationServiceImpl.kt)
+- Update `verifyMemberData` to only sum contributions of type `contribution`, `joining_fee`, and `registration_contribution` when validating against `member.totalPaid`.
 
-### 2. Android App (Room Database)
-Align the Room schema with the latest Supabase tables and add missing DAOs.
+### 2. ViewModel Layer (Redundancy Removal)
+Eliminate duplicate state tracking to fix the UI duplication.
 
-#### [MODIFY] [SanibonaniDatabase.kt](file:///C:/Users/CRISS/AndroidStudioProjects/SanibonaniSave_Full/data/src/main/java/com/sanibonani/save/data/local/SanibonaniDatabase.kt)
-- Increment version to 62.
-- Add `BankTransactionDao` to the abstract methods.
-- Add `AuditLogEntity` to the entities list.
+#### [MODIFY] [MemberOverviewViewModel.kt](file:///C:/Users/CRISS/AndroidStudioProjects/SanibonaniSave_Full/app/src/main/java/com/sanibonani/save/viewmodel/MemberOverviewViewModel.kt)
+- Remove the manual `integrityWarning` calculation in `startLiveObservation`.
+- Remove the `dataIntegrityMessage` field from the UI state.
+- Rely exclusively on the `VerificationResult` provided by the `verificationService`.
 
-#### [NEW] [AuditLogEntity.kt](file:///C:/Users/CRISS/AndroidStudioProjects/SanibonaniSave_Full/data/src/main/java/com/sanibonani/save/data/local/AuditLogEntity.kt)
-- Define Room entity for `AuditLog` to support offline audit trails.
+### 3. UI Layer (Consolidation)
+Cleanup the dashboard to only show the consolidated verification results.
 
-#### [MODIFY] [Migrations.kt](file:///C:/Users/CRISS/AndroidStudioProjects/SanibonaniSave_Full/data/src/main/java/com/sanibonani/save/data/local/Migrations.kt)
-- Add `MIGRATION_61_62` to handle the new `audit_logs` table and `bank_transactions` indices.
-
-### 3. Data Synchronization
-Trigger a full sync to populate the local database with the fresh backend state.
-
-#### [MODIFY] [SyncRepositoryImpl.kt](file:///C:/Users/CRISS/AndroidStudioProjects/SanibonaniSave_Full/data/src/main/java/com/sanibonani/save/data/repository/SyncRepositoryImpl.kt)
-- Ensure `syncAllData` includes the new `BankTransaction` and `AuditLog` (optional, for groups/members).
+#### [MODIFY] [MemberDashboardScreen.kt](file:///C:/Users/CRISS/AndroidStudioProjects/SanibonaniSave_Full/app/src/main/java/com/sanibonani/save/ui/screens/member/MemberDashboardScreen.kt)
+- Remove the call to `DataIntegrityAlert(it)` (which was rendering the old `dataIntegrityMessage`).
+- Keep `VerificationSummary(overviewState.verificationResult)`, which handles all data integrity issues in a unified banner.
 
 ## Verification Plan
 
-### Automated Tests
-- Run `SanibonaniDatabaseTest` (if exists) or a new test to verify migration 61 -> 62.
-- Run `SyncRepositoryTest` to verify data flow.
-
 ### Manual Verification
-- Deploy the app to an emulator/device.
-- Trigger "Sync All" from the UI (or verify it runs on startup).
-- Check the "Audit" tab to ensure data is correctly displayed after sync.
+1.  **Impersonation View**: Navigate to a member who has paid a Late Fee (e.g., Bongani Khumalo in the screenshot).
+2.  **Discrepancy Check**: Verify that the "Total Paid" discrepancy warning no longer appears if the only difference is fee-related.
+3.  **Duplication Check**: Ensure only one unified warning banner appears if a genuine discrepancy exists (e.g., after manually editing a database value).
+4.  **Audit Tab**: Verify that the "Transactions" and "Audit" tabs still correctly show the full list of payments including fees.

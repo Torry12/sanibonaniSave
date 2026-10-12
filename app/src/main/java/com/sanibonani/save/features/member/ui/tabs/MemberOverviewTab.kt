@@ -2,6 +2,7 @@ package com.sanibonani.save.features.member.ui.tabs
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -12,23 +13,21 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AdminPanelSettings
 import androidx.compose.material.icons.filled.ArrowForward
-import androidx.compose.material.icons.filled.Assignment
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.VerifiedUser
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
-import com.sanibonani.save.ui.screens.admin.tabs.ActionButton
+import com.sanibonani.save.ui.components.*
+import com.sanibonani.save.ui.components.*
 import androidx.compose.material3.windowsizeclass.WindowSizeClass
 import androidx.compose.material3.windowsizeclass.WindowWidthSizeClass
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -41,14 +40,12 @@ import coil.request.ImageRequest
 import com.sanibonani.save.R
 import com.sanibonani.save.domain.model.*
 import com.sanibonani.save.domain.utils.PaymentCalculation
-import com.sanibonani.save.domain.utils.PaymentCalculator
+import com.sanibonani.save.ui.components.*
 import com.sanibonani.save.ui.components.*
 import com.sanibonani.save.features.member.ui.LedgerItem
-import com.sanibonani.save.features.member.ui.handleProfilePhotoSelection
 import com.sanibonani.save.ui.theme.*
 import com.sanibonani.save.ui.utils.formatZAR
 import com.sanibonani.save.features.member.presentation.MemberOverviewViewModel
-import kotlinx.coroutines.flow.map
 
 @Composable
 fun MemberOverviewTab(
@@ -82,7 +79,8 @@ fun MemberOverviewTab(
         if (!uiState.isSystemOnline || uiState.isAirplaneMode) {
             item {
                 OfflineBanner(
-                    message = if (uiState.isAirplaneMode) "⚠️ Airplane Mode: Syncing is paused." else "⚠️ Offline: Using cached data."
+                    isOnline = false,
+                    message = if (uiState.isAirplaneMode) "âš ï¸ Airplane Mode: Syncing is paused." else "âš ï¸ Offline: Using cached data."
                 )
             }
         }
@@ -94,15 +92,34 @@ fun MemberOverviewTab(
                     subtitle = "Manage members and group settings",
                     icon = Icons.Default.AdminPanelSettings,
                     onClick = onNavigateAdmin,
-                    containerColor = NavyLight.copy(alpha = 0.05f)
+                    accentColor = MaterialTheme.colorScheme.primary
                 )
             }
         }
 
+        if (member?.status == MemberStatus.SUSPENDED || group?.isPlatformSuspended == true || group?.feeStatus == AdminFeeState.SUSPENDED) {
+            item {
+                InfoBox(
+                    message = "Your account or group is currently suspended due to 90 days of inactivity. You can still make outstanding payments or contributions below to restore active standing.",
+                    type = InfoType.WARNING
+                )
+            }
+        }
+
+        val pendingClaims = uiState.burialClaims.filter {
+            (it.status != BeneficiaryClaimStatus.PAID) &&
+            (it.status != BeneficiaryClaimStatus.REJECTED) &&
+            (it.status != BeneficiaryClaimStatus.CANCELLED)
+        }
+        val pendingPayouts = uiState.payouts.filter { it.status != PayoutStatus.COMPLETED && it.status != PayoutStatus.FAILED && it.status != PayoutStatus.CANCELLED }
+        val activeLoans = uiState.loans.filter { it.status == LoanStatus.ACTIVE || it.status == LoanStatus.PARTIALLY_PAID || it.status == LoanStatus.OVERDUE }
+
         item {
             AccountOverviewCard(
                 member, group, calculation, uiState.isLoading,
-                onPay, profileImageVersion, profileLauncher, vm, context
+                onPay, profileImageVersion, profileLauncher, vm, context,
+                memberMonthlyContribution = uiState.monthlyContributionAmount,
+                activeLoans = activeLoans
             )
         }
 
@@ -118,10 +135,6 @@ fun MemberOverviewTab(
                 )
             )
         }
-
-        val pendingClaims = uiState.burialClaims.filter { it.status != BeneficiaryClaimStatus.PAID && it.status != BeneficiaryClaimStatus.REJECTED && it.status != BeneficiaryClaimStatus.CANCELLED }
-        val pendingPayouts = uiState.payouts.filter { it.status != PayoutStatus.COMPLETED && it.status != PayoutStatus.FAILED && it.status != PayoutStatus.CANCELLED }
-        val activeLoans = uiState.loans.filter { it.status == LoanStatus.ACTIVE || it.status == LoanStatus.PARTIALLY_PAID || it.status == LoanStatus.OVERDUE }
 
         if (activeLoans.isNotEmpty() || pendingClaims.isNotEmpty() || pendingPayouts.isNotEmpty()) {
             item {
@@ -160,7 +173,7 @@ fun MemberOverviewTab(
             SanibonaniSectionHeader("Recent Activity", subtitle = "Your latest ledger entries")
             if (recentActivity.isEmpty()) {
                 EmptyState(
-                    icon = "💸",
+                    icon = "ðŸ’¸",
                     title = "No transactions",
                     description = "Your financial history will appear here.",
                     actionLabel = "Refresh",
@@ -185,37 +198,52 @@ fun AccountOverviewCard(
     profileImageVersion: Long,
     profileLauncher: androidx.activity.compose.ManagedActivityResultLauncher<String, android.net.Uri?>,
     vm: MemberOverviewViewModel,
-    context: android.content.Context
+    context: android.content.Context,
+    memberMonthlyContribution: Money,
+    activeLoans: List<Loan> = emptyList()
 ) {
-    GlassCard(color = MaterialTheme.colorScheme.surface) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                val feePaid = (member?.totalContributions ?: 0) > 0
-                val joiningFeeDue = group?.joiningFee?.isPositive == true && (member?.status == MemberStatus.PENDING_PAYMENT || !feePaid)
+    val groupId = group?.id ?: member?.groupId ?: ""
+    val isActive = member?.status == MemberStatus.ACTIVE
+    val feePaid = (member?.totalContributions ?: 0) > 0
+    val joiningFeeDue = group?.joiningFee?.isPositive == true && !isActive && (member?.status == MemberStatus.PENDING_PAYMENT || !feePaid)
 
-                val memberMonthlyContribution = if (member != null && group != null) PaymentCalculator.calculateExpectedMemberGroupPart(group, member) else Money.ZERO
-                val amount = if (joiningFeeDue) group?.joiningFee ?: Money.ZERO else (if (calculation?.totalDueNow?.isPositive == true) calculation.totalDueNow else memberMonthlyContribution)
+    // Monthly contribution directly from group settings / member override
+    val monthlyContributionSetting = member?.monthlyContributionOverride ?: group?.monthlyContribution ?: memberMonthlyContribution
 
-                if (group == null && isLoading) {
+    // Accurate Outstanding Arrears (Includes overdue savings shortfall + late fees + platform fees + recovery fees)
+    val breakdown = calculation?.breakdown
+    val outstandingAmount = if (calculation != null && calculation.totalDueNow.isPositive) {
+        val nonLoanDue = (calculation.totalDueNow - (breakdown?.loans ?: Money.ZERO)).max(Money.ZERO)
+        if (nonLoanDue.isPositive) nonLoanDue else Money.ZERO
+    } else if (calculation?.isOverdue == true) {
+        (calculation.shortfall + (breakdown?.lateFees ?: Money.ZERO) + (breakdown?.platformFees ?: Money.ZERO) + (breakdown?.recoveryFee ?: Money.ZERO)).max(Money.ZERO)
+    } else Money.ZERO
+
+    val loanRepaymentAmount = breakdown?.loans ?: if (activeLoans.isNotEmpty()) {
+        activeLoans.fold(Money.ZERO) { acc, l -> acc + l.monthlyRepayment }
+    } else Money.ZERO
+
+    val joiningFeeAmount = group?.joiningFee ?: Money.ZERO
+
+    GlassCard(accentColor = MaterialTheme.colorScheme.primary) {
+        Column(Modifier.fillMaxWidth()) {
+            Row(verticalAlignment = Alignment.Top, modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.weight(1f)) {
+                    val showActionRequired = joiningFeeDue || calculation?.isOverdue == true || outstandingAmount.isPositive
                     Text(
-                        "Loading group details...",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
-                    )
-                } else {
-                    val showActionRequired = joiningFeeDue || calculation?.isOverdue == true
-                    Text(
-                        text = if (showActionRequired) "Action Required" else "Account Overview",
+                        text = (if (showActionRequired) "Action Required" else "Account Overview").uppercase(),
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.Bold,
-                        color = if (showActionRequired) ErrorRed else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-                        letterSpacing = 1.sp
+                        color = if (showActionRequired) ErrorRed else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                        letterSpacing = 0.5.sp
                     )
+
+                    Spacer(Modifier.height(4.dp))
 
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
                             text = if (joiningFeeDue) "Joining Fee Due" else "Monthly Contribution",
-                            style = MaterialTheme.typography.titleLarge,
+                            style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Black,
                             color = MaterialTheme.colorScheme.onSurface
                         )
@@ -223,12 +251,22 @@ fun AccountOverviewCard(
                         if (isLoading) {
                             Spacer(Modifier.width(12.dp))
                             CircularProgressIndicator(
-                                modifier = Modifier.size(18.dp),
-                                color = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.size(16.dp),
+                                color = MaterialTheme.colorScheme.primary,
                                 strokeWidth = 2.dp
                             )
                         }
                     }
+
+                    Spacer(Modifier.height(8.dp))
+
+                    val primaryAmount = if (joiningFeeDue) joiningFeeAmount else monthlyContributionSetting
+                    AutoFitText(
+                        text = primaryAmount.format(),
+                        style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Black),
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1
+                    )
 
                     if (calculation?.isOverdue == true) {
                         Surface(
@@ -236,7 +274,8 @@ fun AccountOverviewCard(
                             shape = RoundedCornerShape(8.dp),
                             modifier = Modifier.padding(top = 8.dp)
                         ) {
-                            Text(stringResource(R.string.ui_account_overdue),
+                            Text(
+                                stringResource(R.string.ui_account_overdue),
                                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                                 color = ErrorRed,
                                 fontWeight = FontWeight.Black,
@@ -252,7 +291,8 @@ fun AccountOverviewCard(
                                 shape = RoundedCornerShape(8.dp),
                                 modifier = Modifier.padding(top = 8.dp)
                             ) {
-                                Text("Credit Balance: ${formatZAR(it.overpayment)}",
+                                Text(
+                                    "Credit Balance: ${formatZAR(it.overpayment)}",
                                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                                     color = SuccessGreen,
                                     fontWeight = FontWeight.Black,
@@ -261,23 +301,175 @@ fun AccountOverviewCard(
                             }
                         }
                     }
+                }
 
-                    Spacer(Modifier.height(20.dp))
+                Spacer(Modifier.width(16.dp))
 
-                    SanibonaniButton(
-                        text = if (joiningFeeDue) "Pay Joining Fee (${amount.format()})" else "Make Contribution (${amount.format()})",
-                        onClick = { onPay(if (joiningFeeDue) "joining_fee" else "contribution", amount, member?.groupId ?: "") },
-                        containerColor = if (calculation?.isOverdue == true) ErrorRed else Navy,
-                        isLoading = isLoading,
-                        enabled = group != null,
-                        modifier = Modifier.fillMaxWidth()
+                ProfilePhotoBox(member, profileImageVersion, profileLauncher, vm, context)
+            }
+
+            // â”€â”€ FINANCIAL BREAKDOWN & PAYMENT OPTIONS â”€â”€
+            Spacer(Modifier.height(16.dp))
+            HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
+            Spacer(Modifier.height(12.dp))
+
+            Text(
+                "Payment Breakdown & Options",
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+            )
+
+            Spacer(Modifier.height(10.dp))
+
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                // Option 1: Monthly Contribution (from Group Settings)
+                BreakdownOptionRow(
+                    title = "Monthly Contribution",
+                    subtitle = "From Group Settings",
+                    amount = monthlyContributionSetting,
+                    buttonLabel = "Pay Contribution",
+                    onClick = { onPay("contribution", monthlyContributionSetting, groupId) },
+                    enabled = group != null && monthlyContributionSetting.isPositive
+                )
+
+                // Option 2: Outstanding Arrears (if any)
+                if (outstandingAmount.isPositive) {
+                    BreakdownOptionRow(
+                        title = "Outstanding Arrears",
+                        subtitle = "Overdue & Late Fees",
+                        amount = outstandingAmount,
+                        buttonLabel = "Pay Arrears",
+                        onClick = { onPay("contribution", outstandingAmount, groupId) },
+                        isWarning = true,
+                        enabled = group != null
+                    )
+                }
+
+                // Option 3: Loan Repayment (if active loan)
+                if (loanRepaymentAmount.isPositive) {
+                    BreakdownOptionRow(
+                        title = "Loan Repayment",
+                        subtitle = "Active Loan Installment",
+                        amount = loanRepaymentAmount,
+                        buttonLabel = "Pay Loan",
+                        onClick = { onPay("loan_repayment", loanRepaymentAmount, groupId) },
+                        enabled = group != null
+                    )
+                }
+
+                // Option 4: Joining Fee (if joining fee due)
+                if (joiningFeeDue) {
+                    BreakdownOptionRow(
+                        title = "Joining Fee",
+                        subtitle = "Registration Required",
+                        amount = joiningFeeAmount,
+                        buttonLabel = "Pay Joining Fee",
+                        onClick = { onPay("joining_fee", joiningFeeAmount, groupId) },
+                        isWarning = true,
+                        enabled = group != null
+                    )
+                }
+
+                // Combined Total Due Button (if multiple components exist)
+                val totalDueCombined = if (joiningFeeDue) {
+                    joiningFeeAmount + loanRepaymentAmount
+                } else if (outstandingAmount.isPositive) {
+                    outstandingAmount + loanRepaymentAmount
+                } else {
+                    monthlyContributionSetting + loanRepaymentAmount
+                }
+
+                val activeComponents = (if (joiningFeeDue) 1 else 0) +
+                        (if (outstandingAmount.isPositive) 1 else 0) +
+                        (if (loanRepaymentAmount.isPositive) 1 else 0)
+
+                if (activeComponents > 1 && totalDueCombined.isPositive) {
+                    Spacer(Modifier.height(4.dp))
+                    Button(
+                        onClick = { onPay("contribution", totalDueCombined, groupId) },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Navy)
+                    ) {
+                        Text(
+                            "Pay All Combined (${totalDueCombined.format()})",
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun BreakdownOptionRow(
+    title: String,
+    subtitle: String,
+    amount: Money,
+    buttonLabel: String,
+    onClick: () -> Unit,
+    isWarning: Boolean = false,
+    enabled: Boolean = true
+) {
+    Surface(
+        color = if (isWarning) ErrorRed.copy(alpha = 0.06f) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.04f),
+        shape = RoundedCornerShape(12.dp),
+        border = BorderStroke(1.dp, if (isWarning) ErrorRed.copy(alpha = 0.2f) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (isWarning) ErrorRed else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                )
+            }
+
+            Spacer(Modifier.width(8.dp))
+
+            Column(horizontalAlignment = Alignment.End) {
+                Text(
+                    text = amount.format(),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Black,
+                    color = if (isWarning) ErrorRed else MaterialTheme.colorScheme.onSurface
+                )
+
+                Spacer(Modifier.height(4.dp))
+
+                Button(
+                    onClick = onClick,
+                    enabled = enabled,
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                    shape = RoundedCornerShape(8.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (isWarning) ErrorRed else AccentBlue
+                    ),
+                    modifier = Modifier.height(32.dp)
+                ) {
+                    Text(
+                        text = buttonLabel,
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
                     )
                 }
             }
-
-            Spacer(Modifier.width(20.dp))
-
-            ProfilePhotoBox(member, profileImageVersion, profileLauncher, vm, context)
         }
     }
 }
@@ -296,7 +488,7 @@ fun ProfilePhotoBox(
     ) {
         val url = member?.profilePhotoUrl
         if (!url.isNullOrBlank()) {
-            val headers = vm.getDownloadParams(url)
+            val headers = vm.getDownloadParams()
             AsyncImage(
                 model = ImageRequest.Builder(context)
                     .data(url)
@@ -349,8 +541,8 @@ fun ProfilePhotoBox(
 }
 
 @Composable
-fun PendingPayoutsCard(pendingClaims: List<com.sanibonani.save.domain.model.BeneficiaryPayoutClaim>, pendingPayouts: List<com.sanibonani.save.domain.model.PayoutRequest>, onNavigate: () -> Unit) {
-    GlassCard(color = MaterialTheme.colorScheme.surface) {
+fun PendingPayoutsCard(pendingClaims: List<BeneficiaryPayoutClaim>, pendingPayouts: List<PayoutRequest>, onNavigate: () -> Unit) {
+    GlassCard(accentColor = MaterialTheme.colorScheme.primary) {
         Column(Modifier.padding(16.dp)) {
             Text("Pending Payouts", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary, letterSpacing = 1.sp)
             Spacer(Modifier.height(8.dp))
@@ -372,7 +564,7 @@ fun PendingPayoutsCard(pendingClaims: List<com.sanibonani.save.domain.model.Bene
 
 @Composable
 fun TrustBanner(onAuditClick: () -> Unit) {
-    GlassCard(color = SuccessGreen.copy(alpha = 0.05f)) {
+    GlassCard(accentColor = SuccessGreen) {
         Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
             Icon(Icons.Default.VerifiedUser, null, tint = SuccessGreen, modifier = Modifier.size(24.dp))
             Spacer(Modifier.width(12.dp))

@@ -1,7 +1,10 @@
 package com.sanibonani.save.features.common.presentation
 
+import com.sanibonani.save.domain.utils.safeRunCatching
+import com.sanibonani.save.domain.logging.AppLogger
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.sanibonani.save.data.BuildConfig
 import com.sanibonani.save.domain.repository.auth.SupabaseRepository
 import com.sanibonani.save.domain.repository.system.SyncRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -9,9 +12,13 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeoutOrNull
 import javax.inject.Inject
+import java.net.InetSocketAddress
+import java.net.Socket
+import java.net.URI
+import kotlinx.coroutines.delay
 
 @HiltViewModel
 class SplashViewModel @Inject constructor(
@@ -25,69 +32,68 @@ class SplashViewModel @Inject constructor(
     private val _connectionError = MutableStateFlow<String?>(null)
     val connectionError = _connectionError.asStateFlow()
 
+    val syncStatus = syncRepository.syncStatus
+
+    private var connectionJob: Job? = null
+
+    @Volatile
+    private var backgroundSyncStarted = false
+
     init {
         checkConnection()
     }
 
     fun checkConnection() {
-        viewModelScope.launch {
+        // Cancel any in-flight check so repeated retry taps cannot stack coroutines.
+        connectionJob?.cancel()
+        connectionJob = viewModelScope.launch {
             _isConnecting.value = true
             _connectionError.value = null
 
+            val startTime = System.currentTimeMillis()
+            val minDisplayDurationMs = 3000L // 3s branding display
+
             val hasAuthenticatedSession = supabaseRepo.isLoggedIn
-            val maxAttempts = 3
-            val perAttemptTimeoutMs = 15_000L
 
-            for (attempt in 1..maxAttempts) {
-                val result = withTimeoutOrNull(perAttemptTimeoutMs) {
-                    runCatching {
-                        if (supabaseRepo.supabaseUrl.isBlank()) throw Exception("No Supabase URL configured")
-
-                        val url = supabaseRepo.supabaseUrl
-                        if (!url.contains("supabase.co") && !url.contains("127.0.0.1") && !url.contains("localhost")) {
-                            throw Exception("Invalid Supabase host: $url")
-                        }
-
-                        val isOnline = withContext(Dispatchers.IO) {
-                            try {
-                                if (url.contains("127.0.0.1") || url.contains("localhost")) return@withContext true
-                                val host = url.removePrefix("https://").removePrefix("http://").split("/")[0]
-
-                                val socket = java.net.Socket()
-                                try {
-                                    socket.connect(java.net.InetSocketAddress(host, 443), 1500)
-                                    true
-                                } finally {
-                                    runCatching { socket.close() }
-                                }
-                            } catch (e: Exception) {
-                                false
-                            }
-                        }
-
-                        if (!isOnline && attempt == maxAttempts && hasAuthenticatedSession) {
-                            throw Exception("Network unreachable (DNS failure). Please check your internet.")
-                        }
-                        if (!isOnline && hasAuthenticatedSession) throw Exception("Waiting for DNS...")
-
-                        true
-                    }
-                }
-
-                if (result != null && result.isSuccess) {
-                    if (hasAuthenticatedSession) {
-                        syncRepository.syncAllData()
-                    }
-                    _isConnecting.value = false
-                    return@launch
-                }
-
-                if (attempt < maxAttempts) {
-                    kotlinx.coroutines.delay(2000)
-                } else {
-                    _connectionError.value = result?.exceptionOrNull()?.message ?: "Connection timed out"
+            // Start background data sync immediately in parallel
+            if (hasAuthenticatedSession && !backgroundSyncStarted) {
+                backgroundSyncStarted = true
+                viewModelScope.launch(Dispatchers.IO) {
+                    safeRunCatching { syncRepository.syncAllData() }
                 }
             }
+
+            val url = BuildConfig.SUPABASE_URL_ONLINE.trim().removeSurrounding("\"")
+            val isReachable = withContext(Dispatchers.IO) {
+                try {
+                    val uri = URI(url)
+                    val host = uri.host ?: "google.com"
+                    val port = if (uri.port != -1) uri.port else 443
+
+                    Socket().use { socket ->
+                        socket.connect(InetSocketAddress(host, port), 3000)
+                    }
+                    true
+                } catch (e: Exception) {
+                    AppLogger.w("SplashViewModel", "Connectivity check skipped/failed: ${e.message}")
+                    hasAuthenticatedSession
+                }
+            }
+
+            if (!isReachable) {
+                // Offline-first startup continues with the local Room cache. Network recovery
+                // and outbox synchronization happen after the UI is available.
+                AppLogger.i("SplashViewModel", "Network unavailable; continuing in offline mode")
+            } else {
+                AppLogger.i("SplashViewModel", "Connection verified successfully")
+            }
+
+            val elapsedTime = System.currentTimeMillis() - startTime
+            val remainingTime = minDisplayDurationMs - elapsedTime
+            if (remainingTime > 0) {
+                delay(remainingTime)
+            }
+
             _isConnecting.value = false
         }
     }

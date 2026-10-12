@@ -120,7 +120,7 @@ fun GroupVotingScreen(
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
                                 Text(option.label + if (selected) " (your vote)" else "")
-                                if (item.poll.status == PollStatus.OPEN && !memberId.isNullOrBlank()) {
+                                if ((item.poll.status == PollStatus.OPEN) && !memberId.isNullOrBlank()) {
                                     Button(onClick = { vm.castVote(item.poll.id.orEmpty(), optionId) }) {
                                         Text(if (selected) "Change" else "Vote")
                                     }

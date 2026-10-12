@@ -1,21 +1,34 @@
 package com.sanibonani.save.ui.navigation
 
-import com.sanibonani.save.domain.model.UserRole
-import com.sanibonani.save.domain.utils.UserRoleMapper
 import java.net.URLEncoder
 
 internal fun encodeRouteValue(value: String): String =
     URLEncoder.encode(value, "UTF-8").replace("+", "%20")
 
 sealed class Screen(val route: String) {
+    /**
+     * Route pattern with any query parameters removed.
+     *
+     * Runtime routes are built by filling the `{placeholders}` in [route], so route
+     * comparisons must use [baseRoute] — comparing against [route] itself only ever
+     * matches the unfilled pattern.
+     */
+    val baseRoute: String = route.substringBefore('?')
+
     data object Landing             : Screen("landing")
     data object Login               : Screen("login")
     data object Register            : Screen("register")
-    data object NewUserOnboarding   : Screen("new_user_onboarding")
+    data object NewUserOnboarding : Screen("new_user_onboarding?groupType={groupType}") {
+        fun build(groupType: String? = null): String =
+            if (groupType == null) "new_user_onboarding" else "new_user_onboarding?groupType=${encodeRouteValue(groupType)}"
+    }
     data object PasswordRecovery    : Screen("password_recovery")
     data object UpdatePassword      : Screen("update_password")
     data object BrowseGroups        : Screen("browse")
-    data object RegisterGroup       : Screen("register_group")
+    data object RegisterGroup : Screen("register_group?groupType={groupType}") {
+        fun build(groupType: String? = null): String =
+            if (groupType == null) "register_group" else "register_group?groupType=${encodeRouteValue(groupType)}"
+    }
 
     data object MemberDashboard : Screen("member_dashboard?targetTab={targetTab}&groupId={groupId}&memberId={memberId}&supportMode={supportMode}") {
         fun withTab(
@@ -48,6 +61,10 @@ sealed class Screen(val route: String) {
         fun withId(id: String) = "health_score/${encodeRouteValue(id)}"
     }
 
+    data object BehaviorTrackingDetail : Screen("behavior_tracking/{memberId}") {
+        fun withId(id: String) = "behavior_tracking/${encodeRouteValue(id)}"
+    }
+
     data object GroupProfile : Screen("group/{groupId}") {
         fun withId(id: String) = "group/${encodeRouteValue(id)}"
     }
@@ -66,119 +83,5 @@ sealed class Screen(val route: String) {
     data object Payment : Screen("payment/{type}/{amount}/{groupId}") {
         fun build(type: String, amount: String, groupId: String) =
             "payment/${encodeRouteValue(type)}/${encodeRouteValue(amount)}/${encodeRouteValue(groupId)}"
-    }
-}
-
-object NavigationUtils {
-    fun String?.isAuthOrPublicRoute(): Boolean {
-        val route = this ?: return false
-        return route.startsWith(Screen.Landing.route) ||
-                route.startsWith(Screen.Login.route) ||
-                route.startsWith(Screen.Register.route) ||
-                route.startsWith(Screen.NewUserOnboarding.route) ||
-                route.startsWith(Screen.PasswordRecovery.route) ||
-                route.startsWith(Screen.UpdatePassword.route) ||
-                route.startsWith(Screen.BrowseGroups.route) ||
-                route.startsWith("group/")
-    }
-
-    fun String?.isAuthEntryRoute(): Boolean {
-        val route = this ?: return false
-        return route.startsWith(Screen.Login.route) ||
-                route.startsWith(Screen.Register.route)
-    }
-
-    fun destinationForUserRole(role: UserRole, groupId: String? = null): String {
-        return when (role) {
-            UserRole.PLATFORM_ADMIN -> Screen.PlatformAdmin.route
-            UserRole.GROUP_ADMIN    -> Screen.AdminDashboard.withId(groupId)
-            UserRole.MEMBER         -> Screen.MemberDashboard.withTab(0, groupId)
-        }
-    }
-
-    fun destinationForRoleString(role: String, groupId: String? = null): String {
-        val resolvedRole = UserRoleMapper.fromRaw(role) ?: UserRole.MEMBER
-        return destinationForUserRole(resolvedRole, groupId)
-    }
-
-    fun destinationForPaymentType(type: String, groupId: String): String {
-        return when (type) {
-            "registration" -> Screen.AdminDashboard.withId(groupId)
-            "joining_fee"  -> Screen.MemberDashboard.withTab(0, groupId)
-            else           -> Screen.MemberDashboard.withTab(0, groupId)
-        }
-    }
-
-    fun shouldForcePlatformAdminRedirect(
-        isLoggedIn: Boolean,
-        role: UserRole,
-        currentRoute: String?,
-        isResettingPassword: Boolean
-    ): Boolean {
-        return isLoggedIn && role == UserRole.PLATFORM_ADMIN && currentRoute.isAuthEntryRoute() && !isResettingPassword
-    }
-
-    fun shouldRedirectAuthenticatedFromEntry(
-        currentRoute: String?,
-        navigateTo: String?,
-        isNewRegistration: Boolean,
-        isResettingPassword: Boolean
-    ): Boolean {
-        val isEntry = currentRoute.isAuthEntryRoute() || currentRoute == Screen.Landing.route
-        return isEntry && navigateTo != "login" && !isNewRegistration && !isResettingPassword
-    }
-
-    fun shouldRedirectUnauthenticatedToLanding(
-        isLoggedIn: Boolean,
-        currentRoute: String?
-    ): Boolean {
-        return !isLoggedIn && !currentRoute.isAuthOrPublicRoute()
-    }
-
-    fun isRoleAuthorizedForRoute(
-        role: UserRole,
-        currentRoute: String?,
-        supportMode: Boolean = false
-    ): Boolean {
-        val route = currentRoute ?: return true
-        if (route.isAuthOrPublicRoute()) return true
-
-        if (route == Screen.PlatformAdmin.route ||
-            route == Screen.CreatePlatformAdmin.route ||
-            route == Screen.PaymentSandbox.route
-        ) return role == UserRole.PLATFORM_ADMIN
-
-        if (route == Screen.NewUserOnboarding.route) return role == UserRole.MEMBER || role == UserRole.GROUP_ADMIN
-
-        if (route.startsWith("member_dashboard")) {
-            return role == UserRole.MEMBER || (role == UserRole.PLATFORM_ADMIN && supportMode)
-        }
-
-        if (route.startsWith("admin_dashboard")) {
-            return role == UserRole.GROUP_ADMIN || (role == UserRole.PLATFORM_ADMIN && supportMode)
-        }
-
-        if (route.startsWith("health_score/")) return role == UserRole.GROUP_ADMIN || role == UserRole.PLATFORM_ADMIN
-
-        if (route.startsWith("group_voting")) {
-            return role == UserRole.MEMBER || role == UserRole.GROUP_ADMIN || role == UserRole.PLATFORM_ADMIN
-        }
-
-        if (route.startsWith("payment/")) {
-            return role == UserRole.MEMBER || role == UserRole.GROUP_ADMIN || role == UserRole.PLATFORM_ADMIN
-        }
-
-        if (route.startsWith(Screen.RegisterGroup.route) || route.startsWith("join/")) return true
-
-        return false
-    }
-
-    fun shouldRedirectForRoleMismatch(
-        isLoggedIn: Boolean,
-        role: UserRole,
-        currentRoute: String?,
-        supportMode: Boolean = false
-    ): Boolean {
-        return isLoggedIn && !isRoleAuthorizedForRoute(role, currentRoute, supportMode)
     }
 }

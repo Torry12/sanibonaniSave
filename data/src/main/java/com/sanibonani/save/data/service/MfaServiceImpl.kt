@@ -24,7 +24,12 @@ class MfaServiceImpl @Inject constructor(
 
     override suspend fun enrollTotp(friendlyName: String): Result<TotpEnrollment> = runCatching {
         val response = client.auth.mfa.enroll(FactorType.TOTP, friendlyName)
-        TotpEnrollment(factorId = response.id, qrCodeSvg = "", secret = "")
+        TotpEnrollment(
+            id = response.id,
+            qrCode = response.data.qrCode,
+            secret = response.data.secret,
+            uri = response.data.uri
+        )
     }
 
     override suspend fun verifyMfa(factorId: String, code: String, saveChallenge: Boolean): Result<Unit> = runCatching {
@@ -41,7 +46,7 @@ class MfaServiceImpl @Inject constructor(
             MfaFactor(
                 id = it.id,
                 friendlyName = it.friendlyName ?: "Unnamed",
-                factorType = it.factorType.toString(),
+                type = it.factorType.toString(),
                 status = "active"
             )
         } ?: emptyList()

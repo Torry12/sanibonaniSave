@@ -1,67 +1,89 @@
 package com.sanibonani.save.features.auth.presentation
 
+import com.sanibonani.save.domain.utils.safeRunCatching
 import androidx.lifecycle.viewModelScope
-import com.sanibonani.save.analytics.AnalyticsTaxonomy
-import com.sanibonani.save.analytics.AppAnalytics
-import com.sanibonani.save.domain.logging.AppLogger
-import com.sanibonani.save.domain.utils.toUserMessage
 import com.sanibonani.save.domain.model.AsyncResult
+import com.sanibonani.save.domain.logging.AppLogger
 import com.sanibonani.save.domain.model.UserRole
-import com.sanibonani.save.domain.repository.system.CredentialsRepository
-import com.sanibonani.save.domain.repository.system.SupabaseRepository
-import com.sanibonani.save.domain.utils.AuthIdentityUtils
+import com.sanibonani.save.domain.repository.auth.CredentialsRepository
+import com.sanibonani.save.domain.repository.auth.SupabaseRepository
+import com.sanibonani.save.domain.repository.auth.UserProfileRepository
 import com.sanibonani.save.domain.utils.UserRoleMapper
-import com.sanibonani.save.domain.validation.ValidationResult
 import com.sanibonani.save.domain.validation.ValidationUtils
 import com.sanibonani.save.service.AdminGroupContextCacheService
 import com.sanibonani.save.service.MemberGroupContextCacheService
 import com.sanibonani.save.service.UserProfileCacheService
-import com.sanibonani.save.viewmodel.BaseViewModel
+import com.sanibonani.save.features.common.presentation.BaseViewModel
 import com.sanibonani.save.features.auth.presentation.state.AuthState
+import com.sanibonani.save.features.common.presentation.LoadStateQueue
+import com.sanibonani.save.usecase.SignOutUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
-import io.github.jan.supabase.auth.status.SessionStatus
-import kotlin.time.Duration.Companion.milliseconds
+import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.NonCancellable
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
+/**
+ * ViewModel responsible for authentication flows, session management, and hydration.
+ * AI Optimization: This ViewModel acts as the gateway for user identity and role-based
+ * data hydration. It uses a declarative session observation pattern to ensure that
+ * the UI state is always in sync with the underlying Supabase session.
+ */
 @HiltViewModel
 class AuthViewModel @Inject constructor(
     private val supabaseRepo: SupabaseRepository,
+    private val userProfileRepo: UserProfileRepository,
     private val credentialsRepo: CredentialsRepository,
     private val adminGroupContextCacheService: AdminGroupContextCacheService,
     private val memberGroupContextCacheService: MemberGroupContextCacheService,
     private val userProfileCache: UserProfileCacheService,
     private val connManager: com.sanibonani.save.data.remote.SupabaseConnectionManager,
-    private val realtimeSyncManager: com.sanibonani.save.data.sync.RealtimeSyncManager
+    private val realtimeSyncManager: com.sanibonani.save.data.sync.RealtimeSyncManager,
+    private val loadQueue: LoadStateQueue,
+    private val signOutUseCase: SignOutUseCase
 ) : BaseViewModel<AuthState>(AuthState()) {
 
     val state: StateFlow<AuthState> = uiState
 
+    val hydrationSteps = loadQueue.steps
+
     /**
      * Declarative session observation.
      * Combines the raw session flow with role resolution.
+     * AI Note: This is the core "warmup" logic for authenticated users.
      */
     val accountStatus: StateFlow<AsyncResult<AuthenticatedAccount>> = supabaseRepo.sessionFlow
         .flatMapLatest { session ->
             if (session == null) {
+                loadQueue.reset()
                 flowOf(AsyncResult.Uninitialized)
             } else {
                 flow<AsyncResult<AuthenticatedAccount>> {
                     emit(AsyncResult.Loading)
-                    val userId = session.user?.id ?: ""
+                    val userId = session.userId
+
+                    // Step 1: Load User Profile
+                    loadQueue.startStep("User Profile")
+                    userProfileRepo.getProfile(userId).onSuccess { profile ->
+                        profile?.let { userProfileCache.save(it.fullName ?: "", it.email ?: "") }
+                        loadQueue.completeStep("User Profile")
+                    }.onFailure { loadQueue.failStep("User Profile", it.message ?: "Profile load failed") }
+
+                    // Step 2: Resolve User Role
+                    loadQueue.startStep("Security Permissions")
+                    val role = safeRunCatching { supabaseRepo.getUserRole() }.getOrDefault(UserRole.MEMBER)
+                    loadQueue.completeStep("Security Permissions")
+
+                    // Step 3: Warm up domain context caches in parallel (Parallel Warmup Pattern)
+                    loadQueue.startStep("Domain Context")
                     coroutineScope {
-                        launch { memberGroupContextCacheService.warmUpForUser(userId) }
-                        launch { adminGroupContextCacheService.warmUpForUser(userId) }
-                        launch {
-                            supabaseRepo.getProfile(userId)?.let { userProfileCache.save(it) }
-                        }
+                        val memberWarmup = async { memberGroupContextCacheService.warmUpForUser(userId) }
+                        val adminWarmup = async { adminGroupContextCacheService.warmUpForUser(userId) }
+                        awaitAll(memberWarmup, adminWarmup)
                     }
-                    val role = runCatching { supabaseRepo.getUserRole() }.getOrDefault(UserRole.MEMBER)
+                    loadQueue.completeStep("Domain Context")
+
+                    realtimeSyncManager.start()
+
                     emit(AsyncResult.Success(AuthenticatedAccount(userId, role)))
                 }
             }
@@ -92,7 +114,8 @@ class AuthViewModel @Inject constructor(
     }
 
     private fun syncLegacyStateWithAccountStatus() {
-        viewModelScope.launch {
+        // AI Note: Bridging the declarative session flow with the legacy imperative AuthState.
+        launchJob("sync_account_status") {
             accountStatus.collect { status ->
                 when (status) {
                     is AsyncResult.Success -> {
@@ -117,12 +140,24 @@ class AuthViewModel @Inject constructor(
     fun clearNavigation() { updateState { it.copy(navigateTo = null) } }
     fun clearNewRegistrationFlag() { updateState { it.copy(isNewRegistration = false) } }
 
+    /**
+     * Executes sign-in with the provided credentials.
+     */
     fun signIn() {
         val s = uiState.value
+        if (!ValidationUtils.isValidEmail(s.email.trim())) {
+            updateState { it.copy(error = "Please enter a valid email address") }
+            return
+        }
         launchJob("auth_operation") {
-            updateState { it.copy(isLoading = true) }
-            supabaseRepo.signIn(s.email, s.password).onSuccess {
-                if (s.rememberMe) credentialsRepo.saveCredentials(s.email, s.password, true)
+            updateState { it.copy(isLoading = true, error = null) }
+            val email = s.email.trim().lowercase()
+            supabaseRepo.signIn(email, s.password).onSuccess {
+                if (s.rememberMe) {
+                    credentialsRepo.saveCredentials(email, s.password, true)
+                } else {
+                    credentialsRepo.clearCredentials()
+                }
                 updateState { it.copy(isLoading = false, isLoggedIn = true) }
             }.onFailure { e ->
                 updateState { it.copy(isLoading = false) }
@@ -131,24 +166,61 @@ class AuthViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Executes sign-up for a new user.
+     */
     fun signUp(role: UserRole = UserRole.MEMBER) {
         val s = uiState.value
+        val email = s.email.trim().lowercase()
+        val fullName = s.fullName.trim()
+        val password = s.password
+
+        if (fullName.length < 3) {
+            updateState { it.copy(error = "Full Name must be at least 3 characters") }
+            return
+        }
+        if (!ValidationUtils.isValidEmail(email)) {
+            updateState { it.copy(error = "Please enter a valid email address") }
+            return
+        }
+        if (password.length < 6) {
+            updateState { it.copy(error = "Password must be at least 6 characters") }
+            return
+        }
+        if (password != s.confirmPw) {
+            updateState { it.copy(error = "Passwords do not match") }
+            return
+        }
+
         launchJob("auth_operation") {
-            updateState { it.copy(isLoading = true) }
-            supabaseRepo.signUp(s.email, s.password, mapOf("role" to UserRoleMapper.toStorageValue(role), "full_name" to s.fullName))
-                .onSuccess { updateState { it.copy(isLoading = false, isNewRegistration = true, userRole = role) } }
+            updateState { it.copy(isLoading = true, error = null) }
+            supabaseRepo.signUp(email, password, mapOf("role" to UserRoleMapper.toStorageValue(role), "full_name" to fullName))
+                .onSuccess {
+                    userProfileCache.save(fullName, email, "")
+                    updateState { it.copy(isLoading = false, isNewRegistration = true, userRole = role, isLoggedIn = true) }
+                }
                 .onFailure { e -> updateState { it.copy(isLoading = false) }; handleError(e) }
         }
     }
 
+    /**
+     * Logs the user out and clears all sensitive session caches.
+     *
+     * Uses [launchSafeJob] so a sign-out failure still clears the loading overlay
+     * (a stuck overlay otherwise blocks the UI permanently) and surfaces an error.
+     */
     fun signOut(onComplete: () -> Unit = {}) {
-        viewModelScope.launch {
-            realtimeSyncManager.stop()
-            adminGroupContextCacheService.clearForSignOut()
-            memberGroupContextCacheService.clearForSignOut()
-            supabaseRepo.signOut()
-            updateState { AuthState() }
-            onComplete()
+        launchSafeJob("sign_out", "Sign out failed") {
+            updateState { it.copy(isLoading = true) }
+            signOutUseCase()
+                .onSuccess {
+                    updateState { AuthState() }
+                    onComplete()
+                }
+                .onFailure { e ->
+                    updateState { it.copy(isLoading = false) }
+                    handleError(e)
+                }
         }
     }
 
@@ -159,6 +231,9 @@ class AuthViewModel @Inject constructor(
         updateState { it.copy(biometricEnabled = enabled) }
     }
 
+    /**
+     * Automatically logs in using saved credentials (if available).
+     */
     fun quickLogin() {
         val email = credentialsRepo.getSavedEmail()
         val pass = credentialsRepo.getSavedPassword()
@@ -167,40 +242,61 @@ class AuthViewModel @Inject constructor(
         signIn()
     }
 
-    fun reconnect() { connManager.rebuildConnections(); signIn() }
+    /**
+     * Forces a reconnection to Supabase and retries sign-in.
+     */
+    fun reconnect() {
+        connManager.rebuildConnections()
+        signIn()
+    }
 
     fun resendVerification() {
-        viewModelScope.launch {
-            updateState { it.copy(isLoading = true) }
+        launchJob("resend_verification") {
+            updateState { it.copy(isLoading = true, error = null) }
             supabaseRepo.resendVerificationEmail(uiState.value.email).onSuccess {
-                updateState { it.copy(isLoading = false, error = "Email sent") }
-            }
+                updateState { it.copy(isLoading = false, error = null) }
+                showMessage("Verification email sent! Please check your inbox.")
+            }.onFailure { handleError(it) }
         }
     }
 
     fun signInWithMagicLink() {
-        viewModelScope.launch {
-            updateState { it.copy(isLoading = true) }
+        launchJob("magic_link") {
+            updateState { it.copy(isLoading = true, error = null) }
             supabaseRepo.signInWithMagicLink(uiState.value.email).onSuccess {
-                updateState { it.copy(isLoading = false, error = "Link sent") }
-            }
+                updateState { it.copy(isLoading = false, error = null) }
+                showMessage("Login link sent! Please check your inbox.")
+            }.onFailure { handleError(it) }
         }
     }
 
     fun handleDeepLink(url: String) {
-        viewModelScope.launch {
-            if (url.contains("reset-password")) updateState { it.copy(isResettingPassword = true) }
-            supabaseRepo.handleDeepLink(url)
+        launchSafeJob("deep_link", "Could not process the link") {
+            if (url.contains("reset-password")) {
+                updateState { it.copy(isResettingPassword = true) }
+                supabaseRepo.handleDeepLink(url)
+                    .onFailure { AppLogger.w("AuthViewModel", "Reset-password deep link failed: ${it.message}") }
+            } else if (url.contains("bank/linked")) {
+                val uri = android.net.Uri.parse(url)
+                val connectionId = uri.getQueryParameter("connection_id") ?: ""
+                val status = uri.getQueryParameter("status") ?: ""
+                com.sanibonani.save.domain.event.EventBus.emit(com.sanibonani.save.domain.event.BankCallbackEvent(connectionId, status))
+            } else {
+                supabaseRepo.handleDeepLink(url)
+                    .onFailure { AppLogger.w("AuthViewModel", "Deep link failed: ${it.message}") }
+            }
         }
     }
 
     fun updatePassword() {
         val s = uiState.value
-        viewModelScope.launch {
+        launchJob("update_password") {
             updateState { it.copy(isLoading = true) }
             supabaseRepo.updatePassword(s.password).onSuccess {
-                updateState { it.copy(isLoading = false, navigateTo = "login") }
-            }
+                // Re-arm the login route guard, otherwise RouteGuard keeps bypassing
+                // the auth-entry check for the rest of this ViewModel's lifetime.
+                updateState { it.copy(isLoading = false, isResettingPassword = false, navigateTo = "login") }
+            }.onFailure { handleError(it) }
         }
     }
 }

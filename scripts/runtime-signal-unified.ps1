@@ -121,7 +121,7 @@ if (-not (Test-Path $ScriptPath)) {
     Write-ErrorLog "Core probe script not found: $ScriptPath" 10
 }
 
-Write-InfoLog "✓ Pre-flight validation passed"
+Write-InfoLog "[OK] Pre-flight validation passed"
 
 # ============================================================================
 # Probe Execution with Retry Logic
@@ -217,7 +217,7 @@ try {
             Write-Host ""
             Write-Host "Requirements:" -ForegroundColor Cyan
             $report.requirements | ForEach-Object {
-                $status = if ($_.ok) { "✓" } else { "✗" }
+                $status = if ($_.ok) { "OK" } else { "FAIL" }
                 $color = if ($_.ok) { "Green" } else { "Red" }
                 Write-Host "  [$status] $($_.key)" -ForegroundColor $color
                 Write-DebugLog "    Detail: $($_.detail)"
@@ -227,7 +227,7 @@ try {
                 Write-Host ""
                 Write-Host "Blocking Failures:" -ForegroundColor Red
                 $report.blocking_failures | ForEach-Object {
-                    Write-Host "  • $($_.key): $($_.detail)" -ForegroundColor Red
+                    Write-Host "  * $($_.key): $($_.detail)" -ForegroundColor Red
                 }
             }
         }
@@ -245,12 +245,12 @@ try {
 Write-DebugLog "Exit code: $exitCode"
 
 if ($exitCode -eq 0) {
-    Write-InfoLog "✓ Runtime environment ready for deployment"
+    Write-InfoLog "[OK] Runtime environment ready for deployment"
 } elseif ($exitCode -eq 2) {
-    Write-ErrorLog "✗ FAILED: Critical runtime prerequisites missing (RED signal)" -ExitCode 0
+    Write-ErrorLog "[FAIL] FAILED: Critical runtime prerequisites missing (RED signal)" -ExitCode 0
     exit 2
 } elseif ($exitCode -eq 3) {
-    Write-ErrorLog "✗ FAILED: Runtime environment degraded (YELLOW signal with -Strict)" -ExitCode 0
+    Write-ErrorLog "[FAIL] FAILED: Runtime environment degraded (YELLOW signal with -Strict)" -ExitCode 0
     exit 3
 }
 

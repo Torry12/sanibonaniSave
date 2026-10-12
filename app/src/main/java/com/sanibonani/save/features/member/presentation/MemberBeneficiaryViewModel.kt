@@ -1,21 +1,24 @@
 package com.sanibonani.save.features.member.presentation
 
 import com.sanibonani.save.domain.model.*
-import com.sanibonani.save.domain.repository.disbursement.BeneficiaryClaimRepository
-import com.sanibonani.save.domain.repository.equity.BeneficiaryRepository
-import com.sanibonani.save.domain.repository.equity.MemberRepository
+import com.sanibonani.save.domain.repository.member.BeneficiaryClaimRepository
+import com.sanibonani.save.domain.repository.member.BeneficiaryRepository
+import com.sanibonani.save.domain.repository.member.MemberRepository
+import com.sanibonani.save.domain.service.FileStorageService
 import com.sanibonani.save.features.member.presentation.state.MemberUiState
-import com.sanibonani.save.viewmodel.BaseViewModel
+import com.sanibonani.save.features.common.presentation.BaseViewModel
 import dagger.hilt.android.lifecycle.HiltViewModel
+import java.util.UUID
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.first
 import javax.inject.Inject
 
 @HiltViewModel
 class MemberBeneficiaryViewModel @Inject constructor(
     private val beneficiaryRepo: BeneficiaryRepository,
     private val claimRepo: BeneficiaryClaimRepository,
-    private val memberRepo: MemberRepository
+    private val memberRepo: MemberRepository,
+    private val fileStorageService: FileStorageService
 ) : BaseViewModel<MemberUiState>(MemberUiState()) {
 
     val state: StateFlow<MemberUiState> = uiState
@@ -35,10 +38,10 @@ class MemberBeneficiaryViewModel @Inject constructor(
                 relationship = relationship
             )
             beneficiaryRepo.addBeneficiary(beneficiary).onSuccess {
-                updateState { it.copy(isLoading = false) }
+                updateState { s -> s.copy(isLoading = false) }
                 showMessage("Beneficiary added successfully")
             }.onFailure {
-                updateState { it.copy(isLoading = false) }
+                updateState { s -> s.copy(isLoading = false) }
                 handleError(it)
             }
         }
@@ -61,11 +64,40 @@ class MemberBeneficiaryViewModel @Inject constructor(
         updateState { it.copy(claimSubmitSuccess = false, isSubmittingClaim = false) }
     }
 
-    fun checkEligibility(beneficiaryId: String) {
-        // Implementation for eligibility check if needed
+    fun checkEligibility(cause: String, date: String): com.sanibonani.save.domain.usecase.member.ValidateBurialClaimEligibilityUseCase.EligibilityResult? {
+        val member = uiState.value.member ?: return null
+        val group = uiState.value.group ?: return null
+        val useCase = com.sanibonani.save.domain.usecase.member.ValidateBurialClaimEligibilityUseCase()
+        return useCase(member, group, cause, date)
     }
+    suspend fun uploadClaimDocument(fileName: String, data: ByteArray): Result<String> {
+        val claimId = UUID.randomUUID().toString()
+        val extension = fileName.substringAfterLast(".", "pdf")
+        return fileStorageService.uploadClaimDocument(claimId, data, extension)
+    }
+    fun uploadBeneficiaryDocument(beneficiaryId: String, data: ByteArray, fileName: String) {
+        val member = uiState.value.member ?: return
+        launchJob("upload_beneficiary_doc_$beneficiaryId") {
+            updateState { it.copy(isLoading = true) }
+            val extension = fileName.substringAfterLast(".", "pdf")
+            val result = fileStorageService.uploadBeneficiaryDocument(member.id!!, beneficiaryId, data, extension)
 
-    fun uploadClaimDocument(claimId: String, index: Int, data: ByteArray, name: String, mime: String) {
-        // Implementation for document upload
+            result.onSuccess { url ->
+                // Fetch current beneficiary to update its URL
+                val currentBeneficiaries = uiState.value.beneficiaries.ifEmpty {
+                    beneficiaryRepo.observeBeneficiaries(member.id!!).first().getOrNull() ?: emptyList()
+                }
+                val b = currentBeneficiaries.find { it.id == beneficiaryId }
+                if (b != null) {
+                    val updated = b.copy(documentUrl = url)
+                    beneficiaryRepo.updateBeneficiary(updated)
+                }
+                updateState { it.copy(isLoading = false) }
+                showMessage("Document uploaded successfully")
+            }.onFailure { error ->
+                updateState { it.copy(isLoading = false) }
+                handleError(error)
+            }
+        }
     }
 }

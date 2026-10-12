@@ -1,6 +1,6 @@
 package com.sanibonani.save.domain.event
 
-import com.sanibonani.save.domain.repository.AuditLogRepository
+import com.sanibonani.save.domain.repository.admin.AuditLogRepository
 import javax.inject.Inject
 import javax.inject.Singleton
 

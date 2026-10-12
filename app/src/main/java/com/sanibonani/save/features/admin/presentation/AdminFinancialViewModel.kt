@@ -1,29 +1,38 @@
 package com.sanibonani.save.features.admin.presentation
 
-import androidx.lifecycle.viewModelScope
 import com.sanibonani.save.domain.model.*
-import com.sanibonani.save.domain.repository.equity.*
-import com.sanibonani.save.domain.repository.credit.*
-import com.sanibonani.save.domain.repository.disbursement.*
-import com.sanibonani.save.domain.repository.dynamics.*
-import com.sanibonani.save.domain.repository.system.*
-import com.sanibonani.save.domain.repository.treasury.*
-import com.sanibonani.save.domain.logging.AppLogger
-import com.sanibonani.save.domain.usecase.disbursement.RequestPayoutUseCase
-import com.sanibonani.save.domain.usecase.credit.ProcessLoanDisbursementUseCase
-import com.sanibonani.save.domain.usecase.disbursement.ProcessDisbursementUseCase
-import com.sanibonani.save.domain.usecase.disbursement.ProcessBurialClaimUseCase
+import com.sanibonani.save.domain.repository.auth.SupabaseRepository
+import com.sanibonani.save.domain.repository.payment.BankRepository
+import com.sanibonani.save.domain.repository.payment.FinancialProviderRepository
+import com.sanibonani.save.domain.repository.treasury.LedgerRepository
+import com.sanibonani.save.domain.repository.disbursement.PayoutRepository
+import com.sanibonani.save.domain.repository.treasury.ReconciliationRepository
+import com.sanibonani.save.domain.repository.member.BeneficiaryClaimRepository
 import com.sanibonani.save.domain.utils.toUserMessage
 import com.sanibonani.save.service.AdminGroupContextCacheService
-import com.sanibonani.save.viewmodel.BaseViewModel
-import com.sanibonani.save.viewmodel.state.UIEvent
+import com.sanibonani.save.features.admin.presentation.actions.AdminBankActions
+import com.sanibonani.save.features.admin.presentation.actions.AdminClaimActions
+import com.sanibonani.save.features.admin.presentation.actions.AdminFinancialActionHost
+import com.sanibonani.save.features.admin.presentation.actions.AdminLedgerActions
+import com.sanibonani.save.features.admin.presentation.actions.AdminLoanActions
+import com.sanibonani.save.features.admin.presentation.actions.AdminPayoutActions
 import com.sanibonani.save.features.admin.presentation.state.AdminFinancialUiState
+import com.sanibonani.save.features.common.presentation.BaseViewModel
+import com.sanibonani.save.features.common.presentation.UIEvent
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.*
-import kotlinx.coroutines.*
 import javax.inject.Inject
+import com.sanibonani.save.domain.repository.credit.LoanRepository
 
+/**
+ * Admin financial dashboard ViewModel.
+ *
+ * Owns the UiState container, group-context observation and MFA challenge flow.
+ * Cohesive action groups are delegated to [AdminLoanActions], [AdminClaimActions],
+ * [AdminPayoutActions], [AdminBankActions] and [AdminLedgerActions].
+ */
 @HiltViewModel
 class AdminFinancialViewModel @Inject constructor(
     private val adminContextCacheService: AdminGroupContextCacheService,
@@ -33,22 +42,48 @@ class AdminFinancialViewModel @Inject constructor(
     private val payoutRepo: PayoutRepository,
     private val loanRepo: LoanRepository,
     private val claimRepo: BeneficiaryClaimRepository,
-    private val exportRepo: ExportRepository,
-    private val requestPayoutUseCase: RequestPayoutUseCase,
     private val financialProviderRepo: FinancialProviderRepository,
-    private val processLoanDisbursementUseCase: ProcessLoanDisbursementUseCase,
-    private val processBurialClaimUseCase: ProcessBurialClaimUseCase,
-    private val supabaseRepo: SupabaseRepository
-) : BaseViewModel<AdminFinancialUiState>(AdminFinancialUiState()) {
+    private val supabaseRepo: SupabaseRepository,
+    private val loanActions: AdminLoanActions,
+    private val claimActions: AdminClaimActions,
+    private val payoutActions: AdminPayoutActions,
+    private val bankActions: AdminBankActions,
+    private val ledgerActions: AdminLedgerActions,
+) : BaseViewModel<AdminFinancialUiState>(AdminFinancialUiState()), AdminFinancialActionHost {
 
     val state: StateFlow<AdminFinancialUiState> = uiState
 
-    private var dataJob: Job? = null
-    private var contextJob: Job? = null
-
     init {
         observeContext()
+        bankActions.observeBankCallbacks(this)
     }
+
+    // region AdminFinancialActionHost
+
+    override val actionState: AdminFinancialUiState
+        get() = uiState.value
+
+    override fun updateActionState(reducer: (AdminFinancialUiState) -> AdminFinancialUiState) {
+        updateState(reducer)
+    }
+
+    override fun launchAction(key: String, block: suspend CoroutineScope.() -> Unit): Job = launchJob(key, block)
+
+    override fun reportError(throwable: Throwable) = handleError(throwable)
+
+    override fun reportActionError(throwable: Throwable) = handleActionFailure(throwable)
+
+    override fun publishEvent(event: UIEvent) = sendEvent(event)
+
+    override fun notifyUser(message: String) = showMessage(message)
+
+    override fun reloadFinancialData(groupId: String) = loadFinancialData(groupId)
+
+    // endregion
+
+    // region Group context & observation
+
+    private var contextJob: Job? = null
 
     private fun observeContext() {
         contextJob?.cancel()
@@ -72,47 +107,79 @@ class AdminFinancialViewModel @Inject constructor(
     }
 
     private fun loadFinancialData(groupId: String) {
-        dataJob?.cancel()
-        dataJob = viewModelScope.launch {
+        launchJob("load_financial_data") {
             updateState { it.copy(isLoading = true) }
 
-            val ledgerFlow = ledgerRepo.observeConsolidatedAuditTrail(groupId)
-            val bankFlow = bankRepo.observeUnreconciledTransactions(groupId)
-            val payoutsFlow = payoutRepo.observePayouts(groupId)
-            val loansFlow = loanRepo.getGroupLoans(groupId)
-            val claimsFlow = claimRepo.observeClaimsForGroup(groupId)
-            val reconciliationsFlow = reconRepo.observeReconciliations(groupId)
-
             combine(
-                ledgerFlow,
-                bankFlow,
-                payoutsFlow,
-                loansFlow,
-                claimsFlow,
-                reconciliationsFlow
-            ) { args: Array<*> ->
-                val ledger = (args[0] as Result<List<LedgerEntry>>).getOrDefault(emptyList())
-                val bankTx = (args[1] as Result<List<BankTransaction>>).getOrDefault(emptyList())
-                val payouts = (args[2] as Result<List<PayoutRequest>>).getOrDefault(emptyList())
-                val loans = (args[3] as Result<List<Loan>>).getOrDefault(emptyList())
-                val claims = (args[4] as Result<List<BeneficiaryPayoutClaim>>).getOrDefault(emptyList())
-                val recons = (args[5] as Result<List<ReconciliationRecord>>).getOrDefault(emptyList())
-
-                DataPackage(ledger, bankTx, payouts, loans, claims, recons)
-            }.distinctUntilChanged().collect { pkg ->
-                updateState { it.copy(
-                    ledger = pkg.ledger.asSequence().toList(),
-                    unreconciledBankTx = pkg.bankTx.asSequence().toList(),
-                    payouts = pkg.payouts.asSequence().toList(),
-                    groupLoans = pkg.loans.asSequence().toList(),
-                    burialClaims = pkg.claims.asSequence().toList(),
-                    reconciliationHistory = pkg.recons,
-                    latestReconciliation = pkg.recons.firstOrNull(),
-                    isLoading = false
-                ) }
+                combine(
+                    ledgerRepo.observeConsolidatedAuditTrail(groupId).orEmptyList(),
+                    bankRepo.observeUnreconciledTransactions(groupId).orEmptyList(),
+                    payoutRepo.observePayouts(groupId).orEmptyList(),
+                    loanRepo.getGroupLoans(groupId).orEmptyList()
+                ) { ledger, bankTx, payouts, loans ->
+                    LedgerBundle(ledger, bankTx, payouts, loans)
+                },
+                combine(
+                    claimRepo.observeClaimsForGroup(groupId).orEmptyList(),
+                    reconRepo.observeReconciliations(groupId).orEmptyList(),
+                    bankRepo.observeBankConnection(groupId).orNull(),
+                    financialProviderRepo.observeProviders().orEmptyList()
+                ) { claims, recons, connection, providers ->
+                    ContextBundle(claims, recons, connection, providers)
+                }
+            ) { ledgerBundle, contextBundle ->
+                DataPackage(
+                    ledger = ledgerBundle.ledger,
+                    bankTx = ledgerBundle.bankTx,
+                    payouts = ledgerBundle.payouts,
+                    loans = ledgerBundle.loans,
+                    claims = contextBundle.claims,
+                    recons = contextBundle.recons,
+                    connection = contextBundle.connection,
+                    providers = contextBundle.providers
+                )
             }
+                .distinctUntilChanged()
+                .collect { pkg ->
+                    updateState { it.copy(
+                        ledger = pkg.ledger,
+                        unreconciledBankTx = pkg.bankTx,
+                        payouts = pkg.payouts,
+                        groupLoans = pkg.loans,
+                        burialClaims = pkg.claims,
+                        reconciliationHistory = pkg.recons,
+                        latestReconciliation = pkg.recons.firstOrNull(),
+                        bankConnection = pkg.connection,
+                        availableProviders = pkg.providers.filter { it.type == FinancialProviderType.BANK },
+                        isLoading = false
+                    ) }
+                }
         }
     }
+
+    /**
+     * Unwraps a repository `Result` stream into a stream that never fails,
+     * so failures surface as empty data rather than tearing down the combine.
+     */
+    private fun <T> Flow<Result<List<T>>>.orEmptyList(): Flow<List<T>> =
+        map { result -> result.getOrDefault(emptyList()) }
+
+    private fun <T> Flow<Result<T>>.orNull(): Flow<T?> =
+        map { result -> result.getOrNull() }
+
+    private data class LedgerBundle(
+        val ledger: List<LedgerEntry>,
+        val bankTx: List<BankTransaction>,
+        val payouts: List<PayoutRequest>,
+        val loans: List<Loan>
+    )
+
+    private data class ContextBundle(
+        val claims: List<BeneficiaryPayoutClaim>,
+        val recons: List<ReconciliationRecord>,
+        val connection: BankConnection?,
+        val providers: List<FinancialProvider>
+    )
 
     private data class DataPackage(
         val ledger: List<LedgerEntry>,
@@ -120,106 +187,87 @@ class AdminFinancialViewModel @Inject constructor(
         val payouts: List<PayoutRequest>,
         val loans: List<Loan>,
         val claims: List<BeneficiaryPayoutClaim>,
-        val recons: List<ReconciliationRecord>
+        val recons: List<ReconciliationRecord>,
+        val connection: BankConnection?,
+        val providers: List<FinancialProvider>
     )
 
-    fun performReconciliation() {
-        val groupId = adminContextCacheService.selectedGroupId.value ?: return
-        runSafe(
-            onLoading = { loading -> updateState { it.copy(isReconciling = loading) } },
-            onSuccess = { record ->
-                updateState { it.copy(successMessage = "Reconciliation complete: ${record.status.name}") }
-            }
-        ) {
-            reconRepo.performReconciliation(groupId)
-        }
-    }
+    // endregion
 
-    fun resolveDiscrepancy(reconciliationId: String, notes: String) {
-        runSafe(
-            onLoading = { loading -> updateState { it.copy(isReconciling = loading) } },
-            onSuccess = {
-                updateState { it.copy(successMessage = "Discrepancy resolved and documented.") }
-            }
-        ) {
-            reconRepo.resolveDiscrepancy(reconciliationId, notes)
-        }
-    }
+    // region Delegated actions
 
-    fun consolidateLedger() {
-        val groupId = adminContextCacheService.selectedGroupId.value ?: return
-        viewModelScope.launch {
-            updateState { it.copy(isConsolidating = true, error = null) }
-            ledgerRepo.consolidateGroupLedger(groupId)
-                .onSuccess { report ->
-                    updateState { it.copy(
-                        isConsolidating = false,
-                        successMessage = "Deep consolidation complete. ${report.entriesReconstructed} entries reconstructed."
-                    ) }
-                    adminContextCacheService.warmUpGroup(groupId)
-                    loadFinancialData(groupId)
-                }
-                .onFailure { e ->
-                    updateState { it.copy(isConsolidating = false) }
-                    handleError(e)
-                }
-        }
-    }
+    fun performReconciliation() = ledgerActions.performReconciliation(this)
 
-    fun downloadGroupStatement() {
-        val group = uiState.value.group ?: return
-        val ledger = uiState.value.ledger
-        if (ledger.isEmpty()) {
-            updateState { it.copy(error = "No group transactions found to export.") }
-            return
-        }
+    fun resolveDiscrepancy(reconciliationId: String, notes: String) =
+        ledgerActions.resolveDiscrepancy(this, reconciliationId, notes)
 
-        viewModelScope.launch {
-            updateState { it.copy(isExporting = true, error = null) }
-            ledgerRepo.getGroupLedger(group.id!!).onSuccess { entries ->
-                exportRepo.exportLedgerToPdf(group, entries).onSuccess { file ->
-                    updateState { it.copy(isExporting = false, exportFile = file) }
-                    sendEvent(UIEvent.OpenFile(file, "application/pdf", "Group Statement"))
-                }.onFailure { e ->
-                    updateState { it.copy(isExporting = false) }
-                    handleError(e)
-                }
-            }.onFailure { e ->
-                updateState { it.copy(isExporting = false) }
-                handleError(e)
-            }
-        }
-    }
+    fun consolidateLedger() = ledgerActions.consolidateLedger(this)
+
+    fun reconcileManual(bankTxId: String, ledgerId: String) =
+        ledgerActions.reconcileManual(this, bankTxId, ledgerId)
+
+    fun downloadGroupStatement() = ledgerActions.downloadGroupStatement(this)
+
+    fun submitPayoutRequest() = payoutActions.submitPayoutRequest(this)
+
+    fun executeRoscaPayout() = payoutActions.executeRoscaPayout(this)
+
+    fun executeStokvelBatchPayout() = payoutActions.executeStokvelBatchPayout(this)
+
+    fun approveAndEscalatePayoutRequest(payoutId: String) =
+        payoutActions.approveAndEscalatePayoutRequest(this, payoutId)
+
+    fun verifyPayoutDocument(payoutId: String, approve: Boolean) =
+        payoutActions.verifyPayoutDocument(this, payoutId, approve)
+
+    fun approveLoan(loanId: String) = loanActions.approveLoan(this, loanId)
+
+    fun rejectLoan(loanId: String, reason: String = "Declined by group admin") =
+        loanActions.rejectLoan(this, loanId, reason)
+
+    fun processClaim(claimId: String, approve: Boolean) = claimActions.processClaim(this, claimId, approve)
+
+    fun verifyClaimDocument(claimId: String, docKey: String, approve: Boolean) =
+        claimActions.verifyClaimDocument(this, claimId, docKey, approve)
+
+    fun refreshBankData() = bankActions.refreshBankData(this)
+
+    fun initiateBankLinking(providerId: String) = bankActions.initiateBankLinking(this, providerId)
+
+    fun unlinkBankAccount() = bankActions.unlinkBankAccount(this)
+
+    fun handleBankCallback(connectionId: String, status: String) =
+        bankActions.handleBankCallback(this, connectionId, status)
+
+    fun ignoreBankTransaction(bankTxId: String, reason: String) =
+        bankActions.ignoreBankTransaction(this, bankTxId, reason)
+
+    // endregion
+
+    // region State & MFA
 
     fun updatePayoutAmount(amount: String) { updateState { it.copy(payoutAmount = amount) } }
 
     fun updateSelectedMemberId(id: String?) { updateState { it.copy(selectedMemberId = id) } }
 
-    fun submitPayoutRequest() {
-        val s = uiState.value
-        val groupId = adminContextCacheService.selectedGroupId.value ?: return
-        val amountValue = s.payoutAmount.toDoubleOrNull()
-        val moneyAmount = if (amountValue != null) Money(amountValue) else null
+    fun selectClaim(claim: BeneficiaryPayoutClaim?) { updateState { it.copy(selectedClaim = claim) } }
 
-        viewModelScope.launch {
-            updateState { it.copy(isRequestingPayout = true, error = null) }
-            requestPayoutUseCase(
-                groupId = groupId,
-                memberId = s.selectedMemberId,
-                requestedAmount = moneyAmount
-            ).onSuccess {
-                updateState { it.copy(
-                    isRequestingPayout = false,
-                    payoutRequestSuccess = true,
-                    payoutAmount = "",
-                    selectedMemberId = null,
-                    successMessage = "Payout request submitted successfully"
-                ) }
-            }.onFailure { e ->
-                updateState { it.copy(isRequestingPayout = false) }
-                handleActionFailure(e)
+    fun selectPayout(payout: PayoutRequest?) { updateState { it.copy(selectedPayout = payout) } }
+
+    fun verifyMfaChallenge(code: String) {
+        launchJob("verify_mfa_challenge") {
+            updateState { it.copy(isVerifyingMfa = true) }
+            supabaseRepo.getMfaFactors().onSuccess { factors ->
+                val factor = factors.firstOrNull() ?: return@onSuccess
+                supabaseRepo.verifyMfa(factor.id, code, true).onSuccess {
+                    updateState { it.copy(isVerifyingMfa = false, showMfaChallenge = false) }
+                }.onFailure { e -> updateState { it.copy(isVerifyingMfa = false, mfaChallengeError = e.toUserMessage()) } }
             }
         }
+    }
+
+    fun dismissMfaChallenge() {
+        updateState { it.copy(showMfaChallenge = false) }
     }
 
     private fun handleActionFailure(e: Throwable) {
@@ -231,157 +279,9 @@ class AdminFinancialViewModel @Inject constructor(
         }
     }
 
-    fun executeRoscaPayout() {
-        val groupId = adminContextCacheService.selectedGroupId.value ?: return
-        viewModelScope.launch {
-            updateState { it.copy(isRequestingPayout = true, error = null) }
-            requestPayoutUseCase(groupId = groupId).onSuccess { result ->
-                updateState { it.copy(isRequestingPayout = false, successMessage = result) }
-            }.onFailure { e ->
-                updateState { it.copy(isRequestingPayout = false) }
-                handleActionFailure(e)
-            }
-        }
-    }
-
-    fun approveLoan(loanId: String) {
-        val groupId = adminContextCacheService.selectedGroupId.value ?: return
-        val adminId = supabaseRepo.currentUserId ?: return
-        viewModelScope.launch {
-            updateState { it.copy(isLoading = true, error = null) }
-            processLoanDisbursementUseCase(loanId, adminId, PaymentMethod.BANK).onSuccess {
-                updateState { it.copy(isLoading = false, successMessage = "Loan approved and disbursed") }
-                adminContextCacheService.warmUpGroup(groupId)
-            }.onFailure { e ->
-                updateState { it.copy(isLoading = false) }
-                handleActionFailure(e)
-            }
-        }
-    }
-
-    fun processClaim(claimId: String, approve: Boolean) {
-        val groupId = adminContextCacheService.selectedGroupId.value ?: return
-        val adminId = supabaseRepo.currentUserId ?: return
-        viewModelScope.launch {
-            updateState { it.copy(isLoading = true, error = null) }
-            val status = if (approve) BeneficiaryClaimStatus.PAID else BeneficiaryClaimStatus.REJECTED
-            processBurialClaimUseCase(
-                claimId = claimId,
-                status = status,
-                reviewedBy = adminId
-            ).onSuccess {
-                updateState { it.copy(isLoading = false, successMessage = "Claim ${if (approve) "processed as PAID" else "rejected"}") }
-                if (approve) adminContextCacheService.warmUpGroup(groupId)
-            }.onFailure { e ->
-                updateState { it.copy(isLoading = false) }
-                handleActionFailure(e)
-            }
-        }
-    }
-
-    fun verifyMfaChallenge(code: String) {
-        viewModelScope.launch {
-            updateState { it.copy(isVerifyingMfa = true) }
-            supabaseRepo.getMfaFactors().onSuccess { factors ->
-                val factor = factors.firstOrNull() ?: return@onSuccess
-                supabaseRepo.verifyMfa(factor.id, code, true).onSuccess {
-                    updateState { it.copy(isVerifyingMfa = false, showMfaChallenge = false) }
-                    // retry last action or refresh?
-                }.onFailure { e -> updateState { it.copy(isVerifyingMfa = false, mfaChallengeError = e.toUserMessage()) } }
-            }
-        }
-    }
-
-    fun dismissMfaChallenge() {
-        updateState { it.copy(showMfaChallenge = false) }
-    }
-
-    fun approveAndEscalatePayoutRequest(payoutId: String) {
-        viewModelScope.launch {
-            updateState { it.copy(isLoading = true, error = null) }
-            payoutRepo.updatePayoutStatus(payoutId, PayoutStatus.GROUP_APPROVED).onSuccess {
-                updateState { it.copy(isLoading = false, successMessage = "Request escalated for platform approval") }
-            }.onFailure { e ->
-                updateState { it.copy(isLoading = false) }
-                handleError(e)
-            }
-        }
-    }
-
-    fun reconcileManual(bankTxId: String, ledgerId: String) {
-        viewModelScope.launch {
-            updateState { it.copy(isLoading = true, error = null) }
-            bankRepo.reconcileManual(bankTxId, ledgerId)
-                .onSuccess {
-                    updateState { it.copy(isLoading = false, successMessage = "Transaction reconciled successfully") }
-                }
-                .onFailure { e ->
-                    updateState { it.copy(isLoading = false) }
-                    handleError(e)
-                }
-        }
-    }
-
-    fun ignoreBankTransaction(bankTxId: String, reason: String) {
-        viewModelScope.launch {
-            updateState { it.copy(isLoading = true, error = null) }
-            bankRepo.ignoreTransaction(bankTxId, reason)
-                .onSuccess {
-                    updateState { it.copy(isLoading = false, successMessage = "Bank transaction ignored") }
-                }
-                .onFailure { e ->
-                    updateState { it.copy(isLoading = false) }
-                    handleError(e)
-                }
-        }
-    }
-
-    fun refreshBankData() {
-        val group = uiState.value.group ?: return
-        val providerId = group.financialProviderId
-        if (providerId.isNullOrBlank()) {
-            updateState { it.copy(error = "No bank account linked to this group.") }
-            return
-        }
-
-        viewModelScope.launch {
-            updateState { it.copy(isRefreshingBank = true, error = null) }
-            coroutineScope {
-                val balanceJob = async {
-                    financialProviderRepo.executeOperation(
-                        FinancialOperationRequest(
-                            operation = FinancialOperationType.GET_BALANCE,
-                            providerId = providerId,
-                            groupId = group.id
-                        )
-                    )
-                }
-                val txJob = async {
-                    financialProviderRepo.executeOperation(
-                        FinancialOperationRequest(
-                            operation = FinancialOperationType.GET_TRANSACTIONS,
-                            providerId = providerId,
-                            groupId = group.id
-                        )
-                    )
-                }
-
-                val balanceRes = balanceJob.await()
-                val txRes = txJob.await()
-
-                if (balanceRes.isFailure) {
-                    AppLogger.w("AdminFinancialVM", "Failed to refresh bank balance: ${balanceRes.exceptionOrNull()?.message}")
-                }
-                if (txRes.isFailure) {
-                    AppLogger.w("AdminFinancialVM", "Failed to refresh bank transactions: ${txRes.exceptionOrNull()?.message}")
-                }
-            }
-
-            updateState { it.copy(isRefreshingBank = false, bankRefreshSuccess = true) }
-            showMessage("Bank data synchronized successfully")
-            adminContextCacheService.warmUpGroup(group.id!!)
-        }
-    }
-
     fun clearError() { updateState { it.copy(error = null) } }
+
+    // endregion
 }
+
+

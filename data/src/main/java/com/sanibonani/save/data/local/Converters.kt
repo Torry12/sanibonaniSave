@@ -2,24 +2,29 @@ package com.sanibonani.save.data.local
 
 import androidx.room.TypeConverter
 import com.sanibonani.save.domain.model.*
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
 
 class Converters {
     @TypeConverter fun fromGroupType(v: GroupType): String = v.name
-    @TypeConverter fun toGroupType(v: String): GroupType = try {
-        GroupType.entries.find { it.name == v || it.displayName.replace(" ", "_").lowercase() == v.lowercase() } ?: GroupType.OTHER
-    } catch (e: Exception) { GroupType.OTHER }
+    @TypeConverter fun toGroupType(v: String): GroupType {
+        val normalized = v.trim().uppercase()
+        return GroupType.entries.find {
+            it.name == normalized ||
+            it.displayName.replace(" ", "_").uppercase() == normalized
+        } ?: GroupType.OTHER
+    }
 
     @TypeConverter fun fromAdminFeeState(v: AdminFeeState): String = v.name
     @TypeConverter fun toAdminFeeState(v: String): AdminFeeState = try {
         AdminFeeState.entries.find { it.name == v || it.name.lowercase() == v.lowercase() } ?: AdminFeeState.DUE
     } catch (e: Exception) { AdminFeeState.DUE }
 
-    @TypeConverter fun fromMemberStatus(v: MemberStatus): String = v.name.lowercase()
-    @TypeConverter fun toMemberStatus(v: String): MemberStatus = try {
-        val match = MemberStatus.entries.find { it.name.equals(v, ignoreCase = true) }
-        if (match != null) return match
-        MemberStatus.SUSPENDED
-    } catch (e: Exception) { MemberStatus.SUSPENDED }
+    @TypeConverter fun fromMemberStatus(v: MemberStatus): String = v.name
+    @TypeConverter fun toMemberStatus(v: String): MemberStatus {
+        val normalized = v.trim().uppercase()
+        return MemberStatus.entries.find { it.name == normalized } ?: MemberStatus.SUSPENDED
+    }
 
     @TypeConverter fun fromDocStatus(v: DocumentStatus): String = v.name
     @TypeConverter fun toDocStatus(v: String): DocumentStatus = try {
@@ -66,6 +71,11 @@ class Converters {
         PayoutStatus.entries.find { it.name == v || it.name.lowercase() == v.lowercase() } ?: PayoutStatus.PENDING
     } catch (e: Exception) { PayoutStatus.PENDING }
 
+    @TypeConverter fun fromPayoutType(v: PayoutType): String = v.name
+    @TypeConverter fun toPayoutType(v: String): PayoutType = try {
+        PayoutType.entries.find { it.name == v || it.name.lowercase() == v.lowercase() } ?: PayoutType.STANDARD
+    } catch (e: Exception) { PayoutType.STANDARD }
+
     @TypeConverter fun fromLoanStatus(v: LoanStatus): String = v.name
     @TypeConverter fun toLoanStatus(v: String): LoanStatus = try {
         LoanStatus.entries.find { it.name == v || it.name.lowercase() == v.lowercase() } ?: LoanStatus.PENDING
@@ -96,13 +106,50 @@ class Converters {
         ReconciliationStatus.entries.find { it.name == v || it.name.lowercase() == v.lowercase() } ?: ReconciliationStatus.PENDING
     } catch (e: Exception) { ReconciliationStatus.PENDING }
 
-    @TypeConverter fun fromMoney(v: Money): String = v.amount.toPlainString()
-    @TypeConverter fun toMoney(v: String): Money = Money(v)
+    @TypeConverter fun fromBankTxStatus(v: BankTransactionStatus): String = v.name
+    @TypeConverter fun toBankTxStatus(v: String): BankTransactionStatus = try {
+        BankTransactionStatus.entries.find { it.name == v || it.name.lowercase() == v.lowercase() } ?: BankTransactionStatus.UNRECONCILED
+    } catch (e: Exception) { BankTransactionStatus.UNRECONCILED }
 
-    @TypeConverter fun fromMap(v: Map<String, String>): String = kotlinx.serialization.json.Json.encodeToString(
-        kotlinx.serialization.builtins.MapSerializer(kotlinx.serialization.builtins.serializer<String>(), kotlinx.serialization.builtins.serializer<String>()), v
-    )
-    @TypeConverter fun toMap(v: String): Map<String, String> = kotlinx.serialization.json.Json.decodeFromString(
-        kotlinx.serialization.builtins.MapSerializer(kotlinx.serialization.builtins.serializer<String>(), kotlinx.serialization.builtins.serializer<String>()), v
-    )
+    @TypeConverter fun fromFinProviderType(v: FinancialProviderType): String = v.name
+    @TypeConverter fun toFinProviderType(v: String): FinancialProviderType = try {
+        FinancialProviderType.entries.find { it.name == v || it.name.lowercase() == v.lowercase() } ?: FinancialProviderType.BANK
+    } catch (e: Exception) { FinancialProviderType.BANK }
+
+    @TypeConverter fun fromPollStatus(v: PollStatus): String = v.name
+    @TypeConverter fun toPollStatus(v: String): PollStatus = try {
+        PollStatus.entries.find { it.name == v || it.name.lowercase() == v.lowercase() } ?: PollStatus.OPEN
+    } catch (e: Exception) { PollStatus.OPEN }
+
+    @TypeConverter fun fromPollType(v: PollType): String = v.name
+    @TypeConverter fun toPollType(v: String): PollType = try {
+        PollType.entries.find { it.name == v || it.name.lowercase() == v.lowercase() } ?: PollType.GENERAL
+    } catch (e: Exception) { PollType.GENERAL }
+
+    @TypeConverter fun fromEffectStatus(v: EffectStatus): String = v.name
+    @TypeConverter fun toEffectStatus(v: String): EffectStatus = try {
+        EffectStatus.entries.find { it.name == v || it.name.lowercase() == v.lowercase() } ?: EffectStatus.NONE
+    } catch (e: Exception) { EffectStatus.NONE }
+
+    @TypeConverter fun fromBehaviorStatus(v: BehaviorStatus): String = v.name
+    @TypeConverter fun toBehaviorStatus(v: String): BehaviorStatus = try {
+        BehaviorStatus.entries.find { it.name == v || it.name.lowercase() == v.lowercase() } ?: BehaviorStatus.FAIR
+    } catch (e: Exception) { BehaviorStatus.FAIR }
+
+    @TypeConverter fun fromFraudRiskLevel(v: FraudRiskLevel): String = v.name
+    @TypeConverter fun toFraudRiskLevel(v: String): FraudRiskLevel = try {
+        FraudRiskLevel.entries.find { it.name == v || it.name.lowercase() == v.lowercase() } ?: FraudRiskLevel.LOW
+    } catch (e: Exception) { FraudRiskLevel.LOW }
+
+    @TypeConverter fun fromFinOpTypeList(v: List<FinancialOperationType>): String = Json.encodeToString(v)
+    @TypeConverter fun toFinOpTypeList(v: String): List<FinancialOperationType> = try { Json.decodeFromString(v) } catch (e: Exception) { emptyList() }
+
+    @TypeConverter fun fromMoney(v: Money?): String? = v?.toPlainString()
+    @TypeConverter fun toMoney(v: String?): Money? = v?.let { Money(it) }
+
+    @TypeConverter fun fromMap(v: Map<String, String>): String = Json.encodeToString(v)
+    @TypeConverter fun toMap(v: String): Map<String, String> = try { Json.decodeFromString(v) } catch (e: Exception) { emptyMap() }
+
+    @TypeConverter fun fromJsonObject(v: JsonObject?): String? = v?.let { Json.encodeToString(it) }
+    @TypeConverter fun toJsonObject(v: String?): JsonObject? = v?.let { try { Json.decodeFromString(it) } catch (_: Exception) { null } }
 }

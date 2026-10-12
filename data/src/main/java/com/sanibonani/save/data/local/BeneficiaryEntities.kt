@@ -1,6 +1,7 @@
 package com.sanibonani.save.data.local
 
 import androidx.room.*
+import androidx.room.Transaction as RoomTransaction
 import com.sanibonani.save.domain.model.*
 import kotlinx.coroutines.flow.Flow
 
@@ -54,14 +55,46 @@ interface BeneficiaryDao {
     @Query("DELETE FROM beneficiaries")
     suspend fun clearAll()
 
-    @androidx.room.Transaction
+    @RoomTransaction
     suspend fun syncBeneficiaries(memberId: String, beneficiaries: List<BeneficiaryEntity>) {
-        val current = getMemberBeneficiaries(memberId).map { it.id }.toSet()
-        val incoming = beneficiaries.map { it.id }.toSet()
-        (current - incoming).forEach { deleteById(it) }
-        upsertBeneficiaries(beneficiaries)
+        val currentIds = getMemberBeneficiaries(memberId).map { it.id }.toSet()
+        val incomingIds = beneficiaries.map { it.id }.toSet()
+        (currentIds - incomingIds).forEach { deleteById(it) }
+        if (beneficiaries.isNotEmpty()) upsertBeneficiaries(beneficiaries)
     }
 
     @Query("DELETE FROM beneficiaries WHERE id = :id")
     suspend fun deleteById(id: String)
 }
+
+// ── Mappers ──────────────────────────────────────────────────────────────────
+
+fun BeneficiaryEntity.toModel() = Beneficiary(
+    id = id,
+    groupId = groupId,
+    memberId = memberId,
+    fullName = fullName,
+    idNumber = idNumber,
+    relationship = relationship,
+    dateOfBirth = dateOfBirth,
+    isOver65 = isOver65,
+    documentUrl = documentUrl,
+    facePhotoUrl = facePhotoUrl,
+    documentStatus = documentStatus,
+    createdAt = createdAt
+)
+
+fun Beneficiary.toEntity() = BeneficiaryEntity(
+    id = id ?: java.util.UUID.randomUUID().toString(),
+    groupId = groupId,
+    memberId = memberId,
+    fullName = fullName,
+    idNumber = idNumber,
+    relationship = relationship,
+    dateOfBirth = dateOfBirth,
+    isOver65 = isOver65,
+    documentUrl = documentUrl,
+    facePhotoUrl = facePhotoUrl,
+    documentStatus = documentStatus,
+    createdAt = createdAt
+)

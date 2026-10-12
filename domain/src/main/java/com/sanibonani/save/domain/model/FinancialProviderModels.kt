@@ -39,7 +39,9 @@ enum class FinancialOperationType {
     @SerialName("create_beneficiary")  CREATE_BENEFICIARY,
     @SerialName("request_statement")   REQUEST_STATEMENT,
     @SerialName("initiate_checkout")   INITIATE_CHECKOUT,
-    @SerialName("process_payout")      PROCESS_PAYOUT
+    @SerialName("process_payout")      PROCESS_PAYOUT,
+    @SerialName("link_account")       LINK_ACCOUNT,
+    @SerialName("unlink_account")     UNLINK_ACCOUNT
 }
 
 /**

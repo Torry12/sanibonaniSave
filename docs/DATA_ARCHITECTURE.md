@@ -6,7 +6,15 @@ This document provides a deep dive into the data layer of the SanibonaniSave app
 
 ## 🏗 1. Core Data Structures (Domain Models)
 
-The domain layer (`:domain`) defines the fundamental business entities. These models are pure Kotlin, annotated with `@Serializable` for network/disk transport and `@Parcelize` for UI navigation.
+The domain layer (`:domain`) defines the fundamental business entities. Models are
+annotated `@Serializable` for network/disk transport. Most also use `@Parcelize`
+so they can travel through Compose navigation arguments — this is the reason
+`:domain` still depends on the Android framework, and it is the main outstanding
+item in moving `:domain` to a pure-JVM module.
+
+> Models do **not** reference the Supabase SDK. Session state crosses the module
+> boundary as the domain-owned `AuthSession` / `AuthSessionStatus`, which `:data`
+> maps from the SDK types.
 
 ### Primary Entities:
 - **`Group`**: The central container for all cooperative activities. Contains configuration (fees, probation, type) and financial state (balance).
@@ -29,12 +37,21 @@ The local data layer (`:data`) mirrors the Supabase backend for offline capabili
 ### Table Mapping:
 | Table Name | Entity Class | Primary Key | Main Indices |
 |------------|--------------|-------------|--------------|
+| `user_profiles` | `UserProfileEntity` | `id` (UUID) | `role`, `email` |
 | `groups` | `GroupEntity` | `id` (UUID) | `admin_user_id`, `fee_status`, `is_public` |
 | `members` | `MemberEntity` | `id` (UUID) | `group_id`, `user_id`, `member_key`, `status` |
 | `contributions` | `ContributionEntity` | `id` (UUID) | `member_id`, `group_id`, `status`, `due_date` |
-| `payouts` | `PayoutEntity` | `id` (UUID) | `group_id`, `status` |
-| `burial_claims` | `BeneficiaryClaimEntity` | `id` (UUID) | `group_id`, `member_id`, `status` |
-| `group_ledger` | `LedgerEntryEntity` | `id` (UUID) | `groupId`, `transactionId` |
+| `payouts` | `PayoutEntity` | `id` (UUID) | `group_id`, `status`, `member_id` |
+| `beneficiaries` | `BeneficiaryEntity` | `id, group_id, member_id` | `group_id`, `member_id` |
+| `beneficiary_payout_claims` | `BeneficiaryClaimEntity` | `id` (UUID) | `group_id`, `member_id`, `status` |
+| `group_ledger` | `LedgerEntryEntity` | `id` (UUID) | `group_id`, `transaction_id`, `member_id` |
+| `loans` | `LoanEntity` | `id` (UUID) | `member_id`, `group_id`, `status` |
+| `loan_repayments` | `LoanRepaymentEntity` | `id` (UUID) | `loan_id`, `member_id` |
+| `group_polls` | `GroupPollEntity` | `id` (UUID) | `group_id`, `status` |
+| `bank_transactions` | `BankTransactionEntity` | `id` (UUID) | `group_id`, `bank_reference`, `status` |
+| `member_behavior_track` | `MemberBehaviorTrackEntity` | `id` (UUID) | `member_id`, `group_id`, `fraud_risk_level` |
+| `audit_logs` | `AuditLogEntity` | `id` (UUID) | `actor_id`, `target_group_id`, `action` |
+| `pending_operations` | `PendingOperationEntity` | `id` (UUID) | `type`, `groupId`, `createdAt` |
 
 ### Complex Types (TypeConverters):
 - **Enums**: Roles, Statuses, and Prefs are converted to/from Strings (using snake_case to match Supabase).
@@ -67,17 +84,19 @@ erDiagram
 
 ---
 
-## 🔄 4. Synchronization (`observeAndSync`)
+## 🔄 4. Synchronization (`observeAndSync` & Outbox)
 
-The application implements a "Local-First" pattern. The UI never waits for the network to render data.
+The application implements a "Local-First" pattern with an **Offline Outbox** for network resilience.
 
-### The Algorithm:
-1.  **Emit Local**: The Repository returns a `Flow` that immediately emits whatever is in the Room DB.
-2.  **Network Fetch**: Simultaneously, an asynchronous network request is made to Supabase.
-3.  **Conflict Resolution**:
-    *   On **Success**: The Repository calculates the difference between network and local data. It performs a "delta update" (upserting new/changed, deleting missing) in Room.
-    *   On **Failure**: The error is captured and mapped to a user-friendly message, but the UI continues to show the cached data.
-4.  **Real-time Push**: Repositories listen to Supabase Realtime (WebSockets). When a record changes on the server, the repo automatically triggers a fresh sync for that specific item.
+### Read Path (`observeAndSync`):
+1.  **Emit Local**: Immediately returns a `Flow` from Room.
+2.  **Pillar-Parallel Sync**: Simultaneously fetches from Supabase in domain-parallel blocks (Treasury, Equity, etc.).
+3.  **Delta Update**: Merges remote changes into local Room cache.
+
+### Write Path (Outbox Pattern):
+1.  **Optimistic Attempt**: App attempts the Supabase RPC immediately.
+2.  **Auto-Queuing**: If a network break (timeout, connect error) occurs, the full JSON payload is saved to `pending_operations`.
+3.  **Background Processing**: `SyncRepository` monitors connectivity and processes the outbox in strict chronological order upon return.
 
 ### Example (BaseRepository.kt):
 ```kotlin
@@ -109,12 +128,12 @@ fun <T, E> observeAndSync(
 
 ### Backend Enforcement (Supabase RPCs):
 Critical financial operations are performed via **Postgres Functions (RPCs)** to ensure atomicity.
-- **`record_contribution_v1`**: Atomically creates a contribution, updates group balance, and creates a ledger entry. If any step fails, the whole transaction rolls back.
+- **`record_contribution_v2`**: Atomically creates a contribution, updates group balance, and creates a ledger entry. If any step fails, the whole transaction rolls back.
 
 ### Frontend Validation (`ValidationUtils`):
 - **SA ID Number**: Validated via Luhn Algorithm.
 - **Banking**: Regex-based validation for Account Numbers (7-13 digits) and Branch Codes (6 digits).
-- **Currency**: Precision-safe math using `BigDecimal` equivalents before converting to `Double` for storage.
+- **Currency Precision**: Use the `Money` domain class (BigDecimal). Never use `Double` for financial arithmetic. Use `amount.toPlainString()` when serializing for Supabase RPCs.
 
 ---
 
@@ -122,5 +141,8 @@ Critical financial operations are performed via **Postgres Functions (RPCs)** to
 
 - **Models**: `domain/src/main/java/com/sanibonani/save/domain/model/`
 - **Room Setup**: `data/src/main/java/com/sanibonani/save/data/local/`
+- **Local DB Provider**: `data/src/main/java/com/sanibonani/save/data/local/LocalDatabaseProvider.kt`
+- **Auth Data Source (SDK boundary)**: `data/src/main/java/com/sanibonani/save/data/remote/supabase/SupabaseAuthDataSourceImpl.kt`
+- **Session mapping**: `data/src/main/java/com/sanibonani/save/data/datasource/AuthDataSource.kt`
 - **Sync Core**: `data/src/main/java/com/sanibonani/save/data/repository/BaseRepository.kt`
 - **Network Mapping**: `data/src/main/java/com/sanibonani/save/data/remote/PostgrestColumns.kt`

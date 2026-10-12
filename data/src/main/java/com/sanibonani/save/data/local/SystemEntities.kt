@@ -1,6 +1,7 @@
 package com.sanibonani.save.data.local
 
 import androidx.room.*
+import com.sanibonani.save.domain.model.PendingOperation
 import kotlinx.coroutines.flow.Flow
 
 @Entity(tableName = "pending_operations")
@@ -34,3 +35,25 @@ interface PendingOperationDao {
     @Query("SELECT COUNT(*) FROM pending_operations")
     fun observeCount(): Flow<Int>
 }
+
+// ── Mappers ──────────────────────────────────────────────────────────────────
+
+fun PendingOperationEntity.toModel() = PendingOperation(
+    id = id,
+    type = type,
+    payload = payload,
+    groupId = groupId,
+    createdAt = createdAt,
+    retryCount = retryCount,
+    lastError = lastError
+)
+
+fun PendingOperation.toEntity() = PendingOperationEntity(
+    id = id,
+    type = type,
+    payload = payload,
+    groupId = groupId,
+    createdAt = createdAt,
+    retryCount = retryCount,
+    lastError = lastError
+)

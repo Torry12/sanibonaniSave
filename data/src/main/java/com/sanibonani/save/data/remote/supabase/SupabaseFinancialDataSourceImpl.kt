@@ -2,6 +2,7 @@ package com.sanibonani.save.data.remote.supabase
 
 import com.sanibonani.save.data.datasource.RemoteFinancialDataSource
 import com.sanibonani.save.domain.model.Money
+import com.sanibonani.save.domain.model.PlatformFee
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.postgrest.rpc
@@ -15,27 +16,25 @@ class SupabaseFinancialDataSourceImpl @Inject constructor(
 ) : RemoteFinancialDataSource {
 
     override suspend fun getVerifiedBalance(groupId: String): Result<Money> = runCatching {
-        client.postgrest.rpc(
+        val jsonElement = client.postgrest.rpc(
             function = "audit_and_fix_group_balance_v1",
             parameters = buildJsonObject {
                 put("p_group_id", groupId)
-                put("p_fix_balance", false)
+                put("p_fix", false)
             }
-        ).decodeAs<Money>()
-    }.recoverCatching {
-        val res = client.postgrest.rpc(
-            function = "audit_and_fix_group_balance_v1",
-            parameters = buildJsonObject {
-                put("p_group_id", groupId)
-                put("p_fix_balance", false)
-            }
-        ).decodeAs<JsonObject>()
-        Money(res["ledger_sum"]?.jsonPrimitive?.doubleOrNull ?: 0.0)
+        ).decodeAs<JsonElement>()
+
+        val rawVal = when (jsonElement) {
+            is JsonObject -> jsonElement["ledger_sum"]?.jsonPrimitive?.content ?: jsonElement["balance"]?.jsonPrimitive?.content ?: "0.00"
+            is JsonPrimitive -> jsonElement.content
+            else -> "0.00"
+        }
+        Money(rawVal)
     }
 
     override suspend fun repairGroupData(groupId: String): Result<Unit> = runCatching {
-        client.postgrest.rpc("recalculate_all_group_financials_v1", buildJsonObject { put("p_group_id", groupId) })
-    }
+        client.postgrest.rpc("recalculate_all_group_financials_v3", buildJsonObject { put("p_group_id", groupId) })
+    }.map { }
 
     override suspend fun payPlatformFee(groupId: String, amount: Money, feeType: String, txId: String?, fromGroupFund: Boolean): Result<Unit> = runCatching {
         client.postgrest.rpc("pay_platform_fee_v2", buildJsonObject {
@@ -45,5 +44,14 @@ class SupabaseFinancialDataSourceImpl @Inject constructor(
             txId?.let { put("p_tx_id", it) }
             put("p_from_group_fund", fromGroupFund)
         })
+    }
+
+    override suspend fun getOutstandingPlatformFees(groupId: String): Result<List<PlatformFee>> = runCatching {
+        client.postgrest["platform_fees"].select {
+            filter {
+                eq("group_id", groupId)
+                neq("status", "paid")
+            }
+        }.decodeList<PlatformFee>()
     }
 }

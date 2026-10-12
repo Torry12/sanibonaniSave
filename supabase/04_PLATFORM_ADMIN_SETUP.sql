@@ -21,15 +21,28 @@ BEGIN
 
     IF v_user_id IS NULL THEN
         v_user_id := gen_random_uuid();
-        INSERT INTO auth.users (id, aud, role, email, encrypted_password, email_confirmed_at, raw_app_meta_data, raw_user_meta_data)
-        VALUES (v_user_id, 'authenticated', 'authenticated', v_email, crypt(v_password, gen_salt('bf')), now(), '{"provider":"email","providers":["email"],"role":"platform_admin"}', jsonb_build_object('full_name', v_full_name, 'role', 'platform_admin'));
+        INSERT INTO auth.users (
+            id, instance_id, aud, role, email, encrypted_password, email_confirmed_at,
+            raw_app_meta_data, raw_user_meta_data, created_at, updated_at,
+            confirmation_token, recovery_token, email_change_token_new, email_change
+        )
+        VALUES (
+            v_user_id, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', v_email, extensions.crypt(v_password, extensions.gen_salt('bf', 10)), now(),
+            '{"provider":"email","providers":["email"],"role":"platform_admin"}', jsonb_build_object('full_name', v_full_name, 'role', 'platform_admin'),
+            now(), now(), '', '', '', ''
+        );
     ELSE
         UPDATE auth.users
-        SET encrypted_password = crypt(v_password, gen_salt('bf')),
+        SET encrypted_password = extensions.crypt(v_password, extensions.gen_salt('bf')),
             email = v_email,
             email_confirmed_at = coalesce(email_confirmed_at, now()),
             raw_app_meta_data = coalesce(raw_app_meta_data, '{}'::jsonb) || '{"provider":"email","providers":["email"],"role":"platform_admin"}'::jsonb,
-            raw_user_meta_data = coalesce(raw_user_meta_data, '{}'::jsonb) || jsonb_build_object('full_name', v_full_name, 'role', 'platform_admin')
+            raw_user_meta_data = coalesce(raw_user_meta_data, '{}'::jsonb) || jsonb_build_object('full_name', v_full_name, 'role', 'platform_admin'),
+            -- Defensive: Ensure no NULLs in columns that cause GoTrue Scan errors
+            email_change_token_new = COALESCE(email_change_token_new, ''),
+            confirmation_token = COALESCE(confirmation_token, ''),
+            recovery_token = COALESCE(recovery_token, ''),
+            email_change = COALESCE(email_change, '')
         WHERE id = v_user_id;
     END IF;
 
@@ -46,10 +59,10 @@ BEGIN
         identity_data = EXCLUDED.identity_data,
         updated_at = now();
 
-    -- Remove legacy aliases if they exist so the canonical login is the only active email.
-    UPDATE auth.users
-    SET email = v_email
-    WHERE lower(email) IN (SELECT lower(alias) FROM unnest(v_legacy_emails) AS alias);
+    -- Remove legacy aliases if they exist so they do not conflict
+    DELETE FROM auth.users
+    WHERE lower(email) IN (SELECT lower(alias) FROM unnest(v_legacy_emails) AS alias)
+      AND id <> v_user_id;
 
     -- 3. Create Profile
     -- Remove stale profile rows for canonical/legacy emails so id-based upsert stays deterministic.

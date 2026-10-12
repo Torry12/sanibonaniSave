@@ -1,5 +1,6 @@
 package com.sanibonani.save.features.admin.ui.components
 
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import com.sanibonani.save.R
 
@@ -22,9 +23,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.sanibonani.save.domain.model.*
-import com.sanibonani.save.ui.components.DetailRow
+import com.sanibonani.save.ui.components.*
 import com.sanibonani.save.ui.utils.formatZAR
 import com.sanibonani.save.ui.theme.*
+import com.sanibonani.save.ui.components.AutoFitText
 import com.sanibonani.save.ui.utils.*
 
 /**
@@ -35,78 +37,6 @@ import com.sanibonani.save.ui.utils.*
 fun maskAccountNumberForDisplay(accountNumber: String): String = when {
     accountNumber.length <= 4 -> accountNumber
     else -> "*".repeat(accountNumber.length - 4) + accountNumber.takeLast(4)
-}
-
-@Composable
-fun SectionHeaderCard(
-    title: String,
-    subtitle: String,
-    icon: String,
-    count: Int? = null,
-    isExpanded: Boolean,
-    onClick: () -> Unit
-) {
-    Card(
-        onClick = onClick,
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-    ) {
-        Row(
-            modifier = Modifier.padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Surface(
-                shape = CircleShape,
-                color = Navy.copy(alpha = 0.1f),
-                modifier = Modifier.size(40.dp)
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Text(icon, fontSize = 20.sp)
-                }
-            }
-            Spacer(Modifier.width(16.dp))
-            Column(Modifier.weight(1f)) {
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
-                    softWrap = false,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Text(
-                    text = subtitle,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    softWrap = false,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-            if (count != null) {
-                Surface(
-                    color = Navy.copy(alpha = 0.1f),
-                    shape = RoundedCornerShape(12.dp)
-                ) {
-                    Text(
-                        text = count.toString(),
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = Navy
-                    )
-                }
-                Spacer(Modifier.width(8.dp))
-            }
-            Icon(
-                imageVector = if (isExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                contentDescription = null,
-                tint = Color.Black.copy(alpha = 0.6f)
-            )
-        }
-    }
 }
 
 @Composable
@@ -123,12 +53,12 @@ fun AccordionHeader(
         onClick = onClick,
         modifier = Modifier.fillMaxWidth(),
         color = Color.Transparent,
-        shape = RoundedCornerShape(8.dp)
+        shape = RoundedCornerShape(12.dp)
     ) {
         Row(
             modifier = Modifier.padding(
-                horizontal = if (isSubHeader) 0.dp else 12.dp,
-                vertical = if (isSubHeader) 4.dp else 8.dp
+                horizontal = if (isSubHeader) 8.dp else 12.dp,
+                vertical = if (isSubHeader) 8.dp else 12.dp
             ),
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -137,24 +67,26 @@ fun AccordionHeader(
                     imageVector = icon,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(if (isSubHeader) 18.dp else 22.dp)
+                    modifier = Modifier.size(if (isSubHeader) 20.dp else 24.dp)
                 )
                 Spacer(Modifier.width(12.dp))
             }
 
             Text(
                 text = if (isSubHeader) title.uppercase() else title,
-                style = if (isSubHeader) MaterialTheme.typography.labelSmall else MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.Bold,
+                style = if (isSubHeader) MaterialTheme.typography.labelMedium else MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.Black,
                 color = if (isSubHeader) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.weight(1f)
+                modifier = Modifier.weight(1f),
+                letterSpacing = if (isSubHeader) 1.sp else 0.sp
             )
 
             if (count > 0) {
                 Text(
                     text = if (label.isEmpty()) count.toString() else "$count $label",
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
                     modifier = Modifier.padding(horizontal = 8.dp)
                 )
             }
@@ -162,8 +94,8 @@ fun AccordionHeader(
             Icon(
                 imageVector = if (isExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
                 contentDescription = null,
-                tint = if (isSubHeader) MaterialTheme.colorScheme.primary.copy(alpha = 0.6f) else MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(if (isSubHeader) 16.dp else 20.dp)
+                tint = if (isSubHeader) MaterialTheme.colorScheme.primary.copy(alpha = 0.7f) else MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(if (isSubHeader) 20.dp else 24.dp)
             )
         }
     }
@@ -198,103 +130,114 @@ fun PayoutCard(
     onReject: () -> Unit,
     onComplete: () -> Unit
 ) {
+    val context = LocalContext.current
     Card(
         modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        border = BorderStroke(1.dp, Navy.copy(alpha = 0.1f))
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.1f))
     ) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(verticalAlignment = Alignment.Top, modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(
+                    AutoFitText(
                         text = groupName,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1,
-                        softWrap = false,
-                        overflow = TextOverflow.Ellipsis
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1
                     )
-                    Text(stringResource(R.string.ui_payout_request), style = MaterialTheme.typography.labelSmall, color = Navy)
-                    Text("Requested ${payout.createdAt?.substringBefore("T") ?: "recently"}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
+                    Text(stringResource(R.string.ui_payout_request), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                    Text(stringResource(R.string.ui_requested_on, payout.createdAt?.substringBefore("T") ?: "recently"), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f))
                 }
-                Spacer(Modifier.width(8.dp))
+                Spacer(Modifier.width(12.dp))
                 StatusChip(status = payout.status.name)
             }
 
-            Text(formatZAR(payout.amount), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Black, color = Navy)
+            Text(formatZAR(payout.amount), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.onSurface)
 
-            HorizontalDivider(color = Navy.copy(0.05f))
+            HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.1f))
 
-            DetailRow("Bank", payout.bankName, isBold = true)
-            DetailRow("Account", maskAccountNumberForDisplay(payout.accountNo), isBold = true)
-            DetailRow("Branch", payout.branchCode, isBold = true)
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                DetailRow("Bank", payout.bankName, isBold = true)
+                DetailRow("Account", maskAccountNumberForDisplay(payout.accountNo), isBold = true)
+                DetailRow("Branch", payout.branchCode, isBold = true)
+            }
 
-            HorizontalDivider(color = Navy.copy(0.1f), modifier = Modifier.padding(vertical = 8.dp))
+            HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.1f), modifier = Modifier.padding(vertical = 4.dp))
 
             // Primary Actions Row
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                OutlinedButton(
+                    onClick = onVerifyProfile,
+                    modifier = Modifier.weight(1f).height(48.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.primary),
+                    border = BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)),
+                    shape = RoundedCornerShape(12.dp),
+                    contentPadding = PaddingValues(horizontal = 8.dp)
+                ) {
+                    Icon(Icons.Default.SupportAgent, null, modifier = Modifier.size(20.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text(stringResource(R.string.ui_impersonate), style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                }
+
                 if (payout.memberId != null) {
                     OutlinedButton(
                         onClick = onViewSummary,
-                        modifier = Modifier.weight(1f),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Navy),
-                        border = BorderStroke(1.dp, Navy.copy(alpha = 0.3f)),
-                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.weight(0.8f).height(48.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.onSurface),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)),
+                        shape = RoundedCornerShape(12.dp),
                         contentPadding = PaddingValues(horizontal = 8.dp)
                     ) {
-                        Icon(Icons.Default.PersonSearch, null, modifier = Modifier.size(14.dp))
-                        Spacer(Modifier.width(4.dp))
-                        Text("Summary", style = MaterialTheme.typography.labelSmall)
+                        Icon(Icons.Default.PersonSearch, null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text(stringResource(R.string.ui_view_summary), style = MaterialTheme.typography.labelMedium)
                     }
-                }
-
-                OutlinedButton(
-                    onClick = onVerifyProfile,
-                    modifier = Modifier.weight(1f),
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.primary),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)),
-                    shape = RoundedCornerShape(8.dp),
-                    contentPadding = PaddingValues(horizontal = 8.dp)
-                ) {
-                    Icon(Icons.Default.SupportAgent, null, modifier = Modifier.size(14.dp))
-                    Spacer(Modifier.width(4.dp))
-                    Text("Impersonate", style = MaterialTheme.typography.labelSmall)
                 }
             }
 
             // Decision Actions Row
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (payout.status == PayoutStatus.PENDING || payout.status == PayoutStatus.GROUP_APPROVED) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                if (payout.status == PayoutStatus.PENDING || payout.status == PayoutStatus.GROUP_APPROVED || payout.status == PayoutStatus.FAILED) {
                     OutlinedButton(
                         onClick = onReject,
-                        modifier = Modifier.weight(0.8f),
+                        modifier = Modifier.weight(1f).height(54.dp),
                         colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
                         border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.5f)),
-                        shape = RoundedCornerShape(8.dp),
+                        shape = RoundedCornerShape(12.dp),
                         enabled = !isProcessing
                     ) {
-                        Text(stringResource(R.string.ui_reject_1), style = MaterialTheme.typography.labelSmall)
+                        Text(stringResource(R.string.ui_reject_1), style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
                     }
 
                     Button(
                         onClick = onApprove,
-                        modifier = Modifier.weight(1.2f),
-                        colors = ButtonDefaults.buttonColors(containerColor = Navy),
-                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.weight(1.2f).height(54.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                        shape = RoundedCornerShape(12.dp),
                         enabled = !isProcessing
                     ) {
-                        if (isProcessing) CircularProgressIndicator(modifier = Modifier.size(16.dp), color = Color.White)
-                        else Text(if (payout.status == PayoutStatus.PENDING) "APPROVE" else "PROCESS", style = MaterialTheme.typography.labelSmall)
+                        if (isProcessing) {
+                            CircularProgressIndicator(modifier = Modifier.size(20.dp), color = MaterialTheme.colorScheme.onPrimary, strokeWidth = 2.dp)
+                        } else {
+                            val btnText = when(payout.status) {
+                                PayoutStatus.PENDING -> stringResource(R.string.ui_approve_payout)
+                                PayoutStatus.GROUP_APPROVED -> stringResource(R.string.ui_process_payout)
+                                PayoutStatus.FAILED -> stringResource(R.string.ui_reprocess_payout)
+                                else -> stringResource(R.string.ui_process_payout)
+                            }
+                            Text(btnText, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Black)
+                        }
                     }
                 } else if (payout.status == PayoutStatus.PROCESSING) {
                     Button(
                         onClick = onComplete,
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier.fillMaxWidth().height(54.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = SuccessGreen),
-                        shape = RoundedCornerShape(8.dp),
+                        shape = RoundedCornerShape(12.dp),
                         enabled = !isProcessing
                     ) {
-                        if (isProcessing) CircularProgressIndicator(modifier = Modifier.size(16.dp), color = Color.White)
-                        else Text("MARK AS COMPLETED", style = MaterialTheme.typography.labelSmall)
+                        if (isProcessing) CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Color.White, strokeWidth = 2.dp)
+                        else Text(stringResource(R.string.ui_mark_as_completed), style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Black)
                     }
                 }
             }
@@ -317,91 +260,98 @@ fun LoanRequestCard(
     Card(
         modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        border = BorderStroke(1.dp, Navy.copy(alpha = 0.1f))
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.1f))
     ) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text(memberName, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyLarge)
-                    Text("Group: $groupName", style = MaterialTheme.typography.labelSmall, color = Navy)
-                    Text("Requested ${loan.createdAt?.substringBefore("T") ?: "recently"}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
+                    AutoFitText(
+                        text = memberName,
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1
+                    )
+                    Text(stringResource(R.string.ui_group_label, groupName), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                    Text(stringResource(R.string.ui_requested_on, loan.createdAt?.substringBefore("T") ?: "recently"), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f))
                 }
 
                 StatusChip(status = loan.status.name)
             }
 
-            DetailRow("Requested Amount", formatZAR(loan.amount))
-            DetailRow("Interest Rate", "${loan.interestRate}%")
-            DetailRow("Purpose", loan.purpose ?: "Not specified")
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                DetailRow("Requested Amount", formatZAR(loan.amount), isBold = true)
+                DetailRow("Interest Rate", "${loan.interestRate}%", isBold = true)
+                DetailRow("Purpose", loan.purpose ?: "Not specified")
+            }
 
-            HorizontalDivider(color = Navy.copy(0.1f), modifier = Modifier.padding(vertical = 8.dp))
+            HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.1f), modifier = Modifier.padding(vertical = 4.dp))
 
             // Primary Actions Row
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 OutlinedButton(
                     onClick = onViewSummary,
-                    modifier = Modifier.weight(1f),
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Navy),
-                    border = BorderStroke(1.dp, Navy.copy(alpha = 0.3f)),
-                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.weight(1f).height(44.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.onSurface),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)),
+                    shape = RoundedCornerShape(12.dp),
                     contentPadding = PaddingValues(horizontal = 8.dp)
                 ) {
-                    Icon(Icons.Default.PersonSearch, null, modifier = Modifier.size(14.dp))
-                    Spacer(Modifier.width(4.dp))
-                    Text("Summary", style = MaterialTheme.typography.labelSmall)
+                    Icon(Icons.Default.PersonSearch, null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text(stringResource(R.string.ui_view_summary), style = MaterialTheme.typography.labelMedium)
                 }
 
                 OutlinedButton(
                     onClick = onVerifyProfile,
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier.weight(1f).height(44.dp),
                     colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.primary),
                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)),
-                    shape = RoundedCornerShape(8.dp),
+                    shape = RoundedCornerShape(12.dp),
                     contentPadding = PaddingValues(horizontal = 8.dp)
                 ) {
-                    Icon(Icons.Default.SupportAgent, null, modifier = Modifier.size(14.dp))
-                    Spacer(Modifier.width(4.dp))
-                    Text("Impersonate", style = MaterialTheme.typography.labelSmall)
+                    Icon(Icons.Default.SupportAgent, null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(6.6.dp))
+                    Text(stringResource(R.string.ui_impersonate), style = MaterialTheme.typography.labelMedium)
                 }
             }
 
             // Decision Actions Row
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 OutlinedButton(
                     onClick = onReject,
-                    modifier = Modifier.weight(0.8f),
+                    modifier = Modifier.weight(1f).height(48.dp),
                     colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.5f)),
-                    shape = RoundedCornerShape(8.dp),
+                    shape = RoundedCornerShape(12.dp),
                     enabled = !isProcessing && (loan.status == LoanStatus.PENDING || loan.status == LoanStatus.APPROVED)
                 ) {
-                    Text(stringResource(R.string.ui_reject_1), style = MaterialTheme.typography.labelSmall)
+                    Text(stringResource(R.string.ui_reject_1), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
                 }
 
                 if (loan.status == LoanStatus.PENDING) {
                     Button(
                         onClick = onApprove,
-                        modifier = Modifier.weight(1.2f),
-                        colors = ButtonDefaults.buttonColors(containerColor = Navy),
-                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.weight(1f).height(48.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                        shape = RoundedCornerShape(12.dp),
                         enabled = !isProcessing
                     ) {
-                        if (isProcessing) CircularProgressIndicator(modifier = Modifier.size(16.dp), color = Color.White)
-                        else Text(stringResource(R.string.ui_approve_1), style = MaterialTheme.typography.labelSmall)
+                        if (isProcessing) CircularProgressIndicator(modifier = Modifier.size(18.dp), color = MaterialTheme.colorScheme.onPrimary, strokeWidth = 2.dp)
+                        else Text(stringResource(R.string.ui_approve_1), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
                     }
                 } else if (loan.status == LoanStatus.APPROVED) {
                     Button(
                         onClick = onDisburse,
-                        modifier = Modifier.weight(1.2f),
+                        modifier = Modifier.weight(1f).height(48.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = InfoBlue),
-                        shape = RoundedCornerShape(8.dp),
+                        shape = RoundedCornerShape(12.dp),
                         enabled = !isProcessing
                     ) {
-                        if (isProcessing) CircularProgressIndicator(modifier = Modifier.size(16.dp), color = Color.White)
-                        else Text(stringResource(R.string.ui_disburse_funds), style = MaterialTheme.typography.labelSmall)
+                        if (isProcessing) CircularProgressIndicator(modifier = Modifier.size(18.dp), color = Color.White, strokeWidth = 2.dp)
+                        else Text(stringResource(R.string.ui_disburse_funds), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
                     }
                 } else {
-                    Spacer(Modifier.weight(1.2f))
+                    Spacer(Modifier.weight(1f))
                 }
             }
         }
@@ -422,87 +372,94 @@ fun BurialClaimCard(
     Card(
         modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        border = BorderStroke(1.dp, Navy.copy(alpha = 0.1f))
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.1f))
     ) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text(claim.beneficiaryName, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyLarge)
-                    Text("Group: $groupName", style = MaterialTheme.typography.labelSmall, color = Navy)
-                    Text("Submitted ${claim.createdAt?.substringBefore("T") ?: "recently"}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
+                    AutoFitText(
+                        text = claim.beneficiaryName,
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1
+                    )
+                    Text(stringResource(R.string.ui_group_label, groupName), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                    Text(stringResource(R.string.ui_submitted_on, claim.createdAt?.substringBefore("T") ?: "recently"), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f))
                 }
 
                 StatusChip(status = claim.status.name)
             }
 
-            DetailRow("Claim Amount", formatZAR(claim.claimAmount))
-            DetailRow("Cause", claim.causeOfDeath ?: "Not specified")
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                DetailRow("Claim Amount", formatZAR(claim.claimAmount), isBold = true)
+                DetailRow("Cause", claim.causeOfDeath ?: "Not specified")
+            }
 
-            HorizontalDivider(color = Navy.copy(0.1f), modifier = Modifier.padding(vertical = 8.dp))
+            HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.1f), modifier = Modifier.padding(vertical = 4.dp))
 
             // Primary Actions Row
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 OutlinedButton(
                     onClick = onViewSummary,
-                    modifier = Modifier.weight(1f),
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Navy),
-                    border = BorderStroke(1.dp, Navy.copy(alpha = 0.3f)),
-                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.weight(1f).height(44.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.onSurface),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)),
+                    shape = RoundedCornerShape(12.dp),
                     contentPadding = PaddingValues(horizontal = 8.dp)
                 ) {
-                    Icon(Icons.Default.PersonSearch, null, modifier = Modifier.size(14.dp))
-                    Spacer(Modifier.width(4.dp))
-                    Text("Summary", style = MaterialTheme.typography.labelSmall)
+                    Icon(Icons.Default.PersonSearch, null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text(stringResource(R.string.ui_view_summary), style = MaterialTheme.typography.labelMedium)
                 }
 
                 OutlinedButton(
                     onClick = onVerifyProfile,
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier.weight(1f).height(44.dp),
                     colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.primary),
                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)),
-                    shape = RoundedCornerShape(8.dp),
+                    shape = RoundedCornerShape(12.dp),
                     contentPadding = PaddingValues(horizontal = 8.dp)
                 ) {
-                    Icon(Icons.Default.SupportAgent, null, modifier = Modifier.size(14.dp))
-                    Spacer(Modifier.width(4.dp))
-                    Text("Impersonate", style = MaterialTheme.typography.labelSmall)
+                    Icon(Icons.Default.SupportAgent, null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(6.6.dp))
+                    Text(stringResource(R.string.ui_impersonate), style = MaterialTheme.typography.labelMedium)
                 }
             }
 
             // Decision Actions Row
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 if (claim.status == BeneficiaryClaimStatus.SUBMITTED || claim.status == BeneficiaryClaimStatus.UNDER_REVIEW || claim.status == BeneficiaryClaimStatus.ESCALATED) {
                     OutlinedButton(
                         onClick = onReject,
-                        modifier = Modifier.weight(0.8f),
+                        modifier = Modifier.weight(1f).height(48.dp),
                         colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
                         border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.5f)),
                         shape = RoundedCornerShape(12.dp),
                         enabled = !isProcessing
                     ) {
-                        Text(stringResource(R.string.ui_reject_1), style = MaterialTheme.typography.labelSmall)
+                        Text(stringResource(R.string.ui_reject_1), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
                     }
 
                     Button(
                         onClick = onApprove,
-                        modifier = Modifier.weight(1.2f),
-                        colors = ButtonDefaults.buttonColors(containerColor = Navy),
+                        modifier = Modifier.weight(1f).height(48.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                         shape = RoundedCornerShape(12.dp),
                         enabled = !isProcessing
                     ) {
-                        if (isProcessing) CircularProgressIndicator(modifier = Modifier.size(16.dp), color = Color.White)
-                        else Text("APPROVE CLAIM", style = MaterialTheme.typography.labelSmall)
+                        if (isProcessing) CircularProgressIndicator(modifier = Modifier.size(18.dp), color = MaterialTheme.colorScheme.onPrimary, strokeWidth = 2.dp)
+                        else Text(stringResource(R.string.ui_approve_claim), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
                     }
                 } else if (claim.status == BeneficiaryClaimStatus.APPROVED) {
                     Button(
                         onClick = onPay,
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier.fillMaxWidth().height(48.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = SuccessGreen),
                         shape = RoundedCornerShape(12.dp),
                         enabled = !isProcessing
                     ) {
-                        if (isProcessing) CircularProgressIndicator(modifier = Modifier.size(16.dp), color = Color.White)
-                        else Text("MARK AS PAID", style = MaterialTheme.typography.labelSmall)
+                        if (isProcessing) CircularProgressIndicator(modifier = Modifier.size(18.dp), color = Color.White, strokeWidth = 2.dp)
+                        else Text(stringResource(R.string.ui_mark_as_paid), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
                     }
                 }
             }
@@ -521,12 +478,12 @@ private fun StatusChip(status: String) {
     }
 
     Surface(
-        color = color.copy(0.1f),
-        shape = RoundedCornerShape(16.dp)
+        color = color.copy(alpha = 0.1f),
+        shape = RoundedCornerShape(20.dp)
     ) {
         Text(
-            text = status,
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+            text = status.replace("_", " "),
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
             color = color,
             style = MaterialTheme.typography.labelSmall,
             fontWeight = FontWeight.Bold
@@ -537,18 +494,26 @@ private fun StatusChip(status: String) {
 @Composable
 fun BehaviorInsightCard(insight: MemberBehaviorInsight, onClick: () -> Unit = {}) {
     Card(
-        onClick = onClick,
-        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).clickable { onClick() },
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        shape = RoundedCornerShape(16.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.1f))
     ) {
-        Column(Modifier.padding(12.dp)) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Text(insight.memberName, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                AutoFitText(
+                    text = insight.memberName,
+                    style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold),
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.weight(1f),
+                    maxLines = 1
+                )
                 Icon(Icons.Default.ChevronRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f))
             }
-            DetailRow("Risk Band", insight.riskBand)
-            DetailRow("Overdue Loans", insight.overdueLoans.toString())
-            DetailRow("Completion", "${(insight.completionRatio * 100).toInt()}%")
+
+            DetailRow("Risk Band", insight.riskBand, isBold = true)
+            DetailRow("Overdue Loans", insight.overdueLoans.toString(), isBold = true, color = if (insight.overdueLoans > 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface)
+            DetailRow("Behavior Score", "${insight.behaviorScore.toInt()}/100", isBold = true, color = MaterialTheme.colorScheme.primary)
         }
     }
 }
@@ -569,7 +534,14 @@ fun EmptyStateSmall(message: String) {
 fun DistributionRow(label: String, count: Int, pct: Float, color: Color) {
     Column(Modifier.padding(vertical = 4.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-            Text(label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.weight(1f))
+            AutoFitText(
+                text = label,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.weight(1f),
+                maxLines = 1,
+                minFontSize = 10.sp
+            )
             Spacer(Modifier.width(8.dp))
             Text("$count (${(pct * 100).toInt()}%)", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
         }
@@ -585,17 +557,37 @@ fun DistributionRow(label: String, count: Int, pct: Float, color: Color) {
 
 @Composable
 fun MetricRow(label: String, value: String, color: Color = MaterialTheme.colorScheme.onSurface) {
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-        Text(label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
-        Text(value, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold, color = color)
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+            fontWeight = FontWeight.Medium
+        )
+        Text(
+            text = value,
+            style = MaterialTheme.typography.bodySmall,
+            fontWeight = FontWeight.Bold,
+            color = color
+        )
     }
 }
 
 @Composable
 fun HeaderWithIcon(icon: ImageVector, title: String) {
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Icon(icon, null, tint = Navy, modifier = Modifier.size(20.dp))
-        Spacer(Modifier.width(8.dp))
-        Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+        Icon(icon, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(22.dp))
+        Spacer(Modifier.width(12.dp))
+        Text(
+            text = title,
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.Black,
+            color = MaterialTheme.colorScheme.onSurface,
+            letterSpacing = 0.5.sp
+        )
     }
 }

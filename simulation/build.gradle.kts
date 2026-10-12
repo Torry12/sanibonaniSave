@@ -1,24 +1,79 @@
 plugins {
-    id("org.jetbrains.kotlin.jvm") version "2.3.21"
+    alias(libs.plugins.android.library)
+    alias(libs.plugins.kotlin.android)
+    alias(libs.plugins.kotlin.serialization)
 }
 
-repositories {
-    google()
-    mavenCentral()
+android {
+    namespace = "com.sanibonani.save.simulation"
+    compileSdk = 37
+
+    defaultConfig {
+        minSdk = 26
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    kotlin {
+        jvmToolchain(17)
+    }
+
+    packaging {
+        resources {
+            excludes += setOf(
+                "META-INF/LICENSE.md",
+                "META-INF/NOTICE.md",
+                "META-INF/LICENSE-notice.md"
+            )
+        }
+    }
+
 }
 
 dependencies {
     implementation(project(":domain"))
+    implementation(libs.kotlinx.serialization.json)
+    implementation(libs.kotlinx.datetime)
+    implementation(libs.kotlinx.coroutines.core)
+    implementation(platform(libs.supabase.bom))
+    implementation(libs.supabase.postgrest)
+    implementation(libs.supabase.auth)
+    implementation(libs.supabase.realtime)
+    implementation(libs.ktor.client.okhttp)
+    // mockk is a genuine *runtime* dependency, not just test: Main.kt's main() entrypoint
+    // mocks android.util.Log / android.os.Looper so the simulation can run on the JVM
+    // outside an emulator. `implementation` is correct here; it only reaches :app's test
+    // classpaths (which is where :app consumes :simulation), not :app's main classpath.
+    implementation(libs.mockk)
 
-    // Supabase
-    implementation(platform("io.github.jan-tennert.supabase:bom:3.6.0"))
-    implementation("io.github.jan-tennert.supabase:postgrest-kt")
-    implementation("io.github.jan-tennert.supabase:auth-kt")
+    // Testing
+    testImplementation(libs.junit)
+    testImplementation(libs.mockk)
+    testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(libs.robolectric)
+    testImplementation(libs.androidx.arch.core.testing)
+    testImplementation(libs.androidx.test.core)
+    testImplementation(libs.androidx.test.ext.junit)
 
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.1")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0")
+    androidTestImplementation(libs.junit)
+    androidTestImplementation(libs.androidx.test.core)
+    androidTestImplementation(libs.androidx.test.ext.junit)
+    androidTestImplementation(libs.androidx.test.runner)
+    androidTestImplementation(libs.hilt.android.testing)
+    androidTestImplementation(libs.ktor.client.android)
+    androidTestImplementation(libs.mockk.android)
+}
 
-    testImplementation("junit:junit:4.13.2")
-    testImplementation("io.mockk:mockk:1.13.12")
-    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")
+// To keep the 'run' task working, we need to carefully set the classpath
+tasks.register<JavaExec>("run") {
+    mainClass.set("com.sanibonani.save.simulation.MainKt")
+    // This is a bit hacky for an Android library but can work for JVM-only parts
+    classpath = sourceSets["main"].runtimeClasspath
+    if (project.hasProperty("args")) {
+        args(project.property("args").toString().split(" "))
+    }
 }

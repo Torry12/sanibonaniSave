@@ -12,7 +12,7 @@ BEGIN
         SELECT m.id as member_id, m.group_id, g.type as group_type, g.balance, g.monthly_contribution, g.admin_user_id
         FROM public.members m
         JOIN public.groups g ON m.group_id = g.id
-        WHERE m.status = 'ACTIVE' AND g.type NOT IN ('rosca', 'investment_club')
+        WHERE m.status = 'active' AND g.type NOT IN ('rosca', 'investment_club')
         LIMIT 20
     LOOP
         v_iteration := v_iteration + 1;

@@ -1,23 +1,20 @@
 -- ─────────────────────────────────────────────────────────────────────────────
--- SanibonaniSave — ONLINE DATABASE SPECIFIC CONFIGURATION
+-- SanibonaniSave — ONLINE SPECIFIC SETUP
+-- Version: 1.1 (Production Overrides - Fixed Block - August 2026)
 -- ─────────────────────────────────────────────────────────────────────────────
--- This script contains logic that should ONLY run on the cloud/production instance.
 
--- 1. SSL Enforcement (Recommended for production)
--- Note: Supabase Cloud usually handles this at the gateway level.
+DO $$
+BEGIN
+    -- 1. PRODUCTION PLATFORM SETTINGS
+    -- Ensure real-world values for production environment
+    UPDATE public.platform_settings SET value = 10.0 WHERE key = 'monthly_per_member';
+    UPDATE public.platform_settings SET value = 700.0 WHERE key = 'registration_fee';
 
--- 2. Production Roles and Grants
--- Ensure standard platform roles exist even if local setup is simplified.
--- GRANT usage ON SCHEMA public TO anon, authenticated;
+    -- 2. DISABLE DEBUG LOGGING (Optional - reduces DB noise in cloud)
+    -- TRUNCATE public.debug_log;
 
--- 3. Analytics & Logging (Production specific)
--- ALTER DATABASE postgres SET log_statement = 'all'; -- Only if needed for deep audit
+    -- 3. ENSURE IDEMPOTENCE MARKERS
+    -- If you need specific production groups pre-provisioned, add them here.
 
--- 4. Environment Identifier
--- You can use this to differentiate environments in Edge Functions or Triggers
--- CREATE OR REPLACE FUNCTION get_environment() RETURNS text AS $$ BEGIN RETURN 'production'; END; $$ LANGUAGE plpgsql;
-
--- 5. Production Admin User (Override local if needed)
--- INSERT INTO auth.users (id, email, ...) VALUES (...) ON CONFLICT DO NOTHING;
-
--- ─────────────────────────────────────────────────────────────────────────────
+    RAISE NOTICE 'Online production overrides applied successfully.';
+END $$;

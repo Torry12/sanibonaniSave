@@ -9,10 +9,11 @@ Impersonation allows a platform admin to temporarily act as a group admin or mem
 
 ## How Impersonation Works
 1. **Trigger:** Platform admin clicks an impersonate button for a group admin or member.
-2. **State Update:** The ViewModel updates impersonation state (e.g., `impersonationGroupId`, `impersonationMembers`).
-3. **Navigation:** The app navigates to the appropriate dashboard as if the admin were the impersonated user.
-4. **Audit:** All impersonation actions are logged via `logAudit` for traceability.
-5. **Revert:** The admin can exit impersonation and return to their own context at any time.
+2. **Data Integrity Guard:** The ViewModel immediately calls `clearGroupContext()` to wipe all sensitive data (balances, member names, ledger entries) from the previous context. This prevents "flickering" where old data is visible while the new session hydrates.
+3. **State Update:** The ViewModel updates impersonation state (e.g., `impersonationGroupId`, `impersonationMembers`).
+4. **Navigation:** The app navigates to the appropriate dashboard as if the admin were the impersonated user.
+5. **Audit:** All impersonation actions are logged via `logAudit` for traceability.
+6. **Revert:** The admin can exit impersonation and return to their own context at any time.
 
 ## Enforcement and Security
 - **Frontend:** Only users with the `PLATFORM_ADMIN` role see impersonation options. The ViewModel ensures only valid impersonation targets are allowed.

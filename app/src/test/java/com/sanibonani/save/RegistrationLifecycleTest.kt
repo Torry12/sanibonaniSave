@@ -1,25 +1,36 @@
 package com.sanibonani.save
 
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
-import com.sanibonani.save.domain.model.*
-import com.sanibonani.save.domain.repository.*
-import com.sanibonani.save.domain.usecase.*
-import com.sanibonani.save.data.remote.GeoapifyService
-import com.sanibonani.save.viewmodel.GroupFormEvent
-import com.sanibonani.save.viewmodel.GroupViewModel
-import com.sanibonani.save.viewmodel.RegisterGroupState
+import androidx.arch.core.executor.testing.InstantTaskExecutorRule
+import androidx.lifecycle.ViewModelStore
+import com.google.firebase.crashlytics.FirebaseCrashlytics
+import com.sanibonani.save.domain.model.Member
+import com.sanibonani.save.domain.model.Money
+import com.sanibonani.save.domain.repository.auth.SupabaseRepository
+import com.sanibonani.save.domain.repository.member.MemberRepository
+import com.sanibonani.save.domain.service.LocationService
+import com.sanibonani.save.domain.service.PlatformFeeService
+import com.sanibonani.save.domain.usecase.admin.ActivateGroupUseCase
+import com.sanibonani.save.domain.usecase.group.CreateGroupUseCase
+import com.sanibonani.save.features.group.presentation.GroupFormEvent
+import com.sanibonani.save.features.group.presentation.GroupRegistrationViewModel
 import io.mockk.*
+import org.junit.After
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
+import org.junit.Before
+import org.junit.Rule
+import org.junit.Test
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.flow.flowOf
-import kotlinx.coroutines.test.*
-import org.junit.Rule
-import androidx.arch.core.executor.testing.InstantTaskExecutorRule
-import org.junit.Assert.*
-import org.junit.Before
-import org.junit.After
-import org.junit.Test
-import com.google.firebase.crashlytics.FirebaseCrashlytics
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.setMain
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class RegistrationLifecycleTest {
@@ -27,47 +38,37 @@ class RegistrationLifecycleTest {
     @get:Rule
     val instantExecutorRule = InstantTaskExecutorRule()
 
-    private val groupRepo = mockk<GroupRepository>(relaxed = true)
-    private val exportRepo = mockk<ExportRepository>(relaxed = true)
-    private val memberRepo = mockk<MemberRepository>(relaxed = true)
     private val createGroupUseCase = mockk<CreateGroupUseCase>(relaxed = true)
-    private val getPublicGroupsUseCase = mockk<GetPublicGroupsUseCase>(relaxed = true)
-    private val geoapifyService = mockk<GeoapifyService>(relaxed = true)
-    private lateinit var viewModel: GroupViewModel
+    private val activateGroupUseCase = mockk<ActivateGroupUseCase>(relaxed = true)
+    private val feeService = mockk<PlatformFeeService>(relaxed = true)
+    private val locationService = mockk<LocationService>(relaxed = true)
+    private val supabaseRepo = mockk<SupabaseRepository>(relaxed = true)
+    private val memberRepo = mockk<MemberRepository>(relaxed = true)
 
-    private val testDispatcher = StandardTestDispatcher()
+    private lateinit var viewModel: GroupRegistrationViewModel
+    private val viewModelStore = ViewModelStore()
+
+    private val testDispatcher = UnconfinedTestDispatcher()
 
     @Before
     fun setup() {
-        mockkStatic(Log::class)
-        every { Log.d(any(), any()) } returns 0
-        every { Log.i(any(), any()) } returns 0
-        every { Log.w(any(), any(), any()) } returns 0
-        every { Log.e(any(), any(), any()) } returns 0
-
-        mockkStatic(FirebaseCrashlytics::class)
-        val mockCrashlytics = mockk<FirebaseCrashlytics>(relaxed = true)
-        every { FirebaseCrashlytics.getInstance() } returns mockCrashlytics
-
-        // Mock Looper.getMainLooper for JVM test environment
-        mockkStatic(android.os.Looper::class)
-        every { android.os.Looper.getMainLooper() } returns mockk(relaxed = true)
-
-        // Basic stubs for GroupViewModel initialization if it observes something
-        coEvery { getPublicGroupsUseCase() } returns flowOf(Result.success(emptyList()))
-
         Dispatchers.setMain(testDispatcher)
-        viewModel = GroupViewModel(
-            groupRepo,
-            exportRepo,
+
+        every { feeService.getRegistrationFee() } returns Money(700.0)
+
+        viewModel = GroupRegistrationViewModel(
             createGroupUseCase,
-            getPublicGroupsUseCase,
-            geoapifyService
+            activateGroupUseCase,
+            feeService,
+            locationService,
+            supabaseRepo
         )
+        viewModelStore.put("registration-test", viewModel)
     }
 
     @After
     fun tearDown() {
+        viewModelStore.clear()
         Dispatchers.resetMain()
         unmockkAll()
     }
@@ -86,32 +87,43 @@ class RegistrationLifecycleTest {
         viewModel.onEvent(GroupFormEvent.AdminPhoneChanged("0712345678"))
         viewModel.onEvent(GroupFormEvent.AdminIdNumberChanged("9001015000081"))
         viewModel.onEvent(GroupFormEvent.JoiningFeeChanged("50.0"))
+        viewModel.onEvent(GroupFormEvent.TermsAcceptedToggled(true))
 
         val groupId = "group_audit_123"
         val transactionId = "tx_audit_999"
-        
-        coEvery { createGroupUseCase(any(), any(), any(), any(), any(), any()) } returns Result.success(groupId)
-        coEvery { groupRepo.activateGroup(groupId, transactionId) } returns Result.success(Unit)
 
-        // 2. Trigger Finalization with transaction ID
-        viewModel.finalizeRegistrationAfterPayment(transactionId)
-        
-        // 3. Verify sequential calls to create and activate
-        advanceUntilIdle()
-        
-        coVerify(exactly = 1) { 
+        coEvery {
             createGroupUseCase(
-                match { it.name == "Audit Group" && it.joiningFee == 50.0 },
-                "audit@test.com", 
-                "password123", 
-                "Audit Admin",
-                any(),
-                any()
+                group = any(),
+                adminEmail = any(),
+                adminPassword = any(),
+                adminFullName = any(),
+                adminPhone = any(),
+                adminIdNumber = any()
+            )
+        } returns Result.success(groupId)
+        coEvery { activateGroupUseCase(groupId, transactionId) } returns Result.success(Unit)
+
+        // 2. Submit group first
+        viewModel.submitGroup()
+
+        // 3. Trigger Finalization with transaction ID
+        viewModel.finalizeRegistrationAfterPayment(transactionId)
+
+        // 4. Verify sequential calls to create and activate
+        coVerify(exactly = 1) {
+            createGroupUseCase(
+                group = match { it.name == "Audit Group" && it.joiningFee.toPlainString() == "50.00" },
+                adminEmail = "audit@test.com",
+                adminPassword = "password123",
+                adminFullName = "Audit Admin",
+                adminPhone = "0712345678",
+                adminIdNumber = "9001015000081"
             )
         }
-        coVerify(exactly = 1) { groupRepo.activateGroup(groupId, transactionId) }
-        
-        val finalState = viewModel.registerState.value
+        coVerify(exactly = 1) { activateGroupUseCase(groupId, transactionId) }
+
+        val finalState = viewModel.state.value
         assertTrue("Registration should be marked as successful", finalState.success)
         assertFalse("Needs payment flag should be cleared", finalState.needsPayment)
         assertEquals("Created Group ID should be set in state", groupId, finalState.createdGroupId)
@@ -130,10 +142,10 @@ class RegistrationLifecycleTest {
         )
 
         // Simulate existing member with same user_id + group_id
-        coEvery { memberRepo.registerMember(any()) } throws Exception("You are already a member of this group.")
+        coEvery { memberRepo.registerMember(any(), any()) } throws Exception("You are already a member of this group.")
 
         val result = try {
-            memberRepo.registerMember(member)
+            memberRepo.registerMember(member, null)
         } catch (e: Exception) {
             Result.failure<Member>(e)
         }
@@ -143,19 +155,36 @@ class RegistrationLifecycleTest {
     }
 
     /**
-     * Audit: Verifies that if group creation succeeds but activation fails, 
+     * Audit: Verifies that if group creation succeeds but activation fails,
      * the error is handled and state is not marked as successful.
      */
     @Test
     fun `handles partial failure during activation`() = runTest {
         val groupId = "group_partial_fail"
-        coEvery { createGroupUseCase(any(), any(), any(), any(), any(), any()) } returns Result.success(groupId)
-        coEvery { groupRepo.activateGroup(groupId, any()) } returns Result.failure(Exception("Activation failed"))
+        coEvery {
+            createGroupUseCase(
+                group = any(),
+                adminEmail = any(),
+                adminPassword = any(),
+                adminFullName = any(),
+                adminPhone = any(),
+                adminIdNumber = any()
+            )
+        } returns Result.success(groupId)
+        coEvery { activateGroupUseCase(groupId, any()) } returns Result.failure(Exception("Activation failed"))
 
+        // 1. Submit group first to set createdGroupId
+        viewModel.onEvent(GroupFormEvent.NameChanged("Partial Fail Group"))
+        viewModel.onEvent(GroupFormEvent.AdminEmailChanged("fail@test.com"))
+        viewModel.onEvent(GroupFormEvent.AdminPasswordChanged("password123"))
+        viewModel.onEvent(GroupFormEvent.AdminPhoneChanged("0712345678"))
+        viewModel.onEvent(GroupFormEvent.TermsAcceptedToggled(true))
+        viewModel.submitGroup()
+
+        // 2. Finalize
         viewModel.finalizeRegistrationAfterPayment("tx_123")
-        advanceUntilIdle()
 
-        val finalState = viewModel.registerState.value
+        val finalState = viewModel.state.value
         assertFalse("Registration should NOT be successful if activation fails", finalState.success)
         assertNotNull("Error message should be present", finalState.error)
         assertEquals("Activation failed", finalState.error)

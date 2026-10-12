@@ -29,7 +29,7 @@ import com.sanibonani.save.features.admin.presentation.AdminOverviewViewModel
 
 @Composable
 fun ViabilityPlanningTab(state: AdminOverviewUiState, vm: AdminOverviewViewModel) {
-    var goalAmount by remember { mutableStateOf(state.group?.goalAmount?.toDouble()?.toString() ?: "0") }
+    var goalAmount by remember { mutableStateOf(state.group?.goalAmount?.toPlainString() ?: "0") }
     var periodMonths by remember { mutableStateOf(state.group?.periodMonths?.toString() ?: "12") }
 
     Column(
@@ -99,6 +99,8 @@ fun ViabilityResultCard(plan: ViabilityPlan, groupType: GroupType, onApply: () -
             DetailRow("Required Monthly Contribution", formatZAR(plan.suggestedMonthlyContribution))
             DetailRow("Initial Upfront Payment", formatZAR(plan.initialContribution))
             DetailRow("Projected Value", formatZAR(plan.projectedValue))
+            DetailRow("Shortfall Amount", formatZAR(plan.shortfallAmount))
+            DetailRow("Break Even Period", "${plan.breakEvenMonths} Months")
 
             Spacer(Modifier.height(8.dp))
             SanibonaniButton(

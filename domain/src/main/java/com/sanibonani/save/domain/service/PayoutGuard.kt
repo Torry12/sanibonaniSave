@@ -43,17 +43,26 @@ class PayoutGuardImpl @Inject constructor(
             // Probation Check for specific group types and payout types
             if (m.status == MemberStatus.PROBATION && isProbationRestricted(group.type, type)) {
                 val joinedAt = m.joinedAt ?: m.createdAt ?: LocalDate.now().toString()
-                val joinedDate = LocalDate.parse(joinedAt.substringBefore("T"))
+                val joinedDate = try {
+                    LocalDate.parse(joinedAt.substringBefore("T").substringBefore(" "))
+                } catch (_: Exception) {
+                    LocalDate.now()
+                }
+
                 val monthsIn = ChronoUnit.MONTHS.between(joinedDate, LocalDate.now())
 
                 if (monthsIn < group.probationMonths) {
-                    throw MemberNotEligibleException(
-                        m.id ?: "",
+                    val monthsRemaining = group.probationMonths - monthsIn
+                    val message = if (group.type == GroupType.INVESTMENT_CLUB) {
+                        "Investment Club lock-in period active. ${group.probationMonths} months total required ($monthsRemaining remaining)."
+                    } else {
                         "Member is still in probation (${group.probationMonths} months required, $monthsIn months completed)"
-                    )
+                    }
+                    throw MemberNotEligibleException(m.id ?: "", message)
                 }
             }
         }
+
 
         // 3. Solvency Check (Liquidity)
         val balance = treasuryService.getTreasuryBalance(group.id ?: "").getOrThrow()
@@ -77,9 +86,11 @@ class PayoutGuardImpl @Inject constructor(
         // ROSCA payouts are scheduled, usually not probation-restricted once cycle starts
         // Burial claims often have 6-month probation
         // Stokvel annual payouts happen at end of cycle
+        // Investment Club disinvestments often have a lock-in period
         return when (groupType) {
             GroupType.BURIAL_SOCIETY -> payoutType == PayoutType.CLAIM
             GroupType.STOKVEL -> payoutType == PayoutType.STANDARD || payoutType == PayoutType.EMERGENCY
+            GroupType.INVESTMENT_CLUB -> payoutType == PayoutType.DISINVESTMENT
             else -> false
         }
     }

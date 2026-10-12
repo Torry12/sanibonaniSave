@@ -71,10 +71,10 @@ data class MemberBehaviorTrack(
     @SerialName("has_broken_streak_recently") val hasBrokenStreakRecently: Boolean = false,
 
     // Financial Metrics
-    @SerialName("total_amount_contributed") val totalAmountContributed: Double = 0.0,
-    @SerialName("total_late_fees_paid") val totalLateFeesPaid: Double = 0.0,
-    @SerialName("pending_late_fees") val pendingLateFees: Double = 0.0,
-    @SerialName("total_outstanding_amount") val totalOutstandingAmount: Double = 0.0,
+    @SerialName("total_amount_contributed") val totalAmountContributed: Money = Money.ZERO,
+    @SerialName("total_late_fees_paid") val totalLateFeesPaid: Money = Money.ZERO,
+    @SerialName("pending_late_fees") val pendingLateFees: Money = Money.ZERO,
+    @SerialName("total_outstanding_amount") val totalOutstandingAmount: Money = Money.ZERO,
 
     // Loan Metrics
     @SerialName("total_loans_requested") val totalLoansRequested: Int = 0,

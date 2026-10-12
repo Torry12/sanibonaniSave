@@ -1,6 +1,8 @@
 package com.sanibonani.save.domain.utils
 
+import com.sanibonani.save.domain.model.Money
 import java.math.BigDecimal
+import java.math.RoundingMode
 import java.text.DecimalFormat
 import java.text.NumberFormat
 import java.util.Currency
@@ -9,12 +11,12 @@ import java.util.Locale
 /**
  * Monetary value formatter ensuring all currency displays use 2 decimal places.
  * This is the single source of truth for all monetary formatting in the app.
+ * Uses Money/BigDecimal exclusively - NO Double for financial values.
  */
 object MoneyFormatter {
 
     // South African Rand formatter with 2 decimal places
-    @Suppress("DEPRECATION")  // Java deprecation, not an issue in practice
-    private val zarFormatter: NumberFormat = NumberFormat.getCurrencyInstance(Locale("en", "ZA")).apply {
+    private val zarFormatter: NumberFormat = NumberFormat.getCurrencyInstance(Locale.Builder().setLanguage("en").setRegion("ZA").build()).apply {
         currency = Currency.getInstance("ZAR")
         minimumFractionDigits = 2
         maximumFractionDigits = 2
@@ -30,94 +32,87 @@ object MoneyFormatter {
      * Formats amount as South African Rand with currency symbol.
      * Examples: R1,234.56 or R0.50
      */
-    fun formatAsZAR(amount: Double): String = when {
-        !amount.isFinite() -> zarFormatter.format(BigDecimal.ZERO)
-        else -> zarFormatter.format(amount.toMoneyBigDecimal())
-    }
+    fun formatAsZAR(amount: Money): String =
+        zarFormatter.format(amount.amount.setScale(2, RoundingMode.HALF_EVEN))
 
     /**
      * Formats amount as South African Rand with currency symbol (BigDecimal version).
      */
     fun formatAsZAR(amount: BigDecimal): String =
-        zarFormatter.format(amount.setScale(2, java.math.RoundingMode.HALF_UP))
+        zarFormatter.format(amount.setScale(2, RoundingMode.HALF_UP))
 
     /**
      * Formats amount as plain decimal with 2 places (no currency symbol).
      * Examples: 1234.56 or 0.50
      */
-    fun formatAsPlain(amount: Double): String = when {
-        !amount.isFinite() -> "0.00"
-        else -> plainFormatter.format(amount.toMoneyBigDecimal().toDouble())
-    }
+    fun formatAsPlain(amount: Money): String =
+        plainFormatter.format(amount.amount.setScale(2, RoundingMode.HALF_EVEN))
 
     /**
      * Formats amount as plain decimal with 2 places (BigDecimal version).
      */
     fun formatAsPlain(amount: BigDecimal): String =
-        plainFormatter.format(amount.setScale(2, java.math.RoundingMode.HALF_UP).toDouble())
+        plainFormatter.format(amount.setScale(2, RoundingMode.HALF_UP))
 
     /**
      * Formats amount with specified currency symbol.
-     * Example: formatWithCurrency(1234.56, "$") returns "$1,234.56"
+     * Example: formatWithCurrency(Money(1234.56), "$") returns "$1,234.56"
      */
     @Suppress("UNUSED")  // Public API for future use
-    fun formatWithCurrency(amount: Double, currencySymbol: String = "R"): String = when {
-        !amount.isFinite() -> "$currencySymbol 0.00"
-        else -> "$currencySymbol ${formatAsPlain(amount)}"
-    }
+    fun formatWithCurrency(amount: Money, currencySymbol: String = "R"): String =
+        "$currencySymbol ${formatAsPlain(amount)}"
 
     /**
-     * Formats amount as percentage with 2 decimal places and % sign.
+     * Formats percentage with 2 decimal places and % sign.
      * Example: formatAsPercentage(15.5) returns "15.50%"
+     * Note: percentage is a ratio (not currency), so Double is acceptable here.
      */
     fun formatAsPercentage(percentage: Double): String = when {
         !percentage.isFinite() -> "0.00%"
-        else -> "${plainFormatter.format(percentage.toMoneyBigDecimal().toDouble())}%"
+        else -> "${plainFormatter.format(BigDecimal.valueOf(percentage).setScale(2, RoundingMode.HALF_UP))}%"
     }
 
     /**
-     * Returns true if money amounts are equal (accounting for floating-point precision).
+     * Returns true if money amounts are equal.
      */
     @Suppress("UNUSED")  // Public API for future use
-    fun areEqual(amount1: Double, amount2: Double): Boolean =
-        amount1.toMoneyBigDecimal() == amount2.toMoneyBigDecimal()
+    fun areEqual(amount1: Money, amount2: Money): Boolean = amount1 == amount2
 
     /**
      * Compares two money amounts with 2 decimal precision.
      * Returns -1 if amount1 < amount2, 0 if equal, 1 if amount1 > amount2
      */
     @Suppress("UNUSED")  // Public API for future use
-    fun compareMoney(amount1: Double, amount2: Double): Int =
-        amount1.toMoneyBigDecimal().compareTo(amount2.toMoneyBigDecimal())
+    fun compareMoney(amount1: Money, amount2: Money): Int = amount1.compareTo(amount2)
 }
 
 /**
  * Extension functions for convenient formatting of monetary values.
  */
 
-/** Formats Double as ZAR currency string with symbol */
-fun Double.formatZAR(): String = MoneyFormatter.formatAsZAR(this)
+/** Formats Money as ZAR currency string with symbol */
+fun Money.formatZAR(): String = MoneyFormatter.formatAsZAR(this)
 
 /** Formats BigDecimal as ZAR currency string with symbol */
 fun BigDecimal.formatZAR(): String = MoneyFormatter.formatAsZAR(this)
 
-/** Formats Double as plain decimal (no currency symbol) */
+/** Formats Money as plain decimal (no currency symbol) */
 @Suppress("UNUSED")  // Public API for future use
-fun Double.formatPlain(): String = MoneyFormatter.formatAsPlain(this)
+fun Money.formatPlain(): String = MoneyFormatter.formatAsPlain(this)
 
 /** Formats BigDecimal as plain decimal (no currency symbol) */
 @Suppress("UNUSED")  // Public API for future use
 fun BigDecimal.formatPlain(): String = MoneyFormatter.formatAsPlain(this)
 
-/** Formats Double as percentage with % sign */
+/** Formats percentage Double with % sign */
 @Suppress("UNUSED")  // Public API for future use
 fun Double.formatPercent(): String = MoneyFormatter.formatAsPercentage(this)
 
 /** Safely formats money value, handling nulls as "R0.00" */
 @Suppress("UNUSED")  // Public API for future use
-fun Double?.formatZARSafe(): String = if (this == null || !isFinite()) "R0.00" else formatZAR()
+fun Money?.formatZARSafe(): String = if (this == null) "R0.00" else formatZAR()
 
 /** Safely formats money value, handling nulls as "0.00" */
 @Suppress("UNUSED")  // Public API for future use
-fun Double?.formatPlainSafe(): String = if (this == null || !isFinite()) "0.00" else formatPlain()
+fun Money?.formatPlainSafe(): String = if (this == null) "0.00" else formatPlain()
 

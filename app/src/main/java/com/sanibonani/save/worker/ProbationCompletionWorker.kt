@@ -3,14 +3,17 @@ package com.sanibonani.save.worker
 import android.content.Context
 import androidx.hilt.work.HiltWorker
 import androidx.work.*
-import com.sanibonani.save.data.logging.AppLogger
-import com.sanibonani.save.data.utils.logAndGetMessage
+import com.sanibonani.save.domain.logging.AppLogger
+import com.sanibonani.save.domain.utils.logAndGetMessage
 import com.sanibonani.save.domain.model.MemberStatus
 import com.sanibonani.save.domain.model.NotifChannel
 import com.sanibonani.save.domain.model.NotifEvent
 import com.sanibonani.save.domain.model.AppNotification
-import com.sanibonani.save.domain.repository.MemberRepository
-import com.sanibonani.save.domain.repository.NotificationRepository
+import com.sanibonani.save.domain.model.ContributionStatus
+import com.sanibonani.save.domain.repository.member.MemberRepository
+import com.sanibonani.save.domain.repository.group.GroupRepository
+import com.sanibonani.save.domain.repository.equity.ContributionRepository
+import com.sanibonani.save.domain.repository.system.NotificationRepository
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import kotlinx.coroutines.flow.first
@@ -20,20 +23,16 @@ import java.util.concurrent.TimeUnit
 
 /**
  * Runs daily to check for members whose probation period has ended.
- * Automatically promotes them from PROBATION to ACTIVE status.
+ * Automatically promotes them from PROBATION to ACTIVE status IF their joining fee is not outstanding.
  * Sends welcome notifications when members become active.
- *
- * Business rules:
- * - Check all members with status = PROBATION
- * - If probation_end_at < now, promote to ACTIVE
- * - Send notification to member
- * - Update member status in database
  */
 @HiltWorker
 class ProbationCompletionWorker @AssistedInject constructor(
     @Assisted appContext: Context,
     @Assisted workerParams: WorkerParameters,
     private val memberRepo: MemberRepository,
+    private val groupRepo: GroupRepository,
+    private val contributionRepo: ContributionRepository,
     private val notificationRepo: NotificationRepository
 ) : CoroutineWorker(appContext, workerParams) {
 
@@ -56,6 +55,18 @@ class ProbationCompletionWorker @AssistedInject constructor(
             probationMembers.forEach { member ->
                 if (hasProbationEnded(member.probationEndAt)) {
                     val memberId = member.id ?: return@forEach
+
+                    // Enforce rule: A group member can only be active if joining fee is not outstanding
+                    val group = groupRepo.getGroupById(member.groupId).getOrNull()
+                    val contributionsResult = contributionRepo.observeMemberContributions(memberId, member.groupId).first()
+                    val contributions = contributionsResult.getOrNull() ?: emptyList()
+                    val joiningFeeDue = group != null && group.joiningFee.isPositive && contributions.none { it.type == "registration_contribution" && it.status == ContributionStatus.PAID }
+
+                    if (joiningFeeDue) {
+                        AppLogger.w("ProbationWorker", "Cannot promote member ${member.fullName}: joining fee of ${group?.joiningFee?.format()} is outstanding")
+                        return@forEach
+                    }
+
                     val updateResult = memberRepo.updateMemberStatus(memberId, MemberStatus.ACTIVE)
                     if (updateResult.isSuccess) {
                         promotedCount++
@@ -81,42 +92,6 @@ class ProbationCompletionWorker @AssistedInject constructor(
             val userMsg = e.logAndGetMessage("ProbationWorker")
             AppLogger.e("ProbationWorker", "Error during probation completion check: $userMsg", e)
             Result.retry()
-        }
-    }
-
-    /**
-     * Check if a specific member's probation has ended
-     */
-    suspend fun checkMemberProbation(memberId: String) {
-        try {
-            val memberResult = memberRepo.getMemberById(memberId)
-            if (memberResult.isFailure) {
-                return
-            }
-
-            val member = memberResult.getOrNull() ?: return
-
-            // Check if member is in probation and probation period has ended
-            if (member.status == MemberStatus.PROBATION && hasProbationEnded(member.probationEndAt)) {
-                // Promote to active
-                val updateResult = memberRepo.updateMemberStatus(memberId, MemberStatus.ACTIVE)
-                if (updateResult.isSuccess) {
-                    // Send welcome notification
-                    notificationRepo.sendNotification(
-                        AppNotification(
-                            memberId = memberId,
-                            groupId = member.groupId,
-                            channel = NotifChannel.BOTH,
-                            message = "Congratulations ${member.fullName}! Your probation period has ended and you are now an active member of the group.",
-                            triggerEvent = NotifEvent.PROBATION_ENDED
-                        )
-                    )
-                    AppLogger.i("ProbationWorker", "Promoted member ${member.fullName} from probation to active")
-                }
-            }
-        } catch (e: Exception) {
-            val userMsg = e.logAndGetMessage("ProbationWorker")
-            AppLogger.e("ProbationWorker", "Error checking member probation for $memberId: $userMsg", e)
         }
     }
 

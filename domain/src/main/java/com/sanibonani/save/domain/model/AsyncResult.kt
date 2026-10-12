@@ -8,7 +8,11 @@ sealed interface AsyncResult<out T> {
     object Uninitialized : AsyncResult<Nothing>
     object Loading : AsyncResult<Nothing>
     data class Success<T>(val data: T) : AsyncResult<T>
-    data class Error(val message: String, val throwable: Throwable? = null) : AsyncResult<Nothing>
+    data class Error(
+        val message: String,
+        val errorType: String? = null,
+        val throwable: Throwable? = null
+    ) : AsyncResult<Nothing>
 
     val isLoading: Boolean get() = this is Loading
     val isSuccess: Boolean get() = this is Success

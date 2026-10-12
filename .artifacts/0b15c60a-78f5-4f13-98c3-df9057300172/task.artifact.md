@@ -1,6 +1,0 @@
-- `[ ]` Execute Database Stress Simulation (`live_simulation_v2.sql`)
-- `[ ]` Execute JVM Historical Simulations (`LiveSimulationJVMRunner.kt`)
-    - `[ ]` `runDeepHistoricalActivitySimulation`
-    - `[ ]` `runForcedSettlementSimulation`
-- `[ ]` Execute Unified Diagnostic Probe (`runtime-signal-unified.ps1`)
-- `[ ]` Verify results and generate walkthrough

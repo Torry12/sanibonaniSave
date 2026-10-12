@@ -1,305 +1,270 @@
 package com.sanibonani.save.data.sync
 
-import com.sanibonani.save.data.local.SanibonaniDatabase
-import com.sanibonani.save.data.logging.AppLogger
-import com.sanibonani.save.data.repository.toEntity
-import com.sanibonani.save.data.repository.toLedgerEntity
-import com.sanibonani.save.domain.model.BeneficiaryPayoutClaim
-import com.sanibonani.save.domain.model.Contribution
-import com.sanibonani.save.domain.model.Loan
-import com.sanibonani.save.domain.model.LoanRepayment
-import com.sanibonani.save.domain.model.Payment
-import com.sanibonani.save.domain.model.PayoutRequest
-import com.sanibonani.save.domain.model.AppNotification
-import com.sanibonani.save.domain.model.Beneficiary
-import com.sanibonani.save.domain.model.LedgerEntry
-import com.sanibonani.save.domain.model.MemberDocument
+import com.sanibonani.save.data.local.*
+import com.sanibonani.save.data.local.toEntity
+import com.sanibonani.save.data.local.toLedgerEntity
+import com.sanibonani.save.domain.logging.AppLogger
+import com.sanibonani.save.domain.model.*
 import io.github.jan.supabase.SupabaseClient
-import io.github.jan.supabase.postgrest.postgrest
-import io.github.jan.supabase.postgrest.query.Columns
 import io.github.jan.supabase.realtime.PostgresAction
+import io.github.jan.supabase.realtime.RealtimeChannel
 import io.github.jan.supabase.realtime.channel
 import io.github.jan.supabase.realtime.postgresChangeFlow
 import io.github.jan.supabase.realtime.realtime
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
-import kotlinx.coroutines.flow.merge
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.*
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.decodeFromJsonElement
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
 
 @Singleton
 class RealtimeSyncManager @Inject constructor(
     private val supabase: SupabaseClient,
-    private val db: SanibonaniDatabase
+    private val db: SanibonaniDatabase,
+    private val json: Json
 ) {
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val tag = "RealtimeSyncManager"
+    private var managedScope: CoroutineScope? = null
+    private val activeChannels = ConcurrentHashMap<String, RealtimeChannel>()
+    private var channelGeneration = 0
 
+    private val _syncMetrics = MutableStateFlow<Map<String, RealtimeSyncStatus>>(emptyMap())
+    val syncMetrics: StateFlow<Map<String, RealtimeSyncStatus>> = _syncMetrics.asStateFlow()
+
+    // ── Batch Processors ─────────────────────────────────────────────────────
+    private var contributionBatcher: BatchProcessor<Contribution>? = null
+    private var paymentBatcher: BatchProcessor<Payment>? = null
+    private var ledgerBatcher: BatchProcessor<LedgerEntry>? = null
+    private var notificationBatcher: BatchProcessor<AppNotification>? = null
+
+    @Synchronized
     fun start() {
-        AppLogger.d(tag, "Starting realtime subscriptions for all entity types...")
-        scope.launch { subscribeContributions() }
-        scope.launch { subscribePayments() }
-        scope.launch { subscribeLoans() }
-        scope.launch { subscribeLoanRepayments() }
-        scope.launch { subscribeLedger() }
-        scope.launch { subscribeNotifications() }
-        scope.launch { subscribePayouts() }
-        scope.launch { subscribeBeneficiaries() }
-        scope.launch { subscribeMemberDocuments() }
-        scope.launch { subscribeBeneficiaryClaims() }
-        AppLogger.d(tag, "All realtime subscriptions started")
+        if (managedScope != null && managedScope!!.isActive) {
+            AppLogger.d(tag, "RealtimeSyncManager already running")
+            return
+        }
+
+        AppLogger.d(tag, "Starting restartable realtime subscriptions...")
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        managedScope = scope
+
+        // Initialize batchers within the new scope
+        contributionBatcher = BatchProcessor(scope) { list ->
+            db.contributionDao().upsertContributions(list.map { it.toEntity() })
+        }
+        paymentBatcher = BatchProcessor(scope) { list ->
+            db.paymentDao().upsertPayments(list.map { it.toEntity() })
+        }
+        ledgerBatcher = BatchProcessor(scope) { list ->
+            db.ledgerDao().upsertLedger(list.map { it.toLedgerEntity() })
+        }
+        notificationBatcher = BatchProcessor(scope) { list ->
+            db.notificationDao().upsertNotifications(list.map { it.toEntity() })
+        }
+
+        // A unique id per session guarantees we never re-attach postgresChangeFlow to a channel
+        // that a previous session may still have in SUBSCRIBED state (stop() unsubscribes asynchronously).
+        val channelId = "rt_sanibonani_public_${channelGeneration++}"
+        val channel = supabase.realtime.channel(channelId)
+        activeChannels[channelId] = channel
+
+        attachTableFlow<Contribution>(scope, channel, "contributions") { action ->
+            when (action) {
+                is SyncAction.Upsert -> contributionBatcher?.enqueue(action.data)
+                is SyncAction.Delete -> db.contributionDao().deleteContribution(action.id)
+            }
+        }
+        attachTableFlow<Payment>(scope, channel, "payments") { action ->
+            when (action) {
+                is SyncAction.Upsert -> paymentBatcher?.enqueue(action.data)
+                is SyncAction.Delete -> db.paymentDao().deleteById(action.id)
+            }
+        }
+        attachTableFlow<Loan>(scope, channel, "loans") { action ->
+            when (action) {
+                is SyncAction.Upsert -> db.loanDao().upsertLoan(action.data.toEntity())
+                is SyncAction.Delete -> db.loanDao().deleteLoan(action.id)
+            }
+        }
+        attachTableFlow<LoanRepayment>(scope, channel, "loan_repayments") { action ->
+            when (action) {
+                is SyncAction.Upsert -> db.loanDao().upsertRepayments(listOf(action.data.toEntity()))
+                is SyncAction.Delete -> db.loanDao().deleteRepaymentById(action.id)
+            }
+        }
+        attachTableFlow<LedgerEntry>(scope, channel, "group_ledger") { action ->
+            when (action) {
+                is SyncAction.Upsert -> ledgerBatcher?.enqueue(action.data)
+                is SyncAction.Delete -> db.ledgerDao().deleteById(action.id)
+            }
+        }
+        attachTableFlow<AppNotification>(scope, channel, "notifications") { action ->
+            when (action) {
+                is SyncAction.Upsert -> notificationBatcher?.enqueue(action.data)
+                is SyncAction.Delete -> db.notificationDao().deleteById(action.id)
+            }
+        }
+        attachTableFlow<PayoutRequest>(scope, channel, "payouts") { action ->
+            when (action) {
+                is SyncAction.Upsert -> db.payoutDao().upsertPayout(action.data.toEntity())
+                is SyncAction.Delete -> db.payoutDao().deletePayout(action.id)
+            }
+        }
+        attachTableFlow<Beneficiary>(scope, channel, "beneficiaries") { action ->
+            when (action) {
+                is SyncAction.Upsert -> db.beneficiaryDao().upsertBeneficiary(action.data.toEntity())
+                is SyncAction.Delete -> db.beneficiaryDao().deleteById(action.id)
+            }
+        }
+        attachTableFlow<MemberDocument>(scope, channel, "member_documents") { action ->
+            when (action) {
+                is SyncAction.Upsert -> db.memberDocumentDao().upsertDocument(action.data.toEntity())
+                is SyncAction.Delete -> db.memberDocumentDao().deleteById(action.id)
+            }
+        }
+        attachTableFlow<BeneficiaryPayoutClaim>(scope, channel, "beneficiary_payout_claims") { action ->
+            when (action) {
+                is SyncAction.Upsert -> db.beneficiaryClaimDao().upsertClaim(action.data.toEntity())
+                is SyncAction.Delete -> db.beneficiaryClaimDao().deleteClaim(action.id)
+            }
+        }
+        attachTableFlow<Group>(scope, channel, "groups") { action ->
+            when (action) {
+                is SyncAction.Upsert -> db.groupDao().upsertGroup(action.data.toEntity())
+                is SyncAction.Delete -> {}
+            }
+        }
+        attachTableFlow<Member>(scope, channel, "members") { action ->
+            when (action) {
+                is SyncAction.Upsert -> db.memberDao().upsertMember(action.data.toEntity())
+                is SyncAction.Delete -> db.memberDao().deleteMember(action.id)
+            }
+        }
+        attachTableFlow<BankTransaction>(scope, channel, "bank_transactions") { action ->
+            when (action) {
+                is SyncAction.Upsert -> db.bankTransactionDao().upsert(listOf(action.data.toEntity()))
+                is SyncAction.Delete -> {}
+            }
+        }
+
+        scope.launch {
+            try {
+                channel.subscribe()
+                AppLogger.d(tag, "Successfully subscribed to multiplexed realtime channel")
+            } catch (e: Exception) {
+                AppLogger.e(tag, "Multiplexed realtime subscription failed: ${e.message}")
+            }
+        }
     }
 
+    private inline fun <reified T : Any> attachTableFlow(
+        scope: CoroutineScope,
+        channel: RealtimeChannel,
+        tableName: String,
+        crossinline onUpdate: suspend (SyncAction<T>) -> Unit
+    ) {
+        val changes = channel.postgresChangeFlow<PostgresAction>(schema = "public") { table = tableName }
+        _syncMetrics.update { it + (tableName to RealtimeSyncStatus(isSubscribed = true, lastUpdate = System.currentTimeMillis())) }
+
+        scope.launch {
+            try {
+                changes.collect { action ->
+                    when (action) {
+                        is PostgresAction.Insert, is PostgresAction.Update -> {
+                            val record = (action as? PostgresAction.Insert)?.record
+                                ?: (action as? PostgresAction.Update)?.record
+                                ?: return@collect
+
+                            runCatching {
+                                val entity = json.decodeFromJsonElement<T>(record.jsonObject)
+                                onUpdate(SyncAction.Upsert(entity))
+                                _syncMetrics.update { it + (tableName to RealtimeSyncStatus(isSubscribed = true, lastUpdate = System.currentTimeMillis())) }
+                            }.onFailure { e ->
+                                AppLogger.w(tag, "Failed to decode $tableName record: ${e.message}")
+                            }
+                        }
+                        is PostgresAction.Delete -> {
+                            val id = action.oldRecord["id"]?.jsonPrimitive?.content
+                            if (id != null) {
+                                onUpdate(SyncAction.Delete(id))
+                                _syncMetrics.update { it + (tableName to RealtimeSyncStatus(isSubscribed = true, lastUpdate = System.currentTimeMillis())) }
+                            }
+                        }
+                        else -> {}
+                    }
+                }
+            } catch (e: Exception) {
+                if (e is CancellationException) throw e
+                AppLogger.w(tag, "$tableName collection failed: ${e.message}")
+                _syncMetrics.update { it + (tableName to RealtimeSyncStatus(isSubscribed = false, lastError = e.message)) }
+            }
+        }
+    }
+
+    @Synchronized
     fun stop() {
-        scope.cancel()
-        AppLogger.d(tag, "Realtime subscriptions stopped")
-    }
+        AppLogger.d(tag, "Stopping realtime subscriptions...")
+        managedScope?.cancel()
+        managedScope = null
 
-    private suspend fun subscribeContributions() {
-        try {
-            val name = "rt_contributions"
-            val channel = supabase.realtime.channel(name)
-            val inserts = channel.postgresChangeFlow<PostgresAction.Insert>(schema = "public") { table = "contributions" }
-            val updates = channel.postgresChangeFlow<PostgresAction.Update>(schema = "public") { table = "contributions" }
-            merge(inserts, updates).collect { action ->
-                val groupId = action.record["group_id"]?.jsonPrimitive?.content ?: return@collect
-                runCatching {
-                    val data = supabase.postgrest["contributions"].select {
-                        filter { eq("group_id", groupId) }
-                    }.decodeList<Contribution>()
-                    db.contributionDao().syncGroupContributions(groupId, data.map { it.toEntity() })
-                }
+        // Explicitly unsubscribe and deregister all channels so a later start() cannot resolve them
+        val scope = CoroutineScope(Dispatchers.IO)
+        scope.launch {
+            activeChannels.values.forEach { active ->
+                runCatching { supabase.realtime.removeChannel(active) }
+                    .onFailure { runCatching { active.unsubscribe() } }
             }
-            channel.subscribe()
-            AppLogger.d(tag, "Subscribed to contributions")
-        } catch (e: Exception) {
-            AppLogger.w(tag, "contributions subscription failed: ${e.message}")
+            activeChannels.clear()
         }
+
+        contributionBatcher = null
+        paymentBatcher = null
+        ledgerBatcher = null
+        notificationBatcher = null
     }
 
-    private suspend fun subscribePayments() {
-        try {
-            val name = "rt_payments"
-            val channel = supabase.realtime.channel(name)
-            val inserts = channel.postgresChangeFlow<PostgresAction.Insert>(schema = "public") { table = "payments" }
-            val updates = channel.postgresChangeFlow<PostgresAction.Update>(schema = "public") { table = "payments" }
-            merge(inserts, updates).collect { action ->
-                val groupId = action.record["group_id"]?.jsonPrimitive?.content ?: return@collect
-                runCatching {
-                    val data = supabase.postgrest["payments"].select {
-                        filter { eq("group_id", groupId) }
-                    }.decodeList<Payment>()
-                    db.paymentDao().syncPayments(groupId, data.map { it.toEntity() })
-                }
-            }
-            channel.subscribe()
-            AppLogger.d(tag, "Subscribed to payments")
-        } catch (e: Exception) {
-            AppLogger.w(tag, "payments subscription failed: ${e.message}")
+    fun reconnect() {
+        stop()
+        start()
+    }
+
+    sealed interface SyncAction<out T> {
+        data class Upsert<T>(val data: T) : SyncAction<T>
+        data class Delete(val id: String) : SyncAction<Nothing>
+    }
+}
+
+/**
+ * Throttles multiple individual updates into a single batch operation.
+ */
+class BatchProcessor<T>(
+    private val scope: CoroutineScope,
+    private val debounceMillis: Long = 200L,
+    private val onBatch: suspend (List<T>) -> Unit
+) {
+    private val queue = mutableListOf<T>()
+    private var batchJob: Job? = null
+
+    fun enqueue(item: T) {
+        synchronized(queue) {
+            queue.add(item)
         }
-    }
-
-    private suspend fun subscribeLoans() {
-        try {
-            val name = "rt_loans"
-            val channel = supabase.realtime.channel(name)
-            val inserts = channel.postgresChangeFlow<PostgresAction.Insert>(schema = "public") { table = "loans" }
-            val updates = channel.postgresChangeFlow<PostgresAction.Update>(schema = "public") { table = "loans" }
-            merge(inserts, updates).collect { action ->
-                val loanId = action.record["id"]?.jsonPrimitive?.content ?: return@collect
-                runCatching {
-                    val loan = supabase.postgrest["loans"].select {
-                        filter { eq("id", loanId) }
-                    }.decodeSingle<Loan>()
-                    db.loanDao().upsertLoan(loan.toEntity())
+        if (batchJob == null || !batchJob!!.isActive) {
+            batchJob = scope.launch {
+                delay(debounceMillis)
+                val toProcess = synchronized(queue) {
+                    val list = queue.toList()
+                    queue.clear()
+                    list
+                }
+                if (toProcess.isNotEmpty()) {
+                    onBatch(toProcess)
                 }
             }
-            channel.subscribe()
-            AppLogger.d(tag, "Subscribed to loans")
-        } catch (e: Exception) {
-            AppLogger.w(tag, "loans subscription failed: ${e.message}")
-        }
-    }
-
-    private suspend fun subscribeLoanRepayments() {
-        try {
-            val name = "rt_loan_repayments"
-            val channel = supabase.realtime.channel(name)
-            val inserts = channel.postgresChangeFlow<PostgresAction.Insert>(schema = "public") { table = "loan_repayments" }
-            val updates = channel.postgresChangeFlow<PostgresAction.Update>(schema = "public") { table = "loan_repayments" }
-            merge(inserts, updates).collect { action ->
-                val loanId = action.record["loan_id"]?.jsonPrimitive?.content ?: return@collect
-                runCatching {
-                    val data = supabase.postgrest["loan_repayments"].select {
-                        filter { eq("loan_id", loanId) }
-                    }.decodeList<LoanRepayment>()
-                    db.loanDao().deleteRepaymentsByLoanId(loanId)
-                    db.loanDao().upsertRepayments(data.map { it.toEntity() })
-                }
-            }
-            channel.subscribe()
-            AppLogger.d(tag, "Subscribed to loan_repayments")
-        } catch (e: Exception) {
-            AppLogger.w(tag, "loan_repayments subscription failed: ${e.message}")
-        }
-    }
-
-    private suspend fun subscribeLedger() {
-        try {
-            val name = "rt_ledger"
-            val channel = supabase.realtime.channel(name)
-            val inserts = channel.postgresChangeFlow<PostgresAction.Insert>(schema = "public") { table = "group_ledger" }
-            val updates = channel.postgresChangeFlow<PostgresAction.Update>(schema = "public") { table = "group_ledger" }
-            merge(inserts, updates).collect { action ->
-                val groupId = action.record["group_id"]?.jsonPrimitive?.content ?: return@collect
-                runCatching {
-                    val data = supabase.postgrest["group_ledger"].select(columns = Columns.raw("*")) {
-                        filter { eq("group_id", groupId) }
-                    }.decodeList<LedgerEntry>()
-                    db.ledgerDao().syncLedger(groupId, data.map { it.toLedgerEntity() })
-                }
-            }
-            channel.subscribe()
-            AppLogger.d(tag, "Subscribed to group_ledger")
-        } catch (e: Exception) {
-            AppLogger.w(tag, "group_ledger subscription failed: ${e.message}")
-        }
-    }
-
-    private suspend fun subscribeNotifications() {
-        try {
-            val name = "rt_notifications"
-            val channel = supabase.realtime.channel(name)
-            val inserts = channel.postgresChangeFlow<PostgresAction.Insert>(schema = "public") { table = "notifications" }
-            val updates = channel.postgresChangeFlow<PostgresAction.Update>(schema = "public") { table = "notifications" }
-            merge(inserts, updates).collect { action ->
-                val groupId = action.record["group_id"]?.jsonPrimitive?.content ?: return@collect
-                runCatching {
-                    val data = supabase.postgrest["notifications"].select {
-                        filter { eq("group_id", groupId) }
-                    }.decodeList<AppNotification>()
-                    db.notificationDao().syncNotifications(groupId, data.map { it.toEntity() })
-                }
-            }
-            channel.subscribe()
-            AppLogger.d(tag, "Subscribed to notifications")
-        } catch (e: Exception) {
-            AppLogger.w(tag, "notifications subscription failed: ${e.message}")
-        }
-    }
-
-    private suspend fun subscribePayouts() {
-        try {
-            val name = "rt_payouts"
-            val channel = supabase.realtime.channel(name)
-            val inserts = channel.postgresChangeFlow<PostgresAction.Insert>(schema = "public") { table = "payouts" }
-            val updates = channel.postgresChangeFlow<PostgresAction.Update>(schema = "public") { table = "payouts" }
-            merge(inserts, updates).collect { action ->
-                val payoutId = action.record["id"]?.jsonPrimitive?.content ?: return@collect
-                runCatching {
-                    val payout = supabase.postgrest["payouts"].select {
-                        filter { eq("id", payoutId) }
-                    }.decodeSingle<PayoutRequest>()
-                    db.payoutDao().upsertPayout(payout.toEntity())
-                }
-            }
-            channel.subscribe()
-            AppLogger.d(tag, "Subscribed to payouts")
-        } catch (e: Exception) {
-            AppLogger.w(tag, "payouts subscription failed: ${e.message}")
-        }
-    }
-
-    private suspend fun subscribeBeneficiaries() {
-        try {
-            val name = "rt_beneficiaries"
-            val channel = supabase.realtime.channel(name)
-            val inserts = channel.postgresChangeFlow<PostgresAction.Insert>(schema = "public") { table = "beneficiaries" }
-            val updates = channel.postgresChangeFlow<PostgresAction.Update>(schema = "public") { table = "beneficiaries" }
-            merge(inserts, updates).collect { action ->
-                val memberId = action.record["member_id"]?.jsonPrimitive?.content ?: return@collect
-                runCatching {
-                    val data = supabase.postgrest["beneficiaries"].select {
-                        filter { eq("member_id", memberId) }
-                    }.decodeList<Beneficiary>()
-                    db.beneficiaryDao().syncBeneficiaries(memberId, data.map { it.toEntity() })
-                }
-            }
-            channel.subscribe()
-            AppLogger.d(tag, "Subscribed to beneficiaries")
-        } catch (e: Exception) {
-            AppLogger.w(tag, "beneficiaries subscription failed: ${e.message}")
-        }
-    }
-
-    private suspend fun subscribeMemberDocuments() {
-        try {
-            val name = "rt_member_documents"
-            val channel = supabase.realtime.channel(name)
-            val inserts = channel.postgresChangeFlow<PostgresAction.Insert>(schema = "public") { table = "member_documents" }
-            val updates = channel.postgresChangeFlow<PostgresAction.Update>(schema = "public") { table = "member_documents" }
-            merge(inserts, updates).collect { action ->
-                val memberId = action.record["member_id"]?.jsonPrimitive?.content ?: return@collect
-                runCatching {
-                    val data = supabase.postgrest["member_documents"].select {
-                        filter { eq("member_id", memberId) }
-                    }.decodeList<MemberDocument>()
-                    db.memberDocumentDao().syncDocuments(memberId, data.map { it.toEntity() })
-                }
-            }
-            channel.subscribe()
-            AppLogger.d(tag, "Subscribed to member_documents")
-        } catch (e: Exception) {
-            AppLogger.w(tag, "member_documents subscription failed: ${e.message}")
-        }
-    }
-
-    private suspend fun subscribeBeneficiaryClaims() {
-        try {
-            val name = "rt_burial_claims"
-            val channel = supabase.realtime.channel(name)
-            val inserts = channel.postgresChangeFlow<PostgresAction.Insert>(schema = "public") { table = "beneficiary_payout_claims" }
-            val updates = channel.postgresChangeFlow<PostgresAction.Update>(schema = "public") { table = "beneficiary_payout_claims" }
-            merge(inserts, updates).collect { action ->
-                val claimId = action.record["id"]?.jsonPrimitive?.content ?: return@collect
-                runCatching {
-                    val claim = supabase.postgrest["beneficiary_payout_claims"].select {
-                        filter { eq("id", claimId) }
-                    }.decodeSingle<BeneficiaryPayoutClaim>()
-                    db.beneficiaryClaimDao().upsertClaim(claim.toEntity())
-                }
-            }
-            channel.subscribe()
-            AppLogger.d(tag, "Subscribed to beneficiary_payout_claims")
-        } catch (e: Exception) {
-            AppLogger.d(tag, "beneficiary_payout_claims table not available, trying burial_claims")
-            subscribeLegacyBurialClaims()
-        }
-    }
-
-    private suspend fun subscribeLegacyBurialClaims() {
-        try {
-            val name = "rt_burial_claims_legacy"
-            val channel = supabase.realtime.channel(name)
-            val inserts = channel.postgresChangeFlow<PostgresAction.Insert>(schema = "public") { table = "burial_claims" }
-            val updates = channel.postgresChangeFlow<PostgresAction.Update>(schema = "public") { table = "burial_claims" }
-            merge(inserts, updates).collect { action ->
-                val claimId = action.record["id"]?.jsonPrimitive?.content ?: return@collect
-                runCatching {
-                    val claim = supabase.postgrest["burial_claims"].select {
-                        filter { eq("id", claimId) }
-                    }.decodeSingle<BeneficiaryPayoutClaim>()
-                    db.beneficiaryClaimDao().upsertClaim(claim.toEntity())
-                }
-            }
-            channel.subscribe()
-            AppLogger.d(tag, "Subscribed to burial_claims (legacy)")
-        } catch (e: Exception) {
-            AppLogger.w(tag, "burial_claims subscription also failed: ${e.message}")
         }
     }
 }

@@ -11,12 +11,14 @@ import javax.inject.Singleton
 /**
  * Central factory for creating JSON payloads for Supabase / PostgREST writes.
  * Encapsulates the mapping of domain models to database columns.
+ * High-precision: Monetary values are serialized as plain strings.
  */
 @Singleton
 class DataPayloadFactory @Inject constructor() {
 
     fun createMemberPayload(member: Member): JsonObject {
         return buildJsonObject {
+            member.id?.let { put("id", it) }
             put("group_id", member.groupId)
             member.userId?.let { put("user_id", it) }
             put("full_name", member.fullName)
@@ -34,10 +36,10 @@ class DataPayloadFactory @Inject constructor() {
             member.memberKey?.let { put("member_key", it) }
             member.profilePhotoUrl?.let { put("profile_photo_url", it) }
             put("total_contributions", member.totalContributions ?: 0)
-            put("total_paid", member.totalPaid.toDouble())
+            put("total_paid", member.totalPaid.amount.toPlainString())
             put("beneficiary_count", member.beneficiaryCount ?: 0)
             put("beneficiary_over_65_count", member.beneficiaryOver65Count ?: 0)
-            member.monthlyContributionOverride?.let { put("monthly_contribution_override", it.toDouble()) }
+            member.monthlyContributionOverride?.let { put("monthly_contribution_override", it.amount.toPlainString()) }
         }
     }
 
@@ -49,6 +51,39 @@ class DataPayloadFactory @Inject constructor() {
             put("message", notification.message)
             put("channel", notification.channel.name.lowercase())
             put("trigger_event", notification.triggerEvent.name.lowercase())
+        }
+    }
+
+    fun createLedgerPayload(entry: com.sanibonani.save.domain.model.LedgerEntry): JsonObject {
+        return buildJsonObject {
+            put("group_id", entry.groupId)
+            put("amount", entry.amount.amount.toPlainString())
+            put("balance_after", entry.balanceAfter.amount.toPlainString())
+            put("description", entry.description)
+            put("category", entry.category)
+            entry.transactionId?.let { put("transaction_id", it) }
+            put("is_platform", entry.isPlatform)
+        }
+    }
+
+    fun createAuditLogPayload(log: com.sanibonani.save.domain.model.AuditLog): JsonObject {
+        return buildJsonObject {
+            put("action", log.action)
+            put("target_group_id", log.targetGroupId ?: "")
+            put("target_member_id", log.targetMemberId ?: "")
+            log.details?.let { put("details", it) }
+        }
+    }
+
+    fun createBankTransactionPayload(tx: com.sanibonani.save.domain.model.BankTransaction): JsonObject {
+        return buildJsonObject {
+            put("group_id", tx.groupId)
+            put("bank_reference", tx.bankReference)
+            put("amount", tx.amount.amount.toPlainString())
+            put("transaction_date", tx.transactionDate)
+            put("description", tx.description ?: "")
+            put("status", tx.status.name.lowercase())
+            put("reconciled_with", tx.reconciledWith ?: "")
         }
     }
 }

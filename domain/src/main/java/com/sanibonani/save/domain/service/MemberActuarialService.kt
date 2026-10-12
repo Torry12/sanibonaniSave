@@ -1,6 +1,7 @@
 package com.sanibonani.save.domain.service
 
 import com.sanibonani.save.domain.model.*
+import com.sanibonani.save.domain.utils.PaymentCalculation
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -17,7 +18,7 @@ class MemberActuarialService @Inject constructor() {
 
         // If calculation is missing, we assume good standing until data arrives
         // or we check the totalPaid vs expected.
-        val hasOverdue = calculation?.totalOverdue?.isPositive() ?: false
+        val hasOverdue = calculation?.totalOverdue?.isPositive ?: false
         return !hasOverdue
     }
 
@@ -27,11 +28,11 @@ class MemberActuarialService @Inject constructor() {
     fun getNextActionMessage(calculation: PaymentCalculation?): String {
         val calc = calculation ?: return "Checking status..."
 
-        if (calc.totalOverdue.isPositive()) {
-            return "Action Required: Overdue ${calc.totalOverdue}"
+        if (calc.totalOverdue.isPositive) {
+            return "Action Required: Overdue ${calc.totalOverdue.format()}"
         }
 
-        return "Next: ${calc.nextContributionAmount} due on ${calc.nextDueDate ?: "N/A"}"
+        return "Next: ${calc.nextContributionAmount.format()} due on ${calc.nextDueDate}"
     }
 
     /**

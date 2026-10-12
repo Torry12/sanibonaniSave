@@ -2,7 +2,7 @@ package com.sanibonani.save.ui.screens.admin
 
 import com.sanibonani.save.domain.model.Group
 import com.sanibonani.save.domain.model.Member
-import com.sanibonani.save.viewmodel.AdminUiState
+import com.sanibonani.save.features.admin.ui.resolveAdminMemberPortalAccess
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -13,12 +13,14 @@ class AdminDashboardMemberPortalAccessTest {
 
     @Test
     fun `support mode requires selected member before opening member portal`() {
-        val state = AdminUiState(
-            group = Group(id = "group_1", name = "Test Group"),
-            currentGroupId = "group_1"
-        )
+        val group = Group(id = "group_1", name = "Test Group")
 
-        val access = resolveAdminMemberPortalAccess(state, supportActive = true)
+        val access = resolveAdminMemberPortalAccess(
+            group = group,
+            managedGroups = emptyList(),
+            selectedMember = null,
+            supportActive = true
+        )
 
         assertFalse(access.enabled)
         assertEquals("group_1", access.groupId)
@@ -28,13 +30,15 @@ class AdminDashboardMemberPortalAccessTest {
 
     @Test
     fun `support mode opens selected member portal when member is selected`() {
-        val state = AdminUiState(
-            group = Group(id = "group_1", name = "Test Group"),
-            currentGroupId = "group_1",
-            selectedMember = Member(id = "member_1", fullName = "Alice Member", groupId = "group_1")
-        )
+        val group = Group(id = "group_1", name = "Test Group")
+        val selectedMember = Member(id = "member_1", fullName = "Alice Member", groupId = "group_1")
 
-        val access = resolveAdminMemberPortalAccess(state, supportActive = true)
+        val access = resolveAdminMemberPortalAccess(
+            group = group,
+            managedGroups = emptyList(),
+            selectedMember = selectedMember,
+            supportActive = true
+        )
 
         assertTrue(access.enabled)
         assertEquals("group_1", access.groupId)
@@ -44,12 +48,14 @@ class AdminDashboardMemberPortalAccessTest {
 
     @Test
     fun `normal admin mode opens current user member portal without member selection`() {
-        val state = AdminUiState(
-            group = Group(id = "group_1", name = "Test Group"),
-            currentGroupId = "group_1"
-        )
+        val group = Group(id = "group_1", name = "Test Group")
 
-        val access = resolveAdminMemberPortalAccess(state, supportActive = false)
+        val access = resolveAdminMemberPortalAccess(
+            group = group,
+            managedGroups = emptyList(),
+            selectedMember = null,
+            supportActive = false
+        )
 
         assertTrue(access.enabled)
         assertEquals("group_1", access.groupId)
@@ -57,4 +63,3 @@ class AdminDashboardMemberPortalAccessTest {
         assertEquals("Switch to Member View", access.title)
     }
 }
-

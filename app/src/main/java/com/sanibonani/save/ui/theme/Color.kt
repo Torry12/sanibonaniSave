@@ -2,97 +2,114 @@ package com.sanibonani.save.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-// ── BRAND PALETTE ────────────────────────────────────────────────────────────
-val Navy         = Color(0xFF000080) // Primary Navy
-val NavyMid      = Color(0xFF000066)
-val NavyLight    = Color(0xFFE6E6FA)
-val AccentBlue   = Color(0xFF1E90FF)
-val NavyDeep     = Color(0xFF000033)
+// ── BRAND PALETTE (WARM, CHEERFUL & COMMUNITY-INSPIRED) ──────────────────────
+val Navy         = Color(0xFF0F3A2F) // Rich Deep Warm Emerald Navy
+val NavyMid      = Color(0xFF184D3E)
+val NavyLight    = Color(0xFF266653)
+val AccentBlue   = Color(0xFF2DD4BF) // Bright Warm Teal Accent
+val NavyDeep     = Color(0xFF08261F)
 
-// ── LIGHT SCHEME ─────────────────────────────────────────────────────────────
-val md_theme_light_primary = Color(0xFF000080)
+// Warm Sun & Earth Accents
+val WarmGold     = Color(0xFFD97706) // Rich South African Warm Gold
+val WarmGoldLight= Color(0xFFFEF3C7)
+val Terracotta   = Color(0xFFC2410C) // Warm Sunset Terracotta
+val TerracottaBg = Color(0xFFFFEDD5)
+val WarmSage     = Color(0xFF059669) // Lush Emerald Sage
+val WarmSandBg   = Color(0xFFFAF8F5) // Inviting Warm Linen Canvas
+
+// ── LIGHT SCHEME (WARM, CHEERFUL & WELCOMING) ────────────────────────────────
+val md_theme_light_primary = Color(0xFF0F4C3A) // Deep Warm Emerald
 val md_theme_light_onPrimary = Color(0xFFFFFFFF)
-val md_theme_light_primaryContainer = Color(0xFFDDE1FF)
-val md_theme_light_onPrimaryContainer = Color(0xFF000063)
-val md_theme_light_secondary = Color(0xFF1E90FF)
+val md_theme_light_primaryContainer = Color(0xFFD1FAE5) // Soft Warm Emerald Mint
+val md_theme_light_onPrimaryContainer = Color(0xFF022C22)
+val md_theme_light_secondary = Color(0xFFD97706) // Cheerful Warm Gold/Amber
 val md_theme_light_onSecondary = Color(0xFFFFFFFF)
-val md_theme_light_secondaryContainer = Color(0xFFD1E4FF)
-val md_theme_light_onSecondaryContainer = Color(0xFF001D36)
-val md_theme_light_tertiary = Color(0xFF7D5260)
+val md_theme_light_secondaryContainer = Color(0xFFFEF3C7) // Golden Sunshine Container
+val md_theme_light_onSecondaryContainer = Color(0xFF451A03)
+val md_theme_light_tertiary = Color(0xFFC2410C) // Warm Sunset Terracotta
 val md_theme_light_onTertiary = Color(0xFFFFFFFF)
-val md_theme_light_tertiaryContainer = Color(0xFFFFD8E4)
-val md_theme_light_onTertiaryContainer = Color(0xFF31111D)
-val md_theme_light_error = Color(0xFFBA1A1A)
-val md_theme_light_errorContainer = Color(0xFFFFDAD6)
+val md_theme_light_tertiaryContainer = Color(0xFFFFEDD5)
+val md_theme_light_onTertiaryContainer = Color(0xFF431407)
+val md_theme_light_error = Color(0xFFDC2626)
+val md_theme_light_errorContainer = Color(0xFFFEE2E2)
 val md_theme_light_onError = Color(0xFFFFFFFF)
-val md_theme_light_onErrorContainer = Color(0xFF410002)
-val md_theme_light_background = Color(0xFFFEFBFF)
-val md_theme_light_onBackground = Color(0xFF1B1B1F)
-val md_theme_light_surface = Color(0xFFFEFBFF)
-val md_theme_light_onSurface = Color(0xFF1B1B1F)
-val md_theme_light_surfaceVariant = Color(0xFFE1E2EC)
-val md_theme_light_onSurfaceVariant = Color(0xFF44474F)
-val md_theme_light_outline = Color(0xFF75777F)
-val md_theme_light_inverseOnSurface = Color(0xFFF2F0F4)
-val md_theme_light_inverseSurface = Color(0xFF303033)
-val md_theme_light_inversePrimary = Color(0xFFB9C3FF)
+val md_theme_light_onErrorContainer = Color(0xFF7F1D1D)
+val md_theme_light_background = Color(0xFFFAF8F5) // Soft Linen Cream Canvas
+val md_theme_light_onBackground = Color(0xFF1C1917) // Warm Deep Charcoal
+val md_theme_light_surface = Color(0xFFFFFFFF)
+val md_theme_light_onSurface = Color(0xFF1C1917)
+val md_theme_light_surfaceVariant = Color(0xFFF3EED9) // Soft Warm Sand
+val md_theme_light_onSurfaceVariant = Color(0xFF57534E)
+val md_theme_light_outline = Color(0xFFA8A29E)
+val md_theme_light_inverseOnSurface = Color(0xFFF5F5F4)
+val md_theme_light_inverseSurface = Color(0xFF292524)
+val md_theme_light_inversePrimary = Color(0xFF6EE7B7)
 val md_theme_light_shadow = Color(0xFF000000)
-val md_theme_light_surfaceTint = Color(0xFF000080)
-val md_theme_light_outlineVariant = Color(0xFFC5C6D0)
+val md_theme_light_surfaceTint = Color(0xFF0F4C3A)
+val md_theme_light_outlineVariant = Color(0xFFE7E5E4)
 val md_theme_light_scrim = Color(0xFF000000)
 
-// ── DARK SCHEME ──────────────────────────────────────────────────────────────
-val md_theme_dark_primary = Color(0xFFB9C3FF)
-val md_theme_dark_onPrimary = Color(0xFF000099)
-val md_theme_dark_primaryContainer = Color(0xFF0000CD)
-val md_theme_dark_onPrimaryContainer = Color(0xFFDDE1FF)
-val md_theme_dark_secondary = Color(0xFF9ECAFF)
-val md_theme_dark_onSecondary = Color(0xFF003258)
-val md_theme_dark_secondaryContainer = Color(0xFF00497D)
-val md_theme_dark_onSecondaryContainer = Color(0xFFD1E4FF)
-val md_theme_dark_tertiary = Color(0xFFEFB8C8)
-val md_theme_dark_onTertiary = Color(0xFF492532)
-val md_theme_dark_tertiaryContainer = Color(0xFF633B48)
-val md_theme_dark_onTertiaryContainer = Color(0xFFFFD8E4)
-val md_theme_dark_error = Color(0xFFFFB4AB)
-val md_theme_dark_errorContainer = Color(0xFF93000A)
-val md_theme_dark_onError = Color(0xFF690005)
-val md_theme_dark_onErrorContainer = Color(0xFFFFDAD6)
-val md_theme_dark_background = Color(0xFF1B1B1F)
-val md_theme_dark_onBackground = Color(0xFFE3E2E6)
-val md_theme_dark_surface = Color(0xFF1B1B1F)
-val md_theme_dark_onSurface = Color(0xFFE3E2E6)
-val md_theme_dark_surfaceVariant = Color(0xFF44474F)
-val md_theme_dark_onSurfaceVariant = Color(0xFFC5C6D0)
-val md_theme_dark_outline = Color(0xFF8F909A)
-val md_theme_dark_inverseOnSurface = Color(0xFF1B1B1F)
-val md_theme_dark_inverseSurface = Color(0xFFE3E2E6)
-val md_theme_dark_inversePrimary = Color(0xFF000080)
+// ── DARK SCHEME (WARM & COZY) ──────────────────────────────────────────────
+val md_theme_dark_primary = Color(0xFF34D399) // Vibrant Mint Emerald
+val md_theme_dark_onPrimary = Color(0xFF022C22)
+val md_theme_dark_primaryContainer = Color(0xFF065F46)
+val md_theme_dark_onPrimaryContainer = Color(0xFFA7F3D0)
+val md_theme_dark_secondary = Color(0xFFFBBF24) // Cheerful Bright Gold
+val md_theme_dark_onSecondary = Color(0xFF451A03)
+val md_theme_dark_secondaryContainer = Color(0xFF78350F)
+val md_theme_dark_onSecondaryContainer = Color(0xFFFEF3C7)
+val md_theme_dark_tertiary = Color(0xFFFB923C) // Warm Sunset Terracotta Light
+val md_theme_dark_onTertiary = Color(0xFF431407)
+val md_theme_dark_tertiaryContainer = Color(0xFF9A3412)
+val md_theme_dark_onTertiaryContainer = Color(0xFFFFEDD5)
+val md_theme_dark_error = Color(0xFFF87171)
+val md_theme_dark_errorContainer = Color(0xFF991B1B)
+val md_theme_dark_onError = Color(0xFF450A0A)
+val md_theme_dark_onErrorContainer = Color(0xFFFEE2E2)
+val md_theme_dark_background = Color(0xFF0F172A)
+val md_theme_dark_onBackground = Color(0xFFF5F5F4)
+val md_theme_dark_surface = Color(0xFF1E293B)
+val md_theme_dark_onSurface = Color(0xFFF5F5F4)
+val md_theme_dark_surfaceVariant = Color(0xFF334155)
+val md_theme_dark_onSurfaceVariant = Color(0xFFCBD5E1)
+val md_theme_dark_outline = Color(0xFF64748B)
+val md_theme_dark_inverseOnSurface = Color(0xFF0F172A)
+val md_theme_dark_inverseSurface = Color(0xFFF5F5F4)
+val md_theme_dark_inversePrimary = Color(0xFF0F4C3A)
 val md_theme_dark_shadow = Color(0xFF000000)
-val md_theme_dark_surfaceTint = Color(0xFFB9C3FF)
-val md_theme_dark_outlineVariant = Color(0xFF44474F)
+val md_theme_dark_surfaceTint = Color(0xFF34D399)
+val md_theme_dark_outlineVariant = Color(0xFF334155)
 val md_theme_dark_scrim = Color(0xFF000000)
 
-// ── UTILITY COLORS ───────────────────────────────────────────────────────────
-val SuccessGreen = Color(0xFF42B72A)
-val SuccessBg    = Color(0xFFE7F8EC)
-val WarningYellow = Color(0xFFF7B928)
-val WarningAmber = Color(0xFFE36414)
-val WarningBg    = Color(0xFFFFFBE6)
-val ErrorRed     = Color(0xFFFA3E3E)
-val ErrorBg      = Color(0xFFFFEBE8)
+// ── UTILITY COLORS ────────────────(WARM ENHANCED) ───────────────────────────
+val BrandSuccessGreen = Color(0xFF10B981)
+val SuccessGreen = BrandSuccessGreen
+val SuccessBg    = Color(0xFFECFDF5)
+val WarningYellow = Color(0xFFF59E0B)
+val WarningAmber = Color(0xFFF97316)
+val WarningBg    = Color(0xFFFFFBEB)
+val ErrorRed     = Color(0xFFEF4444)
+val ErrorBg      = Color(0xFFFEF2F2)
+val InfoBlue     = Color(0xFF3B82F6)
+val InfoBg       = Color(0xFFEFF6FF)
 
-val Charcoal     = Color(0xFF1B1B1F)
-val MidGray      = Color(0xFF44474F)
-val LightGray    = Color(0xFFC5C6D0)
-val Cream        = Color(0xFFF5F5F5)
+val Charcoal     = Color(0xFF1C1917)
+val MidGray      = Color(0xFF78716C)
+val LightGray    = Color(0xFFE7E5E4)
+val Cream        = Color(0xFFFAF8F5)
 val Cream2       = Color(0xFFFFFFFF)
 
-// Keep old names for compatibility
-val Forest       = Navy
-val ForestMid    = NavyMid
-val ForestLight  = NavyLight
-val ForestDeep   = NavyDeep
-val Gold         = Color(0xFFE7F3FF)
-val GoldLight    = Color(0xFFF0F2F5)
-val Terra        = Color(0xFF65676B)
+// Keep old names for compatibility with specific overrides
+val Forest       = Color(0xFF0F4C3A)
+val ForestMid    = Color(0xFF165B48)
+val ForestLight  = Color(0xFFD1FAE5)
+val ForestDeep   = Color(0xFF063B2E)
+val Gold         = Color(0xFFFBBF24)
+val GoldLight    = Color(0xFFFEF3C7)
+val Terra        = Color(0xFFC2410C)
+
+// Glassmorphism & Translucent Overlay Tokens
+val GlassLightBg      = Color(0xCCFFFFFF) // 80% opacity
+val GlassLightBorder  = Color(0x260F4C3A) // 15% opacity
+val GlassDarkBg       = Color(0xB30F3A2F) // 70% opacity
+val GlassDarkBorder   = Color(0x3334D399) // 20% opacity

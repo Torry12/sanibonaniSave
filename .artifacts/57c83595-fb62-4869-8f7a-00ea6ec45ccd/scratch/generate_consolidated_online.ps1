@@ -8,14 +8,17 @@ foreach ($line in $lines) {
     if ($line -match "\\i '(.+)'") {
         $include = $Matches[1]
         # Resolve path relative to supabase/online/
-        $path = Join-Path "supabase/online/" $include
-        if (Test-Path $path) {
-            Write-Host "Including $path"
+        $baseDir = "supabase/online/"
+        $rawPath = [System.IO.Path]::Combine($baseDir, $include)
+        $fullPath = [System.IO.Path]::GetFullPath((Join-Path (Get-Location) $rawPath))
+
+        if (Test-Path $fullPath) {
+            Write-Host "Including $fullPath"
             Add-Content -Path $outFile -Value "`n-- [START] $include`n"
-            Get-Content $path | Add-Content -Path $outFile
+            Get-Content $fullPath | Add-Content -Path $outFile
             Add-Content -Path $outFile -Value "`n-- [END] $include`n"
         } else {
-            Write-Warning "Could not find $path"
+            Write-Warning "Could not find $fullPath"
         }
     }
 }

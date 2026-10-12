@@ -2,15 +2,43 @@ package com.sanibonani.save.features.admin.ui.tabs.platform
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material.icons.filled.AccountBalance
+import androidx.compose.material.icons.filled.PictureAsPdf
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
@@ -18,27 +46,47 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.sanibonani.save.R
-import com.sanibonani.save.domain.model.*
-import com.sanibonani.save.ui.components.*
+import com.sanibonani.save.domain.model.LedgerEntry
+import com.sanibonani.save.domain.model.Money
+import com.sanibonani.save.domain.model.ReconciliationStatus
+import com.sanibonani.save.features.admin.presentation.PlatformLedgerViewModel
+import com.sanibonani.save.features.admin.presentation.state.PlatformAnalyticsUiState
+import com.sanibonani.save.features.admin.presentation.state.PlatformLedgerUiState
 import com.sanibonani.save.features.admin.ui.components.AccordionHeader
 import com.sanibonani.save.features.admin.ui.components.HeaderWithIcon
-import com.sanibonani.save.ui.theme.*
-import com.sanibonani.save.features.admin.presentation.PlatformAdminViewModel
-import com.sanibonani.save.features.admin.presentation.state.PlatformAdminUiState
+import com.sanibonani.save.ui.components.DetailRow
+import com.sanibonani.save.ui.components.InfoType
+import com.sanibonani.save.ui.components.SanibonaniButton
+import com.sanibonani.save.ui.components.SanibonaniDropdown
+import com.sanibonani.save.ui.components.EmptyState
+import com.sanibonani.save.ui.components.GlassCard
+import com.sanibonani.save.ui.components.InfoBox
+import com.sanibonani.save.ui.theme.ErrorRed
+import com.sanibonani.save.ui.theme.Navy
+import com.sanibonani.save.ui.theme.SuccessGreen
 
 @Composable
 fun PlatformLedgerTab(
-    state: PlatformAdminUiState,
-    vm: PlatformAdminViewModel
+    state: PlatformLedgerUiState,
+    analyticsState: PlatformAnalyticsUiState,
+    vm: PlatformLedgerViewModel
 ) {
     var selectedEntry by remember { mutableStateOf<LedgerEntry?>(null) }
     var selectedGroupIdForAudit by rememberSaveable { mutableStateOf<String?>(null) }
     var showDeepConsolidateConfirm by remember { mutableStateOf<String?>(null) }
 
-    val groupNames = remember(state.groups) { state.groups.associate { (it.id ?: "") to it.name } }
+    val groupNames = analyticsState.groupNames
+    val groupProvinces = analyticsState.groupProvinces
 
-    val groupedEntries = remember(state.platformLedger) {
-        state.platformLedger.groupBy { it.createdAt?.substringBefore("T") ?: "N/A" }
+    val groupedEntries = remember(state.platformLedger, groupNames, groupProvinces) {
+        state.platformLedger
+            .groupBy { it.createdAt?.substringBefore("T") ?: "N/A" }
+            .mapValues { (_, entries) ->
+                entries.sortedWith(
+                    compareBy<LedgerEntry> { groupProvinces[it.groupId] ?: "Other" }
+                        .thenBy { groupNames[it.groupId] ?: "Platform Internal" }
+                )
+            }
     }
     val expandedDates = remember { mutableStateMapOf<String, Boolean>() }
 
@@ -48,21 +96,20 @@ fun PlatformLedgerTab(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
         ) {
-            HeaderWithIcon(Icons.Default.AccountBalance, "System-Wide Digital Ledger")
+            HeaderWithIcon(Icons.Default.AccountBalance, stringResource(R.string.ui_system_wide_digital_ledger))
             Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                 IconButton(onClick = { vm.downloadPlatformStatement() }) {
-                    Icon(Icons.Default.PictureAsPdf, "Download PDF", tint = Navy)
+                    Icon(Icons.Default.PictureAsPdf, stringResource(R.string.ui_download_pdf), tint = Navy)
                 }
                 Spacer(Modifier.width(8.dp))
-                IconButton(onClick = { vm.loadData() }) {
-                    Icon(Icons.Default.Refresh, "Refresh", tint = MaterialTheme.colorScheme.primary)
+                IconButton(onClick = { vm.load() }) {
+                    Icon(Icons.Default.Refresh, stringResource(R.string.ui_refresh), tint = MaterialTheme.colorScheme.primary)
                 }
             }
         }
 
         InfoBox(
-            stringResource(R.string.ui_central_record_of_registration_fees_and_),
-            InfoType.INFO
+            stringResource(R.string.ui_central_record_of_registration_fees_and_), type = InfoType.INFO
         )
 
         if (state.isExporting) {
@@ -74,37 +121,37 @@ fun PlatformLedgerTab(
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            // ── Audit & Reconciliation ──
+            // â”€â”€ Audit & Reconciliation â”€â”€
             item {
                 AccordionHeader(
-                    title = "Group Fund Audits (Reconciliation)",
+                    title = stringResource(R.string.ui_group_fund_audits_reconciliation),
                     icon = Icons.Default.AccountBalance,
                     isExpanded = true,
                     onClick = { },
                     count = 0
                 )
 
-                GlassCard(color = MaterialTheme.colorScheme.surface) {
-                    Text("Select a group to perform a high-integrity financial audit.", style = MaterialTheme.typography.bodySmall)
+                GlassCard(accentColor = MaterialTheme.colorScheme.primary) {
+                    Text(stringResource(R.string.ui_select_group_to_audit), style = MaterialTheme.typography.bodySmall)
                     Spacer(Modifier.height(12.dp))
 
                     SanibonaniDropdown(
-                        label = "Target Group",
-                        items = state.groups,
-                        selectedItem = state.groups.find { it.id == selectedGroupIdForAudit },
-                        onItemSelected = {
-                            selectedGroupIdForAudit = it.id
-                            it.id?.let { id -> vm.fetchReconciliations(id) }
-                        },
-                        itemLabel = { it.name }
-                    )
+                    label = stringResource(R.string.ui_target_group),
+                    items = analyticsState.groups,
+                    selectedItem = analyticsState.groups.find { it.id == selectedGroupIdForAudit },
+                    onItemSelected = {
+                        selectedGroupIdForAudit = it.id
+                        it.id?.let { id -> vm.fetchReconciliations(id) }
+                    },
+                    itemLabel = { it.name }
+                )
 
                     selectedGroupIdForAudit?.let { gid ->
                         Spacer(Modifier.height(16.dp))
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 SanibonaniButton(
-                                    text = "Standard Audit",
+                                    text = stringResource(R.string.ui_standard_audit),
                                     onClick = { vm.reconcileGroup(gid) },
                                     isLoading = state.isReconciling,
                                     containerColor = Navy,
@@ -112,7 +159,7 @@ fun PlatformLedgerTab(
                                 )
 
                                 SanibonaniButton(
-                                    text = "Repair Totals",
+                                    text = stringResource(R.string.ui_repair_totals),
                                     onClick = { vm.repairGroupFinancials(gid) },
                                     isLoading = state.isRepairing,
                                     containerColor = MaterialTheme.colorScheme.secondary,
@@ -121,7 +168,7 @@ fun PlatformLedgerTab(
                             }
 
                             SanibonaniButton(
-                                text = "DEEP LEDGER REBUILD",
+                                text = stringResource(R.string.ui_deep_ledger_rebuild),
                                 onClick = { showDeepConsolidateConfirm = gid },
                                 isLoading = state.isConsolidating,
                                 containerColor = Color.Red,
@@ -130,15 +177,26 @@ fun PlatformLedgerTab(
                             )
                         }
 
+                        state.lastAuditResult?.let { res ->
+                            if (res.groupId == gid) {
+                                Spacer(Modifier.height(16.dp))
+                                val isBalanced = res.discrepancy.isZero
+                                InfoBox(
+                                    message = if (isBalanced) stringResource(R.string.ui_ledger_is_balanced) else stringResource(R.string.ui_discrepancy_found_label, com.sanibonani.save.ui.utils.formatZAR(res.discrepancy)),
+                                    type = if (isBalanced) InfoType.SUCCESS else InfoType.WARNING
+                                )
+                            }
+                        }
+
                         val history = state.groupReconciliations[gid] ?: emptyList()
                         if (history.isNotEmpty()) {
                             Spacer(Modifier.height(16.dp))
-                            Text("Audit History", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                            Text(stringResource(R.string.ui_audit_history), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
                             history.forEach { record ->
                                 val color = if (record.status == ReconciliationStatus.BALANCED) SuccessGreen else ErrorRed
                                 val statusText = when(record.status) {
                                     ReconciliationStatus.BALANCED -> "Balanced"
-                                    ReconciliationStatus.DISCREPANCY_FOUND -> "Discrepancy"
+                                    ReconciliationStatus.DISCREPANCY -> "Discrepancy"
                                     ReconciliationStatus.RESOLVED -> "Resolved"
                                     else -> "Pending"
                                 }
@@ -157,14 +215,14 @@ fun PlatformLedgerTab(
                 Spacer(Modifier.height(24.dp))
             }
 
-            if (state.platformLedger.isEmpty() && !state.isLoading) {
+            if (state.platformLedger.isEmpty()) {
                 item {
                     EmptyState(
-                        icon = "🧾",
-                        title = "No transactions",
-                        description = "Platform-wide financial movements will appear here once groups start registering.",
-                        actionLabel = "Refresh",
-                        onAction = { vm.loadData() }
+                        icon = "ðŸ§¾",
+                        title = stringResource(R.string.ui_no_transactions),
+                        description = stringResource(R.string.ui_no_transactions_description),
+                        actionLabel = stringResource(R.string.ui_refresh),
+                        onAction = { vm.load() }
                     )
                 }
             }
@@ -206,12 +264,12 @@ fun PlatformLedgerTab(
     showDeepConsolidateConfirm?.let { gid ->
         AlertDialog(
             onDismissRequest = { showDeepConsolidateConfirm = null },
-            title = { Text("Critical Ledger Reconstruction") },
+            title = { Text(stringResource(R.string.ui_critical_ledger_reconstruction)) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Target: ${groupNames[gid]}")
-                    Text("This operation will DESTROY and REBUILD the audit trail for this group using raw sub-transaction data. It fixes chronological balance inaccuracies.")
-                    Text("This should only be used for groups with severe accounting desync.", fontWeight = FontWeight.Bold, color = Color.Red)
+                    Text("${stringResource(R.string.ui_target_group)}: ${groupNames[gid]}")
+                    Text(stringResource(R.string.ui_deep_ledger_rebuild_warning))
+                    Text(stringResource(R.string.ui_accounting_desync_warning), fontWeight = FontWeight.Bold, color = Color.Red)
                 }
             },
             confirmButton = {
@@ -222,12 +280,12 @@ fun PlatformLedgerTab(
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = Color.Red)
                 ) {
-                    Text("Reconstruct Now")
+                    Text(stringResource(R.string.ui_reconstruct_now))
                 }
             },
             dismissButton = {
                 TextButton(onClick = { showDeepConsolidateConfirm = null }) {
-                    Text("Cancel")
+                    Text(stringResource(R.string.ui_cancel))
                 }
             }
         )
@@ -273,20 +331,20 @@ fun LedgerEntryItem(entry: LedgerEntry, groupName: String, onClick: () -> Unit) 
 fun LedgerEntryDetailDialog(entry: LedgerEntry, groupName: String, onDismiss: () -> Unit) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Transaction Proof", fontWeight = FontWeight.Bold) },
+        title = { Text(stringResource(R.string.ui_transaction_proof), fontWeight = FontWeight.Bold) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                DetailRow("Group", groupName)
-                DetailRow("Reference", entry.transactionId ?: "System Internal")
-                DetailRow("Amount", com.sanibonani.save.ui.utils.formatZAR(entry.amount))
-                DetailRow("Balance After", com.sanibonani.save.ui.utils.formatZAR(entry.balanceAfter ?: com.sanibonani.save.domain.model.Money.ZERO))
-                DetailRow("Category", entry.category)
+                DetailRow(stringResource(R.string.ui_group), groupName)
+                DetailRow(stringResource(R.string.ui_reference), entry.transactionId ?: "System Internal")
+                DetailRow(stringResource(R.string.ui_claim_amount), com.sanibonani.save.ui.utils.formatZAR(entry.amount))
+                DetailRow(stringResource(R.string.ui_balance_after), com.sanibonani.save.ui.utils.formatZAR(entry.balanceAfter ?: Money.ZERO))
+                DetailRow(stringResource(R.string.ui_category), entry.category)
                 DetailRow("Date", entry.createdAt ?: "N/A")
-                DetailRow("Description", entry.description)
+                DetailRow(stringResource(R.string.ui_description), entry.description)
             }
         },
         confirmButton = {
-            TextButton(onClick = onDismiss) { Text("Close") }
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.ui_close)) }
         }
     )
 }

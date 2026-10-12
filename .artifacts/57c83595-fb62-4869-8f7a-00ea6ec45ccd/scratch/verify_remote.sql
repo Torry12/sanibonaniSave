@@ -26,5 +26,5 @@ BEGIN
     END IF;
 
     -- Cleanup
-    DELETE FROM public.groups WHERE id = v_group_id;
+    -- DELETE FROM public.groups WHERE id = v_group_id;
 END $$;

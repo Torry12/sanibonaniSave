@@ -1,5 +1,7 @@
 package com.sanibonani.save.data.remote.gateway
 
+import com.sanibonani.save.data.local.SanibonaniDatabase
+import com.sanibonani.save.data.local.toEntity
 import com.sanibonani.save.domain.gateway.BankSimulationGateway
 import com.sanibonani.save.domain.gateway.SimulatedTransaction
 import com.sanibonani.save.domain.model.BankTransaction
@@ -14,7 +16,8 @@ import javax.inject.Singleton
 
 @Singleton
 class BankSimulationGatewayImpl @Inject constructor(
-    private val supabase: SupabaseClient
+    private val supabase: SupabaseClient,
+    private val db: SanibonaniDatabase
 ) : BankSimulationGateway {
 
     override suspend fun simulateIncomingTransfer(
@@ -34,7 +37,14 @@ class BankSimulationGatewayImpl @Inject constructor(
             status = BankTransactionStatus.UNRECONCILED
         )
 
-        supabase.postgrest["bank_transactions"].insert(transaction)
+        // 1. Local Room cache for offline-first & instant UI reactivity
+        db.bankTransactionDao().upsert(listOf(transaction.toEntity()))
+
+        // 2. Sync to Supabase
+        runCatching {
+            supabase.postgrest["bank_transactions"].insert(transaction)
+        }
+
         txId
     }
 
@@ -56,7 +66,22 @@ class BankSimulationGatewayImpl @Inject constructor(
             )
         }
 
-        supabase.postgrest["bank_transactions"].insert(bankTransactions)
+        // 1. Local Room cache for offline-first & instant UI reactivity
+        db.bankTransactionDao().upsert(bankTransactions.map { it.toEntity() })
+
+        // 2. Sync to Supabase
+        runCatching {
+            supabase.postgrest["bank_transactions"].insert(bankTransactions)
+        }
+
         bankTransactions.mapNotNull { it.id }
+    }
+
+    override suspend fun getTransactionByReference(reference: String): Result<SimulatedTransaction?> = runCatching {
+        supabase.postgrest["bank_transactions"].select {
+            filter { eq("bank_reference", reference) }
+        }.decodeSingleOrNull<BankTransaction>()?.let {
+            SimulatedTransaction(it.amount, it.bankReference, it.description)
+        }
     }
 }

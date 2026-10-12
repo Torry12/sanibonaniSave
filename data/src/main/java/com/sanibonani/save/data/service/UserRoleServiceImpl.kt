@@ -29,13 +29,11 @@ class UserRoleServiceImpl @Inject constructor(
         val user = client.auth.currentSessionOrNull()?.user ?: return UserRole.MEMBER
         val sessionEmail = user.email?.trim()?.lowercase()
 
-        // 1. Platform Admin Email Check
-        if (PlatformAdminAuthPolicy.isPlatformAdminEmail(sessionEmail)) return UserRole.PLATFORM_ADMIN
+        val isAuthorizedPlatformAdmin = PlatformAdminAuthPolicy.isPlatformAdminEmail(sessionEmail)
 
-        // 2. Metadata Check
+        // Metadata & Database Role Resolution
         val metadataRole = user.userMetadata?.get("role")?.jsonPrimitive?.contentOrNull?.let(UserRoleMapper::fromRaw)
 
-        // 3. Database Check
         val profileRole = runCatching {
             withTimeoutOrNull(5.seconds) {
                 client.postgrest["profiles"].select {
@@ -46,7 +44,17 @@ class UserRoleServiceImpl @Inject constructor(
 
         val resolved = profileRole ?: metadataRole ?: UserRole.MEMBER
 
-        // 4. Group Admin Verification
+        // 🛡️ SECURITY ENFORCEMENT: Under no conditions can any user who is not platform admin ever log in as platform admin!
+        if (resolved == UserRole.PLATFORM_ADMIN && !isAuthorizedPlatformAdmin) {
+            AppLogger.w("UserRoleService", "SECURITY ALERT: Unauthorized attempt to assume platform admin role by $sessionEmail. Reverting to MEMBER.")
+            return UserRole.MEMBER
+        }
+
+        if (isAuthorizedPlatformAdmin) {
+            return UserRole.PLATFORM_ADMIN
+        }
+
+        // Group Admin Verification
         if (resolved == UserRole.GROUP_ADMIN && !hasOwnedGroup(user.id)) {
             return UserRole.MEMBER
         }
@@ -55,7 +63,6 @@ class UserRoleServiceImpl @Inject constructor(
     }
 
     override suspend fun updateUserRole(userId: String, role: UserRole, groupId: String?): Result<Unit> = runCatching {
-        // Implementation remains same as before but using abstracted client
         client.postgrest["profiles"].update(mapOf("role" to UserRoleMapper.toStorageValue(role))) {
             filter { eq("id", userId) }
         }

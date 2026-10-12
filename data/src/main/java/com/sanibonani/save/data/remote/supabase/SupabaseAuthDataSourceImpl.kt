@@ -3,12 +3,15 @@ package com.sanibonani.save.data.remote.supabase
 import com.sanibonani.save.data.datasource.AuthDataSource
 import com.sanibonani.save.data.remote.EdgeFunctionGateway
 import com.sanibonani.save.domain.logging.AppLogger
+import com.sanibonani.save.domain.model.AuthSession
+import com.sanibonani.save.domain.model.AuthSessionStatus
 import com.sanibonani.save.domain.model.MfaFactor
 import com.sanibonani.save.domain.model.TotpEnrollment
 import com.sanibonani.save.domain.model.UserRole
 import com.sanibonani.save.domain.utils.AuthIdentityUtils
 import com.sanibonani.save.domain.utils.PlatformAdminAuthPolicy
 import com.sanibonani.save.domain.utils.UserRoleMapper
+import com.sanibonani.save.domain.repository.system.DataConnectionProtocol
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.auth.mfa.FactorType
@@ -21,30 +24,52 @@ import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.postgrest.query.Columns
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.*
 import java.io.IOException
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.CancellationException
 
 @Singleton
 class SupabaseAuthDataSourceImpl @Inject constructor(
-    private val client: SupabaseClient,
+    protocol: DataConnectionProtocol,
     private val edgeFunctionGateway: EdgeFunctionGateway
-) : AuthDataSource {
+) : BaseSupabaseDataSource(protocol), AuthDataSource {
 
     private fun canonicalEmail(email: String): String = AuthIdentityUtils.normalizeEmail(email)
 
-    override val currentSession: UserSession? get() = client.auth.currentSessionOrNull()
-    override val currentUserId: String? get() = currentSession?.user?.id
-    override val currentSessionEmail: String? get() = currentSession?.user?.email
-    override val accessToken: String? get() = currentSession?.accessToken
-    override val isLoggedIn: Boolean get() = currentSession?.accessToken?.isNotBlank() == true
-    override val isMfaVerified: Boolean
-        get() = currentSession?.user?.appMetadata?.get("aal")?.jsonPrimitive?.contentOrNull == "aal2"
+    /**
+     * Raw SDK session. Used for the derived fields below; the domain-facing
+     * [currentSession] / [sessionFlow] / [sessionStatus] expose mapped
+     * [AuthSession] / [AuthSessionStatus] values so the Supabase SDK never
+     * crosses the module boundary.
+     */
+    private val rawSession: UserSession? get() = client.auth.currentSessionOrNull()
 
-    override val sessionStatus: Flow<SessionStatus> = client.auth.sessionStatus
-    override val sessionFlow: Flow<UserSession?> = client.auth.sessionStatus.map { status ->
-        (status as? SessionStatus.Authenticated)?.session
+    override val currentSession: AuthSession? get() = rawSession?.toAuthSession()
+    override val currentUserId: String? get() = rawSession?.user?.id
+    override val currentSessionEmail: String? get() = rawSession?.user?.email
+    override val accessToken: String? get() = rawSession?.accessToken
+    override val supabaseUrl: String get() = client.supabaseUrl
+    override val isLoggedIn: Boolean get() = rawSession?.accessToken?.isNotBlank() == true
+    override val isMfaVerified: Boolean
+        get() = rawSession?.user?.appMetadata?.get("aal")?.jsonPrimitive?.contentOrNull == "aal2"
+
+    override val sessionStatus: Flow<AuthSessionStatus> = client.auth.sessionStatus.map { it.toAuthSessionStatus() }
+    override val sessionFlow: Flow<AuthSession?> = client.auth.sessionStatus.map { status ->
+        (status as? SessionStatus.Authenticated)?.session?.toAuthSession()
+    }
+
+    private fun UserSession.toAuthSession(): AuthSession = AuthSession(
+        userId = user?.id ?: "",
+        email = user?.email,
+        accessToken = accessToken
+    )
+
+    private fun SessionStatus.toAuthSessionStatus(): AuthSessionStatus = when (this) {
+        is SessionStatus.Authenticated -> AuthSessionStatus.Authenticated(session.toAuthSession())
+        else -> AuthSessionStatus.NotAuthenticated()
     }
 
     override suspend fun signUp(email: String, password: String, metadata: Map<String, String>): Result<String> = runCatching {
@@ -61,6 +86,7 @@ class SupabaseAuthDataSourceImpl @Inject constructor(
             }
             response?.id ?: client.auth.currentUserOrNull()?.id ?: throw IllegalStateException("Signup succeeded but user ID is missing.")
         } catch (e: Exception) {
+            if (e is CancellationException) throw e
              val msg = e.message.orEmpty()
             if (msg.contains("already registered", ignoreCase = true) || msg.contains("400")) {
                 try {
@@ -127,7 +153,7 @@ class SupabaseAuthDataSourceImpl @Inject constructor(
     }
 
     override suspend fun getUserRole(): UserRole {
-        val user = currentSession?.user ?: return UserRole.MEMBER
+        val user = rawSession?.user ?: return UserRole.MEMBER
         val userId = user.id
         val sessionEmail = user.email?.trim()?.lowercase()
 
@@ -147,7 +173,7 @@ class SupabaseAuthDataSourceImpl @Inject constructor(
 
     override suspend fun updateUserRole(userId: String, role: UserRole, groupId: String?): Result<Unit> = runCatching {
         if (currentUserId == userId) {
-            val existingMeta = currentSession?.user?.userMetadata ?: buildJsonObject {}
+            val existingMeta = rawSession?.user?.userMetadata ?: buildJsonObject {}
             val updatedMeta = buildJsonObject {
                 existingMeta.forEach { (k, v) -> put(k, v) }
                 put("role", UserRoleMapper.toStorageValue(role))
@@ -173,7 +199,7 @@ class SupabaseAuthDataSourceImpl @Inject constructor(
 
     override suspend fun getMfaFactors(): Result<List<MfaFactor>> = runCatching {
         client.auth.currentUserOrNull()?.factors?.map {
-            MfaFactor(id = it.id, friendlyName = it.friendlyName ?: "Unnamed", factorType = it.factorType.toString(), status = "active")
+            MfaFactor(id = it.id, friendlyName = it.friendlyName ?: "Unnamed", type = it.factorType.toString(), status = "active")
         } ?: emptyList()
     }
 
@@ -184,7 +210,7 @@ class SupabaseAuthDataSourceImpl @Inject constructor(
 
     override suspend fun enrollMfa(): Result<TotpEnrollment> = runCatching {
         val response = client.auth.mfa.enroll(FactorType.TOTP)
-        TotpEnrollment(factorId = response.id, qrCode = response.data.qrCode, secret = response.data.secret, uri = response.data.uri)
+        TotpEnrollment(id = response.id, qrCode = response.data.qrCode, secret = response.data.secret, uri = response.data.uri)
     }
 
     override suspend fun resendVerificationEmail(email: String): Result<Unit> = runCatching {

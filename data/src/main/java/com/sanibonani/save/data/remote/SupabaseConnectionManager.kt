@@ -1,42 +1,34 @@
 package com.sanibonani.save.data.remote
 
-import android.content.Context
-import androidx.room.Room
-import com.sanibonani.save.BuildConfig
-import com.sanibonani.save.data.local.ALL_MIGRATIONS
+import com.sanibonani.save.data.local.LocalDatabaseProvider
 import com.sanibonani.save.data.local.SanibonaniDatabase
 import com.sanibonani.save.domain.logging.AppLogger
-import com.sanibonani.save.domain.utils.DevSettings
-import dagger.hilt.android.qualifiers.ApplicationContext
+import com.sanibonani.save.data.utils.DevSettings
+import com.sanibonani.save.domain.repository.system.DataConnectionProtocol
+import com.sanibonani.save.domain.repository.system.ConnectionStatus
 import io.github.jan.supabase.SupabaseClient
-import io.github.jan.supabase.auth.Auth
-import io.github.jan.supabase.createSupabaseClient
-import io.github.jan.supabase.functions.Functions
-import io.github.jan.supabase.postgrest.Postgrest
-import io.github.jan.supabase.realtime.Realtime
-import io.github.jan.supabase.serializer.KotlinXSerializer
-import io.github.jan.supabase.storage.Storage
-import io.ktor.client.engine.okhttp.OkHttp
-import io.ktor.client.plugins.HttpTimeout
-import io.ktor.client.plugins.logging.LogLevel
-import io.ktor.client.plugins.logging.Logging
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.serialization.json.Json
-import okhttp3.OkHttpClient
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import javax.inject.Inject
 import javax.inject.Singleton
-import kotlin.time.Duration.Companion.seconds
 
+/**
+ * Consolidated manager for Supabase and Room connections.
+ * Implements DataConnectionProtocol for dynamic switching.
+ */
 @Singleton
 class SupabaseConnectionManager @Inject constructor(
-    @ApplicationContext private val context: Context,
-    private val json: Json,
-    private val okHttpClient: OkHttpClient,
+    private val clientProvider: RemoteClientProvider,
+    private val dbProvider: LocalDatabaseProvider,
     private val devSettings: DevSettings
-) {
+) : DataConnectionProtocol {
     private val tag = "SupabaseConnMgr"
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
     private val _currentClient = MutableStateFlow<SupabaseClient?>(null)
     val currentClient: StateFlow<SupabaseClient?> = _currentClient.asStateFlow()
@@ -44,108 +36,81 @@ class SupabaseConnectionManager @Inject constructor(
     private val _currentDatabase = MutableStateFlow<SanibonaniDatabase?>(null)
     val currentDatabase: StateFlow<SanibonaniDatabase?> = _currentDatabase.asStateFlow()
 
+    private val _remoteStatus = MutableStateFlow<ConnectionStatus>(ConnectionStatus.Idle)
+    override val remoteStatus: StateFlow<ConnectionStatus> = _remoteStatus.asStateFlow()
+
+    private val _localStatus = MutableStateFlow<ConnectionStatus>(ConnectionStatus.Idle)
+    override val localStatus: StateFlow<ConnectionStatus> = _localStatus.asStateFlow()
+
     init {
+        rebuildConnections()
+        observeSettings()
+    }
+
+    private fun observeSettings() {
+        scope.launch {
+            devSettings.settingsChanged.collect {
+                rebuildConnections()
+            }
+        }
+    }
+
+    override suspend fun initialize(): Result<Unit> = runCatching {
         rebuildConnections()
     }
 
-    @OptIn(io.github.jan.supabase.annotations.SupabaseInternal::class)
+    override suspend fun shutdown(): Result<Unit> = runCatching {
+        _currentDatabase.value?.close()
+        _currentClient.value?.close()
+        _remoteStatus.value = ConnectionStatus.Idle
+        _localStatus.value = ConnectionStatus.Idle
+    }
+
+    override suspend fun rebuild(): Result<Unit> = runCatching {
+        rebuildConnections()
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    override fun <T : Any> getRemoteClient(clazz: Class<T>): T? {
+        val client = _currentClient.value
+        return if (clazz.isInstance(client)) client as T else null
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    override fun <T : Any> getLocalDatabase(clazz: Class<T>): T? {
+        val db = _currentDatabase.value
+        return if (clazz.isInstance(db)) db as T else null
+    }
+
     fun rebuildConnections() {
         val useOnline = devSettings.useOnlineDatabase
         AppLogger.i(tag, "🔄 Rebuilding connections. Online: $useOnline")
 
-        val newClient = createClient(useOnline)
-        _currentClient.value = newClient
+        _remoteStatus.value = ConnectionStatus.Connecting
+        _localStatus.value = ConnectionStatus.Connecting
 
-        val dbName = if (useOnline) "sanibonani_online.db" else "sanibonani_local.db"
-        _currentDatabase.value?.close()
-
-        val newDb = Room.databaseBuilder(
-            context,
-            SanibonaniDatabase::class.java,
-            dbName
-        ).addMigrations(*ALL_MIGRATIONS).apply {
-            if (BuildConfig.DEBUG) {
-                fallbackToDestructiveMigration()
+        try {
+            // Close old instances in background to avoid blocking main thread
+            val oldClient = _currentClient.value
+            val oldDb = _currentDatabase.value
+            scope.launch(Dispatchers.IO) {
+                runCatching { oldClient?.close() }
+                runCatching { oldDb?.close() }
             }
-        }.build()
 
-        _currentDatabase.value = newDb
-        AppLogger.i(tag, "✅ Connections rebuilt. Active DB: $dbName")
-    }
+            _currentClient.value = clientProvider.createClient(useOnline)
+            _remoteStatus.value = ConnectionStatus.Connected
 
-    @OptIn(io.github.jan.supabase.annotations.SupabaseInternal::class)
-    private fun createClient(useOnline: Boolean): SupabaseClient {
-        var url = if (useOnline) {
-            BuildConfig.SUPABASE_URL_ONLINE
-        } else {
-            BuildConfig.SUPABASE_URL_LOCAL
-        }.trim().removeSurrounding("\"").takeIf { it.isNotBlank() } ?: throw IllegalStateException("SUPABASE_URL is empty.")
+            _currentDatabase.value = dbProvider.createDatabase(useOnline)
+            _localStatus.value = ConnectionStatus.Connected
 
-        val anonKey = if (useOnline) {
-            BuildConfig.SUPABASE_ANON_KEY_ONLINE
-        } else {
-            BuildConfig.SUPABASE_ANON_KEY_LOCAL
-        }.trim().removeSurrounding("\"").takeIf { it.isNotBlank() } ?: throw IllegalStateException("SUPABASE_ANON_KEY is empty.")
-
-        if (!useOnline) {
-            val isEmulator = devSettings.forceEmulatorIp || isEmulatorHardware()
-            if (isEmulator && (url.contains("127.0.0.1") || url.contains("localhost"))) {
-                url = url.replace("127.0.0.1", "10.0.2.2").replace("localhost", "10.0.2.2")
-                AppLogger.w(tag, "🔄 Emulator detected. Mapping localhost to Bridge IP: $url")
-            }
+            AppLogger.i(tag, "✅ Connections rebuilt.")
+        } catch (e: Exception) {
+            val msg = if (useOnline) "Server unreachable. Please check your internet." else (e.message ?: "Connection failed")
+            _remoteStatus.value = ConnectionStatus.Error(msg, e)
+            _localStatus.value = ConnectionStatus.Error(msg, e)
+            AppLogger.e(tag, "❌ Connection rebuild failed", e)
         }
-
-        val finalUrl = url
-        return createSupabaseClient(
-            supabaseUrl = finalUrl,
-            supabaseKey = anonKey
-        ) {
-            httpConfig {
-                install(HttpTimeout) {
-                    val timeout = if (!useOnline && finalUrl.contains("10.0.2.2")) 10.seconds else 30.seconds
-                    requestTimeoutMillis = timeout.inWholeMilliseconds
-                    connectTimeoutMillis = timeout.inWholeMilliseconds
-                    socketTimeoutMillis = timeout.inWholeMilliseconds
-                }
-                install(Logging) {
-                    level = if (BuildConfig.DEBUG) LogLevel.HEADERS else LogLevel.NONE
-                    logger = object : io.ktor.client.plugins.logging.Logger {
-                        override fun log(message: String) {
-                            if (BuildConfig.DEBUG) {
-                                android.util.Log.d("Supabase", message)
-                            }
-                        }
-                    }
-                }
-            }
-
-            httpEngine = OkHttp.create {
-                preconfigured = okHttpClient
-            }
-            defaultSerializer = KotlinXSerializer(json)
-
-            install(Auth) {
-                autoSaveToStorage = true
-                alwaysAutoRefresh = true
-            }
-            install(Postgrest)
-            install(Storage)
-            install(Realtime)
-            install(Functions)
-        }
-    }
-
-    private fun isEmulatorHardware(): Boolean {
-        return android.os.Build.FINGERPRINT.contains("generic")
-                || android.os.Build.FINGERPRINT.contains("unknown")
-                || android.os.Build.MODEL.contains("google_sdk")
-                || android.os.Build.MODEL.contains("Emulator")
-                || android.os.Build.MODEL.contains("Android SDK built for x86")
-                || android.os.Build.MANUFACTURER.contains("Genymotion")
-                || "google_sdk" == android.os.Build.PRODUCT
-                || android.os.Build.HARDWARE.contains("goldfish")
-                || android.os.Build.HARDWARE.contains("ranchu")
-                || android.os.Build.PRODUCT.contains("sdk")
     }
 
     fun getClient(): SupabaseClient = _currentClient.value ?: throw IllegalStateException("SupabaseClient not initialized")

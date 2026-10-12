@@ -4,6 +4,8 @@ import android.content.Context
 import androidx.compose.ui.res.stringResource
 import com.sanibonani.save.R
 
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.*
@@ -15,15 +17,18 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.sanibonani.save.domain.model.*
-import com.sanibonani.save.domain.utils.FileDownloader
+import com.sanibonani.save.data.utils.FileDownloader
+import com.sanibonani.save.ui.components.*
 import com.sanibonani.save.ui.components.*
 import com.sanibonani.save.ui.theme.*
+import com.sanibonani.save.ui.utils.formatZAR
 import com.sanibonani.save.features.admin.presentation.*
 import com.sanibonani.save.features.admin.presentation.state.*
 import androidx.compose.foundation.lazy.*
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SupportAgent
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.window.Dialog
@@ -42,7 +47,10 @@ fun BeneficiaryEditDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.ui_edit_beneficiary)) },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(
+                modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
                 SanibonaniTextField(
                     value = beneficiary.fullName,
                     onValueChange = { text -> onUpdate(beneficiary.copy(fullName = text)) },
@@ -73,6 +81,129 @@ fun BeneficiaryEditDialog(
 }
 
 @Composable
+fun ClaimDetailDialog(
+    claim: BeneficiaryPayoutClaim,
+    onDismiss: () -> Unit,
+    onVerifyDoc: (String, Boolean) -> Unit,
+    onUpdateStatus: (BeneficiaryClaimStatus) -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.ui_claim_details_label, claim.beneficiaryName)) },
+        text = {
+            LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                item {
+                    Text(stringResource(R.string.ui_requisite_documents), style = MaterialTheme.typography.titleSmall)
+                }
+
+                item {
+                    DocumentAdminCard(
+                        label = "Face Photo",
+                        url = claim.facePhotoUrl,
+                        status = claim.facePhotoStatus,
+                        onVerify = { onVerifyDoc("face_photo", it) },
+                        onDownload = { _, _ -> } // Handled by global downloader if needed
+                    )
+                }
+
+                item {
+                    DocumentAdminCard(
+                        label = "Beneficiary ID",
+                        url = claim.beneficiaryIdUrl,
+                        status = claim.beneficiaryIdStatus,
+                        onVerify = { onVerifyDoc("beneficiary_id", it) },
+                        onDownload = { _, _ -> }
+                    )
+                }
+
+                item {
+                    DocumentAdminCard(
+                        label = "Death Certificate",
+                        url = claim.deathCertificateUrl,
+                        status = claim.deathCertificateStatus,
+                        onVerify = { onVerifyDoc("death_certificate", it) },
+                        onDownload = { _, _ -> }
+                    )
+                }
+
+                item {
+                    DocumentAdminCard(
+                        label = "Member ID",
+                        url = claim.memberIdUrl,
+                        status = claim.memberIdStatus,
+                        onVerify = { onVerifyDoc("member_id", it) },
+                        onDownload = { _, _ -> }
+                    )
+                }
+
+                item {
+                    HorizontalDivider(Modifier.padding(vertical = 8.dp))
+                    Text(stringResource(R.string.ui_financial_details), style = MaterialTheme.typography.titleSmall)
+                    DetailRow(stringResource(R.string.ui_amount_to_pay), formatZAR(claim.claimAmount))
+                    DetailRow("Bank", claim.bankName)
+                    DetailRow("Account", claim.accountNo)
+                }
+            }
+        },
+        confirmButton = {
+            if (claim.status == BeneficiaryClaimStatus.SUBMITTED) {
+                Button(onClick = { onUpdateStatus(BeneficiaryClaimStatus.APPROVED) }) {
+                    Text(stringResource(R.string.ui_approve_claim_btn))
+                }
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.ui_close)) }
+        }
+    )
+}
+
+@Composable
+fun PayoutDetailDialog(
+    payout: PayoutRequest,
+    onDismiss: () -> Unit,
+    onVerifyDoc: (Boolean) -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.ui_payout_request_details)) },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                DetailRow(stringResource(R.string.ui_amount_to_pay), formatZAR(payout.amount), isBold = true)
+                DetailRow("Type", payout.type.name)
+                DetailRow("Status", payout.status.name)
+
+                HorizontalDivider(Modifier.padding(vertical = 8.dp))
+
+                Text("Disbursement Banking Details", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                DetailRow("Bank", payout.bankName)
+                DetailRow("Account Number", payout.accountNo)
+                DetailRow("Branch Code", payout.branchCode)
+
+                if (!payout.supportingDocumentUrl.isNullOrBlank()) {
+                    HorizontalDivider(Modifier.padding(vertical = 8.dp))
+                    Text(stringResource(R.string.ui_requisite_documents), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+
+                    DocumentAdminCard(
+                        label = "Supporting Document",
+                        url = payout.supportingDocumentUrl,
+                        status = payout.supportingDocumentStatus,
+                        onVerify = onVerifyDoc,
+                        onDownload = { _, _ -> }
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("OK") }
+        }
+    )
+}
+
+@Composable
 fun AdminDashboardDialogs(
     overviewState: AdminOverviewUiState,
     memberState: AdminMemberUiState,
@@ -90,7 +221,6 @@ fun AdminDashboardDialogs(
     memberState.selectedMember?.let { member ->
         MemberDetailDialog(
             member = member,
-            group = overviewState.group,
             beneficiaries = memberState.selectedMemberBeneficiaries,
             documents = memberState.selectedMemberDocuments,
             calculation = memberState.selectedMemberCalculation,
@@ -113,7 +243,6 @@ fun AdminDashboardDialogs(
             onMessageChange = { memberVm.updateMessageText(it) },
             selectedNotifChannel = memberState.selectedNotifChannel,
             onNotifChannelChange = { memberVm.updateNotifChannel(it) },
-            onBroadcast = {},
             isSending = memberState.isSendingMessage,
             messageSuccess = memberState.messageSentSuccess,
             onEditBeneficiary = {},
@@ -124,6 +253,23 @@ fun AdminDashboardDialogs(
             onSaveBankingDetails = { bankName, accountNo, branchCode ->
                 member.id?.let { memberVm.updateBankingDetails(it, bankName, accountNo, branchCode) }
             }
+        )
+    }
+
+    financialState.selectedClaim?.let { claim ->
+        ClaimDetailDialog(
+            claim = claim,
+            onDismiss = { financialVm.selectClaim(null) },
+            onVerifyDoc = { key, approve -> financialVm.verifyClaimDocument(claim.id!!, key, approve) },
+            onUpdateStatus = { status -> financialVm.verifyClaimDocument(claim.id!!, "status", status == BeneficiaryClaimStatus.APPROVED) }
+        )
+    }
+
+    financialState.selectedPayout?.let { payout ->
+        PayoutDetailDialog(
+            payout = payout,
+            onDismiss = { financialVm.selectPayout(null) },
+            onVerifyDoc = { approve -> financialVm.verifyPayoutDocument(payout.id!!, approve) }
         )
     }
 
@@ -161,7 +307,7 @@ fun AdminDashboardDialogs(
     viewFileData?.let { (url, _, headers) ->
         FileViewerDialog(
             url = url,
-            type = if (url.contains(".pdf", ignoreCase = true)) "pdf" else "image",
+            fileName = "Document",
             headers = headers,
             onDismiss = { viewFileData = null }
         )
@@ -191,13 +337,13 @@ fun GroupSelectionDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Select Group") },
+        title = { Text(stringResource(R.string.ui_select_group)) },
         text = {
             Column {
                 OutlinedTextField(
                     value = query,
                     onValueChange = { query = it },
-                    label = { Text("Search Group") },
+                    label = { Text(stringResource(R.string.ui_search_group)) },
                     modifier = Modifier.fillMaxWidth(),
                     leadingIcon = { Icon(Icons.Default.Search, null) }
                 )
@@ -218,8 +364,9 @@ fun GroupSelectionDialog(
 
 @Composable
 fun MemberImpersonationDialog(
-    state: PlatformAdminUiState,
-    vm: PlatformAdminViewModel,
+    groups: List<Group>,
+    state: PlatformSupportUiState,
+    vm: PlatformSupportViewModel,
     onDismiss: () -> Unit,
     onMemberSelected: (String, String) -> Unit
 ) {
@@ -234,38 +381,38 @@ fun MemberImpersonationDialog(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Default.SupportAgent, null, tint = Navy)
                 Spacer(Modifier.width(12.dp))
-                Text("Support Manager")
+                Text(stringResource(R.string.ui_support_manager))
             }
         },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                TabRow(
+                PrimaryTabRow(
                     selectedTabIndex = selectedTabIndex,
                     containerColor = Color.Transparent,
                     contentColor = Navy,
                     divider = {}
                 ) {
                     Tab(selected = selectedTabIndex == 0, onClick = { selectedTabIndex = 0 }) {
-                        Text("By Group", modifier = Modifier.padding(8.dp), style = MaterialTheme.typography.labelMedium)
+                        Text(stringResource(R.string.ui_by_group), modifier = Modifier.padding(8.dp), style = MaterialTheme.typography.labelMedium)
                     }
                     Tab(selected = selectedTabIndex == 1, onClick = { selectedTabIndex = 1 }) {
-                        Text("Global Search", modifier = Modifier.padding(8.dp), style = MaterialTheme.typography.labelMedium)
+                        Text(stringResource(R.string.ui_global_search), modifier = Modifier.padding(8.dp), style = MaterialTheme.typography.labelMedium)
                     }
                 }
 
                 if (selectedTabIndex == 0) {
                     // --- EXISTING GROUP FLOW ---
                     if (selectedGroup == null) {
-                        Text("Step 1: Select Group", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelMedium)
+                        Text(stringResource(R.string.ui_step_1_select_group), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelMedium)
                         OutlinedTextField(
                             value = groupQuery,
                             onValueChange = { groupQuery = it },
-                            label = { Text("Search Group Name") },
+                            label = { Text(stringResource(R.string.ui_search_group_name)) },
                             modifier = Modifier.fillMaxWidth(),
                             leadingIcon = { Icon(Icons.Default.Search, null) }
                         )
                         LazyColumn(Modifier.heightIn(max = 300.dp)) {
-                            items(state.groups.filter { it.name.contains(groupQuery, ignoreCase = true) }) { group ->
+                            items(groups.filter { it.name.contains(groupQuery, ignoreCase = true) }) { group ->
                                 DropdownMenuItem(
                                     text = { Text(group.name) },
                                     onClick = {
@@ -276,8 +423,10 @@ fun MemberImpersonationDialog(
                             }
                         }
                     } else {
-                        val group = selectedGroup!!
-                        Text("Step 2: Select Member from ${group.name}", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelMedium)
+                        val group = selectedGroup
+                        if (group != null) {
+                            Text(stringResource(R.string.ui_step_2_select_member_from, group.name), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelMedium)
+                        }
                         if (state.isLoadingImpersonationMembers) {
                             Box(Modifier.fillMaxWidth().height(100.dp), contentAlignment = Alignment.Center) {
                                 CircularProgressIndicator(color = Navy)
@@ -286,7 +435,7 @@ fun MemberImpersonationDialog(
                             OutlinedTextField(
                                 value = memberQuery,
                                 onValueChange = { memberQuery = it },
-                                label = { Text("Search Member Name/ID") },
+                                label = { Text(stringResource(R.string.ui_search_member_name_id)) },
                                 modifier = Modifier.fillMaxWidth(),
                                 leadingIcon = { Icon(Icons.Default.Search, null) }
                             )
@@ -296,29 +445,29 @@ fun MemberImpersonationDialog(
                                         text = {
                                             Column {
                                                 Text(member.fullName)
-                                                Text(member.idNumber ?: "No ID", style = MaterialTheme.typography.labelSmall)
+                                                Text(member.idNumber ?: stringResource(R.string.ui_no_id), style = MaterialTheme.typography.labelSmall)
                                             }
                                         },
                                         onClick = {
-                                            vm.triggerImpersonationAudit(member.id ?: "", group.id ?: "")
-                                            onMemberSelected(member.id ?: "", group.id ?: "")
+                                            vm.triggerImpersonationAudit(member.id ?: "", group?.id ?: "")
+                                            onMemberSelected(member.id ?: "", group?.id ?: "")
                                         }
                                     )
                                 }
                             }
                         }
-                        TextButton(onClick = { selectedGroup = null }) { Text("Back to Group Selection") }
+                        TextButton(onClick = { selectedGroup = null }) { Text(stringResource(R.string.ui_back_to_group_selection)) }
                     }
                 } else {
                     // --- GLOBAL SEARCH FLOW ---
-                    Text("Search Across Platform", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelMedium)
+                    Text(stringResource(R.string.ui_search_across_platform), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelMedium)
                     OutlinedTextField(
                         value = state.searchQuery,
                         onValueChange = { vm.searchAllMembers(it); vm.updateSearchQuery(it) },
-                        label = { Text("Search Member by Name or ID Number") },
+                        label = { Text(stringResource(R.string.ui_search_member_by_name_or_id)) },
                         modifier = Modifier.fillMaxWidth(),
                         leadingIcon = { Icon(Icons.Default.Search, null) },
-                        placeholder = { Text("Min 3 characters...") }
+                        placeholder = { Text(stringResource(R.string.ui_min_3_characters)) }
                     )
 
                     if (state.searchQuery.length >= 3) {
@@ -343,5 +492,149 @@ fun MemberImpersonationDialog(
             }
         },
         confirmButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+    )
+}
+
+@Composable
+fun ActuarialHealthDialog(
+    group: Group,
+    metrics: ActuarialMetrics?,
+    healthScore: GroupHealthScore?,
+    isLoading: Boolean,
+    onDismiss: () -> Unit,
+    onNavigateToHealthScore: (String) -> Unit,
+    onDeleteGroup: ((String) -> Unit)? = null
+) {
+    var showConfirmDelete by remember { mutableStateOf(false) }
+
+    if (showConfirmDelete) {
+        AlertDialog(
+            onDismissRequest = { showConfirmDelete = false },
+            title = { Text("Delete Group from Platform?", color = ErrorRed, fontWeight = FontWeight.Bold) },
+            text = { Text("Are you sure you want to permanently delete \"${group.name}\"? This action will remove the group and all its records from the platform.") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showConfirmDelete = false
+                        onDismiss()
+                        onDeleteGroup?.invoke(group.id ?: "")
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = ErrorRed)
+                ) {
+                    Text("Delete Permanently", color = Color.White)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showConfirmDelete = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Text("Actuarial Health: ${group.name}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                if (onDeleteGroup != null) {
+                    TextButton(
+                        onClick = { showConfirmDelete = true },
+                        colors = ButtonDefaults.textButtonColors(contentColor = ErrorRed)
+                    ) {
+                        Text("Delete Group", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                metrics?.let { m ->
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        MetricRow(
+                            label = "Actuarial Health Score",
+                            value = "${m.compositeRiskScore}/100",
+                            color = when {
+                                m.compositeRiskScore >= 80 -> SuccessGreen
+                                m.compositeRiskScore >= 55 -> WarningAmber
+                                else -> ErrorRed
+                            }
+                        )
+
+                        if (m.keyMetrics.isNotEmpty()) {
+                            m.keyMetrics.forEach { metric ->
+                                MetricRow(
+                                    label = metric.title,
+                                    value = metric.resultText,
+                                    color = when (metric.status) {
+                                        "OK", "OPTIMAL" -> SuccessGreen
+                                        "WARNING", "LOW" -> WarningAmber
+                                        "CRITICAL" -> ErrorRed
+                                        else -> MaterialTheme.colorScheme.primary
+                                    }
+                                )
+                            }
+                        } else {
+                            MetricRow("Reserve Adequacy", "${m.reserveAdequacyPct}%", MaterialTheme.colorScheme.primary)
+                            MetricRow("Solvency Margin", "${m.solvencyMarginPct}%", MaterialTheme.colorScheme.primary)
+                            MetricRow("Expected Claims (Ann)", formatZAR(m.expectedAnnualClaims), MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
+
+                if (isLoading) {
+                    Box(Modifier.fillMaxWidth(), Alignment.Center) {
+                        CircularProgressIndicator(color = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp))
+                    }
+                } else {
+                    healthScore?.let { score ->
+                        HorizontalDivider(color = LightGray.copy(alpha = 0.3f))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column {
+                                Text(stringResource(R.string.ui_composite_health_score), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
+                                Text("${score.overallScore}/100", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black, color = if (score.zone == RiskZone.GREEN) SuccessGreen else if (score.zone == RiskZone.YELLOW) WarningAmber else ErrorRed)
+                            }
+
+                            Surface(
+                                color = (if (score.zone == RiskZone.GREEN) SuccessGreen else if (score.zone == RiskZone.YELLOW) WarningAmber else ErrorRed).copy(alpha = 0.1f),
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Text(
+                                    score.zone.name,
+                                    modifier = Modifier.padding(8.dp, 4.dp),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = if (score.zone == RiskZone.GREEN) SuccessGreen else if (score.zone == RiskZone.YELLOW) WarningAmber else ErrorRed,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+
+                        Button(
+                            onClick = {
+                                onDismiss()
+                                onNavigateToHealthScore(group.id ?: "")
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text(stringResource(R.string.ui_view_full_health_report))
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.ui_close))
+            }
+        }
     )
 }

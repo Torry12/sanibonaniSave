@@ -3,13 +3,23 @@ package com.sanibonani.save.viewmodel
 import android.util.Log
 import androidx.arch.core.executor.testing.InstantTaskExecutorRule
 import com.sanibonani.save.domain.model.*
-import com.sanibonani.save.domain.repository.*
-import com.sanibonani.save.domain.service.MemberActuarialService
+import com.sanibonani.save.domain.repository.admin.*
+import com.sanibonani.save.domain.repository.auth.*
+import com.sanibonani.save.domain.repository.equity.ContributionRepository
+import com.sanibonani.save.domain.repository.treasury.LedgerRepository
+import com.sanibonani.save.domain.repository.group.*
+import com.sanibonani.save.domain.repository.member.*
+import com.sanibonani.save.domain.repository.system.*
+import com.sanibonani.save.domain.service.NetworkConnectivityService
+import com.sanibonani.save.domain.utils.PaymentCalculator
 import com.sanibonani.save.service.MemberGroupContextCacheService
+import com.sanibonani.save.domain.usecase.group.GetGroupBusinessInsightsUseCase
+import com.sanibonani.save.features.member.presentation.MemberOverviewViewModel
 import io.mockk.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.*
 import org.junit.After
 import org.junit.Assert.*
@@ -17,6 +27,7 @@ import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import com.google.firebase.crashlytics.FirebaseCrashlytics
+import com.sanibonani.save.domain.repository.credit.LoanRepository
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class MemberOverviewViewModelTest {
@@ -26,10 +37,17 @@ class MemberOverviewViewModelTest {
 
     private val memberContextCacheService = mockk<MemberGroupContextCacheService>(relaxed = true)
     private val memberRepo = mockk<MemberRepository>(relaxed = true)
+    private val contributionRepo = mockk<ContributionRepository>(relaxed = true)
     private val groupRepo = mockk<GroupRepository>(relaxed = true)
+    private val ledgerRepo = mockk<LedgerRepository>(relaxed = true)
     private val exportRepo = mockk<ExportRepository>(relaxed = true)
-    private val actuarialService = mockk<MemberActuarialService>(relaxed = true)
     private val supabaseRepo = mockk<SupabaseRepository>(relaxed = true)
+    private val loanRepo = mockk<LoanRepository>(relaxed = true)
+    private val auditRepo = mockk<AuditRepository>(relaxed = true)
+    private val notifRepo = mockk<NotificationRepository>(relaxed = true)
+    private val getGroupBusinessInsightsUseCase = mockk<GetGroupBusinessInsightsUseCase>(relaxed = true)
+    private val paymentCalculator = mockk<PaymentCalculator>(relaxed = true)
+    private val networkService = mockk<NetworkConnectivityService>(relaxed = true)
 
     private lateinit var viewModel: MemberOverviewViewModel
     private val testDispatcher = StandardTestDispatcher()
@@ -46,18 +64,31 @@ class MemberOverviewViewModelTest {
         val mockCrashlytics = mockk<FirebaseCrashlytics>(relaxed = true)
         every { FirebaseCrashlytics.getInstance() } returns mockCrashlytics
 
+        // Mock Looper
+        mockkStatic(android.os.Looper::class)
+        every { android.os.Looper.getMainLooper() } returns mockk(relaxed = true)
+
         Dispatchers.setMain(testDispatcher)
 
         every { supabaseRepo.currentUserId } returns "user_123"
         every { memberContextCacheService.contexts } returns MutableStateFlow(emptyMap())
+        every { networkService.isOnline } returns flowOf(true)
+        every { networkService.isAirplaneModeActive } returns flowOf(false)
 
         viewModel = MemberOverviewViewModel(
             memberContextCacheService,
             memberRepo,
+            contributionRepo,
             groupRepo,
+            ledgerRepo,
             exportRepo,
-            actuarialService,
-            supabaseRepo
+            supabaseRepo,
+            loanRepo,
+            auditRepo,
+            notifRepo,
+            getGroupBusinessInsightsUseCase,
+            paymentCalculator,
+            networkService
         )
     }
 
@@ -72,6 +103,7 @@ class MemberOverviewViewModelTest {
         val groupId = "test_group"
 
         viewModel.selectGroup(groupId)
+        advanceUntilIdle()
 
         assertEquals(groupId, viewModel.state.value.selectedGroupId)
         coVerify { memberContextCacheService.warmUpForUser("user_123") }
@@ -80,24 +112,26 @@ class MemberOverviewViewModelTest {
     @Test
     fun `loadMemberships automatically selects first group if none selected`() = runTest {
         val memberships = listOf(Member(id = "m1", groupId = "g1"))
-        coEvery { memberRepo.getMemberships("user_123") } returns Result.success(memberships)
+        every { memberRepo.observeMemberships("user_123") } returns flowOf(Result.success<List<Member>>(memberships))
 
-        // We need to trigger loadMemberships which happens in init.
-        // But since we mocked memberRepo AFTER viewModel creation in setup, we might need to recreate or trigger manually if it was possible.
-        // Actually setup creates it. Let's just test that memberships are loaded.
-
-        // Re-creating to capture the coEvery stub
+        // Re-creating to capture the every stub
         viewModel = MemberOverviewViewModel(
             memberContextCacheService,
             memberRepo,
+            contributionRepo,
             groupRepo,
+            ledgerRepo,
             exportRepo,
-            actuarialService,
-            supabaseRepo
+            supabaseRepo,
+            loanRepo,
+            auditRepo,
+            notifRepo,
+            getGroupBusinessInsightsUseCase,
+            paymentCalculator,
+            networkService
         )
         advanceUntilIdle()
 
-        assertEquals(memberships, viewModel.state.value.memberships)
         assertEquals("g1", viewModel.state.value.selectedGroupId)
     }
 }

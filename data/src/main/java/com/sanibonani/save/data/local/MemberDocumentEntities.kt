@@ -1,6 +1,7 @@
 package com.sanibonani.save.data.local
 
 import androidx.room.*
+import androidx.room.Transaction as RoomTransaction
 import com.sanibonani.save.domain.model.*
 import kotlinx.coroutines.flow.Flow
 
@@ -40,7 +41,7 @@ interface MemberDocumentDao {
     @Query("DELETE FROM member_documents")
     suspend fun clearAll()
 
-    @androidx.room.Transaction
+    @RoomTransaction
     suspend fun syncDocuments(memberId: String, documents: List<MemberDocumentEntity>) {
         deleteDocumentsByMemberId(memberId)
         upsertDocuments(documents)
@@ -48,4 +49,31 @@ interface MemberDocumentDao {
 
     @Query("DELETE FROM member_documents WHERE group_id = :groupId")
     suspend fun deleteDocumentsByGroupId(groupId: String)
+
+    @Query("DELETE FROM member_documents WHERE id = :id")
+    suspend fun deleteById(id: String)
 }
+
+// ── Mappers ──────────────────────────────────────────────────────────────────
+
+fun MemberDocumentEntity.toModel() = MemberDocument(
+    id = id,
+    memberId = memberId,
+    groupId = groupId,
+    label = label,
+    documentUrl = documentUrl,
+    documentType = documentType,
+    status = status,
+    createdAt = createdAt
+)
+
+fun MemberDocument.toEntity() = MemberDocumentEntity(
+    id = id ?: java.util.UUID.randomUUID().toString(),
+    memberId = memberId,
+    groupId = groupId,
+    label = label,
+    documentUrl = documentUrl,
+    documentType = documentType,
+    status = status,
+    createdAt = createdAt
+)

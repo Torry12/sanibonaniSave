@@ -191,7 +191,7 @@ object PlatformArchitectureBlueprintCatalog {
             model(
                 FinancialGroupModel.INVESTMENT_GROUP,
                 "Capital pooling for portfolio growth and member NAV tracking.",
-                mappedGroupTypes = listOf(GroupType.INVESTMENT_CLUB, GroupType.TONTINE),
+                    mappedGroupTypes = listOf(GroupType.INVESTMENT_CLUB),
                 backendFunctions = listOf(
                     fn("mark_to_market", "market_close", "Refresh portfolio valuation."),
                     fn("compute_nav", "valuation_updated", "Compute NAV per unit and return metrics.")

@@ -2,8 +2,6 @@ package com.sanibonani.save.domain.service
 
 import com.sanibonani.save.domain.model.*
 import com.sanibonani.save.domain.repository.admin.PlatformConfigRepository
-import java.math.BigDecimal
-import java.math.RoundingMode
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -15,8 +13,7 @@ class PlatformFeeService @Inject constructor(
     private val configRepo: PlatformConfigRepository
 ) {
     /**
-     * Calculates the total monthly fee the group owes to the platform.
-     * Rule: [Monthly Member Fee] * [Current Active Members]
+     * Calculates the total monthly platform fee the group owes to the platform.
      */
     fun calculateMonthlyGroupTotal(group: Group): Money {
         val config = configRepo.current()
@@ -24,11 +21,10 @@ class PlatformFeeService @Inject constructor(
     }
 
     /**
-     * Calculates the portion of a member's monthly payment that belongs to the platform.
+     * Calculates the portion of a member's monthly payment that belongs to the platform (individual member platform fee).
      */
     fun calculateMonthlyMemberIndividual(group: Group, member: Member): Money {
         val config = configRepo.current()
-        // Standard rule: every member pays the same base platform fee.
         return config.monthlyMemberFee
     }
 
@@ -49,21 +45,23 @@ class PlatformFeeService @Inject constructor(
      * Business Rule: High-value disbursements require enhanced security.
      */
     fun isMfaRequiredForDisbursement(amount: Money): Boolean {
-        // Hardcoded threshold of R10,000.00 for security hardening
         return amount >= Money(10000.0)
     }
 
     /**
-     * Returns the registration fee for a new group.
+     * Returns the registration fee for a group, prioritizing group-specific custom fees over global config.
      */
-    fun getRegistrationFee(): Money {
+    fun getRegistrationFee(group: Group? = null): Money {
+        if (group != null && group.joiningFee.isPositive) {
+            return group.joiningFee
+        }
         return configRepo.current().registrationFee
     }
 
     /**
      * Returns the shortfall recovery fee applied when a member catches up on arrears.
      */
-    fun getShortfallRecoveryFee(): Money {
+    fun getShortfallRecoveryFee(group: Group? = null): Money {
         return configRepo.current().shortfallRecoveryFee
     }
 }

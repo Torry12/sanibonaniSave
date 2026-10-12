@@ -25,10 +25,12 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.sanibonani.save.R
 import com.sanibonani.save.ui.components.*
+import com.sanibonani.save.ui.components.*
 import com.sanibonani.save.ui.theme.*
 import com.sanibonani.save.ui.utils.KeyboardAwareScrollColumn
 import com.sanibonani.save.ui.utils.ToastUtils
 import com.sanibonani.save.ui.utils.rememberClickDebouncer
+import com.sanibonani.save.ui.components.InfoType
 import com.sanibonani.save.features.auth.presentation.AuthViewModel
 
 @Composable
@@ -68,7 +70,7 @@ fun UpdatePasswordScreen(
             Spacer(Modifier.height(8.dp))
 
             if (!state.isLoggedIn && !state.isLoading && state.error == null) {
-                InfoBox("Waiting for session... If you see an error about 'missing sub claim', the reset link might be invalid.", InfoType.INFO)
+                InfoBox("Waiting for session... If you see an error about 'missing sub claim', the reset link might be invalid.", type = InfoType.INFO)
             }
 
             var passwordVisible by remember { mutableStateOf(false) }
@@ -121,7 +123,7 @@ fun UpdatePasswordScreen(
             )
 
             state.error?.let { error ->
-                InfoBox(error, InfoType.ERROR)
+                InfoBox(error, type = InfoType.ERROR)
             }
 
             SanibonaniButton(

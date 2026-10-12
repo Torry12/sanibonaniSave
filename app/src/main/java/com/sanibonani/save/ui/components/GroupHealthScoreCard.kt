@@ -1,5 +1,6 @@
 package com.sanibonani.save.ui.components
 
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
@@ -70,7 +71,9 @@ fun GroupHealthScoreCard(
                         .size(140.dp)
                         .align(Alignment.CenterHorizontally)
                         .background(
-                            color = score.zone.backgroundColor(),
+                            brush = androidx.compose.ui.graphics.Brush.linearGradient(
+                                colors = listOf(score.zone.backgroundColor(), score.zone.backgroundColor().copy(alpha = 0.6f))
+                            ),
                             shape = CircleShape
                         ),
                     contentAlignment = Alignment.Center
@@ -115,21 +118,26 @@ fun GroupHealthScoreCard(
                 Spacer(modifier = Modifier.height(16.dp))
 
                 // Top recommendations
-                if (score.recommendations.isNotEmpty()) {
-                    Text(
-                        "Recommendations",
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.padding(bottom = 8.dp)
-                    )
-                    score.recommendations.take(3).forEach { rec ->
+                androidx.compose.animation.AnimatedVisibility(
+                    visible = score.recommendations.isNotEmpty(),
+                    enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.expandVertically()
+                ) {
+                    Column {
                         Text(
-                            text = "• $rec",
-                            style = MaterialTheme.typography.bodySmall,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(bottom = 6.dp)
+                            "Recommendations",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.padding(bottom = 8.dp)
                         )
+                        score.recommendations.take(3).forEach { rec ->
+                            Text(
+                                text = "• $rec",
+                                style = MaterialTheme.typography.bodySmall,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(bottom = 6.dp)
+                            )
+                        }
                     }
                 }
 

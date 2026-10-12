@@ -1,4 +1,4 @@
-import java.util.Properties
+import com.sanibonani.save.build.getSafeProp
 
 plugins {
     id("com.android.library")
@@ -9,28 +9,16 @@ plugins {
     alias(libs.plugins.ksp)
 }
 
-// ── Load secrets from local.properties ────────────────────────────────────────
-val localProps = Properties().apply {
-    val f = rootProject.file("local.properties")
-    if (f.exists()) load(f.inputStream())
-}
-
-fun getSafeProp(key: String, default: String = ""): String {
-    val raw = localProps.getProperty(key, default)
-    val clean = raw.trim().removeSurrounding("\"")
-    return "\"$clean\""
-}
-
 android {
     namespace = "com.sanibonani.save.domain"
-    compileSdk = 36
+    compileSdk = 37
 
     defaultConfig {
         minSdk = 26
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         // ── Platform Admin Policy ───────────────────────────────────────────────
-        buildConfigField("String", "PLATFORM_ADMIN_EMAIL", getSafeProp("PLATFORM_ADMIN_EMAIL", "torrymsimango@gmail.com"))
+        buildConfigField("String", "PLATFORM_ADMIN_EMAIL", getSafeProp(project, "PLATFORM_ADMIN_EMAIL", "torrymsimango@gmail.com"))
     }
 
     compileOptions {
@@ -52,20 +40,11 @@ dependencies {
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.kotlinx.datetime)
     implementation(libs.kotlinx.coroutines.core)
-    
-    // Auth & Supabase (needed for SupabaseManager and some models/interfaces)
-    implementation(platform(libs.supabase.bom))
-    implementation(libs.supabase.postgrest)
-    implementation(libs.supabase.auth)
-    implementation(libs.supabase.realtime)
-
-    // AndroidX
-    implementation(libs.core.ktx)
 
     // Hilt
     implementation(libs.hilt.android)
     ksp(libs.hilt.android.compiler)
-    
+
     // Testing
     testImplementation(libs.junit)
     testImplementation(libs.mockk)

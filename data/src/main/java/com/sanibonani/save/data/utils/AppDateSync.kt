@@ -1,7 +1,7 @@
- package com.sanibonani.save.data.utils
-
+package com.sanibonani.save.data.utils
 import android.content.Context
 import android.content.SharedPreferences
+import com.sanibonani.save.domain.logging.AppLogger
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalDateTime
@@ -76,7 +76,7 @@ object AppDateSync {
             .putString(KEY_LAST_KNOWN_DATE, currentSystemDate.format(dateFormatter))
             .apply()
 
-        android.util.Log.d("AppDateSync", "📅 Date synced on launch: $currentSystemDate")
+        AppLogger.d("AppDateSync", "📅 Date synced on launch: $currentSystemDate")
     }
 
     /**
@@ -96,7 +96,7 @@ object AppDateSync {
             .putString(KEY_LAST_KNOWN_DATE, currentSystemDate.format(dateFormatter))
             .apply()
 
-        android.util.Log.d("AppDateSync", "📅 Date synced on exit: $currentSystemDate")
+        AppLogger.d("AppDateSync", "📅 Date synced on exit: $currentSystemDate")
     }
 
     /**
@@ -114,7 +114,7 @@ object AppDateSync {
 
         // Check if date changed while app was paused
         if (previousDate != null && previousDate != currentDateStr) {
-            android.util.Log.i("AppDateSync", "📅 Date changed during pause: $previousDate -> $currentDateStr")
+            AppLogger.i("AppDateSync", "📅 Date changed during pause: $previousDate -> $currentDateStr")
         }
 
         // Update stored date

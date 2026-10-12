@@ -1,26 +1,31 @@
-# Implementation Plan - Fix App Crash at Launch
+# Implementation Plan - Improve Map Pin Aesthetics
 
-The app is crashing at launch due to an `IllegalStateException` thrown when `SupabaseClient` or `SanibonaniDatabase` is accessed before they are initialized. This happens because `SupabaseConnectionManager` performs its initial connection build in a background coroutine, while some startup components (like `SplashViewModel` or certain Singletons) require these dependencies immediately during Hilt injection or initialization.
+Refactor the custom map marker generation to align with the SanibonaniSave brand identity and improve visual clarity on the discovery map. The new pins will be more professional, better sized, and feature high-contrast emoji rendering.
 
 ## Proposed Changes
 
-### [SupabaseConnectionManager.kt](file:///C:/Users/CRISS/AndroidStudioProjects/SanibonaniSave_Full/data/src/main/java/com/sanibonani/save/data/remote/SupabaseConnectionManager.kt)
+### 1. Pin Visual Refinement
+#### [MODIFY] [MapComponents.kt](file:///C:/Users/CRISS/AndroidStudioProjects/SanibonaniSave_Full/app/src/main/java/com/sanibonani/save/ui/components/MapComponents.kt)
+- **Color Update**: Change the base pin color from hardcoded Brown (`0xFF3E2723`) to the project's authoritative **Navy** (`0xFF001F3F`).
+- **Shape Polish**:
+    - Smooth out the "Drop" tail for a more modern appearance.
+    - Add a subtle outer stroke (White) to help the pin stand out against diverse map tiles.
+- **Emoji Scaling**:
+    - Adjust the text size and vertical offset to ensure emojis are perfectly centered within the white inner circle.
+    - Reduce the overall bitmap size from 120px to **96px** to reduce visual clutter in high-density areas like Johannesburg.
 
-- **Synchronous Initialization**: Update the `init` block to call `performRebuildSync()` instead of launching a background coroutine for the initial connection. This ensures that the `SupabaseClient` and `SanibonaniDatabase` are available as soon as Hilt provides the `SupabaseConnectionManager`.
-- **Maintain Performance**: Since `createSupabaseClient` and `Room.databaseBuilder(...).build()` are lightweight configuration-only operations that do not perform immediate I/O, this change will not cause ANRs during startup.
-
-### [BankSimulationGatewayImpl.kt](file:///C:/Users/CRISS/AndroidStudioProjects/SanibonaniSave_Full/data/src/main/java/com/sanibonani/save/data/remote/gateway/BankSimulationGatewayImpl.kt)
-
-- **Inject Provider**: Change the direct `SupabaseClient` dependency to a `javax.inject.Provider<SupabaseClient>`. This ensures the gateway always uses the currently active client (respecting environment swaps between local/online) and avoids holding a stale reference.
-- **Lazy Access**: Update all methods to use `supabaseProvider.get()` instead of the direct `supabase` property.
+### 2. Rendering Quality
+- **Anti-Aliasing**: Ensure all drawing operations use `ANTI_ALIAS_FLAG` for crisp edges.
+- **Anchor Adjustment**: Fine-tune the marker anchor to ensure the tip of the pin points precisely to the geographic coordinate.
 
 ## Verification Plan
 
-### Automated Tests
-- Run `:app:assembleDebug` to ensure compilation.
-- (If possible) Run a simple instrumentation test that launches the app to verify no crash occurs at startup.
+### Automated Verification
+- **Build Status**: Confirm the project compiles with the updated drawing logic.
 
 ### Manual Verification
-- Deploy the app to a device/emulator.
-- Observe the splash screen: it should transition from "Connecting..." to the login screen or dashboard without crashing.
-- Verify that toggling between "Online" and "Local" in Dev Settings still works (this relies on the `Provider` change in `BankSimulationGatewayImpl`).
+- **Visual Audit**: Open the **Discover Groups** map. Verify that:
+    - Pins are now Navy Blue.
+    - Emojis (🤝, 💰, etc.) are clearly visible and centered.
+    - Pins have a clean white border.
+- **Scale Check**: Verify that multiple pins in close proximity (Joburg clusters) are more legible and less overlapping due to the reduced size.

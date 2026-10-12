@@ -1,5 +1,6 @@
 package com.sanibonani.save.domain.validation
 
+import com.sanibonani.save.domain.model.Money
 import com.sanibonani.save.domain.utils.isPositiveMoneyAmount
 import com.sanibonani.save.domain.utils.parseMoneyAmountOrNull
 import java.math.BigDecimal
@@ -145,7 +146,7 @@ object ValidationUtils {
 
     fun isValidName(name: String): Boolean = InputValidator.isValidName(name)
 
-    fun isValidAmount(amount: Double): Boolean = amount.isPositiveMoneyAmount()
+    fun isValidAmount(amount: Money): Boolean = amount.isPositive
 
     fun isValidBankingDetails(accountNumber: String, branchCode: String): Boolean {
         return isValidBankAccount(accountNumber) && isValidBranchCode(branchCode)

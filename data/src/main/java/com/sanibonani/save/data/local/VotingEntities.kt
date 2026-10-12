@@ -1,6 +1,7 @@
 package com.sanibonani.save.data.local
 
 import androidx.room.*
+import androidx.room.Transaction as RoomTransaction
 import com.sanibonani.save.domain.model.*
 import kotlinx.coroutines.flow.Flow
 
@@ -74,7 +75,7 @@ data class GroupPollWithDetailsEntity(
 
 @Dao
 interface GroupVotingDao {
-    @androidx.room.Transaction
+    @RoomTransaction
     @Query("SELECT * FROM group_polls WHERE group_id = :groupId ORDER BY created_at DESC")
     fun observePollsWithDetails(groupId: String): Flow<List<GroupPollWithDetailsEntity>>
 
@@ -90,7 +91,7 @@ interface GroupVotingDao {
     @Query("DELETE FROM group_polls WHERE group_id = :groupId")
     suspend fun deletePollsByGroupId(groupId: String)
 
-    @androidx.room.Transaction
+    @RoomTransaction
     suspend fun syncPolls(groupId: String, polls: List<GroupPollEntity>) {
         val current = getGroupPolls(groupId).map { it.id }.toSet()
         val incoming = polls.map { it.id }.toSet()
@@ -122,3 +123,75 @@ interface GroupVotingDao {
     @Query("DELETE FROM group_polls")
     suspend fun clearAll()
 }
+
+// ── Mappers ──────────────────────────────────────────────────────────────────
+
+fun GroupPollEntity.toModel() = GroupPoll(
+    id = id,
+    groupId = groupId,
+    createdByMemberId = createdByMemberId,
+    title = title,
+    description = description,
+    type = type,
+    status = status,
+    effectStatus = effectStatus,
+    effectData = effectData,
+    allowMultipleChoice = allowMultipleChoice,
+    startsAt = startsAt,
+    endsAt = endsAt,
+    createdAt = createdAt,
+    updatedAt = updatedAt
+)
+
+fun GroupPoll.toEntity() = GroupPollEntity(
+    id = id ?: java.util.UUID.randomUUID().toString(),
+    groupId = groupId,
+    createdByMemberId = createdByMemberId,
+    title = title,
+    description = description,
+    type = type,
+    status = status,
+    effectStatus = effectStatus,
+    effectData = effectData,
+    allowMultipleChoice = allowMultipleChoice,
+    startsAt = startsAt,
+    endsAt = endsAt,
+    createdAt = createdAt,
+    updatedAt = updatedAt
+)
+
+fun GroupPollOptionEntity.toModel() = GroupPollOption(
+    id = id,
+    pollId = pollId,
+    label = label,
+    position = position,
+    createdAt = createdAt
+)
+
+fun GroupPollOption.toEntity() = GroupPollOptionEntity(
+    id = id ?: java.util.UUID.randomUUID().toString(),
+    pollId = pollId,
+    label = label,
+    position = position,
+    createdAt = createdAt
+)
+
+fun GroupPollVoteEntity.toModel() = GroupPollVote(
+    id = id,
+    pollId = pollId,
+    optionId = optionId,
+    memberId = memberId,
+    groupId = groupId,
+    createdAt = createdAt,
+    updatedAt = updatedAt
+)
+
+fun GroupPollVote.toEntity() = GroupPollVoteEntity(
+    id = id ?: java.util.UUID.randomUUID().toString(),
+    pollId = pollId,
+    optionId = optionId,
+    memberId = memberId,
+    groupId = groupId,
+    createdAt = createdAt,
+    updatedAt = updatedAt
+)

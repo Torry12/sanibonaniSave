@@ -1,0 +1,289 @@
+package com.sanibonani.save.data.repository.system
+
+import com.sanibonani.save.data.repository.BaseRepository
+import com.sanibonani.save.data.local.*
+import com.sanibonani.save.data.local.toEntity
+import com.sanibonani.save.data.local.toLedgerEntity
+import com.sanibonani.save.domain.logging.AppLogger
+import com.sanibonani.save.domain.model.*
+import com.sanibonani.save.domain.utils.toUserMessage
+import com.sanibonani.save.domain.repository.auth.*
+import com.sanibonani.save.domain.repository.group.*
+import com.sanibonani.save.domain.repository.member.*
+import com.sanibonani.save.domain.repository.system.*
+import io.github.jan.supabase.SupabaseClient
+import io.github.jan.supabase.postgrest.postgrest
+import io.github.jan.supabase.postgrest.query.Columns
+import java.util.concurrent.atomic.AtomicInteger
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import javax.inject.Inject
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.sync.Semaphore
+
+class SyncRepositoryImpl @Inject constructor(
+    private val supabase: SupabaseClient,
+    private val supabaseRepo: SupabaseRepository,
+    private val memberRepo: MemberRepository,
+    private val groupRepo: GroupRepository,
+    private val notificationRepo: NotificationRepository,
+    private val db: SanibonaniDatabase,
+    private val contributionHandler: ContributionOutboxHandler,
+    private val loanRepaymentHandler: LoanRepaymentOutboxHandler,
+    private val payoutHandler: PayoutRequestOutboxHandler,
+    private val disbursementHandler: DisbursementOutboxHandler,
+    private val balanceAdjustmentHandler: BalanceAdjustmentOutboxHandler,
+    private val beneficiaryClaimHandler: BeneficiaryClaimOutboxHandler
+) : BaseRepository("SyncRepository"), SyncRepository {
+
+    private val handlers by lazy {
+        mapOf(
+            "contribution" to contributionHandler,
+            "loan_repayment" to loanRepaymentHandler,
+            "payout" to payoutHandler,
+            "disbursement" to disbursementHandler,
+            "balance_adjustment" to balanceAdjustmentHandler,
+            "beneficiary_claim" to beneficiaryClaimHandler
+        )
+    }
+
+    private val _syncStatus = MutableStateFlow<SyncStatus>(SyncStatus.Idle)
+    override val syncStatus = _syncStatus.asStateFlow()
+
+    private var isSyncing = false
+
+    override val outboxCount: kotlinx.coroutines.flow.Flow<Int> = db.pendingOperationDao().observeCount()
+
+    override suspend fun syncAllData(): Result<Unit> = runCatching {
+        if (isSyncing) return@runCatching
+        isSyncing = true
+
+        try {
+            kotlinx.coroutines.withTimeout(120_000) {
+                val userId = supabaseRepo.currentUserId ?: run {
+                    val message = "Please sign in to sync your data."
+                    _syncStatus.value = SyncStatus.Error(message)
+                    throw IllegalStateException(message)
+                }
+
+                val userRole = supabaseRepo.getUserRole()
+
+                _syncStatus.value = SyncStatus.Progress("Identifying memberships...", 0.05f)
+                val memberships = memberRepo.getMemberships(userId).getOrElse {
+                    AppLogger.w(tag, "Network fetch failed for memberships, falling back to cache")
+                    db.memberDao().getAllMemberships(userId).map { it.toModel() }
+                }
+                val adminGroups = groupRepo.getGroupsByAdmin(userId).getOrElse {
+                    AppLogger.w(tag, "Network fetch failed for admin groups, falling back to cache")
+                    db.groupDao().getGroupsByAdminSync(userId).map { it.toModel() }
+                }
+
+                val groupIds = buildSet {
+                    memberships.mapTo(this) { it.groupId }
+                    adminGroups.mapNotNullTo(this) { it.id }
+                }.filter { it.isNotBlank() }
+
+                if (groupIds.isNotEmpty()) {
+                    _syncStatus.value = SyncStatus.Progress("Hydrating ${groupIds.size} group(s)...", 0.10f)
+
+                    coroutineScope {
+                        val totalGroups = groupIds.size
+                        val completedGroups = AtomicInteger(0)
+                        val semaphore = Semaphore(3)
+
+                        groupIds.map { groupId ->
+                            async {
+                                semaphore.acquire()
+                                try {
+                                    syncGroupDataInternal(groupId, userRole)
+                                } finally {
+                                    semaphore.release()
+                                }
+                                val completed = completedGroups.incrementAndGet()
+                                val progress = 0.10f + (completed.toFloat() / totalGroups) * 0.85f
+                                _syncStatus.value = SyncStatus.Progress(
+                                    "Synced $completed of $totalGroups groups",
+                                    progress
+                                )
+                            }
+                        }.awaitAll()
+                    }
+                } else {
+                    AppLogger.d(tag, "No groups found for hydration.")
+                }
+
+                _syncStatus.value = SyncStatus.Progress("Processing offline queue...", 0.95f)
+                processOutbox().getOrNull()
+
+                _syncStatus.value = SyncStatus.Completed
+            }
+        } finally {
+            isSyncing = false
+        }
+    }.onFailure { e ->
+        isSyncing = false
+        val userMessage = e.toUserMessage()
+        AppLogger.e(tag, "Full sync failed: $userMessage")
+        _syncStatus.value = SyncStatus.Error(userMessage)
+    }
+
+    private suspend fun syncGroupDataInternal(groupId: String, role: UserRole) = coroutineScope {
+        if (role == UserRole.PLATFORM_ADMIN) {
+            // Step 1: Core Group Metadata & Permissions
+            val metadataJob = async { groupRepo.getGroupById(groupId) }
+            val membersJob = async { memberRepo.syncGroupMembers(groupId) }
+            awaitAll(metadataJob, membersJob)
+
+            // Step 2: Parallel sync of all financial pillars for Platform Admin (Complete Hydration)
+            val notifsJob = async { notificationRepo.syncNotifications(groupId) }
+            val equityJob = async { syncRefresh(DomainPillar.EQUITY, groupId) }
+            val creditJob = async { syncRefresh(DomainPillar.CREDIT, groupId) }
+            val treasuryJob = async { syncRefresh(DomainPillar.TREASURY, groupId) }
+            val disbursementJob = async { syncRefresh(DomainPillar.DISBURSEMENT, groupId) }
+            val bankJob = async { syncRefresh(DomainPillar.BANK, groupId) }
+            val dynamicsJob = async { syncRefresh(DomainPillar.DYNAMICS, groupId) }
+
+            // Wait for all to complete
+            awaitAll(notifsJob, equityJob, creditJob, treasuryJob, disbursementJob, bankJob, dynamicsJob)
+        } else {
+            // Tailored hydration per group admin or member to drastically speed up app launch.
+            // Map and group details, as well as ledger/equity are kept in cache storage.
+            // RealtimeSyncManager will handle incremental updates.
+            // We only fetch high-priority immediate updates (like notifications and member status).
+            val membersJob = async { memberRepo.syncGroupMembers(groupId) }
+            val notifsJob = async { notificationRepo.syncNotifications(groupId) }
+
+            val jobs = mutableListOf(membersJob, notifsJob)
+
+            if (role == UserRole.GROUP_ADMIN) {
+                // Group admins need to see pending payouts and bank issues immediately upon launch
+                jobs.add(async { syncRefresh(DomainPillar.DISBURSEMENT, groupId) })
+                jobs.add(async { syncRefresh(DomainPillar.BANK, groupId) })
+            } else {
+                // Members just need their personal credit info updated
+                jobs.add(async { syncRefresh(DomainPillar.CREDIT, groupId) })
+            }
+
+            jobs.awaitAll()
+        }
+    }
+
+    override suspend fun syncGroupData(groupId: String): Result<Unit> = runCatching {
+        AppLogger.i(tag, "Targeted refresh for group $groupId")
+        val userRole = supabaseRepo.getUserRole()
+        syncGroupDataInternal(groupId, userRole)
+        Unit
+    }
+
+    override suspend fun syncRefresh(pillar: DomainPillar, groupId: String): Result<Unit> = runCatching {
+        AppLogger.d(tag, "Refreshing pillar ${pillar.name} for group $groupId")
+        when (pillar) {
+            DomainPillar.EQUITY -> {
+                runCatching {
+                    val data = supabase.postgrest["contributions"].select { filter { eq("group_id", groupId) } }.decodeList<Contribution>()
+                    db.contributionDao().syncGroupContributions(groupId, data.map { it.toEntity() })
+                }.onFailure { AppLogger.w(tag, "Failed syncing equity contributions: ${it.message}") }
+
+                runCatching {
+                    val payments = supabase.postgrest["payments"].select { filter { eq("group_id", groupId) } }.decodeList<Payment>()
+                    db.paymentDao().syncPayments(groupId, payments.map { it.toEntity() })
+                }.onFailure { AppLogger.w(tag, "Failed syncing equity payments: ${it.message}") }
+            }
+            DomainPillar.GLOBAL -> memberRepo.syncGroupMembers(groupId).getOrNull()
+            DomainPillar.CREDIT -> {
+                runCatching {
+                    val data = supabase.postgrest["loans"].select { filter { eq("group_id", groupId) } }.decodeList<Loan>()
+                    db.loanDao().syncGroupLoans(groupId, data.map { it.toEntity() })
+                }.onFailure { AppLogger.w(tag, "Failed syncing loans: ${it.message}") }
+            }
+            DomainPillar.DISBURSEMENT -> {
+                runCatching {
+                    val payouts = supabase.postgrest["payouts"].select { filter { eq("group_id", groupId) } }.decodeList<PayoutRequest>()
+                    db.payoutDao().syncPayouts(groupId, payouts.map { it.toEntity() })
+                }.onFailure { AppLogger.w(tag, "Failed syncing payouts: ${it.message}") }
+
+                runCatching {
+                    val claims = runCatching {
+                        supabase.postgrest["beneficiary_payout_claims"].select(columns = Columns.raw("*")) {
+                            filter { eq("group_id", groupId) }
+                        }.decodeList<BeneficiaryPayoutClaim>()
+                    }.getOrElse {
+                        supabase.postgrest["burial_claims"].select(columns = Columns.raw("*")) {
+                            filter { eq("group_id", groupId) }
+                        }.decodeList<BeneficiaryPayoutClaim>()
+                    }
+                    db.beneficiaryClaimDao().syncForGroup(groupId, claims.map { it.toEntity() })
+                }.onFailure { AppLogger.w(tag, "Failed syncing claims: ${it.message}") }
+            }
+            DomainPillar.TREASURY -> {
+                runCatching {
+                    val data = supabase.postgrest["group_ledger"].select(columns = Columns.raw("*")) {
+                        filter { eq("group_id", groupId) }
+                    }.decodeList<LedgerEntry>()
+                    db.ledgerDao().syncLedger(groupId, data.map { it.toLedgerEntity() })
+                }.onFailure { AppLogger.w(tag, "Failed syncing treasury ledger: ${it.message}") }
+            }
+            DomainPillar.BANK -> {
+                runCatching {
+                    // Sync Bank Connection
+                    val connection = supabase.postgrest["bank_connections"].select(columns = Columns.raw("*")) {
+                        filter { eq("group_id", groupId) }
+                    }.decodeSingleOrNull<BankConnection>()
+                    connection?.let {
+                        db.bankTransactionDao().upsertConnection(it.toEntity())
+                    }
+
+                    // Sync Unreconciled Transactions
+                    val transactions = supabase.postgrest["bank_transactions"].select(columns = Columns.raw("*")) {
+                        filter {
+                            eq("group_id", groupId)
+                            eq("status", BankTransactionStatus.UNRECONCILED.name.lowercase())
+                        }
+                    }.decodeList<BankTransaction>()
+                    db.bankTransactionDao().upsert(transactions.map { it.toEntity() })
+                }.onFailure { AppLogger.w(tag, "Failed syncing bank transactions: ${it.message}") }
+            }
+            DomainPillar.DYNAMICS -> {
+                runCatching {
+                    val tracks = supabase.postgrest["member_behavior_tracks"].select(columns = Columns.raw("*")) {
+                        filter { eq("group_id", groupId) }
+                    }.decodeList<MemberBehaviorTrack>()
+                    db.memberBehaviorTrackDao().syncForGroup(groupId, tracks.map { it.toEntity() })
+                }.onFailure { AppLogger.w(tag, "Failed syncing member behavior tracks: ${it.message}") }
+            }
+            else -> {}
+        }
+    }
+
+    override suspend fun processOutbox(): Result<Unit> = runCatching {
+        val pending = db.pendingOperationDao().getAll()
+        if (pending.isEmpty()) return@runCatching
+
+        AppLogger.i(tag, "📦 Processing outbox queue: ${pending.size} operations")
+
+        // Use a list-based queue processing with fail-fast logic for sequential integrity
+        for (op in pending) {
+            try {
+                AppLogger.d(tag, "Attempting to process ${op.type} for group ${op.groupId}")
+                val handler = handlers[op.type.lowercase()]
+                    ?: throw IllegalArgumentException("No handler for operation type: ${op.type}")
+
+                handler.handle(op.toModel()).getOrThrow()
+
+                // If successful, remove from queue
+                db.pendingOperationDao().delete(op)
+            } catch (e: Exception) {
+                if (e is CancellationException) throw e
+                AppLogger.e(tag, "Outbox item failed: ${op.id}. Stopping queue processing to preserve order.", e)
+                db.pendingOperationDao().upsert(op.copy(
+                    retryCount = op.retryCount + 1,
+                    lastError = e.message
+                ))
+                break
+            }
+        }
+    }
+}

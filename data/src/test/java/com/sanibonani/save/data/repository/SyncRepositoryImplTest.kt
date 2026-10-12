@@ -1,13 +1,15 @@
 package com.sanibonani.save.data.repository
 
+import com.sanibonani.save.data.repository.system.SyncRepositoryImpl
 import com.sanibonani.save.data.local.SanibonaniDatabase
 import com.sanibonani.save.domain.model.Group
 import com.sanibonani.save.domain.model.Member
-import com.sanibonani.save.domain.repository.GroupRepository
-import com.sanibonani.save.domain.repository.MemberRepository
-import com.sanibonani.save.domain.repository.NotificationRepository
-import com.sanibonani.save.domain.repository.SupabaseRepository
-import com.sanibonani.save.domain.repository.SyncStatus
+import com.sanibonani.save.domain.model.UserRole
+import com.sanibonani.save.domain.repository.group.GroupRepository
+import com.sanibonani.save.domain.repository.member.MemberRepository
+import com.sanibonani.save.domain.repository.system.NotificationRepository
+import com.sanibonani.save.domain.repository.auth.SupabaseRepository
+import com.sanibonani.save.domain.repository.system.SyncStatus
 import io.github.jan.supabase.SupabaseClient
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -38,7 +40,13 @@ class SyncRepositoryImplTest {
             memberRepo = memberRepo,
             groupRepo = groupRepo,
             notificationRepo = notificationRepo,
-            db = db
+            db = db,
+            contributionHandler = mockk(relaxed = true),
+            loanRepaymentHandler = mockk(relaxed = true),
+            payoutHandler = mockk(relaxed = true),
+            disbursementHandler = mockk(relaxed = true),
+            balanceAdjustmentHandler = mockk(relaxed = true),
+            beneficiaryClaimHandler = mockk(relaxed = true)
         )
     }
 
@@ -62,6 +70,7 @@ class SyncRepositoryImplTest {
     @Test
     fun `syncAllData completes and syncs valid memberships`() = runBlocking {
         every { supabaseRepo.currentUserId } returns "user_1"
+        coEvery { supabaseRepo.getUserRole() } returns UserRole.PLATFORM_ADMIN
         coEvery { memberRepo.getMemberships("user_1") } returns Result.success(
             listOf(
                 Member(id = "m1", groupId = "group_1"),

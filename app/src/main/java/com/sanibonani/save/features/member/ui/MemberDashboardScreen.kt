@@ -30,7 +30,6 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.sanibonani.save.R
-import com.sanibonani.save.domain.utils.PaymentCalculator
 import com.sanibonani.save.domain.model.*
 import com.sanibonani.save.ui.components.*
 import com.sanibonani.save.ui.theme.*
@@ -39,15 +38,15 @@ import com.sanibonani.save.ui.utils.rememberClickDebouncer
 import com.sanibonani.save.ui.utils.formatPct
 import com.sanibonani.save.ui.utils.formatZAR
 
-import com.sanibonani.save.features.member.presentation.MemberOverviewViewModel
+import com.sanibonani.save.features.member.presentation.MemberFinanceViewModel
+import com.sanibonani.save.features.member.presentation.MemberBeneficiaryViewModel
 import com.sanibonani.save.features.member.presentation.MemberProfileViewModel
-import com.sanibonani.save.viewmodel.credit.MemberFinanceViewModel
-import com.sanibonani.save.viewmodel.disbursement.MemberBeneficiaryViewModel
+import com.sanibonani.save.features.member.presentation.MemberOverviewViewModel
+import com.sanibonani.save.features.audit.MemberAuditTab
+import com.sanibonani.save.features.admin.ui.tabs.platform.LedgerEntryDetailDialog
 import com.sanibonani.save.features.member.presentation.state.MemberEvent
-import com.sanibonani.save.viewmodel.state.UIEvent
-import com.sanibonani.save.features.member.ui.tabs.*
-import com.sanibonani.save.ui.screens.audit.MemberAuditTab
-import com.sanibonani.save.ui.screens.admin.tabs.platform.LedgerEntryDetailDialog
+import com.sanibonani.save.features.common.presentation.UIEvent
+import com.sanibonani.save.ui.components.*
 import kotlinx.coroutines.launch
 
 @Composable
@@ -61,12 +60,9 @@ fun MemberDashboardScreen(
     overviewVm        : MemberOverviewViewModel = hiltViewModel(),
     financeVm         : MemberFinanceViewModel = hiltViewModel(),
     profileVm         : MemberProfileViewModel = hiltViewModel(),
-    beneficiaryVm     : MemberBeneficiaryViewModel = hiltViewModel()
+    beneficiaryVm     : MemberBeneficiaryViewModel = hiltViewModel(),
 ) {
     val overviewState by overviewVm.state.collectAsStateWithLifecycle()
-    val financeState by financeVm.state.collectAsStateWithLifecycle()
-    val profileState by profileVm.state.collectAsStateWithLifecycle()
-    val beneficiaryState by beneficiaryVm.state.collectAsStateWithLifecycle()
 
     val context = LocalContext.current
     val clickDebouncer = rememberClickDebouncer()
@@ -178,19 +174,20 @@ fun MemberDashboardScreen(
         }
     }
 
-    val navItems = remember(tabs, overviewVm) { memberDashboardNavigationItems(tabs, overviewVm) }
+    val navItems = remember(tabs, overviewVm) { memberDashboardNavigationItems(tabs) { overviewVm.selectTab(it) } }
 
     val selectedRoute = overviewState.selectedTab.toString()
 
-    // ── Privacy Lock Hardening ──
+    // â”€â”€ Privacy Lock Hardening â”€â”€
     // If Support Mode is active, we MUST NOT show the dashboard until the specifically
-    // targeted member's record is loaded. We use 'targetMemberId' from the state
-    // as the source of truth for who we *should* be seeing.
+    // targeted member's record is loaded. We check both member.id and member.userId against targetMemberId.
     val isPrivacyLocked = overviewState.isImpersonating && !overviewState.isExiting &&
-            (overviewState.member == null || overviewState.member?.id != overviewState.targetMemberId)
+            (overviewState.member == null ||
+             (overviewState.member?.id != overviewState.targetMemberId &&
+              overviewState.member?.userId != overviewState.targetMemberId))
 
     if ((overviewState.isLoading || isPrivacyLocked) && (overviewState.member == null || overviewState.group == null) && !overviewState.isExiting) {
-        SanibonaniLoadingScreen(message = if (isPrivacyLocked) "Entering Support Mode..." else "Syncing your portal...")
+        SanibonaniLoadingScreen(message = if (isPrivacyLocked) stringResource(R.string.ui_entering_support_mode) else stringResource(R.string.ui_syncing_your_portal))
     } else {
         AdaptiveScaffold(
             windowSizeClass = windowSizeClass,
@@ -202,8 +199,8 @@ fun MemberDashboardScreen(
                 topBar = {
                     Column {
                         DashboardHeaderWithNotif(
-                            title = if (overviewState.isImpersonating) "Support: ${overviewState.member?.fullName}" else "Member Portal",
-                            subtitle = if (overviewState.isImpersonating) "Viewing as Administrator" else (overviewState.member?.fullName ?: "Loading..."),
+                            title = if (overviewState.isImpersonating) "Support: ${overviewState.member?.fullName}" else stringResource(R.string.ui_member_portal),
+                            subtitle = if (overviewState.isImpersonating) stringResource(R.string.ui_viewing_as_administrator) else (overviewState.member?.fullName ?: "Loading..."),
                             notifCount = overviewState.notifications.size,
                             onProfileClick = { overviewVm.selectTab(10) },
                             onNotifClick = { overviewVm.selectTab(9) },
@@ -218,14 +215,12 @@ fun MemberDashboardScreen(
                             },
                             onSwitchPortal = { clickDebouncer.processClick(onNavigateAdmin) },
                             isPortalSwitchable = !overviewState.isImpersonating,
-                            profileLabel = if (overviewState.isImpersonating) "Member Profile" else stringResource(R.string.ui_profile_settings),
-                            logoutLabel = if (overviewState.isImpersonating) "Exit Support" else "Log Out"
                         )
 
-                        // ⚡ Non-blocking visual feedback for refreshes
+                        // âš¡ Non-blocking visual feedback for refreshes
                         SoftLoadingOverlay(
                             isLoading = overviewState.isLoading || isPrivacyLocked,
-                            message = if (isPrivacyLocked) "Hydrating support data..." else "Refreshing your data..."
+                            message = if (isPrivacyLocked) stringResource(R.string.ui_hydrating_support_data) else stringResource(R.string.ui_refreshing_your_data)
                         )
 
                         if (overviewState.isImpersonating && !overviewState.isImpersonationBannerDismissed) {
@@ -241,7 +236,7 @@ fun MemberDashboardScreen(
                                     Icon(Icons.Default.SupportAgent, contentDescription = null, modifier = Modifier.size(16.dp))
                                     Spacer(Modifier.width(12.dp))
                                     Text(
-                                        "Support Mode Active — All actions are logged.",
+                                        stringResource(R.string.ui_support_mode_active_all_actions_are_logged),
                                         style = MaterialTheme.typography.labelSmall,
                                         fontWeight = FontWeight.Bold
                                     )
@@ -266,7 +261,7 @@ fun MemberDashboardScreen(
                                 Row(Modifier.padding(horizontal = 20.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                                     Icon(Icons.Default.AirplanemodeActive, null, modifier = Modifier.size(16.dp))
                                     Spacer(Modifier.width(12.dp))
-                                    Text("Airplane Mode Active — Syncing is paused.", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                                    Text(stringResource(R.string.ui_airplane_mode_active_syncing_is_paused), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
                                 }
                             }
                         } else if (!overviewState.isSystemOnline) {
@@ -278,7 +273,7 @@ fun MemberDashboardScreen(
                                 Row(Modifier.padding(horizontal = 20.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                                     Icon(Icons.Default.CloudOff, null, modifier = Modifier.size(16.dp))
                                     Spacer(Modifier.width(12.dp))
-                                    Text("Offline Mode — Using cached data.", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                                    Text(stringResource(R.string.ui_offline_mode_using_cached_data), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
                                 }
                             }
                         }
@@ -305,7 +300,7 @@ fun MemberDashboardScreen(
                                                     size = 24.dp,
                                                     modifier = Modifier.padding(end = 8.dp)
                                                 )
-                                                Text("Switch Group: ${overviewState.group?.name ?: "..."}", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
+                                                Text(stringResource(R.string.ui_switch_group_label, overviewState.group?.name ?: "..."), color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
                                             }
                                             Icon(Icons.Default.ArrowDropDown, null, tint = Navy)
                                         }
@@ -382,38 +377,24 @@ fun MemberDashboardScreen(
                         }
                     }
                 },
-                containerColor = Cream
+                containerColor = MaterialTheme.colorScheme.background
             ) { padding ->
                 Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(padding)) {
                     if (overviewState.member == null && overviewState.error != null) {
                         Column(Modifier.fillMaxSize().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-                            Text("⚠️", fontSize = 48.sp)
+                            Text("âš ï¸", fontSize = 48.sp)
                             Text(stringResource(R.string.ui_could_not_load_membership), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                             Spacer(Modifier.height(8.dp))
-                            InfoBox(overviewState.error ?: "Unknown error", InfoType.ERROR)
+                            InfoBox(overviewState.error ?: "Unknown error", type = InfoType.ERROR)
                             Spacer(Modifier.height(24.dp))
                             Button(onClick = { overviewVm.refreshData() }, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)) {
                                 Text(stringResource(R.string.ui_retry))
                             }
                         }
                     } else if (overviewState.member != null) {
-                        val member = overviewState.member!!
-                        val group = overviewState.group
-                        val calculation = overviewState.paymentCalculation
-
                         VerificationSummary(overviewState.verificationResult)
 
-                        LazyRow(contentPadding = PaddingValues(horizontal = 20.dp, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            val totalAmount = member.totalPaid
-                            item { StatCard(title = stringResource(R.string.ui_total_contributed), value = formatZAR(totalAmount), label = "${overviewState.paymentsCount} payments") }
-
-                            val memberMonthlyAmount = if (group != null) PaymentCalculator.calculateExpectedMemberGroupPart(group, member) else Money.ZERO
-                            val nextAmount = if (calculation?.totalDueNow?.isPositive == true) calculation.totalDueNow else memberMonthlyAmount
-                            item { StatCard(title = stringResource(R.string.ui_next_payment), value = formatZAR(nextAmount), label = overviewState.nextPaymentInfo, color = WarningAmber) }
-
-                            val rate = calculation?.paymentRate ?: 100.0
-                            item { StatCard(title = stringResource(R.string.ui_payment_rate), value = formatPct(rate), label = if (calculation?.isOverdue == true) "OVERDUE" else "Up to date", color = if (calculation?.isOverdue == true) ErrorRed else SuccessGreen) }
-                        }
+                        MemberStatCards(overviewState)
 
                         Box(Modifier.weight(1f)) {
                             PullToRefreshBox(
@@ -474,20 +455,119 @@ fun MemberDashboardScreen(
                             "png" -> "image/png"
                             else -> "application/octet-stream"
                         }
-                        com.sanibonani.save.domain.utils.FileDownloader.downloadFile(context, url, name, mimeType, headers)
+                        com.sanibonani.save.data.utils.FileDownloader.downloadFile(context, url, name, mimeType, headers)
                         showFileActionDialog = null
                     },
                     fileName = name
                 )
             }
 
-            viewFileData?.let { (url, _, headers) ->
+            viewFileData?.let { (url, fileName, headers) ->
                 FileViewerDialog(
                     url = url,
-                    type = if (url.contains(".pdf", ignoreCase = true)) "pdf" else "image",
+                    fileName = fileName,
                     headers = headers,
                     onDismiss = { viewFileData = null }
                 )
+            }
+        }
+    }
+}
+
+@Composable
+fun MemberStatCards(state: com.sanibonani.save.features.member.presentation.state.MemberUiState) {
+    val member = state.member ?: return
+    val group = state.group
+    val calculation = state.paymentCalculation
+    val insight = state.businessInsight?.getOrNull()
+
+    LazyRow(
+        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 12.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        // --- Card 1: Primary Value ---
+        item {
+            when (group?.type) {
+                GroupType.BURIAL_SOCIETY -> {
+                    val activeCount = member.beneficiaries.count { it.documentStatus == DocumentStatus.VERIFIED }
+                    StatCard(
+                        title = "ðŸ›¡ï¸",
+                        value = "$activeCount Active",
+                        label = "Policy Coverage",
+                        trend = if (activeCount > 0) "Covered" else "At Risk",
+                        color = if (activeCount > 0) SuccessGreen else ErrorRed,
+                        modifier = Modifier.width(160.dp)
+                    )
+                }
+                GroupType.ROSCA -> {
+                    StatCard(
+                        title = "ðŸ’°",
+                        value = formatZAR(state.totalSavings),
+                        label = "Total Contributed",
+                        modifier = Modifier.width(160.dp)
+                    )
+                }
+                else -> {
+                    StatCard(
+                        title = "ðŸ’°",
+                        value = formatZAR(state.totalSavings),
+                        label = stringResource(R.string.ui_total_savings),
+                        modifier = Modifier.width(160.dp)
+                    )
+                }
+            }
+        }
+
+        // --- Card 2: Obligations / Next Action ---
+        item {
+            val memberMonthlyAmount = state.monthlyContributionAmount
+            val nextAmount = if (calculation?.totalDueNow?.isPositive == true) calculation.totalDueNow else memberMonthlyAmount
+            StatCard(
+                title = "ðŸ“…",
+                value = formatZAR(nextAmount),
+                label = stringResource(R.string.ui_next_payment_label),
+                trend = if (calculation?.isOverdue == true) stringResource(R.string.ui_overdue) else stringResource(R.string.ui_due_soon),
+                color = if (calculation?.isOverdue == true) ErrorRed else WarningAmber,
+                modifier = Modifier.width(160.dp)
+            )
+        }
+
+        // --- Card 3: Performance / Goal ---
+        item {
+            when (group?.type) {
+                GroupType.BURIAL_SOCIETY -> {
+                    val claimCount = state.burialClaims.count { it.status == BeneficiaryClaimStatus.SUBMITTED || it.status == BeneficiaryClaimStatus.UNDER_REVIEW }
+                    StatCard(
+                        title = "ðŸ“‘",
+                        value = "$claimCount Claims",
+                        label = "In Progress",
+                        trend = if (claimCount > 0) "Action Required" else "No Claims",
+                        color = if (claimCount > 0) WarningAmber else SuccessGreen,
+                        modifier = Modifier.width(160.dp)
+                    )
+                }
+                GroupType.STOKVEL, GroupType.INVESTMENT_CLUB -> {
+                    val projected = insight?.totalProjectedFund ?: Money.ZERO
+                    StatCard(
+                        title = "ðŸŽ¯",
+                        value = if (projected.isPositive) formatZAR(projected / group.currentMembers.coerceAtLeast(1)) else "---",
+                        label = "Projected Payout",
+                        trend = "Year-end Est.",
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.width(160.dp)
+                    )
+                }
+                else -> {
+                    val rate = calculation?.paymentRate ?: 100.0
+                    StatCard(
+                        title = "ðŸŽ¯",
+                        value = formatPct(rate),
+                        label = stringResource(R.string.ui_payment_rate),
+                        trend = if (rate >= 90) stringResource(R.string.ui_healthy) else stringResource(R.string.ui_low),
+                        color = if (rate >= 90) SuccessGreen else ErrorRed,
+                        modifier = Modifier.width(160.dp)
+                    )
+                }
             }
         }
     }

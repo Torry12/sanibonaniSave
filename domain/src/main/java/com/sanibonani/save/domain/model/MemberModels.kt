@@ -104,6 +104,7 @@ data class Member(
     @SerialName("rosca_position")     val roscaPosition: Int? = null,
 
     // Cross-linked data (Loaded optionally or via join)
+    @Transient val group: Group? = null,
     @Transient val beneficiaries: List<Beneficiary> = emptyList(),
     @Transient val documents: List<MemberDocument> = emptyList(),
     @Transient val claims: List<BeneficiaryPayoutClaim> = emptyList()

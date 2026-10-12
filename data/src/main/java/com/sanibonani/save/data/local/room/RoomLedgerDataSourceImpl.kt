@@ -38,7 +38,9 @@ class RoomLedgerDataSourceImpl @Inject constructor(
     }
 
     override suspend fun saveReconciliation(report: ConsolidationReport) {
-        ledgerDao.upsertReconciliations(listOf(report.reconciliationReport.toEntity()))
+        report.reconciliationRecord?.let {
+            ledgerDao.upsertReconciliations(listOf(it.toEntity()))
+        }
     }
 
     override suspend fun clearAll() {

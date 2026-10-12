@@ -35,7 +35,10 @@ class SupabaseLoanDataSourceImpl @Inject constructor(
     }
 
     override suspend fun getAllPendingLoans(): Result<List<Loan>> = runCatching {
-        client.postgrest["loans"].select { filter { eq("status", "pending") } }.decodeList<Loan>()
+        val statuses = listOf(LoanStatus.PENDING.name.lowercase(), LoanStatus.APPROVED.name.lowercase())
+        client.postgrest["loans"].select {
+            filter { or { statuses.forEach { eq("status", it) } } }
+        }.decodeList<Loan>()
     }
 
     override suspend fun updateLoanStatus(loanId: String, status: LoanStatus, reviewedBy: String?, reviewedAt: String?, rejectionReason: String?): Result<Unit> = runCatching {
@@ -48,9 +51,10 @@ class SupabaseLoanDataSourceImpl @Inject constructor(
     }
 
     override suspend fun disburseLoan(loanId: String, adminId: String, paymentMethod: PaymentMethod): Result<Unit> = runCatching {
+        val resolvedAdminId = if (adminId.isNotBlank() && adminId != "PLATFORM_ADMIN") adminId else "00000000-0000-0000-0000-000000000000"
         client.postgrest.rpc("approve_and_disburse_loan_v2", buildJsonObject {
             put("p_loan_id", loanId)
-            put("p_admin_id", adminId)
+            put("p_admin_id", resolvedAdminId)
             put("p_payment_method", paymentMethod.name.lowercase())
         })
     }
@@ -67,7 +71,12 @@ class SupabaseLoanDataSourceImpl @Inject constructor(
             put("p_amount", repayment.amount.amount.toPlainString())
             put("p_payment_method", repayment.paymentMethod.name.lowercase())
         }
-        client.postgrest.rpc("record_loan_repayment_v1", rpcParams).decodeAs<RecordRepaymentResult>()
+        val response = client.postgrest.rpc("record_loan_repayment_v1", rpcParams)
+        try {
+            response.decodeAs<RecordRepaymentResult>()
+        } catch (_: Exception) {
+            response.decodeList<RecordRepaymentResult>().first()
+        }
     }
 
     override suspend fun getRepayments(loanId: String): Result<List<LoanRepayment>> = runCatching {

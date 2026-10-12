@@ -1,38 +1,56 @@
 package com.sanibonani.save.features.admin.ui
 
-import androidx.compose.ui.res.stringResource
-import com.sanibonani.save.R
-
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.hilt.navigation.compose.hiltViewModel
-import com.sanibonani.save.ui.utils.rememberClickDebouncer
-import com.sanibonani.save.domain.model.GroupHealthScore
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.sanibonani.save.R
 import com.sanibonani.save.domain.model.RiskZone
-import com.sanibonani.save.ui.components.backgroundColor
-import com.sanibonani.save.ui.components.label
-import com.sanibonani.save.ui.theme.Navy
 import com.sanibonani.save.features.admin.presentation.HealthScoreViewModel
+import com.sanibonani.save.ui.theme.Navy
+import com.sanibonani.save.ui.utils.rememberClickDebouncer
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HealthScoreDetailScreen(
     groupId: String,
+    modifier: Modifier = Modifier,
     onBack: () -> Unit = {},
     onExportReport: () -> Unit = {},
-    modifier: Modifier = Modifier,
     vm: HealthScoreViewModel = hiltViewModel()
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
@@ -254,4 +272,16 @@ private fun getComponentWeight(name: String): Float = when (name) {
     "Funding Ratio" -> 0.20f
     "Member Retention" -> 0.10f
     else -> 0f
+}
+
+private fun RiskZone.backgroundColor(): Color = when (this) {
+    RiskZone.RED -> Color(0xFFD32F2F)
+    RiskZone.YELLOW -> Color(0xFFFFA000)
+    RiskZone.GREEN -> Color(0xFF388E3C)
+}
+
+private fun RiskZone.label(): String = when (this) {
+    RiskZone.RED -> "Critical Risk"
+    RiskZone.YELLOW -> "Moderate Risk"
+    RiskZone.GREEN -> "Healthy"
 }

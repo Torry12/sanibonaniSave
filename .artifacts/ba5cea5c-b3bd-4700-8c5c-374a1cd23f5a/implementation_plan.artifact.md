@@ -1,83 +1,52 @@
-# Database Synchronization Strategy (App to Backend)
+# Database Refactoring & Update Plan (Final Phase)
 
-Implement a robust, multi-phase synchronization engine to ensure strict parity between the local Room SQLite cache and the remote Supabase PostgreSQL backend.
+Optimize the DAO synchronization patterns and cleanup legacy backend functions to finalize the robust hydration engine.
 
 ## User Review Required
 
 > [!IMPORTANT]
-> This change introduces a comprehensive background synchronization logic. Initial sync at app startup or manually triggered from Dev Settings will now fetch and persist ALL relevant data for the user's groups.
+> This phase will remove legacy Supabase RPC wrappers (`record_contribution_v1`, `process_complex_payment_v3`, `recalculate_all_group_financials_v2`). Ensure no external scripts or older app versions are still targeting these endpoints.
 
-> [!WARNING]
-> High-volume data (Ledger entries, Contributions) will be synced per-group. Ensure network connectivity is stable for a full sync.
+> [!NOTE]
+> `LedgerDao.syncLedger` will be refactored from a "Full Clear" to an "Orphan Pruning" pattern to align with all other DAOs.
 
 ## Proposed Changes
 
-Standardize repository interfaces to include explicit `sync*` methods that can be orchestrated by a central `SyncRepository`.
+### [Room Database] :data
+
+#### [MODIFY] [LedgerEntities.kt](file:///C:/Users/CRISS/AndroidStudioProjects/SanibonaniSave_Full/data/src/main/java/com/sanibonani/save/data/local/LedgerEntities.kt)
+- Update `LedgerDao.syncLedger` to calculate orphans (existing IDs not in incoming list) and delete them surgically instead of clearing the whole table for a group.
+- Add `getGroupLedgerIds(groupId)` helper for orphan calculation.
+
+#### [MODIFY] [UserEntities.kt](file:///C:/Users/CRISS/AndroidStudioProjects/SanibonaniSave_Full/data/src/main/java/com/sanibonani/save/data/local/UserEntities.kt)
+- Add `syncProfile(userId, profile)` to `UserProfileDao` for consistency, even if it currently just performs an upsert.
+
+#### [MODIFY] [MemberDao](file:///C:/Users/CRISS/AndroidStudioProjects/SanibonaniSave_Full/data/src/main/java/com/sanibonani/save/data/local/MemberEntities.kt)
+- Verify `syncMembers` and `syncMembershipsForUser` for any missing `@Transaction` or edge cases. (Checked: mostly solid, will add `suspend` where missing if any).
 
 ---
 
-### [Domain Layer] :domain
+### [Supabase Backend] /supabase
 
-#### [MODIFY] [GroupRepository.kt](file:///C:/Users/CRISS/AndroidStudioProjects/SanibonaniSave_Full/domain/src/main/java/com/sanibonani/save/domain/repository/equity/GroupRepository.kt)
-- Add `suspend fun syncAllManagedGroups(userId: String): Result<Unit>`
-- Add `suspend fun syncPublicGroups(): Result<Unit>`
-
-#### [MODIFY] [MemberRepository.kt](file:///C:/Users/CRISS/AndroidStudioProjects/SanibonaniSave_Full/domain/src/main/java/com/sanibonani/save/domain/repository/equity/MemberRepository.kt)
-- Add `suspend fun syncMemberships(userId: String): Result<Unit>`
-- Change `syncGroupMembers` return type to `Result<Unit>`.
-
-#### [MODIFY] [ContributionRepository.kt](file:///C:/Users/CRISS/AndroidStudioProjects/SanibonaniSave_Full/domain/src/main/java/com/sanibonani/save/domain/repository/equity/ContributionRepository.kt)
-- Add `suspend fun syncGroupContributions(groupId: String): Result<Unit>`
-- Add `suspend fun syncGroupPayments(groupId: String): Result<Unit>`
-
-#### [MODIFY] [LoanRepository.kt](file:///C:/Users/CRISS/AndroidStudioProjects/SanibonaniSave_Full/domain/src/main/java/com/sanibonani/save/domain/repository/credit/LoanRepository.kt)
-- Rename `getGroupLoansSync` to `syncGroupLoans(groupId: String): Result<Unit>`.
-
-#### [MODIFY] [PayoutRepository.kt](file:///C:/Users/CRISS/AndroidStudioProjects/SanibonaniSave_Full/domain/src/main/java/com/sanibonani/save/domain/repository/disbursement/PayoutRepository.kt)
-- Add `suspend fun syncGroupPayouts(groupId: String): Result<Unit>`
-
-#### [MODIFY] [LedgerRepository.kt](file:///C:/Users/CRISS/AndroidStudioProjects/SanibonaniSave_Full/domain/src/main/java/com/sanibonani/save/domain/repository/treasury/LedgerRepository.kt)
-- Add `suspend fun syncGroupLedger(groupId: String): Result<Unit>`
+#### [MODIFY] [02_FUNCTIONS_AND_TRIGGERS.sql](file:///C:/Users/CRISS/AndroidStudioProjects/SanibonaniSave_Full/supabase/02_FUNCTIONS_AND_TRIGGERS.sql)
+- **DELETE** `record_contribution_v1` (v2 is standard).
+- **DELETE** `process_complex_payment_v3` (v4 is standard).
+- **DELETE** `recalculate_all_group_financials_v2` (v3 is standard).
+- **ENFORCE** `log_audit_event` calls in any missed financial RPCs (Preliminary check shows they are present, but a deep audit will be performed).
 
 ---
 
 ### [Data Layer] :data
 
-#### [MODIFY] [GroupRepositoryImpl.kt](file:///C:/Users/CRISS/AndroidStudioProjects/SanibonaniSave_Full/data/src/main/java/com/sanibonani/save/data/repository/equity/GroupRepositoryImpl.kt)
-- Implement `syncAllManagedGroups` and `syncPublicGroups`.
-
-#### [MODIFY] [MemberRepositoryImpl.kt](file:///C:/Users/CRISS/AndroidStudioProjects/SanibonaniSave_Full/data/src/main/java/com/sanibonani/save/data/repository/equity/MemberRepositoryImpl.kt)
-- Implement `syncMemberships` and update `syncGroupMembers`.
-
-#### [MODIFY] [ContributionRepositoryImpl.kt](file:///C:/Users/CRISS/AndroidStudioProjects/SanibonaniSave_Full/data/src/main/java/com/sanibonani/save/data/repository/equity/ContributionRepositoryImpl.kt)
-- Implement `syncGroupContributions` and `syncGroupPayments`.
-
-#### [MODIFY] [LoanRepositoryImpl.kt](file:///C:/Users/CRISS/AndroidStudioProjects/SanibonaniSave_Full/data/src/main/java/com/sanibonani/save/data/repository/credit/LoanRepositoryImpl.kt)
-- Update `syncGroupLoans`.
-
-#### [MODIFY] [PayoutRepositoryImpl.kt](file:///C:/Users/CRISS/AndroidStudioProjects/SanibonaniSave_Full/data/src/main/java/com/sanibonani/save/data/repository/disbursement/PayoutRepositoryImpl.kt)
-- Implement `syncGroupPayouts`.
-
-#### [MODIFY] [LedgerRepositoryImpl.kt](file:///C:/Users/CRISS/AndroidStudioProjects/SanibonaniSave_Full/data/src/main/java/com/sanibonani/save/data/repository/treasury/LedgerRepositoryImpl.kt)
-- Implement `syncGroupLedger`.
-
-#### [MODIFY] [SyncRepositoryImpl.kt](file:///C:/Users/CRISS/AndroidStudioProjects/SanibonaniSave_Full/data/src/main/java/com/sanibonani/save/data/repository/system/SyncRepositoryImpl.kt)
-- Implement `syncAllData()` to orchestrate the multi-phase sync.
-- Implement `syncGroupData(groupId)` for deep group refreshes.
-
----
-
-### [App Layer] :app
-
-#### [MODIFY] [SplashViewModel](file:///C:/Users/CRISS/AndroidStudioProjects/SanibonaniSave_Full/app/src/main/java/com/sanibonani/save/MainActivity.kt)
-- Ensure it triggers `syncAllData()` after connection confirmation.
+#### [MODIFY] [Mappers](file:///C:/Users/CRISS/AndroidStudioProjects/SanibonaniSave_Full/data/src/main/java/com/sanibonani/save/data/repository/mappers/)
+- Ensure `MemberMappers.kt` and `GroupMappers.kt` correctly handle the `updated_at` field if we decide to sync it, or ensure it's not shadowing the local Room `updated_at`.
 
 ## Verification Plan
 
 ### Automated Tests
-- Create `SyncRepositoryImplTest` and verify that calling `syncAllData` results in a fully populated Room database matching Supabase.
+- Run `:data:testDebugUnitTest` to verify DAO sync logic.
+- Specifically verify `LedgerDao` orphan pruning via a new test case if necessary.
 
 ### Manual Verification
-1. Open the app and wait for the splash screen to complete.
-2. Check if groups and member data are visible offline (using Airplane mode).
-3. Trigger a manual sync from **Dev Settings > Sync All** and verify `SyncStatus` transitions (SYNCING -> SUCCESS).
+1. Perform a "Repair Data" action in the Admin Portal and verify it uses `v3` RPC.
+2. Verify that deleting a membership in the database is reflected in the app after a full sync.

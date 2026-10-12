@@ -1,6 +1,6 @@
 -- ─────────────────────────────────────────────────────────────────────────────
 -- SanibonaniSave — TOTAL SYSTEM INTEGRITY AUDIT
--- Version: 1.0 (August 3, 2026)
+-- Version: 1.2 (Equity Reconciled - August 2026)
 -- ─────────────────────────────────────────────────────────────────────────────
 
 DO $$
@@ -8,6 +8,7 @@ DECLARE
     v_report JSONB;
     v_group RECORD;
     v_total_members INT;
+    v_orphan_count INT;
     v_discrepancy_count INT := 0;
     v_audit_entry RECORD;
 BEGIN
@@ -34,9 +35,9 @@ BEGIN
     END LOOP;
 
     -- 3. Check for orphaned members (no group)
-    SELECT count(*) INTO v_audit_entry FROM public.members WHERE group_id IS NULL;
-    IF v_audit_entry > 0 THEN
-        RAISE WARNING '❗ ORPHANED MEMBERS: Found % members without a valid group_id.', v_audit_entry;
+    SELECT count(*) INTO v_orphan_count FROM public.members WHERE group_id IS NULL;
+    IF v_orphan_count > 0 THEN
+        RAISE WARNING '❗ ORPHANED MEMBERS: Found % members without a valid group_id.', v_orphan_count;
     END IF;
 
     -- 4. Check for loan-ledger sync
@@ -49,12 +50,36 @@ BEGIN
     LOOP
         RAISE WARNING '❗ LOAN MISMATCH: Loan % has total_repaid % but sum of repayments is %',
             v_audit_entry.id, v_audit_entry.total_repaid, v_audit_entry.calc_repaid;
+        v_discrepancy_count := v_discrepancy_count + 1;
     END LOOP;
 
-    -- 5. Final Verdict
+    -- 5. Check for Member Equity Integrity (Total Paid vs Transaction Log)
+    FOR v_audit_entry IN
+        WITH member_calc AS (
+            SELECT
+                member_id,
+                SUM(amount) as calc_paid
+            FROM public.contributions
+            WHERE status = 'paid'
+            AND type IN ('contribution', 'joining_fee', 'registration_contribution', 'loan_settlement_extraction')
+            GROUP BY member_id
+        )
+        SELECT
+            m.id, m.full_name, m.total_paid,
+            COALESCE(c.calc_paid, 0) as calc_paid
+        FROM public.members m
+        LEFT JOIN member_calc c ON m.id = c.member_id
+        WHERE ABS(m.total_paid - COALESCE(c.calc_paid, 0)) > 0.01
+    LOOP
+        RAISE WARNING '❗ EQUITY MISMATCH: Member % (%) has total_paid % but calculated sum is %',
+            v_audit_entry.id, v_audit_entry.full_name, v_audit_entry.total_paid, v_audit_entry.calc_paid;
+        v_discrepancy_count := v_discrepancy_count + 1;
+    END LOOP;
+
+    -- 6. Final Verdict
     IF v_discrepancy_count = 0 THEN
         RAISE NOTICE '🏁 AUDIT COMPLETE: ALL CORE SYSTEMS ARE INTEGRATED AND CONSISTENT.';
-    ELSE
+    else
         RAISE NOTICE '🏁 AUDIT COMPLETE: % DISCREPANCIES FOUND. RUN GLOBAL REPAIR.', v_discrepancy_count;
     END IF;
 

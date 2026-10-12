@@ -7,13 +7,15 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -24,6 +26,7 @@ fun GroupIcon(
     logoEmoji: String?,
     modifier: Modifier = Modifier,
     size: Dp = 40.dp,
+    shape: Shape = CircleShape,
     containerColor: Color = Navy.copy(alpha = 0.1f),
     contentColor: Color = Navy
 ) {
@@ -33,7 +36,7 @@ fun GroupIcon(
     Box(
         modifier = modifier
             .size(size)
-            .clip(CircleShape)
+            .clip(shape)
             .background(containerColor),
         contentAlignment = Alignment.Center
     ) {
@@ -46,8 +49,9 @@ fun GroupIcon(
             )
         } else {
             Text(
-                text = logoEmoji!!,
-                fontSize = (size.value * 0.5).sp
+                text = logoEmoji,
+                fontSize = (size.value * 0.5).sp,
+                modifier = Modifier.semantics { contentDescription = "Group logo" }
             )
         }
     }

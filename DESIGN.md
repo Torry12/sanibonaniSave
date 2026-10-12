@@ -68,19 +68,13 @@ graph TD
 ### Dashboard Experience
 Both Member and Admin dashboards use a **Tabbed Horizontal Pager** system for deep exploration of group data without losing context.
 
-**Member Tabs**:
-1. Overview (Stats)
-2. Savings (Ledger)
-3. Loans (Repayments)
-4. Beneficiaries (Burial)
-5. Documents (KYC)
-
 ---
 
 ## ⚖️ 4. Design Principles
 
 ### 1. Financial Precision
-- **No Floating Point**: All currency displays use `BigDecimal` via the `Money` domain model.
+- **Eradicate `Double`**: All currency math and displays use the `Money` (BigDecimal) domain model.
+- **Safe Ratios**: Percentage-based indicators (e.g., Solvency, Pot Progress) use `money.ratio(other)` to avoid floating-point drift.
 - **ZAR Standard**: Standardized formatting `R1,234.56` across all screens.
 
 ### 2. Transparency First
@@ -100,5 +94,5 @@ The app is optimized for:
 - **Rural Connectivity**: High-visibility offline indicators and retry mechanisms.
 
 ---
-**Last Updated**: August 2026
-**Version**: 2.0 (Material 3 Adaptive)
+**Last Updated**: August 28, 2026
+**Version**: 3.0 (Financial Precision Hardened)

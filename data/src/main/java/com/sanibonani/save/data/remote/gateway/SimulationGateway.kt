@@ -1,5 +1,6 @@
 package com.sanibonani.save.data.remote.gateway
 
+import com.sanibonani.save.data.remote.EdgeFunctionGateway
 import com.sanibonani.save.domain.logging.AppLogger
 import javax.inject.Inject
 import javax.inject.Singleton

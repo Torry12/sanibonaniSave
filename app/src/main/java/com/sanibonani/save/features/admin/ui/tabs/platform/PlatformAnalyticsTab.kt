@@ -16,13 +16,14 @@ import androidx.compose.ui.unit.sp
 import com.sanibonani.save.R
 import com.sanibonani.save.domain.model.Money
 import com.sanibonani.save.domain.model.PlatformAnalytics
-import com.sanibonani.save.domain.model.PlatformFees
+import com.sanibonani.save.domain.config.PlatformFees
+import com.sanibonani.save.ui.components.*
 import com.sanibonani.save.ui.components.*
 import com.sanibonani.save.features.admin.ui.components.*
 import com.sanibonani.save.ui.theme.*
 import com.sanibonani.save.ui.utils.formatDecimal
 import com.sanibonani.save.ui.utils.formatZAR
-import com.sanibonani.save.features.admin.presentation.PlatformAdminViewModel
+import com.sanibonani.save.features.admin.presentation.PlatformAnalyticsViewModel
 
 @Composable
 fun PlatformAnalyticsTab(
@@ -30,7 +31,7 @@ fun PlatformAnalyticsTab(
     totalRevenueShare: Money,
     provinceDistribution: List<Pair<String, Int>>,
     marketSegments: List<Pair<String, Int>>,
-    vm: PlatformAdminViewModel? = null
+    vm: PlatformAnalyticsViewModel
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -39,19 +40,43 @@ fun PlatformAnalyticsTab(
     ) {
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                StatCard(title = "Total Groups", value = "${analytics.totalGroups}", label = "Active across SA", modifier = Modifier.weight(1f))
-                StatCard(title = "Total Members", value = "${analytics.totalMembers}", label = "Enrolled users", modifier = Modifier.weight(1f))
+                StatCard(
+                    title = "👥",
+                    label = "Total Groups",
+                    value = analytics.totalGroups.toString(),
+                    trend = "Active across SA",
+                    modifier = Modifier.weight(1f)
+                )
+                StatCard(
+                    title = "👤",
+                    label = "Total Members",
+                    value = analytics.totalMembers.toString(),
+                    trend = "Enrolled users",
+                    modifier = Modifier.weight(1f)
+                )
             }
         }
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                StatCard(title = "Total Balance", value = analytics.totalBalance.formatShort(), label = "Group holdings", modifier = Modifier.weight(1f))
-                StatCard(title = "Rev Share", value = totalRevenueShare.formatShort(), label = "Actual yield", modifier = Modifier.weight(1f))
+                StatCard(
+                    title = "💰",
+                    label = "Total Balance",
+                    value = analytics.totalBalance.formatShort(),
+                    trend = "Group holdings",
+                    modifier = Modifier.weight(1f)
+                )
+                StatCard(
+                    title = "📈",
+                    label = "Rev Share",
+                    value = totalRevenueShare.formatShort(),
+                    trend = "Actual yield",
+                    modifier = Modifier.weight(1f)
+                )
             }
         }
 
         item {
-            GlassCard(color = MaterialTheme.colorScheme.surface) {
+            GlassCard(accentColor = MaterialTheme.colorScheme.primary) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
                         Icons.Default.Shield,
@@ -68,7 +93,7 @@ fun PlatformAnalyticsTab(
                         Text("${analytics.averageRiskScore.toInt()}/100", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.onSurface)
                         if (analytics.averageRiskScore == 0.0) {
                             TextButton(
-                                onClick = { vm?.syncPlatformMetrics() },
+                                onClick = { vm.syncPlatformMetrics() },
                                 contentPadding = PaddingValues(0.dp),
                                 modifier = Modifier.height(24.dp)
                             ) {
@@ -87,7 +112,7 @@ fun PlatformAnalyticsTab(
             } else {
                 provinceDistribution.forEach { (prov, count) ->
                     val pct = if (analytics.totalGroups > 0) count.toFloat() / analytics.totalGroups else 0f
-                    DistributionRow(prov, count, pct, Navy)
+                    DistributionRow(prov, count, pct, MaterialTheme.colorScheme.primary)
                     Spacer(Modifier.height(12.dp))
                 }
             }
@@ -104,7 +129,7 @@ fun PlatformAnalyticsTab(
                         .lowercase()
                         .split(" ")
                         .joinToString(" ") { it.replaceFirstChar { char -> char.uppercase() } }
-                    DistributionRow(label, count, pct, AccentBlue)
+                    DistributionRow(label, count, pct, MaterialTheme.colorScheme.secondary)
                     Spacer(Modifier.height(12.dp))
                 }
             }

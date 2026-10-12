@@ -15,6 +15,7 @@ class SupabaseStorageDataSourceImpl @Inject constructor(
     override suspend fun uploadFile(bucketName: String, path: String, byteArray: ByteArray, upsert: Boolean): Result<String> = runCatching {
         val bucket = client.storage.from(bucketName)
         bucket.upload(path, byteArray) { this.upsert = upsert }
+        path
     }
 
     override suspend fun downloadFile(bucketName: String, path: String): Result<ByteArray> = runCatching {

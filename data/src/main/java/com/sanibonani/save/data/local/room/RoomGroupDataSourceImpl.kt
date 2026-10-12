@@ -38,6 +38,10 @@ class RoomGroupDataSourceImpl @Inject constructor(
         groupDao.upsertGroup(group.toEntity())
     }
 
+    override suspend fun deleteGroup(groupId: String) {
+        groupDao.deleteGroupById(groupId)
+    }
+
     override suspend fun clearAll() {
         groupDao.clearAll()
     }

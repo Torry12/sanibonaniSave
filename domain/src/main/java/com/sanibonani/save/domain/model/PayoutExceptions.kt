@@ -16,8 +16,12 @@ class MemberNotEligibleException(
 ) : PayoutException("Member $memberId is not eligible for payout: $reason")
 
 class DuplicatePayoutRequestException(
-    val entityId: String
-) : PayoutException("A pending payout request already exists for this entity: $entityId")
+    val entityId: String,
+    val isLocal: Boolean = false
+) : PayoutException(
+    if (isLocal) "A payout request for $entityId is already queued offline. Please wait for sync."
+    else "A pending payout request already exists for this entity: $entityId"
+)
 
 class GroupSuspendedException(
     val groupId: String

@@ -1,5 +1,6 @@
 package com.sanibonani.save.data.repository
 
+import com.sanibonani.save.data.repository.member.BeneficiaryClaimRepositoryImpl
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -8,7 +9,7 @@ import org.junit.Test
 class BeneficiaryClaimRepositoryImplTest {
 
     @Test
-    fun `pay claim rpc params omit non uuid admin id`() {
+    fun `pay claim rpc params use fallback nil uuid for platform admin`() {
         val params = BeneficiaryClaimRepositoryImpl.buildPayClaimRpcParams(
             claimId = "11111111-1111-1111-1111-111111111111",
             adminId = "PLATFORM_ADMIN",
@@ -18,6 +19,6 @@ class BeneficiaryClaimRepositoryImplTest {
 
         assertEquals("11111111-1111-1111-1111-111111111111", params["p_claim_id"]?.jsonPrimitive?.content)
         assertEquals("paid", params["p_notes"]?.jsonPrimitive?.content)
-        assertFalse(params.containsKey("p_admin_id"))
+        assertEquals("00000000-0000-0000-0000-000000000000", params["p_admin_id"]?.jsonPrimitive?.content)
     }
 }

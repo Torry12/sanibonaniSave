@@ -18,6 +18,7 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.sanibonani.save.ui.components.*
+import com.sanibonani.save.ui.components.*
 import com.sanibonani.save.ui.theme.*
 import com.sanibonani.save.ui.utils.rememberClickDebouncer
 import com.sanibonani.save.features.group.presentation.GroupViewModel
@@ -83,14 +84,9 @@ fun GroupProfileScreen(
                     Spacer(Modifier.height(24.dp))
 
                     SanibonaniSectionHeader("Financials")
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         StatCard(title = "Monthly", value = group.monthlyContribution.format(), label = "Subscription", modifier = Modifier.weight(1f))
                         StatCard(title = "Joining Fee", value = group.joiningFee.format(), label = "One-time", modifier = Modifier.weight(1f))
-                    }
-
-                    Spacer(Modifier.height(12.dp))
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        StatCard(title = "Balance", value = group.balance.format(), label = "Total Savings", modifier = Modifier.weight(1f))
                         StatCard(title = "Members", value = "${group.currentMembers}/${group.maxMembers}", label = "Occupancy", modifier = Modifier.weight(1f))
                     }
 

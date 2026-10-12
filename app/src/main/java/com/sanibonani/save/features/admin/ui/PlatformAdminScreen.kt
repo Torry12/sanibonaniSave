@@ -2,6 +2,8 @@ package com.sanibonani.save.features.admin.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
@@ -17,16 +19,17 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.sanibonani.save.R
-import com.sanibonani.save.domain.model.Group
-import com.sanibonani.save.domain.model.Member
+import com.sanibonani.save.domain.model.AsyncResult
+import com.sanibonani.save.ui.components.*
 import com.sanibonani.save.ui.components.*
 import com.sanibonani.save.features.admin.ui.tabs.platform.*
 import com.sanibonani.save.features.audit.PlatformAuditTab
 import com.sanibonani.save.ui.theme.*
 import com.sanibonani.save.ui.utils.ToastUtils
 import com.sanibonani.save.ui.utils.rememberClickDebouncer
-import com.sanibonani.save.features.admin.presentation.PlatformAdminViewModel
-import com.sanibonani.save.viewmodel.state.UIEvent
+import com.sanibonani.save.features.admin.presentation.*
+import com.sanibonani.save.features.common.presentation.UIEvent
+import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -40,26 +43,62 @@ fun PlatformAdminScreen(
     onOpenMemberPortalFromDisbursement: (groupId: String, payoutId: String?) -> Unit,
     onNavigateToHealthScore: (groupId: String) -> Unit,
     onNavigateToBehaviorTracking: (memberId: String) -> Unit,
-    vm: PlatformAdminViewModel = hiltViewModel()
+    vm: PlatformAdminViewModel = hiltViewModel(),
+    analyticsVm: PlatformAnalyticsViewModel = hiltViewModel(),
+    disbursementsVm: PlatformDisbursementsViewModel = hiltViewModel(),
+    ledgerVm: PlatformLedgerViewModel = hiltViewModel(),
+    feesVm: PlatformFeeConfigViewModel = hiltViewModel(),
+    auditVm: PlatformAuditViewModel = hiltViewModel(),
+    backupVm: PlatformBackupViewModel = hiltViewModel(),
+    supportVm: PlatformSupportViewModel = hiltViewModel()
 ) {
     val context = LocalContext.current
     val state by vm.state.collectAsStateWithLifecycle()
-    val clickDebouncer = rememberClickDebouncer()
+    val analyticsState by analyticsVm.state.collectAsStateWithLifecycle()
+    val disbursementsState by disbursementsVm.state.collectAsStateWithLifecycle()
+    val ledgerState by ledgerVm.state.collectAsStateWithLifecycle()
+    val feesState by feesVm.state.collectAsStateWithLifecycle()
+    val auditState by auditVm.state.collectAsStateWithLifecycle()
+    val backupState by backupVm.state.collectAsStateWithLifecycle()
+    val supportState by supportVm.state.collectAsStateWithLifecycle()
 
     if (!state.isAuthorized) {
         AccessDeniedView(onLogout = onLogout)
         return
     }
 
-    DisposableEffect(Unit) {
-        vm.setActive(true)
-        onDispose { vm.setActive(false) }
+    LaunchedEffect(state.isAuthorized) {
+        if (state.isAuthorized) {
+            analyticsVm.load()
+            disbursementsVm.load()
+            ledgerVm.load()
+            feesVm.loadSettings()
+        }
     }
 
-    val tabs = listOf("Analytics", "Groups", "Payments", "Ledger", "Fees", "Audit", "Maintenance", "Backups")
+    LaunchedEffect(Unit) {
+        disbursementsVm.mfaRequired.collect { vm.onMfaRequired() }
+    }
 
     LaunchedEffect(Unit) {
-        vm.events.collect { event ->
+        vm.mfaVerified.collect {
+            analyticsVm.load()
+            disbursementsVm.load()
+            ledgerVm.load()
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        merge(
+            vm.events,
+            analyticsVm.events,
+            disbursementsVm.events,
+            ledgerVm.events,
+            feesVm.events,
+            auditVm.events,
+            backupVm.events,
+            supportVm.events
+        ).collect { event ->
             when (event) {
                 is UIEvent.ShowMessage -> ToastUtils.showInfo(context, event.message)
                 is UIEvent.ShowError -> ToastUtils.showError(context, event.message)
@@ -92,21 +131,51 @@ fun PlatformAdminScreen(
         }
     }
 
+    val tabs = listOf(
+        stringResource(R.string.ui_tab_analytics),
+        stringResource(R.string.ui_tab_groups),
+        stringResource(R.string.ui_tab_payments),
+        stringResource(R.string.ui_tab_ledger),
+        stringResource(R.string.ui_tab_fees),
+        stringResource(R.string.ui_tab_audit),
+        stringResource(R.string.ui_tab_maintenance),
+        stringResource(R.string.ui_tab_backups)
+    )
+
+    val pagerState = rememberPagerState(
+        initialPage = state.selectedTab.coerceIn(0, tabs.size - 1),
+        pageCount = { tabs.size }
+    )
+    val coroutineScope = rememberCoroutineScope()
+
+    LaunchedEffect(pagerState.currentPage) {
+        if (state.selectedTab != pagerState.currentPage) {
+            vm.setTab(pagerState.currentPage)
+        }
+    }
+
+    LaunchedEffect(state.selectedTab) {
+        if (pagerState.currentPage != state.selectedTab) {
+            pagerState.animateScrollToPage(state.selectedTab)
+        }
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
                 title = {
                     Text(
-                        "Platform Administrator",
+                        stringResource(R.string.ui_platform_administrator),
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Black,
                         color = MaterialTheme.colorScheme.onSurface
                     )
                 },
                 actions = {
-                    IconButton(onClick = { clickDebouncer.processClick(onLogout) }) {
-                        Icon(Icons.AutoMirrored.Filled.Logout, "Logout", tint = MaterialTheme.colorScheme.error)
-                    }
+                    LogoutButton(
+                        onLogout = onLogout,
+                        style = LogoutButtonStyle.IconButton
+                    )
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface)
             )
@@ -114,112 +183,142 @@ fun PlatformAdminScreen(
         containerColor = MaterialTheme.colorScheme.background
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
-            ScrollableTabRow(
-                selectedTabIndex = state.selectedTab,
+            SecondaryScrollableTabRow(
+                selectedTabIndex = pagerState.currentPage,
                 containerColor = MaterialTheme.colorScheme.surface,
                 contentColor = MaterialTheme.colorScheme.primary,
-                edgePadding = 16.dp,
-                indicator = { tabPositions ->
-                    TabRowDefaults.SecondaryIndicator(
-                        modifier = Modifier.tabIndicatorOffset(tabPositions[state.selectedTab]),
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                }
+                edgePadding = 16.dp
             ) {
                 tabs.forEachIndexed { index, title ->
                     Tab(
-                        selected = state.selectedTab == index,
-                        onClick = { vm.setTab(index) },
+                        selected = pagerState.currentPage == index,
+                        onClick = {
+                            coroutineScope.launch {
+                                pagerState.animateScrollToPage(index)
+                                vm.setTab(index)
+                            }
+                        },
                         text = {
                             Text(
                                 title,
                                 style = MaterialTheme.typography.labelMedium,
-                                color = if (state.selectedTab == index) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                                color = if (pagerState.currentPage == index) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                     )
                 }
             }
 
-            if (state.isLoading && state.analytics.getOrNull()?.totalGroups == 0) {
-                SanibonaniLoadingScreen(message = "Loading platform data...")
+            if (analyticsState.isLoading && analyticsState.analytics.getOrNull()?.totalGroups == 0) {
+                SanibonaniLoadingScreen(message = stringResource(R.string.ui_loading_platform_data))
             } else {
-                // ⚡ Performance Hardening: Use key-based rendering for heavy tab content
-                key(state.selectedTab) {
-                    when (state.selectedTab) {
-                        0 -> state.analytics.getOrNull()?.let { analytics ->
-                            PlatformAnalyticsTab(
-                                analytics = analytics,
-                                totalRevenueShare = state.totalRevenueShare,
-                                provinceDistribution = state.provinceDistribution,
-                                marketSegments = state.marketSegments,
-                                vm = vm
+                HorizontalPager(
+                    state = pagerState,
+                    modifier = Modifier.fillMaxSize(),
+                    userScrollEnabled = true,
+                    beyondViewportPageCount = 1
+                ) { page ->
+                    when (page) {
+                        0 -> when (val analyticsRes = analyticsState.analytics) {
+                            is AsyncResult.Success -> PlatformAnalyticsTab(
+                                analytics = analyticsRes.data,
+                                totalRevenueShare = analyticsState.totalRevenueShare,
+                                provinceDistribution = analyticsState.provinceDistribution,
+                                marketSegments = analyticsState.marketSegments,
+                                vm = analyticsVm
                             )
+                            is AsyncResult.Loading, is AsyncResult.Uninitialized -> {
+                                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                    CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+                                }
+                            }
+                            is AsyncResult.Error -> {
+                                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(24.dp)) {
+                                        Text("⚠️", fontSize = 48.sp)
+                                        Spacer(Modifier.height(8.dp))
+                                        Text("Unable to load analytics", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                                        Spacer(Modifier.height(4.dp))
+                                        Text(analyticsRes.message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        Spacer(Modifier.height(16.dp))
+                                        Button(onClick = { analyticsVm.load() }) {
+                                            Text("Retry")
+                                        }
+                                    }
+                                }
+                            }
                         }
                         1 -> AllGroupsTab(
-                            groups = state.groups,
-                            vm = vm,
-                            state = state,
+                            state = analyticsState,
+                            vm = analyticsVm,
                             onNavigateToHealthScore = onNavigateToHealthScore
                         )
                         2 -> {
-                            val groupNames = state.groupNames
-                            val groupProvinces = state.groupProvinces
+                            val groupNames = analyticsState.groupNames
+                            val groupProvinces = analyticsState.groupProvinces
 
-                            val payoutsByProvince = remember(state.payouts, groupProvinces) {
-                                state.payouts.groupBy { groupProvinces[it.groupId] ?: "Other" }.toList().sortedBy { it.first }
+                            val payoutsByProvince = remember(disbursementsState.payouts, groupProvinces) {
+                                disbursementsState.payouts.groupBy { groupProvinces[it.groupId] ?: "Other" }.toList().sortedBy { it.first }
                             }
-                            val loanEscalations = remember(state.loanRequestsByGroup) {
-                                state.loanRequestsByGroup.values.flatten()
+                            val loanEscalations = remember(disbursementsState.loanRequestsByGroup) {
+                                disbursementsState.loanRequestsByGroup.values.flatten()
                             }
                             val loansByProvince = remember(loanEscalations, groupProvinces) {
                                 loanEscalations.groupBy { groupProvinces[it.groupId] ?: "Other" }.toList().sortedBy { it.first }
                             }
-                            val claimsByProvince = remember(state.escalatedClaims, groupProvinces) {
-                                state.escalatedClaims.groupBy { groupProvinces[it.groupId] ?: "Other" }.toList().sortedBy { it.first }
+                            val claimsByProvince = remember(disbursementsState.escalatedClaims, groupProvinces) {
+                                disbursementsState.escalatedClaims.groupBy { groupProvinces[it.groupId] ?: "Other" }.toList().sortedBy { it.first }
                             }
 
                             DisbursementsTab(
                                 state = DisbursementsTabState(
-                                    payoutRequests = state.payouts,
+                                    payoutRequests = disbursementsState.payouts,
                                     loanEscalations = loanEscalations,
-                                    claimEscalations = state.escalatedClaims,
-                                    behaviorInsights = state.memberBehaviorInsights,
+                                    claimEscalations = disbursementsState.escalatedClaims,
+                                    behaviorInsights = supportState.memberBehaviorInsights,
                                     groupNames = groupNames,
-                                    loanMemberNames = state.loanMemberNames,
+                                    loanMemberNames = analyticsState.loanMemberNames,
                                     groupProvinces = groupProvinces,
-                                    isProcessingPayout = state.isProcessingPayout,
-                                    isProcessingLoan = state.isProcessingLoanRequest,
-                                    isProcessingClaim = state.isProcessingClaim,
-                                    selectedMemberSummary = state.selectedMemberSummary,
-                                    isLoadingMemberSummary = state.isLoadingMemberSummary,
+                                    isProcessingPayout = disbursementsState.isProcessingPayout,
+                                    isProcessingLoan = disbursementsState.isProcessingLoanRequest,
+                                    isProcessingClaim = disbursementsState.isProcessingClaim,
+                                    processingIds = disbursementsState.processingIds,
+                                    selectedMemberSummary = disbursementsState.selectedMemberSummary,
+                                    isLoadingMemberSummary = disbursementsState.isLoadingMemberSummary,
                                     payoutsByProvince = payoutsByProvince,
                                     loansByProvince = loansByProvince,
                                     claimsByProvince = claimsByProvince
                                 ),
-                                vm = vm,
+                                vm = disbursementsVm,
                                 onOpenMemberPortalFromDisbursement = onOpenMemberPortalFromDisbursement,
                                 onImpersonateMember = onImpersonateMember,
                                 onNavigateToHealthScore = onNavigateToHealthScore,
                                 onNavigateToBehaviorTracking = onNavigateToBehaviorTracking
                             )
                         }
-                        3 -> PlatformLedgerTab(state, vm)
-                        4 -> FeeManagementTab(state, vm)
+                        3 -> PlatformLedgerTab(ledgerState, analyticsState, ledgerVm)
+                        4 -> FeeManagementTab(feesState, feesVm)
                         5 -> PlatformAuditTab(
-                            report = state.platformAuditReport,
-                            onRefresh = { vm.loadPlatformAuditReport() }
+                            report = auditState.platformAuditReport,
+                            onRefresh = { auditVm.load() }
                         )
                         6 -> MaintenanceTab(
                             state = state,
-                            vm = vm,
+                            analyticsState = analyticsState,
+                            supportState = supportState,
+                            supportVm = supportVm,
+                            onRefreshAll = {
+                                analyticsVm.load()
+                                disbursementsVm.load()
+                                ledgerVm.load()
+                            },
                             onNavigateToCreateAdmin = onNavigateToCreateAdmin,
                             onNavigateToSandbox = onNavigateToSandbox,
                             onLogout = onLogout,
                             onImpersonateGroupAdmin = onImpersonateGroupAdmin,
                             onImpersonateMember = onImpersonateMember
                         )
-                        7 -> BackupTab(state = state, vm = vm)
+                        7 -> BackupTab(state = backupState, vm = backupVm)
                     }
                 }
             }
@@ -229,9 +328,19 @@ fun PlatformAdminScreen(
     state.error?.let { error ->
         GlobalErrorBanner(
             message = error,
-            onRetry = { vm.loadData() },
+            onRetry = {
+                analyticsVm.load()
+                disbursementsVm.load()
+                ledgerVm.load()
+            },
             onDismiss = { vm.clearError() },
-            isCritical = true
+            isCritical = true,
+            actionLabel = "Retry",
+            onAction = {
+                analyticsVm.load()
+                disbursementsVm.load()
+                ledgerVm.load()
+            }
         )
     }
 
@@ -252,25 +361,25 @@ private fun AccessDeniedView(onLogout: () -> Unit) {
             Text("⚠️", fontSize = 64.sp)
             Spacer(Modifier.height(16.dp))
             Text(
-                "Access Denied",
+                stringResource(R.string.ui_access_denied),
                 style = MaterialTheme.typography.headlineMedium,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.error
             )
             Spacer(Modifier.height(8.dp))
             Text(
-                "You do not have the necessary permissions to access the Platform Administrator portal. This attempt has been logged for security purposes.",
+                stringResource(R.string.ui_access_denied_message),
                 style = MaterialTheme.typography.bodyLarge,
                 textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             Spacer(Modifier.height(32.dp))
-            Button(
-                onClick = onLogout,
-                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
-            ) {
-                Text("Logout for Security")
-            }
+            LogoutButton(
+                onLogout = onLogout,
+                style = LogoutButtonStyle.Filled,
+                label = stringResource(R.string.ui_logout_for_security),
+                confirmRequired = false
+            )
         }
     }
 }

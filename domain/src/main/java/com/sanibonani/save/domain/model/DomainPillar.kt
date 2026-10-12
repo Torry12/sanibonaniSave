@@ -16,6 +16,7 @@ enum class DomainPillar : Parcelable {
     CREDIT,
     DISBURSEMENT,
     DYNAMICS,
+    BANK,
     GLOBAL;
 
     val key: String get() = name.lowercase()

@@ -1,6 +1,7 @@
 package com.sanibonani.save.domain.architecture.policy
 
 import com.sanibonani.save.domain.architecture.FinancialGroupModel
+import com.sanibonani.save.domain.model.Money
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
@@ -32,7 +33,7 @@ data class PolicyCommand(
     @SerialName("model") val model: FinancialGroupModel,
     @SerialName("command_type") val commandType: PolicyCommandType,
     @SerialName("actor_id") val actorId: String,
-    @SerialName("amount") val amount: Double = 0.0,
+    @SerialName("amount") val amount: Money = Money.ZERO,
     @SerialName("metadata") val metadata: Map<String, String> = emptyMap()
 )
 
@@ -67,7 +68,7 @@ class InMemoryPolicyRouter(
 
 /** Example governance rule for large disbursements. */
 class LargeAmountDualApprovalRule(
-    private val threshold: Double
+    private val threshold: Money
 ) : PolicyRule {
     override fun evaluate(command: PolicyCommand): PolicyDecision? {
         if (command.amount < threshold) return null

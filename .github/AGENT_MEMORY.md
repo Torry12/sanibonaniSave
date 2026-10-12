@@ -1,38 +1,22 @@
 # Agent Memory - SanibonaniSave
 
 ## Last Updated
-2026-05-14
+2026-10-05
 
-## Recent Decisions
-- Standardized banking validation to SA formats:
-  - Account: 7..11 digits
-  - Branch: 6 digits
-- Standardized `paymentDueDay` to 1..28 across app/domain/docs/SQL
-- Loan eligibility now evaluates requested amount against group max loan
-- Beneficiary claim submission now validates banking fields pre-submit
-- Payment flow removed broad `try/catch` to avoid swallowing coroutine cancellation
+## Recent Decisions & Architectural Refactorings
+- **Burial Society Policy Settings**: Group admins can configure `burialClaimAmount`, `minMembersForClaims`, and `minReservePercentage` in `GroupSettings`. `ValidateBurialClaimEligibilityUseCase` enforces member tenure, active membership thresholds, and reserve adequacy.
+- **Overdue Shortfall & Platform Fee Precision**: `PaymentCalculator` computes net overdue shortfalls and falls back to `member.totalPaid` when contribution lists are unpopulated. `PlatformFeeService` uses `config.monthlyMemberFee`.
+- **RPC Serialization Safety**: `SupabaseContributionDataSourceImpl` and `SupabasePayoutDataSourceImpl` use `.decodeAs<JsonElement>()` with pattern matching for `JsonObject` and `JsonArray` PostgREST responses.
+- **Platform Analytics & Yield**: `PlatformRepositoryImpl` calculates actual platform yield from active member subscriptions and registration fees.
+- **Room Migration Safety**: `LocalDatabaseProvider` enables `.fallbackToDestructiveMigration()`, and `Migrations.kt` (v81) alters `groups` table safely.
+- **Master Seed & Database Sync**: Consolidated `SEED_ALL_DATA.sql` seeds 8 core group types, 12 months of ledger history, and 15 valid simulation burial claims across local and online Supabase databases.
 
-## Domain Reliability Improvements Applied
-- `RegisterMemberUseCase`: group capacity guard + `runCatching`
-- `ProcessEmergencyWithdrawalUseCase`: persist balance update via repository
-- `ValidateBurialClaimEligibilityUseCase`: pending-payment exclusion + richer cause matching
-- `UpdateMemberStatusUseCase`: explicit transition guard map
-- `CalculateViabilityUseCase`: strict positive input checks
-
-## Shared Logic Consolidation
-- ROSCA participant ordering moved to `RoscaRotationUtils.sortRoscaParticipants(...)`
-- Consumers aligned in actuarial and ROSCA use-cases
+## Test Coverage
+- **308 / 308 Passing Unit & Simulation Tests** across all modules (`:app`, `:data`, `:domain`, `:simulation`).
 
 ## Documentation/SQL Sync Rules
 When business rules change:
 1. Update domain/use-case and ViewModel callers
-2. Update `ValidationUtils.kt`
-3. Update SQL baseline/migration scripts in `supabase/`
-4. Update verification SQL (`26_VERIFY_FULL_APP_E2E.sql`)
-5. Update docs (`README.md`, deep-analysis doc, doc index)
-
-## Open Follow-Ups
-- Confirm legacy DB instances have executed `29_ALIGN_VALIDATION_CONSTRAINTS_WITH_APP.sql`
-- Optionally tighten older schema comments that still mention `1..31`
-- Consider centralizing all bank-validation regexes in one shared source for SQL + Kotlin generation
-
+2. Update `GroupModels.kt`, `GroupEntities.kt`, and `ValidationUtils.kt`
+3. Update SQL baseline/migration scripts in `supabase/` (`01_DATABASE_SCHEMA.sql`, `GROUND_ZERO.sql`, `SEED_ALL_DATA.sql`)
+4. Update docs (`README.md`, `TECHNICAL_STATE_LATEST.md`, `QA_LOGIN_CREDENTIALS.md`)

@@ -25,18 +25,25 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.ui.geometry.Offset
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.sanibonani.save.ui.components.AsyncResultHandler
 import com.sanibonani.save.ui.utils.rememberClickDebouncer
 import com.sanibonani.save.domain.model.UserRole
 import com.sanibonani.save.ui.components.*
+import com.sanibonani.save.ui.components.*
 import com.sanibonani.save.ui.theme.*
-import com.sanibonani.save.domain.model.AsyncResult
-import com.sanibonani.save.domain.model.Money
-import com.sanibonani.save.domain.model.PlatformFees
+import com.sanibonani.save.domain.config.PlatformFees
+import com.sanibonani.save.features.landing.components.CompactStatItem
+import com.sanibonani.save.features.landing.components.FeatureCard
+import com.sanibonani.save.features.landing.components.FeatureDetail
+import com.sanibonani.save.features.landing.components.FeatureDetailDialog
+import com.sanibonani.save.features.landing.components.GroupTypeHelpItem
+import com.sanibonani.save.features.landing.components.HowItWorksItem
+import com.sanibonani.save.features.landing.components.StatsShimmer
 
 @Composable
 fun LandingScreen(
@@ -51,7 +58,6 @@ fun LandingScreen(
     val isLoggedIn = uiState.isLoggedIn
     val userRole = uiState.userRole
     val clickDebouncer = rememberClickDebouncer()
-    val context = LocalContext.current
 
     var selectedFeature by remember { mutableStateOf<FeatureDetail?>(null) }
 
@@ -71,19 +77,50 @@ fun LandingScreen(
                 .padding(padding)
                 .verticalScroll(rememberScrollState())
         ) {
-            // ── Network Status ──
+            // â”€â”€ Network Status â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
             if (!uiState.isSystemOnline || uiState.isAirplaneMode) {
                 OfflineBanner(
-                    message = if (uiState.isAirplaneMode) "⚠️ Airplane Mode Active — Data syncing is paused."
-                              else "⚠️ Offline Mode — Using cached information."
+                    isOnline = false,
+                    message = if (uiState.isAirplaneMode) stringResource(R.string.ui_offline_airplane_mode)
+                              else stringResource(R.string.ui_offline_cached_mode)
                 )
             }
 
-            // ── Hero Section ──────────────────────────────────────────────────
+            // â”€â”€ Language Selector â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+            LanguageSelector(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Navy)
+                    .padding(horizontal = 24.dp, vertical = 8.dp)
+            )
+
+            // â”€â”€ Hero Section â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+            val infiniteTransition = rememberInfiniteTransition()
+            val gradientOffset by infiniteTransition.animateFloat(
+                initialValue = 0f,
+                targetValue = 1000f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(15000, easing = LinearEasing),
+                    repeatMode = RepeatMode.Reverse
+                ),
+                label = "HeroGradient"
+            )
+
+            var isHeroLoaded by remember { mutableStateOf(false) }
+            LaunchedEffect(Unit) {
+                isHeroLoaded = true
+            }
+
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(Brush.verticalGradient(listOf(Navy, NavyMid)))
+                    .background(
+                        Brush.linearGradient(
+                            colors = listOf(NavyDeep, Navy, NavyMid, NavyLight),
+                            start = Offset(gradientOffset, gradientOffset / 2),
+                            end = Offset(gradientOffset + 800f, 1200f)
+                        )
+                    )
                     .padding(vertical = 48.dp, horizontal = 24.dp)
             ) {
                 Column(
@@ -91,138 +128,161 @@ fun LandingScreen(
                     verticalArrangement = Arrangement.Center,
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Surface(
-                        color = Color.White.copy(alpha = 0.15f),
-                        shape = RoundedCornerShape(24.dp),
-                        modifier = Modifier.padding(bottom = 16.dp),
-                        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.2f))
+                    AnimatedVisibility(
+                        visible = isHeroLoaded,
+                        enter = slideInVertically(initialOffsetY = { -40 }, animationSpec = tween(700, easing = FastOutSlowInEasing)) + fadeIn(animationSpec = tween(700))
                     ) {
-                        Text(
-                            stringResource(R.string.ui_trusted_by_communities),
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                            style = MaterialTheme.typography.labelSmall,
+                        Surface(
+                            color = Color.White.copy(alpha = 0.15f),
+                            shape = RoundedCornerShape(24.dp),
+                            modifier = Modifier.padding(bottom = 16.dp),
+                            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.2f))
+                        ) {
+                            Text(
+                                stringResource(R.string.ui_trusted_by_communities),
+                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = Color.White,
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 1.sp
+                            )
+                        }
+                    }
+
+                    AnimatedVisibility(
+                        visible = isHeroLoaded,
+                        enter = slideInVertically(initialOffsetY = { 50 }, animationSpec = tween(800, delayMillis = 100, easing = FastOutSlowInEasing)) + fadeIn(animationSpec = tween(800, delayMillis = 100))
+                    ) {
+                        AutoFitText(
+                            text = stringResource(R.string.ui_sanibonani_save),
                             color = Color.White,
-                            fontWeight = FontWeight.Bold,
-                            letterSpacing = 1.sp
+                            style = MaterialTheme.typography.displayMedium.copy(
+                                fontWeight = FontWeight.Black,
+                                letterSpacing = (-1).sp
+                            ),
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.fillMaxWidth(0.9f)
                         )
                     }
 
-                    Text(
-                        stringResource(R.string.ui_sanibonani_save),
-                        color = Color.White,
-                        style = MaterialTheme.typography.displayMedium.copy(
-                            fontWeight = FontWeight.ExtraBold,
-                            letterSpacing = (-1).sp
-                        ),
-                        textAlign = TextAlign.Center
-                    )
-
                     Spacer(Modifier.height(12.dp))
 
-                    Text(
-                        stringResource(R.string.ui_the_modern_digital_ledger_for_south_afri),
-                        color = Color.White.copy(alpha = 0.9f),
-                        style = MaterialTheme.typography.headlineSmall,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.fillMaxWidth(0.9f)
-                    )
+                    AnimatedVisibility(
+                        visible = isHeroLoaded,
+                        enter = slideInVertically(initialOffsetY = { 50 }, animationSpec = tween(800, delayMillis = 200, easing = FastOutSlowInEasing)) + fadeIn(animationSpec = tween(800, delayMillis = 200))
+                    ) {
+                        Text(
+                            stringResource(R.string.ui_the_modern_digital_ledger_for_south_afri),
+                            color = Color.White.copy(alpha = 0.9f),
+                            style = MaterialTheme.typography.headlineSmall,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.fillMaxWidth(0.9f)
+                        )
+                    }
 
                     Spacer(Modifier.height(32.dp))
 
-                    // ⚡ Hero Actions (Context Aware)
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.Center,
-                        verticalAlignment = Alignment.CenterVertically
+                    AnimatedVisibility(
+                        visible = isHeroLoaded,
+                        enter = slideInVertically(initialOffsetY = { 50 }, animationSpec = tween(800, delayMillis = 300, easing = FastOutSlowInEasing)) + fadeIn(animationSpec = tween(800, delayMillis = 300))
                     ) {
-                        if (isLoggedIn) {
-                            if (uiState.pendingGroup != null) {
-                                // Admin with unpaid group
-                                SanibonaniButton(
-                                    text = "Finish Registration",
-                                    onClick = { clickDebouncer.processClick(onNavigateRegisterGroup) },
-                                    containerColor = WarningAmber,
-                                    contentColor = Navy,
-                                    modifier = Modifier.weight(1f)
-                                )
-                            } else if (!uiState.isMemberOrAdmin) {
-                                // Logged in but no group yet
-                                SanibonaniButton(
-                                    text = "Join a Group",
-                                    onClick = { clickDebouncer.processClick(onNavigateBrowseGroups) },
-                                    containerColor = Color.White,
-                                    contentColor = Navy,
-                                    modifier = Modifier.weight(1f)
-                                )
+                        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
+                            // âš¡ Hero Actions
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.Center,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                if (isLoggedIn) {
+                                    if (uiState.pendingGroup != null) {
+                                        SanibonaniButton(
+                                            text = stringResource(R.string.ui_finish_registration),
+                                            onClick = { clickDebouncer.processClick(onNavigateRegisterGroup) },
+                                            containerColor = WarningAmber,
+                                            contentColor = Navy,
+                                            modifier = Modifier.weight(1f),
+                                            textStyle = MaterialTheme.typography.titleSmall
+                                        )
+                                    } else if (!uiState.isMemberOrAdmin) {
+                                        SanibonaniButton(
+                                            text = stringResource(R.string.ui_join_a_group),
+                                            onClick = { clickDebouncer.processClick(onNavigateBrowseGroups) },
+                                            containerColor = Color.White,
+                                            contentColor = Navy,
+                                            modifier = Modifier.weight(1f),
+                                            textStyle = MaterialTheme.typography.titleSmall
+                                        )
+                                    } else {
+                                        val primaryLabel = when (userRole) {
+                                            UserRole.PLATFORM_ADMIN -> stringResource(R.string.ui_platform_portal)
+                                            UserRole.GROUP_ADMIN    -> stringResource(R.string.ui_admin_dashboard_title)
+                                            UserRole.MEMBER         -> stringResource(R.string.ui_member_portal_title)
+                                        }
+                                        val primaryAction = when (userRole) {
+                                            UserRole.PLATFORM_ADMIN -> onNavigateDashboard
+                                            UserRole.GROUP_ADMIN    -> onNavigateDashboard
+                                            UserRole.MEMBER         -> onNavigateMemberPortal
+                                        }
+                                        SanibonaniButton(
+                                            text = primaryLabel,
+                                            onClick = { clickDebouncer.processClick(primaryAction) },
+                                            containerColor = Color.White,
+                                            contentColor = Navy,
+                                            modifier = Modifier.weight(1f),
+                                            textStyle = MaterialTheme.typography.titleSmall
+                                        )
+                                    }
+
+                                    Spacer(Modifier.width(8.dp))
+
+                                    OutlinedButton(
+                                        onClick = { clickDebouncer.processClick(onNavigateBrowseGroups) },
+                                        modifier = Modifier.weight(1f).height(56.dp),
+                                        shape = RoundedCornerShape(18.dp),
+                                        border = BorderStroke(2.dp, Color.White),
+                                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)
+                                    ) {
+                                        Text(stringResource(R.string.ui_browse_all), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.ExtraBold)
+                                    }
+                                } else {
+                                    SanibonaniButton(
+                                        text = stringResource(R.string.ui_browse_groups),
+                                        onClick = { clickDebouncer.processClick(onNavigateBrowseGroups) },
+                                        containerColor = Color.White,
+                                        contentColor = Navy,
+                                        modifier = Modifier.weight(1f),
+                                        textStyle = MaterialTheme.typography.titleSmall
+                                    )
+                                    Spacer(Modifier.width(8.dp))
+                                    OutlinedButton(
+                                        onClick = { clickDebouncer.processClick(onNavigateRegisterGroup) },
+                                        modifier = Modifier.weight(1f).height(56.dp),
+                                        shape = RoundedCornerShape(18.dp),
+                                        border = BorderStroke(2.dp, Color.White),
+                                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)
+                                    ) {
+                                        Text(stringResource(R.string.ui_register_group), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.ExtraBold)
+                                    }
+                                }
+                            }
+
+                            if (isLoggedIn) {
+                                Spacer(Modifier.height(16.dp))
+                                TextButton(onClick = { clickDebouncer.processClick(onNavigateRegisterGroup) }) {
+                                    Text(stringResource(R.string.ui_register_a_new_group), color = Color.White, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyLarge)
+                                }
                             } else {
-                                // Active user
-                                val primaryLabel = when (userRole) {
-                                    UserRole.PLATFORM_ADMIN -> "Platform Portal"
-                                    UserRole.GROUP_ADMIN    -> "Admin Dashboard"
-                                    UserRole.MEMBER         -> "Member Portal"
+                                Spacer(Modifier.height(16.dp))
+                                TextButton(onClick = { clickDebouncer.processClick { onNavigateLogin(null) } }) {
+                                    Text(stringResource(R.string.ui_already_a_member_log_in), color = Color.White, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyLarge)
                                 }
-                                val primaryAction = when (userRole) {
-                                    UserRole.PLATFORM_ADMIN -> onNavigateDashboard
-                                    UserRole.GROUP_ADMIN    -> onNavigateDashboard
-                                    UserRole.MEMBER         -> onNavigateMemberPortal
-                                }
-                                SanibonaniButton(
-                                    text = primaryLabel,
-                                    onClick = { clickDebouncer.processClick(primaryAction) },
-                                    containerColor = Color.White,
-                                    contentColor = Navy,
-                                    modifier = Modifier.weight(1f)
-                                )
                             }
-
-                            Spacer(Modifier.width(8.dp))
-
-                            OutlinedButton(
-                                onClick = { clickDebouncer.processClick(onNavigateBrowseGroups) },
-                                modifier = Modifier.weight(1f).height(48.dp),
-                                shape = RoundedCornerShape(12.dp),
-                                border = BorderStroke(2.dp, Color.White),
-                                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)
-                            ) {
-                                Text("Browse All", fontWeight = FontWeight.ExtraBold)
-                            }
-                        } else {
-                            // Guest
-                            SanibonaniButton(
-                                text = "Browse Groups",
-                                onClick = { clickDebouncer.processClick(onNavigateBrowseGroups) },
-                                containerColor = Color.White,
-                                contentColor = Navy,
-                                modifier = Modifier.weight(1f)
-                            )
-                            Spacer(Modifier.width(8.dp))
-                            OutlinedButton(
-                                onClick = { clickDebouncer.processClick(onNavigateRegisterGroup) },
-                                modifier = Modifier.weight(1f).height(48.dp),
-                                shape = RoundedCornerShape(12.dp),
-                                border = BorderStroke(2.dp, Color.White),
-                                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)
-                            ) {
-                                Text(stringResource(R.string.ui_register_group), fontWeight = FontWeight.ExtraBold)
-                            }
-                        }
-                    }
-
-                    if (isLoggedIn) {
-                        Spacer(Modifier.height(16.dp))
-                        TextButton(onClick = { clickDebouncer.processClick(onNavigateRegisterGroup) }) {
-                            Text(stringResource(R.string.ui_register_a_new_group), color = Color.White)
-                        }
-                    } else {
-                        Spacer(Modifier.height(16.dp))
-                        TextButton(onClick = { clickDebouncer.processClick { onNavigateLogin(null) } }) {
-                            Text(stringResource(R.string.ui_already_a_member_log_in), color = Color.White)
                         }
                     }
                 }
             }
 
-            // ── Stats Section ─────────────────────────────────────────────────
+            // â”€â”€ Stats Section â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
             Surface(
                 color = MaterialTheme.colorScheme.surface,
                 tonalElevation = 2.dp,
@@ -238,44 +298,41 @@ fun LandingScreen(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     modifier = Modifier.padding(24.dp)
                 ) {
-                    if (uiState.analytics.isLoading) {
-                        StatsShimmer()
-                    } else {
-                        uiState.analytics.getOrNull()?.let { stats ->
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceEvenly,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                val groupsText = if (stats.totalGroups > 0) stats.totalGroups.toString() else "New"
-                                val membersText = if (stats.totalMembers > 0) stats.totalMembers.toString() else "Join Now"
-
-                                CompactStatItem("Groups Active", groupsText)
-                                Box(Modifier.width(1.dp).height(32.dp).background(LightGray.copy(alpha = 0.5f)))
-                                CompactStatItem("Trusted Members", membersText)
+                    AsyncResultHandler(
+                        result = uiState.analytics,
+                        onLoading = { StatsShimmer() },
+                        onError = { message, _ ->
+                            Spacer(Modifier.height(12.dp))
+                            Text(
+                                text = message,
+                                color = MaterialTheme.colorScheme.error,
+                                style = MaterialTheme.typography.labelSmall,
+                                textAlign = TextAlign.Center
+                            )
+                            TextButton(onClick = { viewModel.onIntent(LandingIntent.Refresh) }) {
+                                Text(stringResource(R.string.ui_retry_connection_btn), fontWeight = FontWeight.Bold)
                             }
                         }
-                    }
+                    ) { stats ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceEvenly,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            val groupsText = if (stats.totalGroups > 0) stats.totalGroups.toString() else stringResource(R.string.ui_new)
+                            val membersText = if (stats.totalMembers > 0) stats.totalMembers.toString() else stringResource(R.string.ui_join_now)
 
-                    val analytics = uiState.analytics
-                    if (analytics is AsyncResult.Error) {
-                        Spacer(Modifier.height(12.dp))
-                        Text(
-                            text = analytics.message,
-                            color = MaterialTheme.colorScheme.error,
-                            style = MaterialTheme.typography.labelSmall,
-                            textAlign = TextAlign.Center
-                        )
-                        TextButton(onClick = { viewModel.onIntent(LandingIntent.Refresh) }) {
-                            Text("Retry Connection", fontWeight = FontWeight.Bold)
+                            CompactStatItem(stringResource(R.string.ui_groups_active), groupsText)
+                            Box(Modifier.width(1.dp).height(32.dp).background(LightGray.copy(alpha = 0.5f)))
+                            CompactStatItem(stringResource(R.string.ui_trusted_members), membersText)
                         }
                     }
                 }
             }
 
-            // ── Core Features ─────────────────────────────────────────────────
+            // â”€â”€ Core Features â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
             Column(Modifier.padding(horizontal = 24.dp, vertical = 8.dp)) {
-                SanibonaniSectionHeader("Designed for South Africa")
+                SanibonaniSectionHeader(stringResource(R.string.ui_designed_for_south_africa))
                 Text(stringResource(R.string.ui_tailored_features_for_the_unique_needs_o),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
@@ -283,156 +340,228 @@ fun LandingScreen(
                 )
 
                 FeatureCard(
-                    title = "Burial Societies",
-                    description = "Comprehensive actuarial tools, beneficiary management, and automated viability analysis for funeral insurance groups.",
+                    title = stringResource(R.string.ui_burial_societies_title),
+                    description = stringResource(R.string.ui_burial_societies_desc),
                     icon = Icons.Default.Security,
-                    iconColor = Navy,
+                    iconColor = MaterialTheme.colorScheme.primary,
                     onClick = {
                         selectedFeature = FeatureDetail(
-                            title = "Burial Societies",
-                            description = "Professional tools designed for the unique needs of South African funeral insurance groups.",
+                            title = R.string.ui_burial_societies_title,
+                            description = R.string.ui_burial_societies_desc,
                             icon = Icons.Default.Security,
                             iconColor = Navy,
                             benefits = listOf(
-                                "Actuarial Oversight: Automated solvency and reserve adequacy calculations.",
-                                "Beneficiary Management: Securely track and verify member beneficiaries.",
-                                "Claim Processing: Streamlined workflows for death benefit claims and payouts.",
-                                "Viability Analysis: Real-time insights into the group's long-term financial health."
+                                R.string.ui_benefit_burial_1,
+                                R.string.ui_benefit_burial_2,
+                                R.string.ui_benefit_burial_3,
+                                R.string.ui_benefit_burial_4
                             )
                         )
                     }
                 )
 
                 FeatureCard(
-                    title = "Smart Loan System",
-                    description = "Fair, group-backed lending with automated interest, contribution-based surety, and effortless repayment tracking.",
+                    title = stringResource(R.string.ui_smart_loan_system_title),
+                    description = stringResource(R.string.ui_smart_loan_system_desc),
                     icon = Icons.AutoMirrored.Filled.TrendingUp,
-                    iconColor = NavyMid,
+                    iconColor = MaterialTheme.colorScheme.secondary,
                     onClick = {
                         selectedFeature = FeatureDetail(
-                            title = "Smart Loan System",
-                            description = "A fair, transparent credit system backed by the collective savings of the group.",
+                            title = R.string.ui_smart_loan_system_title,
+                            description = R.string.ui_smart_loan_system_desc,
                             icon = Icons.AutoMirrored.Filled.TrendingUp,
                             iconColor = NavyMid,
                             benefits = listOf(
-                                "Automated Interest: Configure flat or reducing interest rates that accrue automatically.",
-                                "Surety Protection: Use a member's savings principal as collateral for secure lending.",
-                                "Repayment Tracking: Real-time visibility into installments and overdue statuses.",
-                                "P2P Growth: Interest earned on loans stays within the group, growing the collective pot."
+                                R.string.ui_benefit_loans_1,
+                                R.string.ui_benefit_loans_2,
+                                R.string.ui_benefit_loans_3,
+                                R.string.ui_benefit_loans_4
                             )
                         )
                     }
                 )
 
                 FeatureCard(
-                    title = "Digital Stokvels",
-                    description = "Eliminate paper ledgers. Real-time tracking of turns, payouts, and contributions for ROSCAs and Savings Clubs.",
+                    title = stringResource(R.string.ui_digital_stokvels_title),
+                    description = stringResource(R.string.ui_digital_stokvels_desc),
                     icon = Icons.AutoMirrored.Filled.MenuBook,
-                    iconColor = Navy,
+                    iconColor = MaterialTheme.colorScheme.primary,
                     onClick = {
                         selectedFeature = FeatureDetail(
-                            title = "Digital Stokvels",
-                            description = "Modernize your stokvel or ROSCA by replacing physical ledgers with a secure digital record.",
+                            title = R.string.ui_digital_stokvels_title,
+                            description = R.string.ui_digital_stokvels_desc,
                             icon = Icons.AutoMirrored.Filled.MenuBook,
                             iconColor = Navy,
                             benefits = listOf(
-                                "Turn Management: Automated rotation tracking for ROSCAs and payout clubs.",
-                                "Instant Reconciliation: Real-time matching of member payments to bank records.",
-                                "Transparency: Every member can see their contribution history and upcoming turns.",
-                                "Immutable Ledger: Every transaction is cryptographically ledgered for maximum trust."
+                                R.string.ui_benefit_stokvel_1,
+                                R.string.ui_benefit_stokvel_2,
+                                R.string.ui_benefit_stokvel_3,
+                                R.string.ui_benefit_stokvel_4
                             )
                         )
                     }
                 )
 
                 FeatureCard(
-                    title = "Group Discovery",
-                    description = "Find and join trusted groups in your neighborhood using our interactive map and geolocated search.",
+                    title = stringResource(R.string.ui_group_discovery_title),
+                    description = stringResource(R.string.ui_group_discovery_desc),
                     icon = Icons.Default.Map,
-                    iconColor = NavyMid,
+                    iconColor = MaterialTheme.colorScheme.secondary,
                     onClick = { clickDebouncer.processClick(onNavigateBrowseGroups) }
                 )
             }
 
-            // ── Compliance & Security ──────────────────────────────────────────
-            // ...existing code...
-            Surface(
-                color = Navy.copy(alpha = 0.05f),
-                modifier = Modifier.fillMaxWidth().padding(vertical = 32.dp)
+            // â”€â”€ Compliance & Security â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+            ElevatedCard(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp, vertical = 16.dp),
+                shape = RoundedCornerShape(24.dp),
+                colors = CardDefaults.elevatedCardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                ),
+                elevation = CardDefaults.elevatedCardElevation(defaultElevation = 1.dp)
             ) {
                 Column(Modifier.padding(24.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.VerifiedUser, null, tint = Navy, modifier = Modifier.size(32.dp))
+                        Icon(Icons.Default.VerifiedUser, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(32.dp))
                         Spacer(Modifier.width(16.dp))
-                        Text(stringResource(R.string.ui_bankgrade_security),
+                        Text(
+                            stringResource(R.string.ui_bankgrade_security),
                             style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.Bold,
-                            color = Navy
+                            color = MaterialTheme.colorScheme.onSurface
                         )
                     }
                     Spacer(Modifier.height(12.dp))
-                    Text(stringResource(R.string.ui_your_data_and_group_finances_are_protect),
+                    Text(
+                        stringResource(R.string.ui_your_data_and_group_finances_are_protect),
                         style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurface
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }
 
-            // ── Call to Action Section ──────────────────────────────────────
-            Box(
+            // â”€â”€ Call to Action Section â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+            ElevatedCard(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(24.dp)
-                    .background(
-                        Brush.linearGradient(listOf(NavyLight.copy(0.1f), Cream)),
-                        RoundedCornerShape(24.dp)
-                    )
-                    .border(1.dp, Navy.copy(0.05f), RoundedCornerShape(24.dp))
-                    .padding(24.dp)
+                    .padding(24.dp),
+                shape = RoundedCornerShape(24.dp),
+                colors = CardDefaults.elevatedCardColors(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+                ),
+                elevation = CardDefaults.elevatedCardElevation(defaultElevation = 2.dp)
             ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Column(
+                    modifier = Modifier.padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
                     Text(
-                        "Start Your Legacy",
+                        stringResource(R.string.ui_start_your_legacy),
                         style = MaterialTheme.typography.headlineSmall,
                         fontWeight = FontWeight.Black,
-                        color = Navy
+                        color = MaterialTheme.colorScheme.onSurface
                     )
+                    Spacer(Modifier.height(8.dp))
                     Text(
-                        "Secure your community's future in less than 5 minutes. Register your group today for only ${PlatformFees.REGISTRATION.format()}.",
+                        stringResource(R.string.ui_start_legacy_desc, PlatformFees.REGISTRATION.format()),
                         style = MaterialTheme.typography.bodyMedium,
                         textAlign = TextAlign.Center,
-                        modifier = Modifier.padding(vertical = 12.dp),
-                        color = Color.DarkGray
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                    Spacer(Modifier.height(16.dp))
                     SanibonaniButton(
-                        text = "Register Group Now",
+                        text = stringResource(R.string.ui_register_group_now),
                         onClick = { clickDebouncer.processClick(onNavigateRegisterGroup) },
-                        containerColor = Navy,
-                        modifier = Modifier.padding(top = 8.dp)
+                        modifier = Modifier.fillMaxWidth().height(52.dp)
                     )
                 }
             }
 
-            // ── How It Works ──────────────────────────────────────────────────
+            // â”€â”€ How It Works â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
             Column(Modifier.padding(24.dp)) {
-                SanibonaniSectionHeader("How it Works")
+                SanibonaniSectionHeader(stringResource(R.string.ui_how_it_works))
                 Spacer(Modifier.height(16.dp))
 
                 HowItWorksItem(
                     step = "1",
-                    title = "Create Your Group",
-                    description = "Register your burial society, stokvel, or club. Define your own rules, fees, and payouts."
+                    title = stringResource(R.string.ui_step_create_group),
+                    description = stringResource(R.string.ui_step_create_group_desc)
                 )
                 HowItWorksItem(
                     step = "2",
-                    title = "Invite Members",
-                    description = "Add members manually or let them find you on the map. Every member gets their own secure portal."
+                    title = stringResource(R.string.ui_step_invite_members),
+                    description = stringResource(R.string.ui_step_invite_members_desc)
                 )
                 HowItWorksItem(
                     step = "3",
-                    title = "Save & Grow",
-                    description = "Track contributions in real-time. Apply for loans, manage claims, and watch your collective wealth grow."
+                    title = stringResource(R.string.ui_step_save_grow),
+                    description = stringResource(R.string.ui_step_save_grow_desc)
                 )
+            }
+
+            // â”€â”€ About, Owner Creditation, Contact & Group Types Help â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+            Column(Modifier.padding(horizontal = 24.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
+                Card(
+                    shape = RoundedCornerShape(24.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                ) {
+                    Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text("â„¹ï¸ About SanibonaniSave", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                        Text(
+                            "SanibonaniSave is South Africa's premier digital savings platform, designed to digitize informal community finance with transparent ledgers, automated banking reconciliation, and actuarial risk modeling.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(0.1f))
+                        Text("ðŸ‘‘ App Owner & Creditation", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                        Text(
+                            "Founded and Architected by Torry Msimango (Lead Platform Architect & Developer). Built with passion to empower African community wealth-building.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
+                Card(
+                    shape = RoundedCornerShape(24.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                ) {
+                    Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("ðŸ“ž Company Contact", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                        // NOTE: no personal/admin email here. This card is on the public
+                        // landing screen, and exposing an administrator's personal address
+                        // (especially a platform-admin account) is a phishing and targeting
+                        // vector. Route support through the public channel only.
+                        Text("Email: support@sanibonani.save", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("Phone: +27 (0) 11 555 0192", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("Address: Sandton City Office Towers, 5th Street, Sandton, Johannesburg, 2196, South Africa", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+
+                Card(
+                    shape = RoundedCornerShape(24.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                ) {
+                    Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text("â“ Help & Group Types Guide", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                        Text(
+                            "Understanding the different savings structures supported on SanibonaniSave:",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+
+                        GroupTypeHelpItem("Burial Society", "Mutual aid societies providing death benefit payouts, actuarial solvency monitoring, and contribution tracking.")
+                        GroupTypeHelpItem("Stokvel", "Traditional rotating or cumulative savings schemes where members contribute fixed monthly amounts.")
+                        GroupTypeHelpItem("ROSCA", "Rotating Savings and Credit Association with automated turn-taking, random draws, and bidding auctions.")
+                        GroupTypeHelpItem("Investment Club", "Equity and stock-pooling groups utilizing unit-based Net Asset Value (NAV) and annualised CAGR returns.")
+                        GroupTypeHelpItem("Emergency Fund", "Immediate liquidity reserves with strict withdrawal caps and instant disbursal validation.")
+                        GroupTypeHelpItem("Community Savings", "Community co-op pools supporting micro-loans and collective grassroots welfare.")
+                        GroupTypeHelpItem("Tontine", "Longevity-linked mutual fund where surviving members share accumulated yields.")
+                        GroupTypeHelpItem("Other", "General purpose custom savings and financial groups.")
+                    }
+                }
             }
 
             Spacer(Modifier.height(48.dp))
@@ -444,220 +573,5 @@ fun LandingScreen(
             detail = detail,
             onDismiss = { selectedFeature = null }
         )
-    }
-}
-
-@Composable
-fun HowItWorksItem(step: String, title: String, description: String) {
-    Row(modifier = Modifier.padding(vertical = 12.dp), verticalAlignment = Alignment.Top) {
-        Surface(
-            modifier = Modifier.size(32.dp),
-            shape = CircleShape,
-            color = Navy,
-            contentColor = Color.White
-        ) {
-            Box(contentAlignment = Alignment.Center) {
-                Text(step, fontWeight = FontWeight.Black, style = MaterialTheme.typography.labelLarge)
-            }
-        }
-        Spacer(Modifier.width(20.dp))
-        Column {
-            Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Navy)
-            Text(description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-    }
-}
-
-
-data class FeatureDetail(
-    val title: String,
-    val description: String,
-    val icon: ImageVector,
-    val iconColor: Color,
-    val benefits: List<String>
-)
-
-@Composable
-fun FeatureDetailDialog(
-    detail: FeatureDetail,
-    onDismiss: () -> Unit
-) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        confirmButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Got it", fontWeight = FontWeight.Bold)
-            }
-        },
-        icon = {
-            Surface(
-                color = detail.iconColor.copy(alpha = 0.1f),
-                shape = RoundedCornerShape(12.dp),
-                modifier = Modifier.size(48.dp)
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(detail.icon, null, tint = detail.iconColor)
-                }
-            }
-        },
-        title = {
-            Text(
-                text = detail.title,
-                style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.Black,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.fillMaxWidth()
-            )
-        },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                Text(
-                    text = detail.description,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
-                )
-
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    detail.benefits.forEach { benefit ->
-                        Row(verticalAlignment = Alignment.Top) {
-                            Text("•", color = detail.iconColor, fontWeight = FontWeight.Bold, modifier = Modifier.padding(end = 8.dp))
-                            Text(
-                                text = benefit,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                        }
-                    }
-                }
-            }
-        },
-        shape = RoundedCornerShape(28.dp),
-        containerColor = MaterialTheme.colorScheme.surface,
-        textContentColor = MaterialTheme.colorScheme.onSurface
-    )
-}
-
-@Composable
-fun CompactStatItem(label: String, value: String) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(
-            text = value,
-            style = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.ExtraBold,
-            color = MaterialTheme.colorScheme.primary
-        )
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-    }
-}
-
-@Composable
-fun FeatureCard(
-    title: String,
-    description: String,
-    icon: ImageVector,
-    iconColor: Color,
-    onClick: (() -> Unit)? = null
-) {
-    Card(
-        onClick = { onClick?.invoke() },
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 8.dp),
-        shape = RoundedCornerShape(24.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-        border = BorderStroke(1.dp, iconColor.copy(alpha = 0.08f))
-    ) {
-        Row(
-            modifier = Modifier.padding(20.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Surface(
-                color = iconColor.copy(alpha = 0.1f),
-                shape = RoundedCornerShape(16.dp),
-                modifier = Modifier.size(52.dp)
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(icon, null, tint = iconColor, modifier = Modifier.size(24.dp))
-                }
-            }
-
-            Spacer(Modifier.width(20.dp))
-
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    text = description,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                    lineHeight = 16.sp
-                )
-            }
-
-            Icon(
-                imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                contentDescription = null,
-                tint = MidGray.copy(alpha = 0.3f),
-                modifier = Modifier.size(20.dp)
-            )
-        }
-    }
-}
-
-@Composable
-fun StatsShimmer() {
-    val shimmerColors = listOf(
-        Color.LightGray.copy(alpha = 0.3f),
-        Color.LightGray.copy(alpha = 0.1f),
-        Color.LightGray.copy(alpha = 0.3f),
-    )
-
-    val transition = rememberInfiniteTransition(label = "shimmer")
-    val translateAnim = transition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1000f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 1200, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "translate"
-    )
-
-    val brush = Brush.linearGradient(
-        colors = shimmerColors,
-        start = Offset.Zero,
-        end = Offset(x = translateAnim.value, y = translateAnim.value)
-    )
-
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceEvenly,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Box(Modifier.size(60.dp, 24.dp).clip(RoundedCornerShape(4.dp)).background(brush))
-            Spacer(Modifier.height(4.dp))
-            Box(Modifier.size(40.dp, 12.dp).clip(RoundedCornerShape(2.dp)).background(brush))
-        }
-        Box(Modifier.width(1.dp).height(32.dp).background(Color.LightGray.copy(alpha = 0.2f)))
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Box(Modifier.size(60.dp, 24.dp).clip(RoundedCornerShape(4.dp)).background(brush))
-            Spacer(Modifier.height(4.dp))
-            Box(Modifier.size(40.dp, 12.dp).clip(RoundedCornerShape(2.dp)).background(brush))
-        }
     }
 }

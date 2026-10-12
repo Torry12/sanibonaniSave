@@ -31,7 +31,7 @@ class SupabaseReconciliationDataSourceImpl @Inject constructor(
             parameters = buildJsonObject { put("p_group_id", groupId) }
         ).decodeAs<ConsolidationReport>()
 
-        res.reconciliationReport
+        res.reconciliationRecord ?: throw Exception("Reconciliation record missing from report")
     }
 
     override suspend fun resolveDiscrepancy(reconciliationId: String, notes: String): Result<Unit> = runCatching {

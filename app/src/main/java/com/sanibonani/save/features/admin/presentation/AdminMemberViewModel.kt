@@ -1,31 +1,34 @@
 package com.sanibonani.save.features.admin.presentation
 
-import androidx.lifecycle.viewModelScope
-import com.sanibonani.save.domain.model.*
-import com.sanibonani.save.domain.repository.equity.*
-import com.sanibonani.save.domain.repository.credit.*
-import com.sanibonani.save.domain.repository.disbursement.*
-import com.sanibonani.save.domain.repository.dynamics.*
-import com.sanibonani.save.domain.repository.system.*
-import com.sanibonani.save.domain.repository.treasury.*
-import com.sanibonani.save.domain.usecase.dynamics.UpdateMemberStatusUseCase
-import com.sanibonani.save.domain.usecase.disbursement.VerifyMemberDocumentUseCase
-import com.sanibonani.save.domain.usecase.disbursement.VerifyRelationalDocumentUseCase
-import com.sanibonani.save.domain.usecase.dynamics.SendNotificationUseCase
+import com.sanibonani.save.domain.model.Contribution
+import com.sanibonani.save.domain.model.Group
+import com.sanibonani.save.domain.model.Member
+import com.sanibonani.save.domain.model.MemberStatus
+import com.sanibonani.save.domain.model.NotifChannel
+import com.sanibonani.save.domain.repository.auth.SupabaseRepository
+import com.sanibonani.save.domain.repository.equity.ContributionRepository
+import com.sanibonani.save.domain.repository.member.BeneficiaryRepository
+import com.sanibonani.save.domain.repository.member.MemberDocumentRepository
+import com.sanibonani.save.domain.repository.member.MemberRepository
+import com.sanibonani.save.domain.repository.system.ExportRepository
 import com.sanibonani.save.domain.usecase.credit.ValidateLoanEligibilityUseCase
-import com.sanibonani.save.service.AdminGroupContextCacheService
-import com.sanibonani.save.domain.utils.PaymentCalculation
+import com.sanibonani.save.domain.usecase.member.UpdateMemberStatusUseCase
+import com.sanibonani.save.domain.usecase.member.VerifyMemberDocumentUseCase
+import com.sanibonani.save.domain.usecase.member.VerifyRelationalDocumentUseCase
+import com.sanibonani.save.domain.usecase.system.SendNotificationUseCase
 import com.sanibonani.save.domain.utils.PaymentCalculator
-import com.sanibonani.save.viewmodel.BaseViewModel
-import com.sanibonani.save.viewmodel.state.UIEvent
 import com.sanibonani.save.features.admin.presentation.state.AdminMemberUiState
-import com.sanibonani.save.domain.utils.toUserMessage
+import com.sanibonani.save.features.common.presentation.BaseViewModel
+import com.sanibonani.save.features.common.presentation.UIEvent
+import com.sanibonani.save.service.AdminGroupContextCacheService
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.flow.*
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import javax.inject.Inject
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withContext
 
 @HiltViewModel
 class AdminMemberViewModel @Inject constructor(
@@ -40,7 +43,8 @@ class AdminMemberViewModel @Inject constructor(
     private val validateLoanEligibilityUseCase: ValidateLoanEligibilityUseCase,
     private val sendNotificationUseCase: SendNotificationUseCase,
     private val exportRepo: ExportRepository,
-    private val supabaseRepo: SupabaseRepository
+    private val supabaseRepo: SupabaseRepository,
+    private val paymentCalculator: PaymentCalculator
 ) : BaseViewModel<AdminMemberUiState>(AdminMemberUiState()) {
 
     val state: StateFlow<AdminMemberUiState> = uiState
@@ -66,23 +70,23 @@ class AdminMemberViewModel @Inject constructor(
                     selectedMember = if (isNewGroup) null else it.selectedMember
                 ) }
 
-                if (context.isFullyHydrated && context.group != null && context.members.isNotEmpty()) {
+                if (context.isFullyHydrated && (context.group != null) && context.members.isNotEmpty()) {
                     refreshAllMemberCalculations(context.group, context.members)
                 }
-            }.join()
+            }
         }
     }
 
     private fun refreshAllMemberCalculations(group: Group, members: List<Member>) {
         val groupId = group.id ?: return
         launchJob("calculations_refresh") {
-            contributionRepo.observeGroupContributions(groupId).collectLatest { result ->
+            contributionRepo.observeGroupContributions(groupId).collectLatest { result: Result<List<Contribution>> ->
                 result.onSuccess { allContribs ->
                     val allCalculations = withContext(kotlinx.coroutines.Dispatchers.Default) {
                         val contribsByMember = allContribs.groupBy { it.memberId }
                         members.mapNotNull { member ->
                             val id = member.id ?: return@mapNotNull null
-                            id to PaymentCalculator.calculateStatus(group, member, contribsByMember[id] ?: emptyList())
+                            id to paymentCalculator.calculateStatus(group, member, contribsByMember[id] ?: emptyList(), emptyList())
                         }.toMap()
                     }
                     updateState { it.copy(
@@ -95,7 +99,7 @@ class AdminMemberViewModel @Inject constructor(
     }
 
     fun selectMember(member: Member?) {
-        updateState { it.copy(selectedMember = member, selectedMemberCalculation = member?.id?.let { uiState.value.memberCalculations[it] }) }
+        updateState { s -> s.copy(selectedMember = member, selectedMemberCalculation = member?.id?.let { uiState.value.memberCalculations[it] }) }
         if (member != null) loadMemberDetails(member)
     }
 
@@ -112,8 +116,7 @@ class AdminMemberViewModel @Inject constructor(
 
     private fun checkLoanEligibility(member: Member, group: Group) {
         launchJob("loan_eligibility_check") {
-            val result = validateLoanEligibilityUseCase(member, group)
-            when (result) {
+            when (val result = validateLoanEligibilityUseCase(member, group)) {
                 is ValidateLoanEligibilityUseCase.EligibilityResult.Eligible -> updateState { it.copy(isEligibleForLoan = true, loanIneligibilityReason = null) }
                 is ValidateLoanEligibilityUseCase.EligibilityResult.Ineligible -> updateState { it.copy(isEligibleForLoan = false, loanIneligibilityReason = result.reason) }
             }
@@ -130,17 +133,17 @@ class AdminMemberViewModel @Inject constructor(
     }
 
     fun verifyDocument(memberId: String, docIndex: Int, approve: Boolean) {
-        viewModelScope.launch { verifyMemberDocumentUseCase(memberId, docIndex, approve).onSuccess { updateState { it.copy(successMessage = "Document verified") } } }
+        launchJob("verify_document") { verifyMemberDocumentUseCase(memberId, docIndex, approve).onSuccess { updateState { it.copy(successMessage = "Document verified") } } }
     }
 
     fun verifyRelationalDocument(docId: String, approve: Boolean) {
         val doc = uiState.value.selectedMemberDocuments.find { it.id == docId } ?: return
-        viewModelScope.launch { verifyRelationalDocumentUseCase(doc, approve).onSuccess { updateState { it.copy(successMessage = "Document verified") } } }
+        launchJob("verify_relational_document") { verifyRelationalDocumentUseCase(doc, approve).onSuccess { updateState { it.copy(successMessage = "Document verified") } } }
     }
 
     fun sendMessage(message: String, memberId: String) {
         val groupId = adminContextCacheService.selectedGroupId.value ?: return
-        viewModelScope.launch { sendNotificationUseCase(groupId, message, memberId, uiState.value.selectedNotifChannel).onSuccess { updateState { it.copy(messageSentSuccess = true, messageText = "") } } }
+        launchJob("send_message") { sendNotificationUseCase(groupId, message, memberId, uiState.value.selectedNotifChannel).onSuccess { updateState { it.copy(messageSentSuccess = true, messageText = "") } } }
     }
 
     fun updateMessageText(text: String) { updateState { it.copy(messageText = text) } }
@@ -149,9 +152,12 @@ class AdminMemberViewModel @Inject constructor(
 
     fun exportMemberStatement(member: Member, pdf: Boolean) {
         val group = uiState.value.group ?: return
-        viewModelScope.launch {
+        val memberId = member.id ?: return
+        val groupId = group.id ?: return
+
+        launchJob("export_member_statement") {
             updateState { it.copy(isExporting = true) }
-            contributionRepo.observeMemberContributions(member.id!!, group.id!!).first().onSuccess { list ->
+            contributionRepo.observeMemberContributions(memberId, groupId).first().onSuccess { list ->
                 val res = if (pdf) exportRepo.exportContributionsToPdf(group, member, list) else exportRepo.exportContributionsToCsv(group, member, list)
                 res.onSuccess { file -> updateState { it.copy(isExporting = false, exportFile = file) }; sendEvent(UIEvent.OpenFile(file, if (pdf) "application/pdf" else "text/csv", "Statement")) }
             }
@@ -163,7 +169,7 @@ class AdminMemberViewModel @Inject constructor(
     fun downloadMemberDocument(url: String, label: String): Pair<String, Map<String, String>> = url to getDownloadParams(url)
 
     fun updateBankingDetails(memberId: String, bank: String, acc: String, branch: String) {
-        viewModelScope.launch { memberRepo.updateMemberBankingDetails(memberId, bank, acc, branch).onSuccess { updateState { it.copy(successMessage = "Details updated") } } }
+        launchJob("update_banking_details") { memberRepo.updateMemberBankingDetails(memberId, bank, acc, branch).onSuccess { updateState { it.copy(successMessage = "Details updated") } } }
     }
 
     fun clearError() { updateState { it.copy(error = null) } }

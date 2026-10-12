@@ -9,7 +9,7 @@ import kotlinx.serialization.*
  */
 @Serializable
 @Parcelize
-data class MonthlyProjection(
+data class FutureMonthProjection(
     @SerialName("month") val month: Int = 0,
     @SerialName("label") val label: String = "",
     @SerialName("projected_balance") val projectedBalance: Money = Money.ZERO,

@@ -10,7 +10,7 @@ interface DataVerificationService {
     /**
      * Verifies member-specific data: total paid, status consistency, and calculation accuracy.
      */
-    fun verifyMemberData(
+    suspend fun verifyMemberData(
         member: Member,
         group: Group,
         contributions: List<Contribution>
@@ -19,7 +19,7 @@ interface DataVerificationService {
     /**
      * Verifies group-level data: balance vs ledger, member count, and admin status.
      */
-    fun verifyGroupAdminData(
+    suspend fun verifyGroupAdminData(
         group: Group,
         members: List<Member>,
         ledger: List<LedgerEntry>
@@ -28,7 +28,7 @@ interface DataVerificationService {
     /**
      * Verifies platform-wide data: global totals vs individual group records.
      */
-    fun verifyPlatformAdminData(
+    suspend fun verifyPlatformAdminData(
         analytics: PlatformAnalytics,
         groups: List<Group>
     ): VerificationResult

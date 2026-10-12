@@ -1,7 +1,6 @@
 package com.sanibonani.save.features.auth.presentation.state
 
 import com.sanibonani.save.domain.model.UserRole
-import com.sanibonani.save.domain.model.UserProfile
 
 data class AuthState(
     val email: String = "",

@@ -1,6 +1,0 @@
-- `[ ]` Refactor `CalculateRoscaRotationUseCase.kt` to support subgroups
-- `[ ]` Update `ExecuteRoscaPayoutUseCase.kt` for parallel payouts
-- `[ ]` Update `GroupRegistrationViewModel.kt` (default cycle to 6 months)
-- `[ ]` Update `GroupRegistrationScreen.kt` (UI defaults for ROSCA cycle)
-- `[ ]` Enhance `BusinessInsightsComponents.kt` to display subgroup cycles
-- `[ ]` Verify with unit tests or simulation

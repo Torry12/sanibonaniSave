@@ -22,7 +22,7 @@ import com.sanibonani.save.domain.model.AdminFeeState
 import com.sanibonani.save.domain.model.Group
 import com.sanibonani.save.domain.model.Money
 import com.sanibonani.save.features.admin.ui.components.AdminFeeBanner
-import com.sanibonani.save.ui.components.SecondaryScrollableTabRow
+import com.sanibonani.save.ui.components.*
 import com.sanibonani.save.ui.theme.*
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
@@ -39,6 +39,7 @@ fun AdminDashboardTopBar(
     feeStatus: AdminFeeState,
     group: Group?,
     daysOverdue: Int,
+    registrationFee: Money,
     onPayRegistration: (Money, String) -> Unit,
     managedGroups: List<Group>,
     onGroupSelected: (String) -> Unit,
@@ -100,7 +101,7 @@ fun AdminDashboardTopBar(
                 daysOverdue = daysOverdue,
                 onAction = {
                     group.id?.let { id ->
-                        onPayRegistration(group.registrationFee, id)
+                        onPayRegistration(registrationFee, id)
                     }
                 }
             )

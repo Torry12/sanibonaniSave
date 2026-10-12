@@ -63,4 +63,8 @@ class BankBackendSimulationModule @Inject constructor(
             description = "Simulated Direct Deposit"
         )
     }
+
+    suspend fun getTransactionStatus(reference: String): Result<SimulatedTransaction?> {
+        return bankSimulationGateway.getTransactionByReference(reference)
+    }
 }

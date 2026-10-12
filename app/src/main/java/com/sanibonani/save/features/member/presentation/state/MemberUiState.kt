@@ -1,10 +1,10 @@
 package com.sanibonani.save.features.member.presentation.state
 
-import com.sanibonani.save.data.remote.Feature
 import com.sanibonani.save.domain.utils.PaymentCalculation
 import com.sanibonani.save.domain.model.*
-import com.sanibonani.save.domain.repository.system.SyncRepository
-import com.sanibonani.save.viewmodel.state.UIEvent
+import com.sanibonani.save.domain.repository.system.SyncStatus
+import com.sanibonani.save.features.common.presentation.UIEvent
+import com.sanibonani.save.domain.service.LocationAddress
 import java.io.File
 
 /**
@@ -25,6 +25,7 @@ data class MemberUiState(
     val contributions: List<Contribution> = emptyList(),
     val memberLedger: List<LedgerEntry> = emptyList(),
     val paymentCalculation: PaymentCalculation? = null,
+    val monthlyContributionAmount: Money = Money.ZERO,
     val selectedContribution: Contribution? = null,
 
     // Beneficiaries
@@ -91,16 +92,41 @@ data class MemberUiState(
     val isExiting: Boolean = false,
 
     // Insights
-    val businessInsight: com.sanibonani.save.domain.usecase.groups.GetGroupBusinessInsightsUseCase.GroupBusinessInsight = com.sanibonani.save.domain.usecase.groups.GetGroupBusinessInsightsUseCase.GroupBusinessInsight.Empty,
+    val businessInsight: Result<GroupFinancialInsight>? = null,
 
     // Audit Report
     val memberAuditReport: AsyncResult<MemberAuditReport> = AsyncResult.Uninitialized,
     val isLoadingAuditReport: Boolean = false,
 
     // Global Sync
-    val syncStatus: SyncRepository.SyncStatus = SyncRepository.SyncStatus.IDLE
+    val syncStatus: SyncStatus = SyncStatus.Idle
 ) {
-    val isDataReady: Boolean get() = member != null && group != null && !isLoading
+    fun clearGroupContext() = copy(
+        member = null,
+        group = null,
+        contributions = emptyList(),
+        memberLedger = emptyList(),
+        paymentCalculation = null,
+        beneficiaries = emptyList(),
+        documents = emptyList(),
+        loans = emptyList(),
+        loanRepayments = emptyList(),
+        notifications = emptyList(),
+        messages = emptyList(),
+        memberContext = AsyncResult.Uninitialized,
+        isLoading = true,
+        error = null
+    )
+
+    val isDataReady: Boolean get() = (member != null) && (group != null) && !isLoading
+
+    val totalSavings: Money
+        get() {
+            if (member?.totalPaid?.isPositive == true) return member.totalPaid
+            val contribSum = contributions.filter { it.status == ContributionStatus.PAID }.fold(Money.ZERO) { acc, c -> acc + c.amount }
+            if (contribSum.isPositive) return contribSum
+            return memberLedger.filter { it.amount.isPositive }.fold(Money.ZERO) { acc, e -> acc + e.amount }
+        }
 
     /**
      * Returns true if the member is in good standing (ACTIVE status).
@@ -163,7 +189,7 @@ data class RegisterMemberState(
     val targetGroupId: String? = null,
     val joiningFee: Money = Money.ZERO,
     val transactionId: String? = null,
-    val addressSuggestions: List<com.sanibonani.save.domain.service.LocationAddress> = emptyList(),
+    val addressSuggestions: List<LocationAddress> = emptyList(),
     val isSearchingAddress: Boolean = false
 ) {
     val isPersonalInfoComplete: Boolean
@@ -173,7 +199,7 @@ data class RegisterMemberState(
         get() = street.isNotBlank() && suburb.isNotBlank() && city.isNotBlank() && province.isNotBlank()
 
     val canSubmit: Boolean
-        get() = isPersonalInfoComplete && isAddressComplete && !isSubmitting && fieldErrors.isEmpty()
+        get() = isPersonalInfoComplete && isAddressComplete && !isSubmitting && !isLoading && fieldErrors.isEmpty()
 
     fun withClearedSuggestions() = copy(addressSuggestions = emptyList())
 }

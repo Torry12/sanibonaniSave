@@ -51,6 +51,58 @@ abstract class DataSourceModule {
 
     @Binds
     @Singleton
+    abstract fun bindRemoteLoanDataSource(impl: SupabaseLoanDataSourceImpl): RemoteLoanDataSource
+
+    @Binds
+    @Singleton
+    abstract fun bindLocalLoanDataSource(impl: RoomLoanDataSourceImpl): LocalLoanDataSource
+
+    @Binds
+    @Singleton
+    abstract fun bindRemotePayoutDataSource(impl: SupabasePayoutDataSourceImpl): RemotePayoutDataSource
+
+    @Binds
+    @Singleton
+    abstract fun bindLocalPayoutDataSource(impl: RoomPayoutDataSourceImpl): LocalPayoutDataSource
+
+    @Binds
+    @Singleton
+    abstract fun bindRemoteLedgerDataSource(impl: SupabaseLedgerDataSourceImpl): RemoteLedgerDataSource
+
+    @Binds
+    @Singleton
+    abstract fun bindLocalLedgerDataSource(impl: RoomLedgerDataSourceImpl): LocalLedgerDataSource
+
+    @Binds
+    @Singleton
+    abstract fun bindRemoteClaimDataSource(impl: SupabaseClaimDataSourceImpl): RemoteClaimDataSource
+
+    @Binds
+    @Singleton
+    abstract fun bindLocalClaimDataSource(impl: RoomClaimDataSourceImpl): LocalClaimDataSource
+
+    @Binds
+    @Singleton
+    abstract fun bindRemoteAuditDataSource(impl: SupabaseAuditDataSourceImpl): RemoteAuditDataSource
+
+    @Binds
+    @Singleton
+    abstract fun bindLocalAuditDataSource(impl: RoomAuditDataSourceImpl): LocalAuditDataSource
+
+    @Binds
+    @Singleton
+    abstract fun bindRemoteFinancialDataSource(impl: SupabaseFinancialDataSourceImpl): RemoteFinancialDataSource
+
+    @Binds
+    @Singleton
+    abstract fun bindRemoteReconciliationDataSource(impl: SupabaseReconciliationDataSourceImpl): RemoteReconciliationDataSource
+
+    @Binds
+    @Singleton
+    abstract fun bindLocalReconciliationDataSource(impl: RoomReconciliationDataSourceImpl): LocalReconciliationDataSource
+
+    @Binds
+    @Singleton
     abstract fun bindStorageDataSource(impl: SupabaseStorageDataSourceImpl): StorageDataSource
 
     @Binds

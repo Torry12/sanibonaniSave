@@ -38,6 +38,10 @@ serve(async (req) => {
     const payload = await req.json()
     const { operation, providerId, amount, groupId, metadata } = payload
 
+    if (!operation || !providerId) {
+      return json({ error: "Missing operation or providerId in request payload." }, 400)
+    }
+
     console.log(`Financial Orchestrator: ${operation} for provider ${providerId} (Group: ${groupId})`)
 
     // 1. Fetch provider configuration from database
@@ -46,10 +50,17 @@ serve(async (req) => {
       .from("financial_providers")
       .select("*")
       .eq("id", providerId)
+      .eq("is_active", true)
       .single()
 
     if (providerError || !provider) {
-      return json({ error: `Provider ${providerId} not found or inactive.` }, 404)
+      return json({ error: `Financial provider '${providerId}' is not available or inactive.` }, 404)
+    }
+
+    // 2. Validate if operation is supported
+    const supportedOps = provider.supported_ops || []
+    if (!supportedOps.includes(operation.toLowerCase())) {
+      return json({ error: `Operation '${operation}' is not supported by provider '${provider.name}'.` }, 400)
     }
 
     // 2. Determine which adapter to use based on provider configuration
@@ -107,9 +118,27 @@ async function handleYoCo(op: string, payload: any, config: any) {
 async function handleSimBank(op: string, payload: any, config: any) {
   switch (op) {
     case "get_balance":
-      return { success: true, data: { balance: "25000.00", currency: "ZAR" } }
+      return {
+        success: true,
+        message: "Balance retrieved from simulation bank",
+        data: { balance: "25000.00", currency: "ZAR", last_synced: new Date().toISOString() }
+      }
     case "get_transactions":
-      return { success: true, data: { count: "0" } }
+      return {
+        success: true,
+        message: "Transaction history synchronized",
+        data: {
+          count: "1",
+          transactions: [
+            {
+              bank_reference: "SIM-DEPOSIT-999",
+              amount: 1500.00,
+              transaction_date: new Date().toISOString().split('T')[0],
+              description: "Simulated deposit from member"
+            }
+          ]
+        }
+      }
     default:
       return { success: true, message: "Simulated bank operation successful" }
   }

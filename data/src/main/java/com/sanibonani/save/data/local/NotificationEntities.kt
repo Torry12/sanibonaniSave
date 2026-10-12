@@ -1,6 +1,7 @@
 package com.sanibonani.save.data.local
 
 import androidx.room.*
+import androidx.room.Transaction as RoomTransaction
 import com.sanibonani.save.domain.model.*
 import kotlinx.coroutines.flow.Flow
 
@@ -35,20 +36,45 @@ interface NotificationDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertNotifications(notifications: List<NotificationEntity>): List<Long>
 
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertNotification(notification: NotificationEntity): Long
+
     @Query("DELETE FROM notifications WHERE group_id = :groupId")
     suspend fun deleteNotificationsByGroupId(groupId: String)
 
     @Query("DELETE FROM notifications")
     suspend fun clearAll()
 
-    @androidx.room.Transaction
+    @RoomTransaction
     suspend fun syncNotifications(groupId: String, notifications: List<NotificationEntity>) {
         val current = getGroupNotifications(groupId).map { it.id }.toSet()
         val incoming = notifications.map { it.id }.toSet()
-        (current - incoming).forEach { deleteNotification(it) }
+        (current - incoming).forEach { deleteById(it) }
         upsertNotifications(notifications)
     }
 
     @Query("DELETE FROM notifications WHERE id = :id")
-    suspend fun deleteNotification(id: String)
+    suspend fun deleteById(id: String)
 }
+
+// ── Mappers ──────────────────────────────────────────────────────────────────
+
+fun NotificationEntity.toModel() = AppNotification(
+    id = id,
+    groupId = groupId,
+    memberId = memberId,
+    message = message,
+    channel = channel,
+    triggerEvent = triggerEvent,
+    createdAt = createdAt
+)
+
+fun AppNotification.toEntity() = NotificationEntity(
+    id = id ?: java.util.UUID.randomUUID().toString(),
+    groupId = groupId ?: "",
+    memberId = memberId,
+    message = message,
+    channel = channel,
+    triggerEvent = triggerEvent,
+    createdAt = createdAt
+)

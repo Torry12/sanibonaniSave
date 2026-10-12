@@ -1,5 +1,6 @@
 package com.sanibonani.save.di
 
+import com.sanibonani.save.domain.model.Money
 import com.sanibonani.save.data.local.SanibonaniDatabase
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -17,6 +18,9 @@ object TestDataStore {
     val mockLoans = mutableMapOf<String, JsonObject>()
     val mockLoanRepayments = mutableMapOf<String, JsonObject>()
     val mockProfiles = mutableMapOf<String, JsonObject>()
+    val mockPolls = mutableMapOf<String, JsonObject>()
+    val mockPollOptions = mutableMapOf<String, JsonObject>()
+    val mockPollVotes = mutableMapOf<String, JsonObject>()
 
     fun reset() {
         mockGroups.clear()
@@ -28,18 +32,23 @@ object TestDataStore {
         mockLoans.clear()
         mockLoanRepayments.clear()
         mockProfiles.clear()
+        mockPolls.clear()
+        mockPollOptions.clear()
+        mockPollVotes.clear()
         dbInstance?.clearAllTables()
     }
 
-    fun getAmount(json: JsonElement?): Double {
-        if (json == null) return 0.0
-        if (json is JsonPrimitive) return json.content.toDoubleOrNull() ?: 0.0
+    fun getMoney(json: JsonElement?): Money {
+        if (json == null) return Money.ZERO
+        if (json is JsonPrimitive) return Money(json.content)
         if (json is JsonObject) {
-            val amt = json["amount"]?.jsonPrimitive?.content ?: "0"
-            return amt.toDoubleOrNull() ?: 0.0
+            val amt = json["amount"]?.jsonPrimitive?.content ?: "0.00"
+            return Money(amt)
         }
-        return 0.0
+        return Money.ZERO
     }
 
-    fun buildMoney(amount: Double) = JsonPrimitive(String.format("%.2f", amount))
+    fun buildMoney(amount: Money) = JsonPrimitive(amount.amount.toPlainString())
+
+    fun buildMoney(amount: Double) = JsonPrimitive(Money(amount).amount.toPlainString())
 }

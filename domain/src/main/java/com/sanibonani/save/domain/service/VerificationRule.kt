@@ -8,7 +8,7 @@ import kotlin.math.abs
  * Base interface for data verification rules.
  */
 interface VerificationRule<T> {
-    fun verify(context: T): List<VerificationIssue>
+    suspend fun verify(context: T): List<VerificationIssue>
 }
 
 // ── MEMBER RULES ─────────────────────────────────────────────────────────────
@@ -20,14 +20,14 @@ data class MemberVerificationContext(
 )
 
 class MemberTotalPaidSyncRule : VerificationRule<MemberVerificationContext> {
-    override fun verify(context: MemberVerificationContext): List<VerificationIssue> {
+    override suspend fun verify(context: MemberVerificationContext): List<VerificationIssue> {
         val calculatedTotalPaid = context.contributions
             .filter { it.status == ContributionStatus.PAID || it.status == ContributionStatus.PARTIAL }
             .fold(Money.ZERO) { acc, next -> acc + next.amount }
 
         val displayedTotalPaid = context.member.totalPaid
 
-        return if (abs(calculatedTotalPaid.toDouble() - displayedTotalPaid.toDouble()) > 0.01) {
+        return if ((calculatedTotalPaid - displayedTotalPaid).abs() > Money(0.01)) {
             listOf(VerificationIssue(
                 category = "Financial",
                 message = "Displayed 'Total Paid' (${displayedTotalPaid.format()}) does not match sum of transactions (${calculatedTotalPaid.format()}).",
@@ -39,7 +39,7 @@ class MemberTotalPaidSyncRule : VerificationRule<MemberVerificationContext> {
 }
 
 class MemberProbationConsistencyRule : VerificationRule<MemberVerificationContext> {
-    override fun verify(context: MemberVerificationContext): List<VerificationIssue> {
+    override suspend fun verify(context: MemberVerificationContext): List<VerificationIssue> {
         return if (context.group.probationMonths == 0 && context.member.status == MemberStatus.PROBATION) {
             listOf(VerificationIssue(
                 category = "Status",
@@ -51,13 +51,14 @@ class MemberProbationConsistencyRule : VerificationRule<MemberVerificationContex
     }
 }
 
-class MemberRiskShortfallRule : VerificationRule<MemberVerificationContext> {
-    override fun verify(context: MemberVerificationContext): List<VerificationIssue> {
-        val calculation = PaymentCalculator.calculateStatus(context.group, context.member, context.contributions)
-        return if (calculation.isOverdue && context.member.status == MemberStatus.ACTIVE && calculation.shortfall.toDouble() > (context.group.monthlyContribution.toDouble() * 3)) {
+class MemberRiskShortfallRule(private val paymentCalculator: PaymentCalculator) : VerificationRule<MemberVerificationContext> {
+    override suspend fun verify(context: MemberVerificationContext): List<VerificationIssue> {
+        val calculation = paymentCalculator.calculateStatus(context.group, context.member, context.contributions)
+        val threshold = context.group.monthlyContribution * 3
+        return if (calculation.isOverdue && context.member.status == MemberStatus.ACTIVE && calculation.shortfall > threshold) {
             listOf(VerificationIssue(
                 category = "Risk",
-                message = "Member is 'Active' but has a significant shortfall (R${calculation.shortfall}).",
+                message = "Member is 'Active' but has a significant shortfall (${calculation.shortfall.format()}).",
                 severity = IssueSeverity.WARNING,
                 suggestedAction = "Review member standing; auto-suspension might be pending."
             ))
@@ -74,11 +75,12 @@ data class GroupVerificationContext(
 )
 
 class GroupBalanceSyncRule : VerificationRule<GroupVerificationContext> {
-    override fun verify(context: GroupVerificationContext): List<VerificationIssue> {
+    override suspend fun verify(context: GroupVerificationContext): List<VerificationIssue> {
         val displayedBalance = context.group.balance
-        val ledgerBalance = context.ledger.lastOrNull()?.balanceAfter ?: Money.ZERO
+        val latestEntry = context.ledger.maxByOrNull { it.createdAt ?: "" } ?: context.ledger.firstOrNull()
+        val ledgerBalance = latestEntry?.balanceAfter ?: Money.ZERO
 
-        return if (abs(displayedBalance.toDouble() - ledgerBalance.toDouble()) > 0.01 && context.ledger.isNotEmpty()) {
+        return if ((displayedBalance - ledgerBalance).abs() > Money(0.01) && context.ledger.isNotEmpty()) {
             listOf(VerificationIssue(
                 category = "Financial",
                 message = "Group balance (${displayedBalance.format()}) is out of sync with the latest ledger entry (${ledgerBalance.format()}).",
@@ -90,7 +92,7 @@ class GroupBalanceSyncRule : VerificationRule<GroupVerificationContext> {
 }
 
 class GroupMemberCountRule : VerificationRule<GroupVerificationContext> {
-    override fun verify(context: GroupVerificationContext): List<VerificationIssue> {
+    override suspend fun verify(context: GroupVerificationContext): List<VerificationIssue> {
         val displayedCount = context.group.currentMembers
         val actualCount = context.members.size
 
@@ -106,7 +108,7 @@ class GroupMemberCountRule : VerificationRule<GroupVerificationContext> {
 }
 
 class GroupAdminAssignmentRule : VerificationRule<GroupVerificationContext> {
-    override fun verify(context: GroupVerificationContext): List<VerificationIssue> {
+    override suspend fun verify(context: GroupVerificationContext): List<VerificationIssue> {
         return if (context.group.adminUserId == null) {
             listOf(VerificationIssue(
                 category = "Security",
@@ -126,7 +128,7 @@ data class PlatformVerificationContext(
 )
 
 class PlatformGroupCountRule : VerificationRule<PlatformVerificationContext> {
-    override fun verify(context: PlatformVerificationContext): List<VerificationIssue> {
+    override suspend fun verify(context: PlatformVerificationContext): List<VerificationIssue> {
         return if (context.analytics.totalGroups != context.groups.size) {
             listOf(VerificationIssue(
                 category = "Analytics",
@@ -138,11 +140,11 @@ class PlatformGroupCountRule : VerificationRule<PlatformVerificationContext> {
 }
 
 class PlatformBalanceParityRule : VerificationRule<PlatformVerificationContext> {
-    override fun verify(context: PlatformVerificationContext): List<VerificationIssue> {
+    override suspend fun verify(context: PlatformVerificationContext): List<VerificationIssue> {
         val calculatedTotalBalance = context.groups.fold(Money.ZERO) { acc, next -> acc + next.balance }
         val reportedTotalBalance = context.analytics.totalBalance
 
-        return if (abs(calculatedTotalBalance.toDouble() - reportedTotalBalance.toDouble()) > 1.0) {
+        return if ((calculatedTotalBalance - reportedTotalBalance).abs() > Money(1.0)) {
             listOf(VerificationIssue(
                 category = "Analytics",
                 message = "Global network balance (${reportedTotalBalance.format()}) differs from the sum of group balances (${calculatedTotalBalance.format()}).",

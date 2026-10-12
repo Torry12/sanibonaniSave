@@ -14,34 +14,58 @@ import kotlinx.serialization.json.*
 import javax.inject.Inject
 import javax.inject.Singleton
 
+import com.sanibonani.save.domain.repository.system.DataConnectionProtocol
+
 @Singleton
 class SupabaseGroupDataSourceImpl @Inject constructor(
-    private val client: SupabaseClient
-) : RemoteGroupDataSource {
+    protocol: DataConnectionProtocol
+) : BaseSupabaseDataSource(protocol), RemoteGroupDataSource {
 
     override suspend fun getPublicGroups(): Result<List<Group>> = runCatching {
-        client.postgrest["groups"].select(columns = Columns.raw(PostgrestColumns.GROUPS_SAFE)) {
-            filter {
-                eq("is_public", true)
-                eq("registration_paid", true)
-            }
-        }.decodeList<Group>()
+        runCatching {
+            client.postgrest["groups"].select(columns = Columns.raw(PostgrestColumns.GROUPS_SAFE)) {
+                filter {
+                    eq("is_public", true)
+                    eq("registration_paid", true)
+                }
+            }.decodeList<Group>()
+        }.getOrElse {
+            client.postgrest["groups"].select {
+                filter {
+                    eq("is_public", true)
+                    eq("registration_paid", true)
+                }
+            }.decodeList<Group>()
+        }
     }
 
     override suspend fun getGroupById(id: String): Result<Group> = runCatching {
-        client.postgrest["groups"].select(columns = Columns.raw(PostgrestColumns.GROUPS_SAFE)) {
-            filter { eq("id", id) }
-        }.decodeSingle<Group>()
+        runCatching {
+            client.postgrest["groups"].select(columns = Columns.raw(PostgrestColumns.GROUPS_SAFE)) {
+                filter { eq("id", id) }
+            }.decodeSingle<Group>()
+        }.getOrElse {
+            client.postgrest["groups"].select {
+                filter { eq("id", id) }
+            }.decodeSingle<Group>()
+        }
     }
 
     override suspend fun getGroupsByAdmin(adminId: String): Result<List<Group>> = runCatching {
-        client.postgrest["groups"].select(columns = Columns.raw(PostgrestColumns.GROUPS_SAFE)) {
-            filter { eq("admin_user_id", adminId) }
-        }.decodeList<Group>()
+        runCatching {
+            client.postgrest["groups"].select(columns = Columns.raw(PostgrestColumns.GROUPS_SAFE)) {
+                filter { eq("admin_user_id", adminId) }
+            }.decodeList<Group>()
+        }.getOrElse {
+            client.postgrest["groups"].select {
+                filter { eq("admin_user_id", adminId) }
+            }.decodeList<Group>()
+        }
     }
 
     override suspend fun createGroup(group: Group): Result<String> = runCatching {
         val payload = buildJsonObject {
+            group.id?.let { put("id", it) }
             put("name", group.name)
             put("type", group.type.name.lowercase())
             put("province", group.province)
@@ -71,6 +95,7 @@ class SupabaseGroupDataSourceImpl @Inject constructor(
             group.latitude?.let { put("latitude", it) }
             group.longitude?.let { put("longitude", it) }
             group.geohash?.let { put("geohash", it) }
+            group.createdAt?.let { put("created_at", it) }
             put("is_platform_suspended", false)
             put("goal_amount", group.goalAmount.amount.toPlainString())
             put("period_months", group.periodMonths)
@@ -92,20 +117,20 @@ class SupabaseGroupDataSourceImpl @Inject constructor(
 
     override suspend fun updateGroupSettings(groupId: String, settings: GroupSettings): Result<Unit> = runCatching {
         val payload = buildJsonObject {
-            put("joining_fee", settings.joiningFee.toDoubleOrNull() ?: 0.0)
-            put("monthly_contribution", settings.monthlyContribution.toDoubleOrNull() ?: 0.0)
-            put("late_fee", settings.lateFee.toDoubleOrNull() ?: 0.0)
+            put("joining_fee", Money(settings.joiningFee).amount.toPlainString())
+            put("monthly_contribution", Money(settings.monthlyContribution).amount.toPlainString())
+            put("late_fee", Money(settings.lateFee).amount.toPlainString())
             put("late_fee_grace_days", settings.lateFeeGraceDays.toIntOrNull() ?: 5)
-            put("probation_months", settings.probationMonths)
-            put("payment_due_day", settings.paymentDueDay)
+            put("probation_months", settings.probationMonths.toIntOrNull() ?: 3)
+            put("payment_due_day", settings.paymentDueDay.toIntOrNull() ?: 28)
             put("max_members", settings.maxMembers.toIntOrNull() ?: 50)
             put("allow_partial_payment", settings.allowPartialPayment)
-            put("auto_suspend_after", settings.autoSuspendAfter)
+            put("auto_suspend_after", settings.autoSuspendAfter.toIntOrNull() ?: 2)
             put("bank_name", settings.bankName)
             put("account_number", settings.accountNumber)
             put("branch_code", settings.branchCode)
             put("account_type", settings.accountType)
-            put("goal_amount", settings.goalAmount.toDoubleOrNull() ?: 10000.0)
+            put("goal_amount", Money(settings.goalAmount).amount.toPlainString())
             put("period_months", settings.periodMonths.toIntOrNull() ?: 12)
             settings.maxBeneficiaries.toIntOrNull()?.let { if (it > 0) put("max_beneficiaries", it) }
             settings.beneficiaryIncreasePct.toDoubleOrNull()?.let { if (it > 0.0) put("beneficiary_increase_pct", it) }
@@ -143,24 +168,30 @@ class SupabaseGroupDataSourceImpl @Inject constructor(
         }
     }
 
-    override suspend fun incrementGroupBalance(groupId: String, amount: Money): Result<Money> = runCatching {
+    override suspend fun incrementGroupBalance(groupId: String, amount: Money, memberId: String?): Result<Money> = runCatching {
         val rpcParams = buildJsonObject {
             put("p_group_id", groupId)
             put("p_amount", amount.amount.toPlainString())
+            memberId?.let { put("p_member_id", it) }
         }
-        val res = client.postgrest.rpc("increment_group_balance", rpcParams).decodeAs<Double>()
-        Money(res)
+        client.postgrest.rpc("increment_group_balance", rpcParams).decodeAs<Money>()
     }
 
-    override suspend fun recordDisbursement(groupId: String, amount: Money, description: String, category: String, transactionId: String?): Result<Money> = runCatching {
+    override suspend fun recordDisbursement(groupId: String, amount: Money, description: String, category: String, transactionId: String?, memberId: String?): Result<Money> = runCatching {
         val rpcParams = buildJsonObject {
             put("p_group_id", groupId)
             put("p_amount", amount.amount.toPlainString())
             put("p_description", description)
             put("p_category", category)
             transactionId?.let { put("p_transaction_id", it) }
+            memberId?.let { put("p_member_id", it) }
         }
-        val res = client.postgrest.rpc("record_disbursement_v1", rpcParams).decodeAs<Double>()
-        Money(res)
+        client.postgrest.rpc("record_disbursement_v1", rpcParams).decodeAs<Money>()
+    }
+
+    override suspend fun deleteGroup(groupId: String): Result<Unit> = runCatching {
+        client.postgrest["groups"].delete {
+            filter { eq("id", groupId) }
+        }
     }
 }

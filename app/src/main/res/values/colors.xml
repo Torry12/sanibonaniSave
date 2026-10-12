@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="forest">#1E3A1A</color>
-    <color name="cream">#FDF5E6</color>
-    <color name="gold">#E19E00</color>
+    <!-- Matches Navy in Color.kt -->
+    <!-- Matches Cream in Color.kt -->
+    <!-- Matches AccentTeal in Color.kt -->
 </resources>

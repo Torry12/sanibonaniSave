@@ -2,8 +2,7 @@ package com.sanibonani.save.ui.navigation
 
 import com.sanibonani.save.domain.model.UserRole
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
+import org.junit.Assert.assertNull
 import org.junit.Test
 
 class NavGraphRoleRoutingTest {
@@ -87,197 +86,75 @@ class NavGraphRoleRoutingTest {
     }
 
     @Test
-    fun shouldForcePlatformAdminRedirect_whenLoggedInAdminOnMemberRoute_returnsFalse() {
-        assertFalse(
-            NavigationUtils.shouldForcePlatformAdminRedirect(
-                isLoggedIn = true,
-                role = UserRole.PLATFORM_ADMIN,
-                currentRoute = Screen.MemberDashboard.withTab(0),
-                isResettingPassword = false
-            )
-        )
-    }
-
-    @Test
-    fun shouldForcePlatformAdminRedirect_whenAlreadyOnPlatformRoute_returnsFalse() {
-        assertFalse(
-            NavigationUtils.shouldForcePlatformAdminRedirect(
-                isLoggedIn = true,
-                role = UserRole.PLATFORM_ADMIN,
-                currentRoute = Screen.PlatformAdmin.route,
-                isResettingPassword = false
-            )
-        )
-    }
-
-    @Test
-    fun shouldRedirectAuthenticatedFromEntry_forAuthenticatedUserOnLogin_returnsTrue() {
-        assertTrue(
-            NavigationUtils.shouldRedirectAuthenticatedFromEntry(
-                currentRoute = Screen.Login.route,
-                navigateTo = null,
-                isNewRegistration = false,
-                isResettingPassword = false
-            )
-        )
-    }
-
-    @Test
-    fun shouldRedirectAuthenticatedFromEntry_platformAdminOnLanding_returnsTrue() {
-        assertTrue(
-            NavigationUtils.shouldRedirectAuthenticatedFromEntry(
-                currentRoute = Screen.Landing.route,
-                navigateTo = null,
-                isNewRegistration = false,
-                isResettingPassword = false
-            )
-        )
-    }
-
-    @Test
-    fun shouldRedirectAuthenticatedFromEntry_whenNavigateToLogin_returnsFalse() {
-        assertFalse(
-            NavigationUtils.shouldRedirectAuthenticatedFromEntry(
-                currentRoute = Screen.UpdatePassword.route,
-                navigateTo = "login",
-                isNewRegistration = false,
-                isResettingPassword = false
-            )
-        )
-    }
-
-    @Test
-    fun shouldRedirectUnauthenticatedToLanding_onProtectedRoute_returnsTrue() {
-        assertTrue(
-            NavigationUtils.shouldRedirectUnauthenticatedToLanding(
+    fun routeGuard_unauthenticatedOnProtectedRoute_redirectsToLanding() {
+        assertEquals(
+            Screen.Landing.route,
+            RouteGuard.getRedirect(
                 isLoggedIn = false,
-                currentRoute = Screen.AdminDashboard.withId("group_1")
-            )
-        )
-    }
-
-    @Test
-    fun shouldRedirectUnauthenticatedToLanding_onPublicRoute_returnsFalse() {
-        assertFalse(
-            NavigationUtils.shouldRedirectUnauthenticatedToLanding(
-                isLoggedIn = false,
-                currentRoute = Screen.BrowseGroups.route
-            )
-        )
-    }
-
-    @Test
-    fun roleTransition_memberToPlatformAdmin_forcesRedirect_thenStabilizesOnPlatformRoute() {
-        val memberRoute = Screen.MemberDashboard.withTab(0, null)
-
-        // Before transition: member on member route should not be force-redirected.
-        assertFalse(
-            NavigationUtils.shouldForcePlatformAdminRedirect(
-                isLoggedIn = true,
                 role = UserRole.MEMBER,
-                currentRoute = memberRoute,
-                isResettingPassword = false
-            )
-        )
-
-        // After transition: same non-entry route should not force redirect.
-        assertFalse(
-            NavigationUtils.shouldForcePlatformAdminRedirect(
-                isLoggedIn = true,
-                role = UserRole.PLATFORM_ADMIN,
-                currentRoute = memberRoute,
-                isResettingPassword = false
-            )
-        )
-        // Force redirect still applies for auth entry routes.
-        assertTrue(
-            NavigationUtils.shouldForcePlatformAdminRedirect(
-                isLoggedIn = true,
-                role = UserRole.PLATFORM_ADMIN,
-                currentRoute = Screen.Login.route,
-                isResettingPassword = false
-            )
-        )
-        assertEquals(Screen.PlatformAdmin.route, NavigationUtils.destinationForUserRole(UserRole.PLATFORM_ADMIN))
-
-        // Once redirected to platform admin route: no further force redirect should occur.
-        assertFalse(
-            NavigationUtils.shouldForcePlatformAdminRedirect(
-                isLoggedIn = true,
-                role = UserRole.PLATFORM_ADMIN,
-                currentRoute = Screen.PlatformAdmin.route,
-                isResettingPassword = false
-            )
-        )
-    }
-
-    @Test
-    fun isRoleAuthorizedForRoute_platformAdminRoute_allowsOnlyPlatformAdmin() {
-        assertTrue(NavigationUtils.isRoleAuthorizedForRoute(UserRole.PLATFORM_ADMIN, Screen.PlatformAdmin.route))
-        assertFalse(NavigationUtils.isRoleAuthorizedForRoute(UserRole.GROUP_ADMIN, Screen.PlatformAdmin.route))
-        assertFalse(NavigationUtils.isRoleAuthorizedForRoute(UserRole.MEMBER, Screen.PlatformAdmin.route))
-    }
-
-    @Test
-    fun isRoleAuthorizedForRoute_adminDashboard_requiresSupportModeForPlatformAdmin() {
-        val route = Screen.AdminDashboard.withId("group_1")
-        assertTrue(NavigationUtils.isRoleAuthorizedForRoute(UserRole.GROUP_ADMIN, route))
-        assertFalse(NavigationUtils.isRoleAuthorizedForRoute(UserRole.PLATFORM_ADMIN, route))
-        assertTrue(NavigationUtils.isRoleAuthorizedForRoute(UserRole.PLATFORM_ADMIN, route, supportMode = true))
-        assertFalse(NavigationUtils.isRoleAuthorizedForRoute(UserRole.MEMBER, route))
-    }
-
-    @Test
-    fun isRoleAuthorizedForRoute_memberDashboard_requiresSupportModeForPlatformAdmin() {
-        val route = Screen.MemberDashboard.withTab(0, "group_1")
-        assertTrue(NavigationUtils.isRoleAuthorizedForRoute(UserRole.MEMBER, route))
-        assertFalse(NavigationUtils.isRoleAuthorizedForRoute(UserRole.GROUP_ADMIN, route))
-        assertFalse(NavigationUtils.isRoleAuthorizedForRoute(UserRole.PLATFORM_ADMIN, route))
-        assertTrue(NavigationUtils.isRoleAuthorizedForRoute(UserRole.PLATFORM_ADMIN, route, supportMode = true))
-    }
-
-    @Test
-    fun shouldRedirectForRoleMismatch_platformAdminOnPlainMemberRoute_returnsTrue() {
-        assertTrue(
-            NavigationUtils.shouldRedirectForRoleMismatch(
-                isLoggedIn = true,
-                role = UserRole.PLATFORM_ADMIN,
-                currentRoute = Screen.MemberDashboard.withTab(0, "group_1"),
+                currentRoute = Screen.AdminDashboard.withId("g1"),
+                isNewRegistration = false,
+                isResettingPassword = false,
                 supportMode = false
             )
         )
     }
 
     @Test
-    fun shouldRedirectForRoleMismatch_platformAdminOnSupportMemberRoute_returnsFalse() {
-        assertFalse(
-            NavigationUtils.shouldRedirectForRoleMismatch(
+    fun routeGuard_platformAdminOnEntryRoute_redirectsToPlatformAdmin() {
+        assertEquals(
+            Screen.PlatformAdmin.route,
+            RouteGuard.getRedirect(
                 isLoggedIn = true,
                 role = UserRole.PLATFORM_ADMIN,
-                currentRoute = Screen.MemberDashboard.withTab(0, "group_1", "member_1", supportMode = true),
+                currentRoute = Screen.Login.route,
+                isNewRegistration = false,
+                isResettingPassword = false,
+                supportMode = false
+            )
+        )
+    }
+
+    @Test
+    fun routeGuard_memberOnAdminRoute_redirectsToMemberDashboard() {
+        assertEquals(
+            Screen.MemberDashboard.withTab(0, null),
+            RouteGuard.getRedirect(
+                isLoggedIn = true,
+                role = UserRole.MEMBER,
+                currentRoute = Screen.AdminDashboard.withId("g1"),
+                isNewRegistration = false,
+                isResettingPassword = false,
+                supportMode = false
+            )
+        )
+    }
+
+    @Test
+    fun routeGuard_platformAdminOnAdminRouteInSupportMode_noRedirect() {
+        assertNull(
+            RouteGuard.getRedirect(
+                isLoggedIn = true,
+                role = UserRole.PLATFORM_ADMIN,
+                currentRoute = Screen.AdminDashboard.withId("g1"),
+                isNewRegistration = false,
+                isResettingPassword = false,
                 supportMode = true
             )
         )
     }
 
     @Test
-    fun shouldRedirectForRoleMismatch_whenRouteNotAllowed_returnsTrue() {
-        assertTrue(
-            NavigationUtils.shouldRedirectForRoleMismatch(
+    fun routeGuard_newRegistration_redirectsToOnboarding() {
+        assertEquals(
+            Screen.NewUserOnboarding.build(),
+            RouteGuard.getRedirect(
                 isLoggedIn = true,
                 role = UserRole.MEMBER,
-                currentRoute = Screen.AdminDashboard.withId("group_1")
-            )
-        )
-    }
-
-    @Test
-    fun shouldRedirectForRoleMismatch_whenRouteAllowed_returnsFalse() {
-        assertFalse(
-            NavigationUtils.shouldRedirectForRoleMismatch(
-                isLoggedIn = true,
-                role = UserRole.GROUP_ADMIN,
-                currentRoute = Screen.AdminDashboard.withId("group_1")
+                currentRoute = Screen.Landing.route,
+                isNewRegistration = true,
+                isResettingPassword = false,
+                supportMode = false
             )
         )
     }

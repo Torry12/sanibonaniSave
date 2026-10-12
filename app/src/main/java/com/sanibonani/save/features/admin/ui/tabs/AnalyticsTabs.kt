@@ -1,5 +1,7 @@
 package com.sanibonani.save.features.admin.ui.tabs
 
+import com.sanibonani.save.domain.model.GroupType
+
 import androidx.compose.ui.res.stringResource
 import com.sanibonani.save.R
 
@@ -17,12 +19,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.sanibonani.save.domain.usecase.groups.GetGroupBusinessInsightsUseCase
+import com.sanibonani.save.domain.usecase.group.GetGroupBusinessInsightsUseCase
+import com.sanibonani.save.ui.components.*
 import com.sanibonani.save.ui.components.*
 import com.sanibonani.save.ui.theme.*
 import com.sanibonani.save.features.admin.presentation.state.AdminOverviewUiState
 import com.sanibonani.save.ui.utils.formatZAR
-import com.sanibonani.save.ui.components.SanibonaniSectionHeader
 import com.sanibonani.save.features.admin.ui.components.FullInsightWidget
 
 @Composable
@@ -38,12 +40,12 @@ fun InsightsTab(state: AdminOverviewUiState, onDistributePot: (() -> Unit)? = nu
     ) {
         SanibonaniSectionHeader("💎 Business Insights")
 
-        when (insight) {
-            is GetGroupBusinessInsightsUseCase.GroupBusinessInsight.Rosca -> RoscaInsights(insight.schedule, onDistributePot)
-            is GetGroupBusinessInsightsUseCase.GroupBusinessInsight.InvestmentClub -> InvestmentClubInsights(insight.valuation)
-            is GetGroupBusinessInsightsUseCase.GroupBusinessInsight.Stokvel -> StokvelInsights(insight.projection)
-            is GetGroupBusinessInsightsUseCase.GroupBusinessInsight.FullInsight -> FullInsightWidget(insight.insight)
-            is GetGroupBusinessInsightsUseCase.GroupBusinessInsight.Empty -> {}
+        val insightData = insight?.getOrNull() ?: return
+        when (insightData.groupType) {
+            GroupType.ROSCA -> RoscaInsights(insightData)
+            GroupType.INVESTMENT_CLUB -> InvestmentClubInsights(insightData)
+            GroupType.STOKVEL -> StokvelInsights(insightData)
+            else -> FullInsightWidget(insightData)
         }
     }
 }
@@ -57,16 +59,16 @@ fun AnalyticsTab(state: AdminOverviewUiState) {
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        Text(stringResource(R.string.ui_financial_analytics), style = MaterialTheme.typography.headlineSmall, color = Navy, fontWeight = FontWeight.Bold)
+        Text(stringResource(R.string.ui_financial_analytics), style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
 
         Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                DashboardMetricRow("Expected Annual Claims", formatZAR(state.metrics.expectedAnnualClaims), Navy)
-                DashboardMetricRow("Pure Premium (per member)", formatZAR(state.metrics.purePremium), Navy)
-                DashboardMetricRow("Gross Premium (incl. admin)", formatZAR(state.metrics.grossPremium), Navy)
+                DashboardMetricRow("Expected Annual Claims", formatZAR(state.metrics.expectedAnnualClaims), MaterialTheme.colorScheme.onSurface)
+                DashboardMetricRow("Pure Premium (per member)", formatZAR(state.metrics.purePremium), MaterialTheme.colorScheme.onSurface)
+                DashboardMetricRow("Gross Premium (incl. admin)", formatZAR(state.metrics.grossPremium), MaterialTheme.colorScheme.onSurface)
                 HorizontalDivider()
-                DashboardMetricRow("Solvency Margin", "${state.metrics.solvencyMarginPct.toInt()}%", if (state.metrics.solvencyMarginPct > 100) Navy else ErrorRed)
-                DashboardMetricRow("Reserve Adequacy", "${state.metrics.reserveAdequacyPct.toInt()}%", if (state.metrics.reserveAdequacyPct > 100) Navy else WarningYellow)
+                DashboardMetricRow("Solvency Margin", "${state.metrics.solvencyMarginPct.toInt()}%", if (state.metrics.solvencyMarginPct > 100) SuccessGreen else ErrorRed)
+                DashboardMetricRow("Reserve Adequacy", "${state.metrics.reserveAdequacyPct.toInt()}%", if (state.metrics.reserveAdequacyPct > 100) SuccessGreen else WarningYellow)
             }
         }
 
@@ -78,8 +80,8 @@ fun AnalyticsTab(state: AdminOverviewUiState) {
                 LinearProgressIndicator(
                     progress = { (state.metrics.paymentRatePct / 100.0).toFloat() },
                     modifier = Modifier.fillMaxWidth().height(12.dp).clip(CircleShape),
-                    color = if (state.metrics.paymentRatePct > 80) Navy else WarningYellow,
-                    trackColor = MaterialTheme.colorScheme.onPrimary
+                    color = if (state.metrics.paymentRatePct > 80) SuccessGreen else WarningYellow,
+                    trackColor = MaterialTheme.colorScheme.surfaceVariant
                 )
                 Spacer(Modifier.height(8.dp))
                 Text(

@@ -19,7 +19,11 @@ import androidx.compose.ui.unit.sp
 import com.sanibonani.save.R
 import com.sanibonani.save.domain.model.AdminFeeState
 import com.sanibonani.save.domain.model.Group
+import com.sanibonani.save.ui.components.*
+import com.sanibonani.save.ui.components.*
 import com.sanibonani.save.ui.theme.*
+
+import com.sanibonani.save.ui.components.ActionButton
 
 @Composable
 fun AdminFeeBanner(group: Group, status: AdminFeeState, daysOverdue: Int, onAction: () -> Unit) {
@@ -30,7 +34,7 @@ fun AdminFeeBanner(group: Group, status: AdminFeeState, daysOverdue: Int, onActi
         AdminFeeState.WARNING -> WarningBg to WarningAmber
         AdminFeeState.OVERDUE, AdminFeeState.SUSPENDED -> ErrorBg to ErrorRed
         AdminFeeState.PENDING_ACTIVATION -> InfoBg to InfoBlue
-        else -> InfoBg to InfoBlue
+        AdminFeeState.PAID -> SuccessBg to SuccessGreen
     }
 
     val message = when (status) {
@@ -76,34 +80,6 @@ fun AdminFeeBanner(group: Group, status: AdminFeeState, daysOverdue: Int, onActi
                     fontSize = 12.sp
                 )
             }
-        }
-    }
-}
-
-@Composable
-fun ActionButton(icon: ImageVector, label: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
-    Card(
-        onClick = onClick,
-        modifier = modifier.height(80.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-        shape = RoundedCornerShape(12.dp)
-    ) {
-        Column(
-            Modifier.fillMaxSize(),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
-        ) {
-            Icon(icon, null, tint = Navy, modifier = Modifier.size(24.dp))
-            Spacer(Modifier.height(4.dp))
-            Text(
-                text = label,
-                style = MaterialTheme.typography.labelSmall,
-                fontWeight = FontWeight.Bold,
-                maxLines = 1,
-                softWrap = false,
-                overflow = TextOverflow.Ellipsis
-            )
         }
     }
 }

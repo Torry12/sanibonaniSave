@@ -1,12 +1,10 @@
 package com.sanibonani.save.features.financial.presentation
 
-import androidx.lifecycle.viewModelScope
 import com.sanibonani.save.domain.model.FinancialProvider
-import com.sanibonani.save.domain.repository.treasury.FinancialProviderRepository
-import com.sanibonani.save.viewmodel.BaseViewModel
+import com.sanibonani.save.domain.repository.payment.FinancialProviderRepository
+import com.sanibonani.save.features.common.presentation.BaseViewModel
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 data class FinancialProviderUiState(
@@ -27,7 +25,7 @@ class FinancialProviderViewModel @Inject constructor(
     }
 
     fun loadProviders() {
-        viewModelScope.launch {
+        launchJob("load_providers") {
             updateState { it.copy(isLoading = true, error = null) }
             providerRepo.observeProviders().collect { result ->
                 result.onSuccess { list ->

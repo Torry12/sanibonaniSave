@@ -1,5 +1,6 @@
 package com.sanibonani.save.ui.components
 
+
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -17,7 +18,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.toSize
-import com.sanibonani.save.data.remote.Feature
+import com.sanibonani.save.domain.service.LocationAddress
 import com.sanibonani.save.ui.theme.MidGray
 
 @Composable
@@ -25,10 +26,14 @@ fun AutoCompleteTextField(
     value: String,
     onValueChange: (String) -> Unit,
     label: String,
-    suggestions: List<Feature>,
-    onSuggestionClick: (Feature) -> Unit,
+    suggestions: List<LocationAddress>,
+    onSuggestionClick: (LocationAddress) -> Unit,
     isLoading: Boolean,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    placeholder: String = "",
+    enabled: Boolean = true,
+    isError: Boolean = false,
+    errorMessage: String? = null
 ) {
     var textFieldSize by remember { mutableStateOf(Size.Zero) }
 
@@ -37,6 +42,10 @@ fun AutoCompleteTextField(
             value = value,
             onValueChange = onValueChange,
             label = label,
+            placeholder = placeholder,
+            enabled = enabled,
+            isError = isError,
+            supportingText = errorMessage,
             modifier = Modifier
                 .fillMaxWidth()
                 .onGloballyPositioned { coordinates ->
@@ -69,14 +78,14 @@ fun AutoCompleteTextField(
                         ) {
                             Column {
                                 Text(
-                                    text = suggestion.properties.formatted,
+                                    text = suggestion.formatted,
                                     fontWeight = FontWeight.Bold
                                 )
                                 Text(
                                     text = listOfNotNull(
-                                        suggestion.properties.suburb,
-                                        suggestion.properties.city,
-                                        suggestion.properties.state
+                                        suggestion.township,
+                                        suggestion.city,
+                                        suggestion.province
                                     ).joinToString(", "),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MidGray

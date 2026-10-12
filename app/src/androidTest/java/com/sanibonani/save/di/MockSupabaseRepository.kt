@@ -2,8 +2,6 @@ package com.sanibonani.save.di
 
 import com.sanibonani.save.domain.model.*
 import com.sanibonani.save.domain.repository.auth.SupabaseRepository
-import io.github.jan.supabase.auth.status.SessionStatus
-import io.github.jan.supabase.auth.user.UserSession
 import kotlinx.coroutines.flow.Flow
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -15,9 +13,9 @@ class MockSupabaseRepository @Inject constructor() : SupabaseRepository {
     override val accessToken: String? get() = TestAuthSessionController.currentSession?.accessToken
     override val supabaseUrl: String get() = "https://127.0.0.1"
     override val isLoggedIn: Boolean get() = TestAuthSessionController.mockedUserId != null
-    override val currentSession: UserSession? get() = TestAuthSessionController.currentSession
-    override val sessionStatus: Flow<SessionStatus> = TestAuthSessionController.sessionStatus
-    override val sessionFlow: Flow<UserSession?> = TestAuthSessionController.sessionFlow
+    override val currentSession: AuthSession? get() = TestAuthSessionController.currentSession
+    override val sessionStatus: Flow<AuthSessionStatus> = TestAuthSessionController.sessionStatus
+    override val sessionFlow: Flow<AuthSession?> = TestAuthSessionController.sessionFlow
 
     override suspend fun signUp(email: String, password: String, metadata: Map<String, String>): Result<String> {
         val id = java.util.UUID.randomUUID().toString()

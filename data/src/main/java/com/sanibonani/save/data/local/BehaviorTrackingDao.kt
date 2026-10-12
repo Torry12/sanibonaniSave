@@ -91,6 +91,12 @@ interface MemberBehaviorTrackDao {
     @Query("DELETE FROM member_behavior_track WHERE group_id = :groupId")
     suspend fun deleteByGroup(groupId: String)
 
+    @Transaction
+    suspend fun syncForGroup(groupId: String, entities: List<MemberBehaviorTrackEntity>) {
+        deleteByGroup(groupId)
+        upsertAll(entities)
+    }
+
     @Query("DELETE FROM member_behavior_track")
     suspend fun deleteAll()
 }

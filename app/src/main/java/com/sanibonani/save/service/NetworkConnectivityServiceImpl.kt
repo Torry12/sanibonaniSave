@@ -26,7 +26,9 @@ class NetworkConnectivityServiceImpl @Inject constructor(
     override val isOnline: Flow<Boolean> = callbackFlow {
         val callback = object : ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: Network) {
-                trySend(true)
+                val capabilities = connectivityManager.getNetworkCapabilities(network)
+                val hasInternet = capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
+                trySend(hasInternet)
             }
 
             override fun onLost(network: Network) {

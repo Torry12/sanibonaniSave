@@ -1,7 +1,10 @@
 package com.sanibonani.save.data.local
 
 import androidx.room.*
+import com.sanibonani.save.domain.model.GroupHealthScore
+import com.sanibonani.save.domain.model.RiskZone
 import kotlinx.coroutines.flow.Flow
+import kotlinx.serialization.json.Json
 
 @Entity(
     tableName = "group_health_scores",
@@ -39,3 +42,26 @@ interface GroupHealthScoreDao {
     @Query("DELETE FROM group_health_scores")
     suspend fun clearAll()
 }
+
+// ── Mappers ──────────────────────────────────────────────────────────────────
+
+fun GroupHealthScoreEntity.toModel() = GroupHealthScore(
+    groupId = groupId,
+    overallScore = overallScore,
+    zone = try { RiskZone.valueOf(zone) } catch (e: Exception) { RiskZone.RED },
+    components = try { Json.decodeFromString(componentsJson) } catch (e: Exception) { emptyMap() },
+    recommendations = try { Json.decodeFromString(recommendationsJson) } catch (e: Exception) { emptyList() },
+    generatedAt = generatedAt,
+    expiresAt = expiresAt
+)
+
+fun GroupHealthScore.toEntity() = GroupHealthScoreEntity(
+    id = groupId, // One score per group
+    groupId = groupId,
+    overallScore = overallScore,
+    zone = zone.name,
+    componentsJson = Json.encodeToString(components),
+    recommendationsJson = Json.encodeToString(recommendations),
+    generatedAt = generatedAt,
+    expiresAt = expiresAt
+)

@@ -1,8 +1,8 @@
 package com.sanibonani.save.domain.service
 
 import com.sanibonani.save.domain.model.Money
-import com.sanibonani.save.domain.repository.system.SupabaseRepository
-import com.sanibonani.save.domain.repository.treasury.GroupFinancialRepository
+import com.sanibonani.save.domain.repository.auth.SupabaseRepository
+import com.sanibonani.save.domain.repository.equity.GroupFinancialRepository
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -16,7 +16,7 @@ class FinancialSecurityService @Inject constructor(
 ) {
     companion object {
         /** High-value disbursement threshold requiring AAL2 verification (R10,000.00). */
-        private val MFA_THRESHOLD = Money(10000.0)
+        private val MFA_THRESHOLD = Money(10000.00)
     }
 
     /**

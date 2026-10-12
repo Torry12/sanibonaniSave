@@ -1,6 +1,7 @@
 package com.sanibonani.save.data.local
 
 import androidx.room.*
+import androidx.room.Transaction as RoomTransaction
 import com.sanibonani.save.domain.model.*
 import kotlinx.coroutines.flow.Flow
 
@@ -60,16 +61,32 @@ data class MemberEntity(
     @ColumnInfo(name = "monthly_contribution_override") val monthlyContributionOverride: Money?,
 
     @ColumnInfo(name = "total_contributions") val totalContributions: Int?,
-    @ColumnInfo(name = "total_paid", defaultValue = "0.0") val totalPaid: Money = Money.ZERO,
+    @ColumnInfo(name = "total_paid", defaultValue = "0.00") val totalPaid: Money = Money.ZERO,
     @ColumnInfo(name = "fcm_token") val fcmToken: String?,
     @ColumnInfo(name = "notification_pref") val notificationPref: NotificationPref,
     @ColumnInfo(name = "rosca_position") val roscaPosition: Int? = null,
     @ColumnInfo(name = "created_at") val createdAt: String?,
-    @ColumnInfo(name = "updated_at") val updatedAt: Long = System.currentTimeMillis(),
+    @ColumnInfo(name = "updated_at") val updatedAt: String? = null,
+)
+
+/**
+ * Data class representing a Member with their associated Group details.
+ */
+data class MemberWithGroupEntity(
+    @Embedded val member: MemberEntity,
+    @Relation(
+        parentColumn = "group_id",
+        entityColumn = "id"
+    )
+    val group: GroupEntity
 )
 
 @Dao
 interface MemberDao {
+    @RoomTransaction
+    @Query("SELECT * FROM members WHERE id = :id")
+    fun observeMemberWithGroup(id: String): Flow<MemberWithGroupEntity?>
+
     @Query("SELECT * FROM members WHERE group_id = :groupId ORDER BY full_name ASC")
     suspend fun getMembersSync(groupId: String): List<MemberEntity>
 
@@ -132,25 +149,44 @@ interface MemberDao {
     @Query("SELECT id FROM members WHERE user_id = :userId")
     suspend fun getMemberIdsForUser(userId: String): List<String>
 
-    @androidx.room.Transaction
+    @RoomTransaction
     suspend fun syncMembershipsForUser(userId: String, members: List<MemberEntity>) {
-        val current = getMemberIdsForUser(userId).toSet()
-        val incoming = members.asSequence().map { it.id }.toSet()
-        (current - incoming).forEach { deleteMember(it) }
-        if (members.isNotEmpty()) {
-            upsertMembers(members)
-        }
+        syncEntities(
+            current = getMemberIdsForUser(userId).toSet(),
+            incoming = members.map { it.id },
+            upsert = { upsertMembers(members) }
+        )
     }
 
-    @androidx.room.Transaction
+    @RoomTransaction
     suspend fun syncMembers(groupId: String, members: List<MemberEntity>) {
-        val current = getMembersSync(groupId).asSequence().map { it.id }.toSet()
-        val incoming = members.asSequence().map { it.id }.toSet()
-        val toDelete = current - incoming
-        toDelete.forEach { memberId -> deleteMember(memberId) }
-        if (members.isNotEmpty()) {
-            upsertMembers(members)
-        }
+        syncEntities(
+            current = getMembersSync(groupId).map { it.id }.toSet(),
+            incoming = members.map { it.id },
+            upsert = { upsertMembers(members) }
+        )
+    }
+
+    @RoomTransaction
+    suspend fun syncActiveMembers(groupId: String, members: List<MemberEntity>) {
+        syncEntities(
+            current = getActiveMembersSync(groupId).map { it.id }.toSet(),
+            incoming = members.map { it.id },
+            upsert = { upsertMembers(members) }
+        )
+    }
+
+    /**
+     * Generic sync helper to avoid redundancy.
+     */
+    private suspend fun syncEntities(
+        current: Set<String>,
+        incoming: List<String>,
+        upsert: suspend () -> Unit
+    ) {
+        val incomingSet = incoming.toSet()
+        (current - incomingSet).forEach { deleteMember(it) }
+        if (incoming.isNotEmpty()) upsert()
     }
 
     @Query("DELETE FROM members WHERE id = :id")
@@ -159,3 +195,105 @@ interface MemberDao {
     @Query("SELECT * FROM members WHERE id IN (:ids)")
     suspend fun getMembersByIds(ids: List<String>): List<MemberEntity>
 }
+
+// ── Mappers ──────────────────────────────────────────────────────────────────
+
+fun MemberWithGroupEntity.toModel() = member.toModel().copy(
+    group = group.toModel()
+)
+
+fun MemberEntity.toModel() = Member(
+    id = id,
+    groupId = groupId,
+    userId = userId,
+    memberKey = memberKey,
+    fullName = fullName,
+    idNumber = idNumber,
+    phone = phone ?: "",
+    email = email,
+    street = street,
+    suburb = suburb,
+    city = city,
+    province = province,
+    status = status,
+    joinedAt = joinedAt,
+    probationEndAt = probationEndAt,
+    profilePhotoUrl = profilePhotoUrl,
+    document1Url = document1Url,
+    document1Type = document1Type,
+    document1Status = document1Status,
+    document2Url = document2Url,
+    document2Type = document2Type,
+    document2Status = document2Status,
+    document3Url = document3Url,
+    document3Type = document3Type,
+    document3Status = document3Status,
+    document4Url = document4Url,
+    document4Type = document4Type,
+    document4Status = document4Status,
+    document5Url = document5Url,
+    document5Type = document5Type,
+    document5Status = document5Status,
+    contractUrl = contractUrl,
+    contractStatus = contractStatus,
+    bankName = bankName,
+    accountNo = accountNo,
+    branchCode = branchCode,
+    beneficiaryCount = beneficiaryCount,
+    beneficiaryOver65Count = beneficiaryOver65Count,
+    monthlyContributionOverride = monthlyContributionOverride,
+    totalContributions = totalContributions,
+    totalPaid = totalPaid,
+    fcmToken = fcmToken,
+    notificationPref = notificationPref,
+    roscaPosition = roscaPosition,
+    createdAt = createdAt
+)
+
+fun Member.toEntity() = MemberEntity(
+    id = id ?: java.util.UUID.randomUUID().toString(),
+    groupId = groupId,
+    userId = userId,
+    memberKey = memberKey,
+    fullName = fullName,
+    idNumber = idNumber,
+    phone = phone,
+    email = email,
+    street = street,
+    suburb = suburb,
+    city = city,
+    province = province,
+    status = status,
+    joinedAt = joinedAt,
+    probationEndAt = probationEndAt,
+    profilePhotoUrl = profilePhotoUrl,
+    document1Url = document1Url,
+    document1Type = document1Type,
+    document1Status = document1Status,
+    document2Url = document2Url,
+    document2Type = document2Type,
+    document2Status = document2Status,
+    document3Url = document3Url,
+    document3Type = document3Type,
+    document3Status = document3Status,
+    document4Url = document4Url,
+    document4Type = document4Type,
+    document4Status = document4Status,
+    document5Url = document5Url,
+    document5Type = document5Type,
+    document5Status = document5Status,
+    contractUrl = contractUrl,
+    contractStatus = contractStatus,
+    bankName = bankName,
+    accountNo = accountNo,
+    branchCode = branchCode,
+    beneficiaryCount = beneficiaryCount,
+    beneficiaryOver65Count = beneficiaryOver65Count,
+    monthlyContributionOverride = monthlyContributionOverride,
+    totalContributions = totalContributions,
+    totalPaid = totalPaid,
+    fcmToken = fcmToken,
+    notificationPref = notificationPref,
+    roscaPosition = roscaPosition,
+    createdAt = createdAt
+)

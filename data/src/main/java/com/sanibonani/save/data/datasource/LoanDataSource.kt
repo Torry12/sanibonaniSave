@@ -23,6 +23,7 @@ interface RemoteLoanDataSource {
 interface LocalLoanDataSource {
     fun observeMemberLoans(memberId: String): Flow<List<Loan>>
     fun observeGroupLoans(groupId: String): Flow<List<Loan>>
+    suspend fun getLoanById(loanId: String): Loan?
     suspend fun saveLoans(loans: List<Loan>)
     suspend fun saveLoan(loan: Loan)
     suspend fun syncGroupLoans(groupId: String, loans: List<Loan>)

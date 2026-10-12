@@ -1,7 +1,7 @@
 package com.sanibonani.save.domain.event
 
 import com.sanibonani.save.domain.model.*
-import com.sanibonani.save.domain.repository.NotificationRepository
+import com.sanibonani.save.domain.repository.system.NotificationRepository
 import javax.inject.Inject
 
 /**
@@ -15,16 +15,25 @@ class DisbursementBroadcastHandler @Inject constructor(
     override suspend fun handle(event: DomainEvent) {
         val notification = when (event) {
             is PayoutProcessedEvent -> {
-                if (event.status == PayoutStatus.COMPLETED) {
-                    AppNotification(
+                when (event.status) {
+                    PayoutStatus.COMPLETED -> AppNotification(
                         id = "broadcast_payout_${event.payout.id}",
                         groupId = event.payout.groupId,
                         message = "Group Disbursement: A payout of ${event.payout.amount.format()} has been processed successfully.",
                         triggerEvent = NotifEvent.PAYOUT_PROCESSED,
                         channel = NotifChannel.BOTH,
-                        memberId = null // Broadcast to all
+                        memberId = null
                     )
-                } else null
+                    PayoutStatus.REJECTED -> AppNotification(
+                        id = "payout_rejected_${event.payout.id}",
+                        groupId = event.payout.groupId,
+                        message = "Payout Request Rejected: The payout of ${event.payout.amount.format()} has been rejected.",
+                        triggerEvent = NotifEvent.PAYOUT_PROCESSED,
+                        channel = NotifChannel.PUSH,
+                        memberId = event.payout.memberId // Direct to requester
+                    )
+                    else -> null
+                }
             }
 
             is ClaimProcessedEvent -> {

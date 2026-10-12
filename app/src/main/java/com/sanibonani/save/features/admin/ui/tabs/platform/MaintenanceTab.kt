@@ -25,29 +25,33 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.sanibonani.save.R
-import com.sanibonani.save.domain.model.Group
-import com.sanibonani.save.domain.model.Member
+import com.sanibonani.save.domain.model.RealtimeSyncStatus
+import com.sanibonani.save.ui.components.InfoType
+import com.sanibonani.save.ui.components.*
 import com.sanibonani.save.ui.components.*
 import com.sanibonani.save.features.admin.ui.components.AccordionHeader
 import com.sanibonani.save.features.admin.ui.components.GroupSelectionDialog
 import com.sanibonani.save.features.admin.ui.components.MemberImpersonationDialog
 import com.sanibonani.save.ui.theme.*
 import com.sanibonani.save.ui.utils.rememberClickDebouncer
-import com.sanibonani.save.features.admin.presentation.PlatformAdminViewModel
+import com.sanibonani.save.features.admin.presentation.PlatformSupportViewModel
 import com.sanibonani.save.features.admin.presentation.state.PlatformAdminUiState
+import com.sanibonani.save.features.admin.presentation.state.PlatformAnalyticsUiState
+import com.sanibonani.save.features.admin.presentation.state.PlatformSupportUiState
 
 @Composable
 fun MaintenanceTab(
     state: PlatformAdminUiState,
-    vm: PlatformAdminViewModel,
+    analyticsState: PlatformAnalyticsUiState,
+    supportState: PlatformSupportUiState,
+    supportVm: PlatformSupportViewModel,
+    onRefreshAll: () -> Unit,
     onNavigateToCreateAdmin: () -> Unit,
     onNavigateToSandbox: () -> Unit,
     onLogout: () -> Unit,
     onImpersonateGroupAdmin: (groupId: String) -> Unit,
-    onImpersonateMember: (memberId: String, groupId: String) -> Unit,
+    onImpersonateMember: (memberId: String, groupId: String) -> Unit
 ) {
-    val clickDebouncer = rememberClickDebouncer()
-
     var expandedAdmins by rememberSaveable { mutableStateOf(false) }
     var expandedSync by rememberSaveable { mutableStateOf(true) }
     var expandedPayment by rememberSaveable { mutableStateOf(false) }
@@ -71,7 +75,7 @@ fun MaintenanceTab(
             count = 0
         )
         if (expandedAdmins) {
-            GlassCard(color = MaterialTheme.colorScheme.surface) {
+            GlassCard(accentColor = MaterialTheme.colorScheme.primary) {
                 Text(stringResource(R.string.ui_create_additional_group_administrator_ac), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(Modifier.height(24.dp))
                 SanibonaniButton(
@@ -92,7 +96,7 @@ fun MaintenanceTab(
             count = state.syncMetrics.size
         )
         if (expandedSync) {
-            GlassCard(color = MaterialTheme.colorScheme.surface) {
+            GlassCard(accentColor = MaterialTheme.colorScheme.primary) {
                 Text("Active Realtime Subscriptions", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.height(8.dp))
 
@@ -132,8 +136,8 @@ fun MaintenanceTab(
                 Spacer(Modifier.height(16.dp))
                 SanibonaniButton(
                     text = "Refresh Platform Data",
-                    onClick = { vm.loadData() },
-                    isLoading = state.isLoading,
+                    onClick = onRefreshAll,
+                    isLoading = analyticsState.isLoading,
                     containerColor = MaterialTheme.colorScheme.secondary,
                     contentColor = MaterialTheme.colorScheme.onSecondary
                 )
@@ -149,7 +153,7 @@ fun MaintenanceTab(
             count = 0
         )
         if (expandedPayment) {
-            GlassCard(color = MaterialTheme.colorScheme.surface) {
+            GlassCard(accentColor = MaterialTheme.colorScheme.primary) {
                 Text(stringResource(R.string.ui_test_payment_gateway_integrations_stitch), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(Modifier.height(24.dp))
                 SanibonaniButton(
@@ -170,12 +174,12 @@ fun MaintenanceTab(
             count = 0
         )
         if (expandedBroadcast) {
-            GlassCard(color = MaterialTheme.colorScheme.surface) {
+            GlassCard(accentColor = MaterialTheme.colorScheme.primary) {
                 Text(stringResource(R.string.ui_send_a_systemwide_message_to_all_members), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(Modifier.height(16.dp))
                 SanibonaniTextField(
-                    value = state.broadcastMessage,
-                    onValueChange = vm::updateBroadcastMessage,
+                    value = supportState.broadcastMessage,
+                    onValueChange = supportVm::updateBroadcastMessage,
                     label = "Broadcast Message",
                     placeholder = "Enter system update message...",
                     singleLine = false,
@@ -184,14 +188,14 @@ fun MaintenanceTab(
                 Spacer(Modifier.height(16.dp))
                 SanibonaniButton(
                     text = "Broadcast to All",
-                    onClick = { vm.broadcastMessage(state.broadcastMessage) },
-                    isLoading = state.isBroadcasting,
+                    onClick = { supportVm.broadcastMessage(supportState.broadcastMessage) },
+                    isLoading = supportState.isBroadcasting,
                     containerColor = ErrorRed,
                     contentColor = MaterialTheme.colorScheme.onPrimary
                 )
-                if (state.broadcastSuccess) {
+                if (supportState.broadcastSuccess) {
                     Spacer(Modifier.height(8.dp))
-                    InfoBox("Broadcast sent successfully!", InfoType.SUCCESS)
+                    InfoBox("Broadcast sent successfully!", type = InfoType.SUCCESS)
                 }
             }
         }
@@ -205,7 +209,7 @@ fun MaintenanceTab(
             count = 0
         )
         if (expandedSupport) {
-            GlassCard(color = MaterialTheme.colorScheme.surface) {
+            GlassCard(accentColor = MaterialTheme.colorScheme.primary) {
                 Text(stringResource(R.string.ui_access_any_group_or_member_portal_for_ma), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(Modifier.height(24.dp))
 
@@ -219,7 +223,7 @@ fun MaintenanceTab(
 
                 if (showGroupSelect) {
                     GroupSelectionDialog(
-                        groups = state.groups,
+                        groups = analyticsState.groups,
                         onDismiss = { showGroupSelect = false }
                     ) { groupId ->
                         showGroupSelect = false
@@ -239,8 +243,9 @@ fun MaintenanceTab(
 
                 if (showMemberSelect) {
                     MemberImpersonationDialog(
-                        state = state,
-                        vm = vm,
+                        groups = analyticsState.groups,
+                        state = supportState,
+                        vm = supportVm,
                         onDismiss = { showMemberSelect = false }
                     ) { memberId, groupId ->
                         showMemberSelect = false
@@ -259,18 +264,19 @@ fun MaintenanceTab(
             count = 0
         )
         if (expandedDanger) {
-            GlassCard(color = Color(0xFFFFF1F2)) { // Very light red background for danger
+            GlassCard(accentColor = Color.Red) { // Very light red background for danger
                 Text(stringResource(R.string.ui_systemwide_resets_or_dangerous_operation), style = MaterialTheme.typography.bodySmall, color = Color(0xFF9F1239))
                 Spacer(Modifier.height(24.dp))
-                SanibonaniButton(
-                    text = "Logout System-Wide",
-                    onClick = { clickDebouncer.processClick(onLogout) },
-                    containerColor = ErrorRed,
-                    contentColor = Color.White
+                LogoutButton(
+                    onLogout = onLogout,
+                    style = LogoutButtonStyle.Filled,
+                    label = "Logout System-Wide",
+                    confirmTitle = "System-Wide Logout",
+                    confirmMessage = "Are you sure you want to log out system-wide?"
                 )
                 Spacer(Modifier.height(12.dp))
                 OutlinedButton(
-                    onClick = { vm.resetLocalData() },
+                    onClick = { supportVm.resetLocalData() },
                     modifier = Modifier.fillMaxWidth().height(48.dp),
                     shape = RoundedCornerShape(12.dp),
                     border = BorderStroke(1.dp, ErrorRed),

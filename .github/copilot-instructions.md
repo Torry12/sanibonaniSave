@@ -7,6 +7,9 @@ You are working on **SanibonaniSave**, a South African savings groups administra
 
 ### Always Use
 - `StateFlow` and `SharedFlow` for reactive state (NEVER `LiveData`)
+- `Money` (BigDecimal) for all financial values (NEVER `Double`)
+- `toPlainString()` when serializing `Money` for Supabase RPCs
+- `safeApiCall` with `operationType` and `payload` for write operations
 - `@HiltViewModel` annotation for ViewModels
 - `@Inject constructor` for dependency injection
 - `runCatching` or `Result<T>` for error handling
@@ -35,20 +38,20 @@ _state.value = _state.value.copy(isLoading = true)
 // ✅ Correct
 val state by viewModel.state.collectAsState()
 
-// ❌ Wrong  
+// ❌ Wrong
 val state = viewModel.state.value
 ```
 
 ### Repository Operations
 ```kotlin
-// ✅ Use upsert for potential duplicates
-supabase.postgrest["table"].upsert(item) {
-    onConflict = "unique_column"
-    select()
+// ✅ Use safeApiCall for writes to support Offline Outbox
+override suspend fun recordContribution(item: Contribution) = safeApiCall(
+    operationType = "contribution",
+    groupId = item.groupId,
+    payload = json.encodeToString(item)
+) {
+    // Supabase logic using item.amount.toPlainString()
 }
-
-// ❌ Avoid insert without conflict handling
-supabase.postgrest["table"].insert(item)
 ```
 
 ### Error Handling
@@ -81,10 +84,10 @@ val plan = state.value.viabilityPlan ?: return
 class NewFeatureViewModel @Inject constructor(
     private val repository: FeatureRepository
 ) : ViewModel() {
-    
+
     private val _state = MutableStateFlow(NewFeatureUiState())
     val state: StateFlow<NewFeatureUiState> = _state.asStateFlow()
-    
+
     fun loadData() {
         viewModelScope.launch {
             _state.update { it.copy(isLoading = true, error = null) }
@@ -115,7 +118,7 @@ class FeatureRepositoryImpl @Inject constructor(
     private val supabase: SupabaseClient,
     private val db: SanibonaniDatabase
 ) : FeatureRepository {
-    
+
     override fun observeItems() = observeAndSync(
         dbFlow = db.featureDao().observeAll(),
         mapper = { it.toModel() },
@@ -123,7 +126,7 @@ class FeatureRepositoryImpl @Inject constructor(
         networkFetch = { supabase.postgrest["features"].select().decodeList() },
         cacheSync = { list -> db.featureDao().syncAll(list) }
     )
-    
+
     override suspend fun saveItem(item: Item) = runCatching {
         supabase.postgrest["features"].upsert(item) { select() }.decodeSingle<Item>()
     }

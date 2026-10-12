@@ -1,5 +1,4 @@
 package com.sanibonani.save.domain.repository.treasury
-
 import com.sanibonani.save.domain.model.LedgerEntry
 import com.sanibonani.save.domain.model.ConsolidationReport
 import kotlinx.coroutines.flow.Flow

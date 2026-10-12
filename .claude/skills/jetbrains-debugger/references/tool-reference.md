@@ -1,0 +1,363 @@
+# JetBrains Debugger MCP - Complete Tool Reference
+
+## Table of Contents
+- [Session Management](#session-management)
+- [Breakpoints](#breakpoints)
+- [Execution Control](#execution-control)
+- [Stack & Threads](#stack--threads)
+- [Variables](#variables)
+- [Navigation](#navigation)
+- [Evaluation](#evaluation)
+
+---
+
+## Session Management
+
+### `list_run_configurations`
+List available run/debug configurations in the project.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `project_path` | string | No | Project path (required if multiple projects open) |
+
+**Returns:** `configurations[]` (name, type, canRun, canDebug, isTemporary, folder), `activeConfiguration`
+
+### `execute_run_configuration`
+Execute a run configuration in debug or run mode.
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `project_path` | string | No | | Project path |
+| `name` | string | **Yes** | | Configuration name (exact match) |
+| `mode` | string | No | `"debug"` | `"debug"` or `"run"` |
+
+**Returns:** `status`, `configurationName`, `mode`, `message`, `sessionId` (null in `run` mode — no debugger attaches)
+
+### `list_debug_sessions`
+List all active debug sessions.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `project_path` | string | No | Project path |
+
+**Returns:** `sessions[]` (id, name, state, isCurrent, runConfigurationName), `currentSessionId`, `totalCount`
+
+### `start_debug_session`
+Start a new debug session for a run configuration.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `project_path` | string | No | Project path |
+| `configuration_name` | string | **Yes** | Run configuration name |
+
+**Returns:** `status` ("started"/"starting"), `session` (DebugSessionInfo), `message`
+
+**Note:** Polls for up to 30 seconds for the session to start. The session may still be in "starting" state for very slow targets.
+
+### `stop_debug_session`
+Stop/terminate a debug session.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `session_id` | string | No | Session ID (uses current if omitted) |
+| `project_path` | string | No | Project path |
+
+**Returns:** `status` ("stopped"), `sessionId`, `message`
+
+### `get_debug_session_status` (PRIMARY INSPECTION TOOL)
+Get comprehensive session state in a single call. **Use this as the first inspection tool when paused.**
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `session_id` | string | No | | Session ID |
+| `include_variables` | boolean | No | `true` | Include variables in scope |
+| `include_source_context` | boolean | No | `true` | Include surrounding source code |
+| `source_context_lines` | integer | No | `5` | Lines of source context (0-50) |
+| `max_stack_frames` | integer | No | `10` | Max stack frames (1-200) |
+| `project_path` | string | No | | Project path |
+
+**Returns:**
+- `sessionId`, `name`, `state` ("running", "paused", "stopped")
+- `pausedReason` - null if running. In practice `"breakpoint"` or `"step"` (detection is a pause-site heuristic; `"exception"`/`"pause"` are declared in the schema but not yet distinguished — a manual pause reports `"step"`)
+- `currentLocation` (file, line, className, methodName) - null if not paused
+- `breakpointHit` (breakpoint info) - null if not hit
+- `stackSummary[]` (index, file, line, className, methodName)
+- `variables[]` (name, value, type, hasChildren)
+- `sourceContext` (file, lines[], currentLine, breakpointsInView[])
+- `currentThread` (id, name, state)
+- `threadCount`
+
+---
+
+## Breakpoints
+
+### `list_breakpoints`
+List all breakpoints in the project.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `project_path` | string | No | Project path |
+
+**Returns:** `breakpoints[]` (id, type, file, line, enabled, condition, logMessage, suspendPolicy, hitCount, temporary), `totalCount`, `enabledCount`
+
+**Note:** `hitCount` is always `0` — the platform exposes no hit-count accessor for language-agnostic breakpoints.
+
+### `set_breakpoint`
+Set a line breakpoint with optional conditions or log messages.
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `project_path` | string | No | | Project path |
+| `file_path` | string | **Yes** | | **Absolute** file path. Supports files inside JARs via the `!/` separator (e.g. `/path/to/lib-sources.jar!/com/example/Foo.kt`) |
+| `line` | integer | **Yes** | | 1-based line number (min: 1) |
+| `condition` | string | No | | Boolean expression (e.g., `"count > 10"`) |
+| `log_message` | string | No | | Message with `{expression}` placeholders |
+| `suspend_policy` | string | No | `"all"` | `"all"`, `"thread"`, or `"none"` |
+| `enabled` | boolean | No | `true` | Whether breakpoint is active |
+| `temporary` | boolean | No | `false` | Remove after first hit |
+
+**Returns:** `breakpointId`, `status` ("set"), `verified`, `file`, `line`, `message`
+
+**Log message syntax:** Use `{expression}` placeholders. Auto-transformed per language:
+- Java: `"x={x}"` becomes `"x=" + (x)`
+- Kotlin: `"x={x}"` becomes `"x=$x"`
+- Python: `"x={x}"` becomes `f"x={x}"`
+- JS/TS: `"x={x}"` becomes `` `x=${x}` ``
+- Rust / Go / Swift / C / C++: `{expression}` placeholders are **rejected** at `set_breakpoint` — those debuggers cannot evaluate the generated expressions. A message that is a single bare `{expr}` passes through as the raw expression; anything else needs a plain, placeholder-free message.
+
+**Safety:** `condition` and each `log_message` `{expression}` pass through the same safety guard as `evaluate_expression`; a blocked expression fails the `set_breakpoint` call and nothing is created.
+
+**Tracepoint:** Set `suspend_policy: "none"` with a `log_message` to log without stopping. A tracepoint is never reported as `breakpointHit` — it cannot be the cause of a pause.
+
+### `remove_breakpoint`
+Remove a breakpoint by its ID.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `project_path` | string | No | Project path |
+| `breakpoint_id` | string | **Yes** | Breakpoint ID from `list_breakpoints` or `set_breakpoint` |
+
+**Returns:** `breakpointId`, `status` ("removed"), `message`
+
+---
+
+## Execution Control
+
+All stepping/resume tools require the session to be **paused**. They return `ExecutionControlResult` with `sessionId`, `action`, `status`, `newState`, `message`.
+
+### `resume_execution`
+Resume program execution from paused state.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `session_id` | string | No | Session ID |
+| `project_path` | string | No | Project path |
+
+**Requires:** Session paused. **New state:** "running"
+
+### `pause_execution`
+Pause a running debug session.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `session_id` | string | No | Session ID |
+| `project_path` | string | No | Project path |
+
+**Requires:** Session running. **New state:** "paused"
+
+### `step_over`
+Execute current line, stepping over function calls.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `session_id` | string | No | Session ID |
+| `project_path` | string | No | Project path |
+
+**Requires:** Session paused. **New state:** "running" (will pause at next line)
+
+### `step_into`
+Step into the function call on current line.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `session_id` | string | No | Session ID |
+| `project_path` | string | No | Project path |
+
+**Requires:** Session paused. **New state:** "running" (will pause inside function)
+
+### `step_out`
+Continue execution until current function returns.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `session_id` | string | No | Session ID |
+| `project_path` | string | No | Project path |
+
+**Requires:** Session paused. **New state:** "running" (will pause at caller)
+
+### `run_to_line`
+Continue execution until a specific line is reached.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `session_id` | string | No | Session ID |
+| `file_path` | string | **Yes** | Absolute file path. Supports files inside JARs via the `!/` separator (e.g. `/path/to/lib-sources.jar!/com/example/Foo.kt`) |
+| `line` | integer | **Yes** | 1-based target line (min: 1) |
+| `project_path` | string | No | Project path |
+
+**Requires:** Session paused. **New state:** "running" (will pause at target line)
+
+### `jump_to_line`
+Move the paused execution point to another line **without running the code in between** (Set Next Statement / Jump to Cursor). Skipped lines never execute; jumping to an earlier line executes it again. Use it to re-run a block after `set_variable`, or to skip a crashing or side-effecting call, without restarting.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `session_id` | string | No | Session ID |
+| `file_path` | string | **Yes** | Absolute path of the file of the current execution point |
+| `line` | integer | **Yes** | 1-based target line in the current function (min: 1) |
+| `project_path` | string | No | Project path |
+
+**Requires:** Session paused. **New state:** "paused" (at the target line; the tool returns once the debugger reports the new position)
+
+**Supported debuggers:** Python sessions on the pydevd backend. Any other debugger — Java/Kotlin (the JVM cannot move the execution point), JavaScript, PHP, Go, native, and Python's debugpy backend — returns an error naming the debugger.
+
+**Limits:** Only within the current function of the paused thread (its top frame, whatever `select_stack_frame` selected) and only in that file. Python refuses jumps into a `for` loop body or an `except` block, and reports why. Right after `step_out` or a step past a `return` the thread is not at the start of a line and the jump is refused — `step_over` once, then retry. A blank or comment line lands on the next line with code. Skipped code leaves variables stale or unassigned (Python 3.12+ sets unassigned locals to `None`); skipped `finally` blocks and `with` exits do not run; jumping back re-runs side effects.
+
+### `wait_for_pause`
+Wait for a debug session to pause (breakpoint hit, exception, or manual pause). Returns the full session status when paused, equivalent to calling `get_debug_session_status`. Use after `resume_execution`, `start_debug_session`, or any execution control tool to avoid manual polling.
+
+If `session_id` is omitted and no session exists yet, the tool waits for a session to appear before waiting for it to pause. This means you can call `start_debug_session` followed by `wait_for_pause` without needing to poll for the session ID.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `session_id` | string | No | Session ID. If omitted, uses current session. If no session exists yet, waits for one to appear. |
+| `timeout` | integer | **Yes** | Maximum wait time in seconds (must be positive) |
+| `breakpoint_ids` | string[] | No | Only complete when one of these breakpoints is hit. Non-matching breakpoint pauses are auto-resumed. Pauses where no breakpoint is detected at the current location return immediately. Uses file/line heuristics — may not distinguish all pause causes perfectly. |
+| `project_path` | string | No | Project path |
+
+**Returns:** `waitResult` ("paused"/"timeout"/"session_stopped"), `message`, plus full session status (sessionId, name, state, pausedReason, currentLocation, breakpointHit, stackSummary, variables, sourceContext, currentThread, threadCount)
+
+---
+
+## Stack & Threads
+
+### `get_stack_trace`
+Get the call stack showing how execution reached current point.
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `session_id` | string | No | | Session ID |
+| `max_frames` | integer | No | `50` | Max frames to return (1-200) |
+| `project_path` | string | No | | Project path |
+
+**Requires:** Session paused.
+
+**Returns:** `sessionId`, `threadId`, `frames[]` (index, file, line, className, methodName, isCurrent, isLibrary, presentation), `totalFrames`
+
+### `select_stack_frame`
+Change debugger context to a different stack frame (to inspect variables in a different call).
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `frame_index` | integer | **Yes** | 0-based frame index (0 = topmost/current) |
+| `session_id` | string | No | Session ID |
+| `project_path` | string | No | Project path |
+
+**Requires:** Session paused.
+
+**Returns:** `frameIndex`, `frame` (StackFrameInfo), `message`
+
+### `list_threads`
+List all threads in the debugged process.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `session_id` | string | No | Session ID |
+| `project_path` | string | No | Project path |
+
+**Requires:** Session paused.
+
+**Returns:** `sessionId`, `threads[]` (id, name, state, isCurrent), `currentThreadId`
+
+---
+
+## Variables
+
+### `get_variables`
+Get all variables visible in current or specified stack frame.
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `session_id` | string | No | | Session ID |
+| `frame_index` | integer | No | `0` | Stack frame index (0 = current) |
+| `project_path` | string | No | | Project path |
+
+**Requires:** Session paused.
+
+**Returns:** `sessionId`, `frameIndex`, `variables[]` (name, value, type, hasChildren)
+
+### `set_variable`
+Modify a variable's value at runtime.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `session_id` | string | No | Session ID |
+| `variable_name` | string | **Yes** | Variable name |
+| `new_value` | string | **Yes** | New value expression (e.g., `"42"`, `"\"hello\""`, `"null"`) |
+| `project_path` | string | No | Project path |
+
+**Requires:** Session paused.
+
+**Returns:** `sessionId`, `variableName`, `oldValue`, `newValue`, `type`, `message`
+
+**Limitation:** In native debuggers (Rust, C++, Go), complex types may fail. Primitives work reliably.
+
+---
+
+## Navigation
+
+### `get_source_context`
+Get source code lines around a location.
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `session_id` | string | No | | Session ID |
+| `file_path` | string | No | | Absolute path (uses current location if omitted). Supports files inside JARs via the `!/` separator (e.g. `/path/to/lib-sources.jar!/com/example/Foo.kt`) |
+| `line` | integer | No | | 1-based line (uses current if omitted) |
+| `lines_before` | integer | No | `5` | Context lines before |
+| `lines_after` | integer | No | `5` | Context lines after |
+| `project_path` | string | No | | Project path |
+
+**Returns:** `file`, `startLine`, `endLine`, `currentLine`, `lines[]` (number, content, isCurrent), `breakpointsInView[]`
+
+---
+
+## Evaluation
+
+### `evaluate_expression`
+Evaluate an expression in the current debug context.
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| `expression` | string | **Yes** | | Expression to evaluate (e.g., `"x"`, `"list.size()"`, `"a + b"`) |
+| `session_id` | string | No | | Session ID |
+| `frame_index` | integer | No | `0` | Stack frame index |
+| `project_path` | string | No | | Project path |
+
+**Requires:** Session paused.
+
+**Returns:** `sessionId`, `frameIndex`, `result` (expression, value, type, hasChildren, error)
+
+**Safety settings:** The IDE can filter this tool before evaluation:
+- `Unrestricted`: no plugin-side filtering
+- `Default blocklist`: blocks process execution, JVM termination, filesystem access, network access, reflection/access bypass, native code loading, and environment/system property access
+- `Read-only`: includes the default blocklist and custom regex rules, then rejects assignments, increment/decrement, code fragments, constructors, and method calls that cannot be proven read-only
+
+Custom regex block rules apply in `Default blocklist` and `Read-only`, never in `Unrestricted`. They match after comments and string literals are removed.
+
+In `Default blocklist` and `Read-only`, expressions containing **interpolated string templates** (Kotlin `${...}`, JS backticks, Python f-strings, Ruby `#{...}`), unterminated string literals, or more than 10,000 characters are rejected outright — the guard cannot see inside them, so it refuses rather than guesses. Rewrite without interpolation (e.g. plain concatenation or a bare reference).
+
+**Limitations for native languages (Rust, C++, Go, Swift):**
+- Variable inspection works
+- Method calls (e.g., `s.len()`, `vec.size()`) may fail
+- Use `get_variables` as an alternative

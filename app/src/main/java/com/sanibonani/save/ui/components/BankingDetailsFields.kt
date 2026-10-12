@@ -1,5 +1,6 @@
 package com.sanibonani.save.ui.components
 
+
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -24,7 +25,10 @@ fun BankingDetailsFields(
     onBankNameChange: (String) -> Unit,
     onAccountNoChange: (String) -> Unit,
     onBranchCodeChange: (String) -> Unit,
-    isReadOnly: Boolean = false
+    isReadOnly: Boolean = false,
+    bankError: String? = null,
+    accountError: String? = null,
+    branchError: String? = null
 ) {
     var expanded by remember { mutableStateOf(false) }
 
@@ -40,7 +44,9 @@ fun BankingDetailsFields(
                 readOnly = true,
                 label = { Text("Bank Name *") },
                 trailingIcon = { if (!isReadOnly) ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
-                modifier = Modifier.fillMaxWidth().menuAnchor(type = ExposedDropdownMenuAnchorType.PrimaryNotEditable),
+                modifier = Modifier.fillMaxWidth().menuAnchor(type = MenuAnchorType.PrimaryNotEditable),
+                isError = bankError != null,
+                supportingText = bankError?.let { { Text(it) } },
                 shape = RoundedCornerShape(12.dp),
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedBorderColor = MaterialTheme.colorScheme.primary,
@@ -68,6 +74,8 @@ fun BankingDetailsFields(
             onValueChange = { if (it.all { c -> c.isDigit() }) onAccountNoChange(it) },
             label = "Account Number *",
             enabled = !isReadOnly,
+            isError = accountError != null,
+            supportingText = accountError,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
         )
 
@@ -77,6 +85,8 @@ fun BankingDetailsFields(
             onValueChange = { if (it.all { c -> c.isDigit() }) onBranchCodeChange(it) },
             label = "Branch Code *",
             enabled = !isReadOnly,
+            isError = branchError != null,
+            supportingText = branchError,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
         )
     }

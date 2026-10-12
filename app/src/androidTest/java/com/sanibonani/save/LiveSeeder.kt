@@ -2,9 +2,9 @@ package com.sanibonani.save
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.sanibonani.save.domain.model.*
-import com.sanibonani.save.domain.repository.MemberRepository
-import com.sanibonani.save.domain.repository.GroupRepository
-import com.sanibonani.save.domain.repository.SupabaseRepository
+import com.sanibonani.save.domain.repository.member.MemberRepository
+import com.sanibonani.save.domain.repository.group.GroupRepository
+import com.sanibonani.save.domain.repository.auth.SupabaseRepository
 import dagger.hilt.android.testing.HiltAndroidRule
 import dagger.hilt.android.testing.HiltAndroidTest
 import io.github.jan.supabase.SupabaseClient
@@ -18,6 +18,9 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import javax.inject.Inject
 import kotlin.random.Random
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
+import java.util.UUID
 
 @Ignore("Manual live seeding utility; excluded from automated instrumentation runs.")
 @HiltAndroidTest
@@ -49,21 +52,23 @@ class LiveSeeder {
         // Sign up a new user first to ensure we have a valid session and bypassing RLS
         val testEmail = "testuser_${System.currentTimeMillis()}@example.com"
         val testPassword = "Password123!"
-        
+
         supabaseRepo.adminSignUp(testEmail, testPassword, mapOf("role" to "group_admin"), confirm = true).getOrThrow()
         supabaseRepo.signIn(testEmail, testPassword).getOrThrow()
         val userId = supabaseRepo.currentUserId ?: "00000000-0000-0000-0000-000000000000"
 
-        val testGroupId = java.util.UUID.randomUUID().toString()
-        
-        // 1. Create a group
+        val testGroupId = UUID.randomUUID().toString()
+
+        // 1. Create a group with 12 months history
         val currentUserId = userId
-            
+        val historyMonths = 12
+        val baseDate = LocalDate.now().minusMonths(historyMonths.toLong())
+
         val group = Group(
             id = testGroupId,
             name = "Soweto Community Fund ${System.currentTimeMillis().toString().takeLast(4)}",
-            monthlyContribution = 250.0,
-            lateFee = 50.0,
+            monthlyContribution = Money(250.0),
+            lateFee = Money(50.0),
             paymentDueDay = 28,
             type = GroupType.BURIAL_SOCIETY,
             beneficiaryIncreasePct = 10.0,
@@ -75,64 +80,65 @@ class LiveSeeder {
             province = "Gauteng",
             city = "Johannesburg",
             township = "Soweto",
-            description = "A community-focused burial society serving Soweto residents."
+            description = "A community-focused burial society serving Soweto residents with 12-month financial history."
         )
-        
+
         println("Seeding Group: ${group.id} at ${group.latitude}, ${group.longitude}")
         supabaseClient.postgrest["groups"].insert(group)
 
-        // 2. Create 100 members
+        // 2. Create 100 members with full 12-month transaction history
         val firstNames = listOf("Sizwe", "Thabo", "Lindiwe", "Zanele", "Musa", "Bongani", "Naledi", "Palesa")
         val lastNames = listOf("Dlamini", "Khumalo", "Mbeki", "Zuma", "Buthelezi", "Ndlovu")
 
         for (i in 1..100) {
-            val memberId = java.util.UUID.randomUUID().toString()
+            val memberId = UUID.randomUUID().toString()
             val member = Member(
                 id = memberId,
                 groupId = testGroupId,
                 fullName = "${firstNames.random()} ${lastNames.random()} $i",
                 phone = "0${Random.nextInt(100000000, 999999999)}",
-                joinedAt = "2024-01-01T00:00:00Z",
+                joinedAt = baseDate.atStartOfDay().toString() + "Z",
                 status = MemberStatus.ACTIVE,
                 beneficiaryOver65Count = Random.nextInt(0, 3)
             )
-            
+
             supabaseClient.postgrest["members"].insert(member)
-            
-            // 3. Add some random contributions for each member
-            val numContribs = Random.nextInt(1, 4)
-            for (j in 1..numContribs) {
-                val amount = if (Random.nextBoolean()) 250.0 else 125.0
-                
-                // Use the atomic RPC to ensure group balance and member totals are updated
+
+            // 3. Add 12 months of transaction history for each member
+            for (monthIndex in 0 until historyMonths) {
+                val txDate = baseDate.plusMonths(monthIndex.toLong()).withDayOfMonth(28)
+                val dueDateStr = txDate.format(DateTimeFormatter.ISO_LOCAL_DATE)
+                val paidAtStr = "${dueDateStr}T12:00:00Z"
+                val amount = if (Random.nextDouble() > 0.1) 250.0 else 125.0
+                val status = if (amount >= 250.0) "paid" else "partial"
+
                 try {
                     supabaseClient.postgrest.rpc("record_contribution_v1", mapOf(
                         "p_member_id" to memberId,
                         "p_group_id" to testGroupId,
                         "p_amount" to amount,
-                        "p_due_date" to "2024-0${j}-28",
-                        "p_paid_at" to "2024-0${j}-28T12:00:00Z",
-                        "p_status" to (if (amount >= 250.0) "paid" else "partial")
+                        "p_due_date" to dueDateStr,
+                        "p_paid_at" to paidAtStr,
+                        "p_status" to status
                     ))
-                } catch (e: Exception) {
-                    println("RPC Error for member $i: ${e.message}")
+                } catch (_: Exception) {
                     // Fallback to direct insert if RPC fails during seeding
                     val contribution = Contribution(
                         memberId = memberId,
                         groupId = testGroupId,
-                        amount = amount,
-                        status = if (amount >= 250.0) ContributionStatus.PAID else ContributionStatus.PARTIAL,
-                        paidAt = "2024-0${j}-28T12:00:00Z",
-                        dueDate = "2024-0${j}-28",
+                        amount = Money(amount),
+                        status = if (status == "paid") ContributionStatus.PAID else ContributionStatus.PARTIAL,
+                        paidAt = paidAtStr,
+                        dueDate = dueDateStr,
                         type = "contribution"
                     )
                     supabaseClient.postgrest["contributions"].insert(contribution)
                 }
             }
-            
-            if (i % 10 == 0) println("Seeded $i members...")
+
+            if (i % 10 == 0) println("Seeded $i members with 12-month transaction history...")
         }
-        
-        println("Seeding complete. Group ID: $testGroupId")
+
+        println("Seeding complete with 12-month member transaction histories. Group ID: $testGroupId")
     }
 }

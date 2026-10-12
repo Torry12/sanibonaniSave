@@ -23,6 +23,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.sanibonani.save.ui.utils.rememberClickDebouncer
 import com.sanibonani.save.ui.components.*
+import com.sanibonani.save.ui.components.*
 import com.sanibonani.save.ui.theme.*
 import com.sanibonani.save.features.financial.presentation.PaymentSandboxViewModel
 
@@ -52,8 +53,7 @@ fun PaymentSandboxScreen(
             verticalArrangement = Arrangement.spacedBy(20.dp)
         ) {
             InfoBox(
-                "This environment allows you to simulate physical bank events that affect group accounting logic.",
-                InfoType.INFO
+                "This environment allows you to simulate physical bank events that affect group accounting logic.", type = InfoType.INFO
             )
 
             // --- GROUP SELECTOR ---
@@ -80,7 +80,7 @@ fun PaymentSandboxScreen(
                 icon = Icons.Default.AccountBalanceWallet,
                 buttonLabel = "Simulate R500 Transfer",
                 isLoading = state.isSimulating,
-                onClick = { vm.simulateBankTransfer(500.0, "SIM-TRANSFER-${System.currentTimeMillis().toString().takeLast(4)}") }
+                onClick = { vm.simulateBankTransfer("500.00", "SIM-TRANSFER-${System.currentTimeMillis().toString().takeLast(4)}") }
             )
 
             SimulationControlCard(

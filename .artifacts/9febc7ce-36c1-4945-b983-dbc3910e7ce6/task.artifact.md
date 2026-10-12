@@ -1,22 +1,11 @@
-# Task List - Repository Refactoring
+# Task: Dashboard UX & Performance Refinement
 
-- [ ] **Phase 1: Domain Interfaces**
-    - [ ] Create `MemberContributionRepository`
-    - [ ] Create `GroupFinancialRepository`
-    - [ ] Create `GroupDocumentRepository`
-    - [ ] Refactor `MemberRepository`
-    - [ ] Refactor `GroupRepository`
-- [ ] **Phase 2: Data Implementations**
-    - [ ] Create `MemberContributionRepositoryImpl`
-    - [ ] Create `GroupFinancialRepositoryImpl`
-    - [ ] Create `GroupDocumentRepositoryImpl`
-    - [ ] Refactor `MemberRepositoryImpl`
-    - [ ] Refactor `GroupRepositoryImpl`
-- [ ] **Phase 3: Dependency Injection**
-    - [ ] Update `RepoModule`
-- [ ] **Phase 4: Consumption Layer**
-    - [ ] Update UseCases
-    - [ ] Update ViewModels
-- [ ] **Phase 5: Verification**
-    - [ ] Run Unit Tests
-    - [ ] Run Instrumentation Tests
+- [x] Refine Member Dashboard Navigation:
+    - [x] Implement categorized sidebar grouping in `MemberDashboardScreen.kt`
+    - [x] Polish banner tokens (Support Mode, Offline)
+- [x] Harden Member ViewModels:
+    - [x] Implement parallel warmup in `MemberOverviewViewModel.kt`
+    - [x] Standardize loading states for group switching
+- [x] Final UI Polish:
+    - [x] Standardize elevation tokens in `StatusComponents.kt`
+- [x] Verify performance and navigation consistency (Build Success)

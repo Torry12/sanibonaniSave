@@ -22,6 +22,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.sanibonani.save.R
 import com.sanibonani.save.domain.model.*
 import com.sanibonani.save.ui.components.*
+import com.sanibonani.save.ui.components.*
 import com.sanibonani.save.features.admin.ui.components.*
 import com.sanibonani.save.features.admin.ui.tabs.*
 import com.sanibonani.save.features.admin.ui.tabs.platform.*
@@ -34,7 +35,7 @@ import com.sanibonani.save.features.admin.presentation.AdminMemberViewModel
 import com.sanibonani.save.features.admin.presentation.AdminFinancialViewModel
 import com.sanibonani.save.features.admin.presentation.AdminSettingsViewModel
 import com.sanibonani.save.features.financial.presentation.FinancialProviderViewModel
-import com.sanibonani.save.viewmodel.state.UIEvent
+import com.sanibonani.save.features.common.presentation.UIEvent
 import com.sanibonani.save.features.admin.presentation.state.*
 import kotlinx.coroutines.launch
 
@@ -151,6 +152,16 @@ fun AdminDashboardScreen(
                         context.startActivity(android.content.Intent.createChooser(shareIntent, event.chooserTitle).addFlags(flags))
                     }
                 }
+                is UIEvent.OpenUrl -> {
+                    try {
+                        val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(event.url)).apply {
+                            addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                        }
+                        context.startActivity(intent)
+                    } catch (e: Exception) {
+                        Toast.makeText(context, "Could not open link: ${e.message}", Toast.LENGTH_SHORT).show()
+                    }
+                }
                 else -> Unit
             }
         }
@@ -160,11 +171,11 @@ fun AdminDashboardScreen(
         launch { financialVm.events.collect { handleEvent(it) } }
     }
 
-    val navItems = remember(overviewVm) { adminDashboardNavigationItems(overviewVm) }
+    val navItems = remember(overviewVm) { adminDashboardNavigationItems { overviewVm.setTab(it) } }
 
     val selectedRoute = overviewState.selectedTab.toString()
 
-    if (overviewState.isLoading && overviewState.group == null) {
+    if ((overviewState.isLoading) && (overviewState.group == null)) {
         SanibonaniLoadingScreen(message = "Loading dashboard...")
     } else {
         AdaptiveScaffold(
@@ -187,7 +198,7 @@ fun AdminDashboardScreen(
 
                         // ⚡ Non-blocking visual feedback for refreshes
                         SoftLoadingOverlay(
-                            isLoading = overviewState.isLoading && overviewState.group != null,
+                            isLoading = overviewState.isLoading && (overviewState.group != null) && !overviewState.isSupportMode,
                             message = "Refreshing group data..."
                         )
 
@@ -240,7 +251,7 @@ fun AdminDashboardScreen(
                 Box(Modifier.padding(padding)) {
                     PullToRefreshBox(
                         isRefreshing = overviewState.isLoading,
-                        onRefresh = { overviewState.group?.id?.let { overviewVm.selectGroup(it) } },
+                        onRefresh = { overviewVm.refreshData() },
                         modifier = Modifier.fillMaxSize()
                     ) {
                         HorizontalPager(
@@ -271,15 +282,14 @@ fun AdminDashboardScreen(
                                 2 -> NotificationsTab(overviewState)
                                 3 -> MessagingTab(overviewState, overviewVm)
                                 4 -> ViabilityPlanningTab(overviewState, overviewVm)
-                                5 -> AccountTab(overviewState, onLogout)
+                                5 -> AccountTab(overviewState, onLogout, onPayPlatformFees = { overviewVm.payPlatformFees() })
                                 6 -> SettingsTab(settingsState, settingsVm, providerState)
                                 7 -> PayoutTab(financialState, financialVm)
                                 8 -> LoansTab(financialState, financialVm)
                                 9 -> InsightsTab(overviewState) { overviewVm.executeRoscaPayout() }
                                 10 -> LedgerTab(
                                     state = financialState,
-                                    vm = financialVm,
-                                    windowSizeClass = windowSizeClass
+                                    vm = financialVm
                                 )
                                 11 -> GroupAuditTab(
                                     report = overviewState.groupAuditReport,

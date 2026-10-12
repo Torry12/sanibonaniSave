@@ -6,12 +6,14 @@ import com.sanibonani.save.R
 import androidx.compose.animation.*
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AccountBalance
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CreditCard
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material3.*
@@ -27,8 +29,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.*
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.sanibonani.save.domain.config.PlatformFees
 import com.sanibonani.save.domain.model.*
 import com.sanibonani.save.domain.utils.parseMoneyAmountOrNull
+import com.sanibonani.save.ui.components.InfoType
+import com.sanibonani.save.ui.components.*
 import com.sanibonani.save.ui.components.*
 import com.sanibonani.save.ui.theme.*
 import com.sanibonani.save.ui.utils.ToastUtils
@@ -115,29 +120,25 @@ fun PaymentScreen(
                 when (paymentType) {
                     "registration" -> InfoBox(
                         "This ${PlatformFees.REGISTRATION.format()} once-off fee activates your group on SanibonaniSave. " +
-                        "Your group will be publicly listed and operational immediately after payment.",
-                        InfoType.INFO
+                        "Your group will be publicly listed and operational immediately after payment.", type = InfoType.INFO
                     )
                     "admin_fee" -> {
-                        val memberCount = if (PlatformFees.MONTHLY_PER_MEMBER.isPositive) (amount / PlatformFees.MONTHLY_PER_MEMBER).toInt() else 0
+                        val memberCount = if (PlatformFees.MONTHLY_PER_MEMBER.isPositive) (amount.ratio(PlatformFees.MONTHLY_PER_MEMBER)).toInt() else 0
                         InfoBox(
-                            "Monthly platform fee: ${PlatformFees.MONTHLY_PER_MEMBER.format()} × $memberCount members = ${amount.format()}. " +
-                            "Due on the 1st of each month. Unpaid after 7 days suspends the group.",
-                            InfoType.WARNING
+                            "Monthly platform fee: ${PlatformFees.MONTHLY_PER_MEMBER.format()} Ã— $memberCount members = ${amount.format()}. " +
+                            "Due on the 1st of each month. Unpaid after 7 days suspends the group.", type = InfoType.WARNING
                         )
                     }
                     "joining_fee" -> {
                         InfoBox(
                             "This is your one-time joining fee to become a member of this savings group. " +
-                            "Once paid, you'll be registered as an active member and can start contributing.",
-                            InfoType.INFO
+                            "Once paid, you'll be registered as an active member and can start contributing.", type = InfoType.INFO
                         )
                     }
                     "contribution" -> {
                         InfoBox(
                             "Monthly contribution to your savings group. " +
-                            "Funds are settled directly into the group's bank account via our secure gateways.",
-                            InfoType.INFO
+                            "Funds are settled directly into the group's bank account via our secure gateways.", type = InfoType.INFO
                         )
 
                         state.calculation?.let { calc ->
@@ -146,26 +147,32 @@ fun PaymentScreen(
                                 DueBreakdownCard(breakdown, state.currentInputAmount)
                             } else if (calc.overpayment.isPositive) {
                                 Card(
-                                    shape = RoundedCornerShape(12.dp),
-                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
-                                    modifier = Modifier.fillMaxWidth()
+                                    shape = RoundedCornerShape(16.dp),
+                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                                    modifier = Modifier.fillMaxWidth(),
+                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.1f))
                                 ) {
-                                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                        Text(stringResource(R.string.ui_payment_overview), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                                        Text("Overpayment Credit: ${calc.overpayment.format()}", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
-                                        Text("Next Due Date: ${state.nextDueDate.ifEmpty { calc.nextDueDate }}", style = MaterialTheme.typography.bodySmall)
+                                    Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Text(stringResource(R.string.ui_payment_overview).uppercase(), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f))
+                                        Text("Overpayment Credit: ${calc.overpayment.format()}", color = SuccessGreen, fontWeight = FontWeight.Black, style = MaterialTheme.typography.titleMedium)
+                                        Text("Next Due Date: ${state.nextDueDate.ifEmpty { calc.nextDueDate }}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface)
                                     }
                                 }
                             } else {
                                 Card(
-                                    shape = RoundedCornerShape(12.dp),
-                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
-                                    modifier = Modifier.fillMaxWidth()
+                                    shape = RoundedCornerShape(16.dp),
+                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                                    modifier = Modifier.fillMaxWidth(),
+                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.1f))
                                 ) {
-                                    Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                                        Icon(Icons.Default.Language, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                                        Spacer(Modifier.width(12.dp))
-                                        Text(stringResource(R.string.ui_all_caught_up), fontWeight = FontWeight.Bold)
+                                    Row(Modifier.padding(20.dp), verticalAlignment = Alignment.CenterVertically) {
+                                        Surface(color = SuccessGreen.copy(alpha = 0.1f), shape = CircleShape, modifier = Modifier.size(32.dp)) {
+                                            Box(contentAlignment = Alignment.Center) {
+                                                Icon(Icons.Default.Check, contentDescription = null, tint = SuccessGreen, modifier = Modifier.size(18.dp))
+                                            }
+                                        }
+                                        Spacer(Modifier.width(16.dp))
+                                        Text(stringResource(R.string.ui_all_caught_up), style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
                                     }
                                 }
                             }
@@ -177,10 +184,10 @@ fun PaymentScreen(
                 PaymentGatewayForm(
                     amount      = if (state.currentInputAmount.isPositive) state.currentInputAmount else amount,
                     description = when (paymentType) {
-                        "registration" -> "Group Registration — SanibonaniSave"
+                        "registration" -> "Group Registration â€” SanibonaniSave"
                         "admin_fee"    -> {
-                            val memberCount = if (PlatformFees.MONTHLY_PER_MEMBER.isPositive) (amount / PlatformFees.MONTHLY_PER_MEMBER).toInt() else 0
-                            "Monthly Platform Fee — $memberCount members"
+                            val memberCount = if (PlatformFees.MONTHLY_PER_MEMBER.isPositive) (amount.ratio(PlatformFees.MONTHLY_PER_MEMBER)).toInt() else 0
+                            "Monthly Platform Fee â€” $memberCount members"
                         }
                         "joining_fee"  -> "Member Joining Fee"
                         else           -> "Monthly Contribution"
@@ -205,7 +212,7 @@ fun PaymentScreen(
 
                 state.error?.let {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        InfoBox(it, InfoType.ERROR)
+                        InfoBox(it, type = InfoType.ERROR)
                         Spacer(Modifier.height(8.dp))
                         Button(onClick = { vm.loadPaymentContext(groupId, paymentType) }) {
                             Text(stringResource(R.string.ui_retry_connection))
@@ -219,7 +226,7 @@ fun PaymentScreen(
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
                 ) {
                     Row(Modifier.padding(14.dp), verticalAlignment = Alignment.Top) {
-                        Text("🔒", fontSize = 20.sp, modifier = Modifier.padding(end = 10.dp))
+                        Text("ðŸ”’", fontSize = 20.sp, modifier = Modifier.padding(end = 10.dp))
                         Column {
                             Text(stringResource(R.string.ui_secure_payment_gateway),
                                 style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
@@ -340,7 +347,7 @@ fun PaymentGatewayForm(
                     Text(stringResource(R.string.ui_amount_to_pay), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 
                     if (isContribution) {
-                        var amountText by remember { mutableStateOf(if (paymentAmount.isZero) "" else String.format("%.2f", paymentAmount.toDouble())) }
+                        var amountText by remember { mutableStateOf(if (paymentAmount.isZero) "" else paymentAmount.toPlainString()) }
 
                         BasicTextField(
                             value = amountText,
@@ -381,7 +388,7 @@ fun PaymentGatewayForm(
             Text(description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 
             if (isContribution && !allowPartialPayments && minDueAmount.isPositive) {
-                InfoBox(stringResource(R.string.ui_partial_payments_disabled, minDueAmount.format()), InfoType.WARNING)
+                InfoBox(stringResource(R.string.ui_partial_payments_disabled, minDueAmount.format()), type = InfoType.WARNING)
             }
 
             HorizontalDivider(thickness = 0.5.dp, color = MaterialTheme.colorScheme.outlineVariant)

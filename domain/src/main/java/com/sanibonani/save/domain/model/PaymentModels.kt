@@ -60,3 +60,23 @@ enum class PaymentStatus(val displayName: String) {
     @SerialName("failed")     FAILED("Failed"),
     @SerialName("refunded")   REFUNDED("Refunded")
 }
+
+@Serializable
+enum class PaymentDestination {
+    @SerialName("group") GROUP,
+    @SerialName("platform") PLATFORM
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  PAYMENT ALLOCATION
+// ─────────────────────────────────────────────────────────────────────────────
+@Serializable
+@Parcelize
+data class PaymentAllocation(
+    val type: String, // 'member_fee', 'late_fee', 'loan_repayment', 'contribution', 'joining_fee'
+    val amount: Money,
+    @SerialName("due_date")  val dueDate: String,
+    val description: String,
+    @SerialName("loan_id")   val loanId: String? = null
+) : Parcelable
+

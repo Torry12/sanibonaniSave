@@ -1,9 +1,38 @@
 package com.sanibonani.save.di
 
 import com.sanibonani.save.data.remote.SupabaseManager
-import com.sanibonani.save.data.repository.*
-import com.sanibonani.save.data.service.InMemoryGovernanceService
-import com.sanibonani.save.domain.repository.*
+import com.sanibonani.save.data.repository.admin.*
+import com.sanibonani.save.data.repository.auth.*
+import com.sanibonani.save.data.repository.credit.LoanRepositoryImpl
+import com.sanibonani.save.data.repository.payment.BankRepositoryImpl
+import com.sanibonani.save.data.repository.equity.ContributionRepositoryImpl
+import com.sanibonani.save.data.repository.payment.FinancialProviderRepositoryImpl
+import com.sanibonani.save.data.repository.equity.GroupFinancialRepositoryImpl
+import com.sanibonani.save.data.repository.treasury.LedgerRepositoryImpl
+import com.sanibonani.save.data.repository.equity.MemberContributionRepositoryImpl
+import com.sanibonani.save.data.repository.payment.PaymentGatewayRepositoryImpl
+import com.sanibonani.save.data.repository.payment.PaymentRepositoryImpl
+import com.sanibonani.save.data.repository.disbursement.PayoutRepositoryImpl
+import com.sanibonani.save.data.repository.treasury.ReconciliationRepositoryImpl
+import com.sanibonani.save.data.repository.group.*
+import com.sanibonani.save.data.repository.member.*
+import com.sanibonani.save.data.repository.system.*
+import com.sanibonani.save.domain.repository.admin.*
+import com.sanibonani.save.domain.repository.auth.*
+import com.sanibonani.save.domain.repository.credit.LoanRepository
+import com.sanibonani.save.domain.repository.payment.BankRepository
+import com.sanibonani.save.domain.repository.equity.ContributionRepository
+import com.sanibonani.save.domain.repository.payment.FinancialProviderRepository
+import com.sanibonani.save.domain.repository.equity.GroupFinancialRepository
+import com.sanibonani.save.domain.repository.treasury.LedgerRepository
+import com.sanibonani.save.domain.repository.equity.MemberContributionRepository
+import com.sanibonani.save.domain.repository.payment.PaymentGatewayRepository
+import com.sanibonani.save.domain.repository.payment.PaymentRepository
+import com.sanibonani.save.domain.repository.disbursement.PayoutRepository
+import com.sanibonani.save.domain.repository.treasury.ReconciliationRepository
+import com.sanibonani.save.domain.repository.group.*
+import com.sanibonani.save.domain.repository.member.*
+import com.sanibonani.save.domain.repository.system.*
 import com.sanibonani.save.domain.service.GovernanceService
 import dagger.Binds
 import dagger.Module
@@ -11,15 +40,6 @@ import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
 import javax.inject.Singleton
 
-@Module
-@InstallIn(SingletonComponent::class)
-abstract class SupabaseRepoModule {
-    @Binds
-    @Singleton
-    abstract fun bindSupabaseRepository(
-        supabaseManager: SupabaseManager
-    ): SupabaseRepository
-}
 
 @Module
 @InstallIn(SingletonComponent::class)
@@ -27,149 +47,141 @@ abstract class RepoModule {
 
     @Binds
     @Singleton
+    abstract fun bindContributionRepository(impl: ContributionRepositoryImpl): ContributionRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindGroupDocumentRepository(impl: GroupDocumentRepositoryImpl): GroupDocumentRepository
+
+    @Binds
+    @Singleton
     abstract fun bindLedgerRepository(impl: LedgerRepositoryImpl): LedgerRepository
 
     @Binds
     @Singleton
-    abstract fun bindGroupRepository(
-        groupRepositoryImpl: GroupRepositoryImpl
-    ): GroupRepository
+    abstract fun bindGroupRepository(impl: GroupRepositoryImpl): GroupRepository
 
     @Binds
     @Singleton
-    abstract fun bindMemberRepository(
-        memberRepositoryImpl: MemberRepositoryImpl
-    ): MemberRepository
+    abstract fun bindMemberRepository(impl: MemberRepositoryImpl): MemberRepository
 
     @Binds
     @Singleton
-    abstract fun bindBeneficiaryRepository(
-        memberRepositoryImpl: MemberRepositoryImpl
-    ): BeneficiaryRepository
+    abstract fun bindBeneficiaryRepository(impl: MemberRepositoryImpl): BeneficiaryRepository
 
     @Binds
     @Singleton
-    abstract fun bindMemberDocumentRepository(
-        memberRepositoryImpl: MemberRepositoryImpl
-    ): MemberDocumentRepository
+    abstract fun bindMemberDocumentRepository(impl: MemberRepositoryImpl): MemberDocumentRepository
 
     @Binds
     @Singleton
-    abstract fun bindNotificationRepository(
-        notificationRepositoryImpl: NotificationRepositoryImpl
-    ): NotificationRepository
+    abstract fun bindNotificationRepository(impl: NotificationRepositoryImpl): NotificationRepository
 
     @Binds
     @Singleton
-    abstract fun bindPaymentRepository(
-        paymentRepositoryImpl: PaymentRepositoryImpl
-    ): PaymentRepository
+    abstract fun bindPaymentRepository(impl: PaymentRepositoryImpl): PaymentRepository
 
     @Binds
     @Singleton
-    abstract fun bindActuarialRepository(
-        actuarialRepositoryImpl: ActuarialRepositoryImpl
-    ): ActuarialRepository
+    abstract fun bindActuarialRepository(impl: ActuarialRepositoryImpl): ActuarialRepository
 
     @Binds
     @Singleton
-    abstract fun bindPayoutRepository(
-        payoutRepositoryImpl: PayoutRepositoryImpl
-    ): PayoutRepository
+    abstract fun bindPayoutRepository(impl: PayoutRepositoryImpl): PayoutRepository
 
     @Binds
     @Singleton
-    abstract fun bindPlatformRepository(
-        platformRepositoryImpl: PlatformRepositoryImpl
-    ): PlatformRepository
+    abstract fun bindPlatformRepository(impl: PlatformRepositoryImpl): PlatformRepository
 
     @Binds
     @Singleton
-    abstract fun bindPlatformConfigRepository(
-        platformConfigRepositoryImpl: PlatformConfigRepositoryImpl
-    ): PlatformConfigRepository
+    abstract fun bindPlatformConfigRepository(impl: PlatformConfigRepositoryImpl): PlatformConfigRepository
 
     @Binds
     @Singleton
-    abstract fun bindInvestmentRepository(
-        investmentRepositoryImpl: InvestmentRepositoryImpl
-    ): InvestmentRepository
+    abstract fun bindInvestmentRepository(impl: InvestmentRepositoryImpl): InvestmentRepository
 
     @Binds
     @Singleton
-    abstract fun bindExportRepository(
-        exportRepositoryImpl: ExportRepositoryImpl
-    ): ExportRepository
+    abstract fun bindExportRepository(impl: ExportRepositoryImpl): ExportRepository
 
     @Binds
     @Singleton
-    abstract fun bindStorageRepository(
-        storageRepositoryImpl: StorageRepositoryImpl
-    ): StorageRepository
+    abstract fun bindStorageRepository(impl: StorageRepositoryImpl): StorageRepository
 
     @Binds
     @Singleton
-    abstract fun bindSyncRepository(
-        syncRepositoryImpl: SyncRepositoryImpl
-    ): SyncRepository
+    abstract fun bindSyncRepository(impl: SyncRepositoryImpl): SyncRepository
 
     @Binds
     @Singleton
-    abstract fun bindCredentialsRepository(
-        credentialsRepositoryImpl: CredentialsRepositoryImpl
-    ): CredentialsRepository
+    abstract fun bindStorageNamingStrategy(impl: DefaultStorageNamingStrategy): StorageNamingStrategy
 
     @Binds
     @Singleton
-    abstract fun bindLoanRepository(
-        loanRepositoryImpl: LoanRepositoryImpl
-    ): LoanRepository
+    abstract fun bindCredentialsRepository(impl: CredentialsRepositoryImpl): CredentialsRepository
 
     @Binds
     @Singleton
-    abstract fun bindAgentRepository(
-        agentRepositoryImpl: AgentRepositoryImpl
-    ): AgentRepository
+    abstract fun bindLoanRepository(impl: LoanRepositoryImpl): LoanRepository
 
     @Binds
     @Singleton
-    abstract fun bindHealthScoreRepository(
-        healthScoreRepositoryImpl: HealthScoreRepositoryImpl
-    ): HealthScoreRepository
+    abstract fun bindAgentRepository(impl: AgentRepositoryImpl): AgentRepository
 
     @Binds
     @Singleton
-    abstract fun bindBeneficiaryClaimRepository(
-        beneficiaryClaimRepositoryImpl: BeneficiaryClaimRepositoryImpl
-    ): BeneficiaryClaimRepository
+    abstract fun bindHealthScoreRepository(impl: HealthScoreRepositoryImpl): HealthScoreRepository
 
     @Binds
     @Singleton
-    abstract fun bindVotingRepository(
-        votingRepositoryImpl: VotingRepositoryImpl
-    ): VotingRepository
+    abstract fun bindBeneficiaryClaimRepository(impl: BeneficiaryClaimRepositoryImpl): BeneficiaryClaimRepository
 
     @Binds
     @Singleton
-    abstract fun bindBehaviorTrackingRepository(
-        behaviorTrackingRepositoryImpl: BehaviorTrackingRepositoryImpl
-    ): BehaviorTrackingRepository
+    abstract fun bindVotingRepository(impl: VotingRepositoryImpl): VotingRepository
 
     @Binds
     @Singleton
-    abstract fun bindPaymentGatewayRepository(
-        paymentGatewayRepositoryImpl: PaymentGatewayRepositoryImpl
-    ): PaymentGatewayRepository
+    abstract fun bindBehaviorTrackingRepository(impl: BehaviorTrackingRepositoryImpl): BehaviorTrackingRepository
 
     @Binds
     @Singleton
-    abstract fun bindGovernanceService(
-        impl: InMemoryGovernanceService
-    ): GovernanceService
+    abstract fun bindPaymentGatewayRepository(impl: PaymentGatewayRepositoryImpl): PaymentGatewayRepository
 
     @Binds
     @Singleton
-    abstract fun bindAuditLogRepository(
-        impl: AuditLogRepositoryImpl
-    ): AuditLogRepository
+    abstract fun bindAuditLogRepository(impl: AuditLogRepositoryImpl): AuditLogRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindFinancialProviderRepository(impl: FinancialProviderRepositoryImpl): FinancialProviderRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindBankRepository(impl: BankRepositoryImpl): BankRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindGroupFinancialRepository(impl: GroupFinancialRepositoryImpl): GroupFinancialRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindReconciliationRepository(impl: ReconciliationRepositoryImpl): ReconciliationRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindMemberContributionRepository(impl: MemberContributionRepositoryImpl): MemberContributionRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindAiRepository(impl: AiRepositoryImpl): AiRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindAuditRepository(impl: AuditRepositoryImpl): AuditRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindUserProfileRepository(impl: UserProfileRepositoryImpl): UserProfileRepository
 }

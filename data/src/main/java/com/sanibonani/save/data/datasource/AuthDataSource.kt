@@ -1,23 +1,27 @@
 package com.sanibonani.save.data.datasource
 
+import com.sanibonani.save.domain.model.AuthSession
+import com.sanibonani.save.domain.model.AuthSessionStatus
 import com.sanibonani.save.domain.model.UserRole
 import com.sanibonani.save.domain.model.MfaFactor
 import com.sanibonani.save.domain.model.TotpEnrollment
-import io.github.jan.supabase.auth.status.SessionStatus
-import io.github.jan.supabase.auth.user.UserSession
 import kotlinx.coroutines.flow.Flow
 
 /**
  * Portable abstraction for authentication and user session management.
+ *
+ * Exposes domain types rather than the Supabase SDK's own session objects, so
+ * the authentication port stays usable without pulling in the SDK.
  */
 interface AuthDataSource {
     val currentUserId: String?
     val currentSessionEmail: String?
     val accessToken: String?
+    val supabaseUrl: String
     val isLoggedIn: Boolean
-    val currentSession: UserSession?
-    val sessionStatus: Flow<SessionStatus>
-    val sessionFlow: Flow<UserSession?>
+    val currentSession: AuthSession?
+    val sessionStatus: Flow<AuthSessionStatus>
+    val sessionFlow: Flow<AuthSession?>
     val isMfaVerified: Boolean
 
     suspend fun signUp(email: String, password: String, metadata: Map<String, String>): Result<String>

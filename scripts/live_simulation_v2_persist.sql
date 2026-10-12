@@ -51,7 +51,7 @@ BEGIN
     RAISE NOTICE '--- STARTING STRESS TEST ---';
 
     -- 4. ACTION: Process a Complex Payment
-    SELECT public.process_complex_payment_v3(
+    SELECT public.process_complex_payment_v4(
         p_group_id := v_group_id,
         p_member_id := v_member_id,
         p_total_amount := 1000.00,

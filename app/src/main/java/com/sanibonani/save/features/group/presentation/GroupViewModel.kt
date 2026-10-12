@@ -1,20 +1,15 @@
 package com.sanibonani.save.features.group.presentation
 
-import com.sanibonani.save.domain.logging.AppLogger
 import com.sanibonani.save.domain.model.*
 import com.sanibonani.save.domain.service.LocationService
-import com.sanibonani.save.domain.repository.equity.GroupRepository
-import com.sanibonani.save.domain.repository.treasury.ExportRepository
+import com.sanibonani.save.domain.repository.group.GroupRepository
+import com.sanibonani.save.domain.repository.system.ExportRepository
 import com.sanibonani.save.domain.utils.toUserMessage
-import com.sanibonani.save.domain.usecase.dynamics.GetPublicGroupsUseCase
-import com.sanibonani.save.viewmodel.BaseViewModel
+import com.sanibonani.save.domain.usecase.group.GetPublicGroupsUseCase
+import com.sanibonani.save.features.common.presentation.BaseViewModel
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
-import kotlinx.coroutines.launch
 import javax.inject.Inject
-import androidx.lifecycle.viewModelScope
 
 data class GroupUiState(
     val rawGroups: List<Group> = emptyList(),
@@ -51,7 +46,7 @@ class GroupViewModel @Inject constructor(
     }
 
     fun loadGroups() {
-        launchJob("load_groups") {
+        launchSafeJob("load_groups", "Failed to load public groups") {
             updateState { it.copy(isLoading = true, error = null) }
             getPublicGroupsUseCase().collectLatest { res ->
                 res.onSuccess { list ->
@@ -77,7 +72,7 @@ class GroupViewModel @Inject constructor(
     }
 
     fun loadGroup(id: String) {
-        launchJob("load_group_detail_$id") {
+        launchSafeJob("load_group_detail_$id", "Failed to load group details") {
             updateState { it.copy(isLoadingDetail = true, detailError = null) }
             groupRepo.observeGroup(id).collectLatest { res ->
                 res.onSuccess { g ->

@@ -1,6 +1,7 @@
 package com.sanibonani.save.data.local
 
 import androidx.room.*
+import androidx.room.Transaction as RoomTransaction
 import com.sanibonani.save.domain.model.*
 import kotlinx.coroutines.flow.Flow
 
@@ -48,17 +49,45 @@ interface PaymentDao {
     @Query("DELETE FROM payments")
     suspend fun clearAll()
 
-    @androidx.room.Transaction
+    @RoomTransaction
     suspend fun syncPayments(groupId: String, payments: List<PaymentEntity>) {
         val current = getGroupPayments(groupId).map { it.id }.toSet()
         val incoming = payments.map { it.id }.toSet()
-        (current - incoming).forEach { deletePayment(it) }
+        (current - incoming).forEach { deleteById(it) }
         upsertPayments(payments)
     }
 
     @Query("DELETE FROM payments WHERE id = :id")
-    suspend fun deletePayment(id: String)
+    suspend fun deleteById(id: String)
 
     @Query("SELECT * FROM payments WHERE payment_type = 'platform_fee' ORDER BY created_at DESC")
     fun observePlatformPayments(): Flow<List<PaymentEntity>>
 }
+
+// ── Mappers ──────────────────────────────────────────────────────────────────
+
+fun PaymentEntity.toModel() = Payment(
+    id = id,
+    memberId = memberId,
+    groupId = groupId,
+    amount = amount,
+    paymentType = paymentType,
+    paymentMethod = paymentMethod,
+    transactionId = transactionId,
+    status = status,
+    processedAt = processedAt,
+    createdAt = createdAt
+)
+
+fun Payment.toEntity() = PaymentEntity(
+    id = id ?: java.util.UUID.randomUUID().toString(),
+    memberId = memberId,
+    groupId = groupId,
+    amount = amount,
+    paymentType = paymentType,
+    paymentMethod = paymentMethod,
+    transactionId = transactionId,
+    status = status,
+    processedAt = processedAt,
+    createdAt = createdAt
+)

@@ -1,10 +1,8 @@
 package com.sanibonani.save.features.kyc
 
 import android.net.Uri
-import androidx.lifecycle.viewModelScope
-import kotlinx.coroutines.launch
 import com.sanibonani.save.domain.service.KycService
-import com.sanibonani.save.viewmodel.BaseViewModel
+import com.sanibonani.save.features.common.presentation.BaseViewModel
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.io.File
 import javax.inject.Inject
@@ -27,7 +25,7 @@ class KycViewModel @Inject constructor(
     fun onSelfieCaptured(uri: Uri, memberId: String) {
         updateState { it.copy(selfieUri = uri) }
         val s = uiState.value
-        viewModelScope.launch {
+        launchJob("process_kyc") {
             kycService.processKycAi(memberId, File(s.idUri?.path!!), File(uri.path!!)).onSuccess {
                 updateState { it.copy(step = KycStep.SUCCESS) }
             }

@@ -1,11 +1,12 @@
 package com.sanibonani.save.data.local
 
 import androidx.room.*
+import androidx.room.Transaction as RoomTransaction
 import com.sanibonani.save.domain.model.*
 import kotlinx.coroutines.flow.Flow
 
 @Entity(
-    tableName = "burial_claims",
+    tableName = "beneficiary_payout_claims",
     indices = [
         Index("group_id"),
         Index("member_id"),
@@ -20,9 +21,13 @@ data class BeneficiaryClaimEntity(
     @ColumnInfo(name = "beneficiary_id")   val beneficiaryId: String,
     @ColumnInfo(name = "beneficiary_name") val beneficiaryName: String,
     @ColumnInfo(name = "face_photo_url")    val facePhotoUrl: String? = null,
+    @ColumnInfo(name = "face_photo_status") val facePhotoStatus: DocumentStatus = DocumentStatus.PENDING,
     @ColumnInfo(name = "beneficiary_id_url") val beneficiaryIdUrl: String? = null,
+    @ColumnInfo(name = "beneficiary_id_status") val beneficiaryIdStatus: DocumentStatus = DocumentStatus.PENDING,
     @ColumnInfo(name = "death_certificate_url") val deathCertificateUrl: String? = null,
+    @ColumnInfo(name = "death_certificate_status") val deathCertificateStatus: DocumentStatus = DocumentStatus.PENDING,
     @ColumnInfo(name = "member_id_url")      val memberIdUrl: String? = null,
+    @ColumnInfo(name = "member_id_status")   val memberIdStatus: DocumentStatus = DocumentStatus.PENDING,
     @ColumnInfo(name = "cause_of_death")   val causeOfDeath: String,
     @ColumnInfo(name = "date_of_death")    val dateOfDeath: String,
     @ColumnInfo(name = "claim_amount")     val claimAmount: Money,
@@ -42,16 +47,16 @@ data class BeneficiaryClaimEntity(
 
 @Dao
 interface BeneficiaryClaimDao {
-    @Query("SELECT * FROM burial_claims WHERE member_id = :memberId AND group_id = :groupId ORDER BY created_at DESC")
+    @Query("SELECT * FROM beneficiary_payout_claims WHERE member_id = :memberId AND group_id = :groupId ORDER BY created_at DESC")
     fun observeClaimsForMember(memberId: String, groupId: String): Flow<List<BeneficiaryClaimEntity>>
 
-    @Query("SELECT * FROM burial_claims WHERE group_id = :groupId ORDER BY created_at DESC")
+    @Query("SELECT * FROM beneficiary_payout_claims WHERE group_id = :groupId ORDER BY created_at DESC")
     fun observeClaimsForGroup(groupId: String): Flow<List<BeneficiaryClaimEntity>>
 
-    @Query("SELECT * FROM burial_claims WHERE group_id = :groupId")
+    @Query("SELECT * FROM beneficiary_payout_claims WHERE group_id = :groupId")
     suspend fun getGroupClaims(groupId: String): List<BeneficiaryClaimEntity>
 
-    @Query("SELECT * FROM burial_claims WHERE status = 'ESCALATED' ORDER BY created_at DESC")
+    @Query("SELECT * FROM beneficiary_payout_claims WHERE status = 'ESCALATED' ORDER BY created_at DESC")
     fun observeEscalatedClaims(): Flow<List<BeneficiaryClaimEntity>>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
@@ -60,16 +65,16 @@ interface BeneficiaryClaimDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertClaims(claims: List<BeneficiaryClaimEntity>): List<Long>
 
-    @Query("SELECT * FROM burial_claims WHERE id = :id LIMIT 1")
+    @Query("SELECT * FROM beneficiary_payout_claims WHERE id = :id LIMIT 1")
     suspend fun getClaimById(id: String): BeneficiaryClaimEntity?
 
-    @Query("DELETE FROM burial_claims WHERE group_id = :groupId")
+    @Query("DELETE FROM beneficiary_payout_claims WHERE group_id = :groupId")
     suspend fun deleteByGroupId(groupId: String)
 
-    @Query("DELETE FROM burial_claims")
+    @Query("DELETE FROM beneficiary_payout_claims")
     suspend fun clearAll()
 
-    @androidx.room.Transaction
+    @RoomTransaction
     suspend fun syncForGroup(groupId: String, claims: List<BeneficiaryClaimEntity>) {
         val current = getGroupClaims(groupId).map { it.id }.toSet()
         val incoming = claims.map { it.id }.toSet()
@@ -77,10 +82,10 @@ interface BeneficiaryClaimDao {
         upsertClaims(claims)
     }
 
-    @Query("SELECT * FROM burial_claims WHERE member_id = :memberId AND group_id = :groupId")
+    @Query("SELECT * FROM beneficiary_payout_claims WHERE member_id = :memberId AND group_id = :groupId")
     suspend fun getMemberClaims(memberId: String, groupId: String): List<BeneficiaryClaimEntity>
 
-    @androidx.room.Transaction
+    @RoomTransaction
     suspend fun syncForMember(memberId: String, groupId: String, claims: List<BeneficiaryClaimEntity>) {
         val current = getMemberClaims(memberId, groupId).map { it.id }.toSet()
         val incoming = claims.map { it.id }.toSet()
@@ -88,6 +93,68 @@ interface BeneficiaryClaimDao {
         upsertClaims(claims)
     }
 
-    @Query("DELETE FROM burial_claims WHERE id = :id")
+    @Query("DELETE FROM beneficiary_payout_claims WHERE id = :id")
     suspend fun deleteClaim(id: String)
 }
+
+// ── Mappers ──────────────────────────────────────────────────────────────────
+
+fun BeneficiaryClaimEntity.toModel() = BeneficiaryPayoutClaim(
+    id = id,
+    groupId = groupId,
+    memberId = memberId,
+    beneficiaryId = beneficiaryId,
+    beneficiaryName = beneficiaryName,
+    facePhotoUrl = facePhotoUrl,
+    facePhotoStatus = facePhotoStatus,
+    beneficiaryIdUrl = beneficiaryIdUrl,
+    beneficiaryIdStatus = beneficiaryIdStatus,
+    deathCertificateUrl = deathCertificateUrl,
+    deathCertificateStatus = deathCertificateStatus,
+    memberIdUrl = memberIdUrl,
+    memberIdStatus = memberIdStatus,
+    causeOfDeath = causeOfDeath,
+    dateOfDeath = dateOfDeath,
+    claimAmount = claimAmount,
+    bankName = bankName,
+    accountNo = accountNo,
+    branchCode = branchCode,
+    accountHolder = accountHolder,
+    notes = notes,
+    status = status,
+    reviewedBy = reviewedBy,
+    reviewedAt = reviewedAt,
+    adminNotes = adminNotes,
+    rejectionReason = rejectionReason,
+    createdAt = createdAt
+)
+
+fun BeneficiaryPayoutClaim.toEntity() = BeneficiaryClaimEntity(
+    id = id ?: java.util.UUID.randomUUID().toString(),
+    groupId = groupId,
+    memberId = memberId,
+    beneficiaryId = beneficiaryId,
+    beneficiaryName = beneficiaryName,
+    facePhotoUrl = facePhotoUrl,
+    facePhotoStatus = facePhotoStatus,
+    beneficiaryIdUrl = beneficiaryIdUrl,
+    beneficiaryIdStatus = beneficiaryIdStatus,
+    deathCertificateUrl = deathCertificateUrl,
+    deathCertificateStatus = deathCertificateStatus,
+    memberIdUrl = memberIdUrl,
+    memberIdStatus = memberIdStatus,
+    causeOfDeath = causeOfDeath,
+    dateOfDeath = dateOfDeath,
+    claimAmount = claimAmount,
+    bankName = bankName,
+    accountNo = accountNo,
+    branchCode = branchCode,
+    accountHolder = accountHolder,
+    notes = notes,
+    status = status,
+    reviewedBy = reviewedBy,
+    reviewedAt = reviewedAt,
+    adminNotes = adminNotes,
+    rejectionReason = rejectionReason,
+    createdAt = createdAt
+)

@@ -35,7 +35,9 @@ internal fun resolveAdminMemberPortalAccess(
 
     // 🛡️ Self-Impersonation Guard: If the admin selects themselves while in support mode,
     // we treat it as a standard portal switch (memberId = null) to avoid restricted support UI.
-    val isSelfSelection = supportActive && selectedMember != null && selectedMember.userId == currentUserId
+    val isSelfSelection = supportActive &&
+                          currentUserId != null &&
+                          selectedMember?.userId == currentUserId
 
     if (!supportActive || isSelfSelection) {
         return AdminMemberPortalAccess(

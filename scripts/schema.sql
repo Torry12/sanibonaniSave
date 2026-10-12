@@ -1,9 +1,8 @@
 -- ─────────────────────────────────────────────────────────────
--- SanibonaniSave — Canonical schema pointer
--- Source of truth: supabase/rebuild_kit_v4/ (run scripts in README order)
--- App column projections: data/.../PostgrestColumns.kt
--- Brownfield member columns: supabase/migrations/20260529120000_align_members_app_columns.sql
+-- SanibonaniSave — Canonical Schema (tables, indexes, functions, triggers)
+-- Source of truth: supabase/rebuild_kit_v4/01_TABLES_AND_INDEXES.sql + 02_FUNCTIONS_AND_TRIGGERS.sql
+-- DO NOT EDIT DIRECTLY. Regenerate from rebuild_kit_v4.
 -- ─────────────────────────────────────────────────────────────
---
--- Do NOT use legacy CONSOLIDATED_MINIMAL / SCHEMA_FULL_RESET for new environments.
--- Regenerate inlined bundles with: scripts/regenerate_sql_from_rebuild_kit_v4.ps1
+
+-- [INCLUDED FROM] C:\Users\CRISS\AndroidStudioProjects\SanibonaniSave_Full\scripts\supabase\rebuild_kit_v4\01_TABLES_AND_INDEXES.sql
+

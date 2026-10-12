@@ -1,6 +1,7 @@
 package com.sanibonani.save.data.remote.supabase
 
 import com.sanibonani.save.data.datasource.RemoteContributionDataSource
+import com.sanibonani.save.domain.logging.AppLogger
 import com.sanibonani.save.domain.model.*
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.postgrest.postgrest
@@ -10,10 +11,12 @@ import kotlinx.serialization.json.*
 import javax.inject.Inject
 import javax.inject.Singleton
 
+import com.sanibonani.save.domain.repository.system.DataConnectionProtocol
+
 @Singleton
 class SupabaseContributionDataSourceImpl @Inject constructor(
-    private val client: SupabaseClient
-) : RemoteContributionDataSource {
+    protocol: DataConnectionProtocol
+) : BaseSupabaseDataSource(protocol), RemoteContributionDataSource {
 
     override suspend fun recordContribution(contribution: Contribution): Result<Unit> = runCatching {
         val rpcParams = buildJsonObject {
@@ -59,7 +62,7 @@ class SupabaseContributionDataSourceImpl @Inject constructor(
         memberId: String,
         totalAmount: Money,
         txId: String,
-        allocations: JsonArray,
+        allocations: List<PaymentAllocation>,
         method: PaymentMethod,
         paymentType: PaymentType,
         destination: PaymentDestination
@@ -69,12 +72,29 @@ class SupabaseContributionDataSourceImpl @Inject constructor(
             put("p_member_id", memberId)
             put("p_total_amount", totalAmount.amount.toPlainString())
             put("p_tx_id", txId)
-            put("p_allocations", allocations)
+            put("p_allocations", JsonArray(allocations.map { allocation ->
+                buildJsonObject {
+                    put("type", allocation.type)
+                    put("amount", allocation.amount.amount.toPlainString())
+                    put("due_date", allocation.dueDate)
+                    put("description", allocation.description)
+                    allocation.loanId?.let { put("loan_id", it) }
+                }
+            }))
             put("p_method", method.name.lowercase())
             put("p_payment_type", paymentType.name.lowercase())
             put("p_destination", destination.name.lowercase())
         }
-        val res = client.postgrest.rpc("process_complex_payment_v4", rpcParams).decodeAs<JsonObject>()
-        Money(res["new_balance"]?.jsonPrimitive?.content ?: "0.00")
+        val element = client.postgrest.rpc("process_complex_payment_v4", rpcParams).decodeAs<JsonElement>()
+        val obj = when (element) {
+            is JsonObject -> element
+            is JsonArray -> element.firstOrNull()?.jsonObject ?: buildJsonObject {}
+            else -> buildJsonObject {}
+        }
+
+        val balStr = obj["new_balance"]?.jsonPrimitive?.content
+            ?: obj["balance"]?.jsonPrimitive?.content
+            ?: "0.00"
+        Money(balStr)
     }
 }

@@ -4,7 +4,7 @@ param(
     [switch]$CheckLocalFunction,
     [string]$FunctionName = "architecture-read",
     [string]$FunctionAction = "blueprint",
-    [string]$FunctionsBaseUrl = "http://127.0.0.1:54321/functions/v1",
+    [string]$FunctionsBaseUrl = "http://127.0.0.1:45421/functions/v1",
     [switch]$CiExitOnNotReady,
     [switch]$FailOnYellow,
     [ValidateSet("Default", "Utf8NoBom")]

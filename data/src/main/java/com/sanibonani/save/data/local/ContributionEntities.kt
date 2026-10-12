@@ -1,6 +1,7 @@
 package com.sanibonani.save.data.local
 
 import androidx.room.*
+import androidx.room.Transaction as RoomTransaction
 import com.sanibonani.save.domain.model.*
 import kotlinx.coroutines.flow.Flow
 
@@ -29,7 +30,7 @@ data class ContributionEntity(
     @ColumnInfo(name = "late_fee_amount") val lateFeeAmount: Money = Money.ZERO,
     @ColumnInfo(name = "principal_amount") val principalAmount: Money = Money.ZERO,
     @ColumnInfo(name = "transaction_id") val transactionId: String?,
-    @ColumnInfo(name = "updated_at") val updatedAt: Long = System.currentTimeMillis(),
+    @ColumnInfo(name = "updated_at") val updatedAt: String? = null,
 )
 
 @Dao
@@ -46,6 +47,9 @@ interface ContributionDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertContributions(contributions: List<ContributionEntity>): List<Long>
 
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertContribution(contribution: ContributionEntity): Long
+
     @Query("DELETE FROM contributions WHERE group_id = :groupId")
     suspend fun deleteContributionsByGroupId(groupId: String)
 
@@ -58,22 +62,75 @@ interface ContributionDao {
     @Query("DELETE FROM contributions")
     suspend fun clearAll()
 
-    @androidx.room.Transaction
+    @RoomTransaction
     suspend fun syncGroupContributions(groupId: String, contributions: List<ContributionEntity>) {
-        val current = getGroupContributions(groupId).map { it.id }.toSet()
-        val incoming = contributions.map { it.id }.toSet()
-        (current - incoming).forEach { deleteContribution(it) }
-        upsertContributions(contributions)
+        syncEntities(
+            current = getGroupContributions(groupId).map { it.id }.toSet(),
+            incoming = contributions,
+            delete = { deleteContribution(it) },
+            upsert = { upsertContributions(contributions) }
+        )
     }
 
-    @androidx.room.Transaction
+    @RoomTransaction
     suspend fun syncMemberContributions(memberId: String, contributions: List<ContributionEntity>) {
-        val current = getMemberContributions(memberId).map { it.id }.toSet()
-        val incoming = contributions.map { it.id }.toSet()
-        (current - incoming).forEach { deleteContribution(it) }
-        upsertContributions(contributions)
+        syncEntities(
+            current = getMemberContributions(memberId).map { it.id }.toSet(),
+            incoming = contributions,
+            delete = { deleteContribution(it) },
+            upsert = { upsertContributions(contributions) }
+        )
+    }
+
+    private suspend fun syncEntities(
+        current: Set<String>,
+        incoming: List<ContributionEntity>,
+        delete: suspend (String) -> Unit,
+        upsert: suspend () -> Unit
+    ) {
+        val incomingIds = incoming.map { it.id }.toSet()
+        (current - incomingIds).forEach { delete(it) }
+        if (incoming.isNotEmpty()) upsert()
     }
 
     @Query("DELETE FROM contributions WHERE id = :id")
     suspend fun deleteContribution(id: String)
 }
+
+// ── Mappers ──────────────────────────────────────────────────────────────────
+
+fun ContributionEntity.toModel() = Contribution(
+    id = id,
+    memberId = memberId,
+    groupId = groupId,
+    policyId = policyId,
+    amount = amount,
+    createdAt = createdAt,
+    dueDate = dueDate,
+    paidAt = paidAt,
+    status = status,
+    type = type,
+    paymentMethod = paymentMethod,
+    lateFeesApplied = lateFeesApplied,
+    lateFeeAmount = lateFeeAmount,
+    principalAmount = principalAmount,
+    transactionId = transactionId
+)
+
+fun Contribution.toEntity() = ContributionEntity(
+    id = id ?: java.util.UUID.randomUUID().toString(),
+    memberId = memberId,
+    groupId = groupId,
+    policyId = policyId,
+    amount = amount,
+    createdAt = createdAt,
+    dueDate = dueDate,
+    paidAt = paidAt,
+    status = status,
+    type = type,
+    paymentMethod = paymentMethod,
+    lateFeesApplied = lateFeesApplied,
+    lateFeeAmount = lateFeeAmount,
+    principalAmount = principalAmount,
+    transactionId = transactionId
+)

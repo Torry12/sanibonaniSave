@@ -16,7 +16,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.sanibonani.save.domain.model.*
-import com.sanibonani.save.ui.components.DetailRow
+import com.sanibonani.save.ui.components.*
 import com.sanibonani.save.ui.utils.formatZAR
 import com.sanibonani.save.ui.theme.*
 
@@ -106,15 +106,15 @@ fun ClaimAdminCard(
                 }
             }
 
-            DetailRow("Cause of Death", claim.causeOfDeath)
-            DetailRow("Date of Death", claim.dateOfDeath)
-            DetailRow("Claim Amount", formatZAR(claim.claimAmount))
+            DetailRow(stringResource(R.string.ui_cause_of_death), claim.causeOfDeath)
+            DetailRow(stringResource(R.string.ui_date_of_death), claim.dateOfDeath)
+            DetailRow(stringResource(R.string.ui_claim_amount), formatZAR(claim.claimAmount))
 
             HorizontalDivider(color = Navy.copy(0.1f))
             Text(stringResource(R.string.ui_banking_details), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
             DetailRow("Bank", claim.bankName)
             DetailRow("Account", claim.accountNo)
-            DetailRow("Account Holder", claim.accountHolder)
+            DetailRow(stringResource(R.string.ui_account_holder), claim.accountHolder)
 
             if (claim.status == BeneficiaryClaimStatus.SUBMITTED) {
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {

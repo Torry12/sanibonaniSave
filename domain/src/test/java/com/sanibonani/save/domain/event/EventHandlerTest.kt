@@ -1,9 +1,10 @@
 package com.sanibonani.save.domain.event
 
 import com.sanibonani.save.domain.model.LedgerEntry
+import com.sanibonani.save.domain.model.Money
 import com.sanibonani.save.domain.model.Payment
-import com.sanibonani.save.domain.repository.AuditLogRepository
-import com.sanibonani.save.domain.repository.NotificationRepository
+import com.sanibonani.save.domain.repository.admin.AuditLogRepository
+import com.sanibonani.save.domain.repository.system.NotificationRepository
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.mockk
@@ -20,7 +21,7 @@ class EventHandlerTest {
         val payment = Payment(
             memberId = "m1",
             groupId = "g1",
-            amount = 100.0,
+            amount = Money(100.0),
             paymentType = com.sanibonani.save.domain.model.PaymentType.CONTRIBUTION,
             paymentMethod = com.sanibonani.save.domain.model.PaymentMethod.BANK,
             transactionId = "tx1",
@@ -41,8 +42,8 @@ class EventHandlerTest {
             id = "l1",
             groupId = "g1",
             transactionId = "tx1",
-            amount = 50.0,
-            balanceAfter = 150.0,
+            amount = Money(50.0),
+            balanceAfter = Money(150.0),
             description = "Test entry",
             category = "test",
             createdAt = "2026-05-22T12:00:00Z"

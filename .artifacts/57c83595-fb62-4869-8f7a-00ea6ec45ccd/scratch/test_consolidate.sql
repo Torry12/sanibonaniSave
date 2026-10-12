@@ -2,10 +2,12 @@ DO $$
 DECLARE
     v_gid UUID;
     v_mid UUID;
+    v_admin_id UUID;
     v_count INT;
 BEGIN
     -- Setup
-    INSERT INTO public.groups (name, admin_user_id) VALUES ('TEST-CONSOLIDATE', gen_random_uuid()) RETURNING id INTO v_gid;
+    SELECT id INTO v_admin_id FROM auth.users LIMIT 1;
+    INSERT INTO public.groups (name, admin_user_id) VALUES ('TEST-CONSOLIDATE', v_admin_id) RETURNING id INTO v_gid;
     INSERT INTO public.members (group_id, full_name) VALUES (v_gid, 'Tester') RETURNING id INTO v_mid;
 
     -- Insert a platform fee contribution

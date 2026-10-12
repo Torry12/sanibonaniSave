@@ -1,13 +1,11 @@
 package com.sanibonani.save.features.admin.presentation
 
-import androidx.lifecycle.viewModelScope
 import com.sanibonani.save.domain.model.GroupHealthScore
-import com.sanibonani.save.domain.usecase.dynamics.CalculateGroupHealthScoreUseCase
-import com.sanibonani.save.viewmodel.BaseViewModel
+import com.sanibonani.save.domain.usecase.actuarial.CalculateGroupHealthScoreUseCase
+import com.sanibonani.save.features.common.presentation.BaseViewModel
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 data class HealthScoreUiState(
@@ -26,7 +24,7 @@ class HealthScoreViewModel @Inject constructor(
 
     fun loadHealthScore(groupId: String) {
         mutationJob?.cancel()
-        mutationJob = viewModelScope.launch {
+        mutationJob = launchJob("load_health_score") {
             updateState { it.copy(isLoading = true, error = null) }
             calculateGroupHealthScoreUseCase(groupId)
                 .onSuccess { score ->

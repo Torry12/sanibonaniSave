@@ -11,6 +11,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -22,17 +23,24 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.appcompat.app.AppCompatDelegate
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.sanibonani.save.ui.utils.formatDate
+import com.sanibonani.save.features.admin.ui.components.maskAccountNumberForDisplay
 import com.sanibonani.save.R
 import com.sanibonani.save.domain.model.*
-import com.sanibonani.save.domain.repository.system.SyncRepository
+import com.sanibonani.save.domain.repository.system.SyncStatus
+import com.sanibonani.save.ui.components.*
 import com.sanibonani.save.ui.components.*
 import com.sanibonani.save.features.member.ui.handleProfilePhotoSelection
+import com.sanibonani.save.features.member.ui.BankingDetailsDialog
 import com.sanibonani.save.ui.theme.*
 import com.sanibonani.save.features.member.presentation.MemberProfileViewModel
+import com.sanibonani.save.ui.components.LogoutButtonStyle
+import com.sanibonani.save.ui.utils.rememberClickDebouncer
+import com.sanibonani.save.ui.utils.formatZAR
 
 @Composable
 fun MemberProfileTab(
@@ -47,6 +55,8 @@ fun MemberProfileTab(
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) {
         handleProfilePhotoSelection(context, vm, it)
     }
+
+    var showBankEdit by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
@@ -76,7 +86,8 @@ fun MemberProfileTab(
                             .crossfade(true)
                             .build(),
                         contentDescription = "Photo",
-                        contentScale = ContentScale.Crop
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize()
                     )
                 } else {
                     Box(contentAlignment = Alignment.Center) {
@@ -103,165 +114,89 @@ fun MemberProfileTab(
         }
 
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(member?.fullName ?: "N/A", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.onSurface)
-            Text(member?.email ?: "N/A", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
+            Text(member?.fullName ?: "Loading...", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+            Text(member?.email ?: "", style = MaterialTheme.typography.bodyMedium, color = MidGray)
         }
 
-        GlassCard(color = MaterialTheme.colorScheme.surface) {
-            SanibonaniSectionHeader(stringResource(R.string.ui_account_details))
-            DetailRow("ID Number", member?.idNumber?.takeIf { it.isNotBlank() } ?: "Not captured")
-            DetailRow("Phone", member?.phone ?: "Not captured")
-            DetailRow("Email", member?.email ?: "Not captured")
+        GlassCard(accentColor = MaterialTheme.colorScheme.primary) {
+            SanibonaniSectionHeader(stringResource(R.string.ui_account_details), modifier = Modifier.padding(top = 0.dp))
+            DetailRow("Group", group?.name ?: "N/A")
             DetailRow("Joined", formatDate(member?.joinedAt))
-            val probationEnd = member?.probationEndAt
-            if (member?.status == MemberStatus.PROBATION && !probationEnd.isNullOrBlank()) {
-                DetailRow("Probation Ends", formatDate(probationEnd))
+            DetailRow("Status", member?.status?.displayName ?: "N/A", isBold = true, color = if (member?.status == MemberStatus.SUSPENDED) ErrorRed else MaterialTheme.colorScheme.primary)
+            DetailRow("Total Paid", formatZAR(member?.totalPaid ?: Money.ZERO), isBold = true)
+        }
+
+        GlassCard(accentColor = MaterialTheme.colorScheme.primary) {
+            Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
+                SanibonaniSectionHeader("Banking", modifier = Modifier.padding(top = 0.dp))
+                TextButton(
+                    onClick = { showBankEdit = true },
+                    contentPadding = PaddingValues(horizontal = 12.dp)
+                ) {
+                    Text("Edit", fontWeight = FontWeight.Bold)
+                }
             }
+            DetailRow("Bank", member?.bankName ?: "Not set")
+            DetailRow("Account", member?.accountNo?.let { maskAccountNumberForDisplay(it) } ?: "Not set")
+            DetailRow("Branch", member?.branchCode ?: "Not set")
+        }
+
+        GlassCard(accentColor = MaterialTheme.colorScheme.primary) {
+            SanibonaniSectionHeader(stringResource(R.string.ui_language), modifier = Modifier.padding(top = 0.dp))
+            Column(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                Text(stringResource(R.string.ui_select_language), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f))
+                Spacer(Modifier.height(12.dp))
+                LanguageSelector()
+            }
+        }
+
+        GlassCard(accentColor = MaterialTheme.colorScheme.primary) {
+            SanibonaniSectionHeader(stringResource(R.string.ui_security_access), modifier = Modifier.padding(top = 0.dp))
             Row(
-                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Text("Group", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    GroupIcon(logoEmoji = group?.logoEmoji, size = 24.dp)
-                    Spacer(Modifier.width(8.dp))
-                    Text(group?.name ?: "N/A", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold)
-                }
-            }
-            DetailRow("Group Type", group?.type?.displayName ?: "N/A")
-            DetailRow("Member Status", member?.status?.displayName ?: "N/A")
-            DetailRow("Notification Pref", member?.notificationPref?.displayName ?: "Both")
-            member?.roscaPosition?.let {
-                DetailRow("ROSCA Position", it.toString())
-            }
-
-            HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp), color = LightGray.copy(0.3f))
-
-            val addressParts = listOfNotNull(
-                member?.street?.takeIf { it.isNotBlank() },
-                member?.suburb?.takeIf { it.isNotBlank() },
-                member?.city?.takeIf { it.isNotBlank() },
-                member?.province?.takeIf { it.isNotBlank() }
-            )
-            DetailRow("Address", if (addressParts.isEmpty()) "Not captured" else addressParts.joinToString(", "))
-        }
-
-        var showBankingDialog by remember { mutableStateOf(false) }
-
-        val surfaceColor = MaterialTheme.colorScheme.surface
-        val onSurfaceColor = MaterialTheme.colorScheme.onSurface
-        val bankColor = remember(member?.bankName, surfaceColor) {
-            when (member?.bankName?.lowercase()) {
-                "fnb" -> Color(0xFF005EB8)
-                "capitec" -> Color(0xFFC8102E)
-                "standard bank" -> Color(0xFF0033A0)
-                "absa" -> Color(0xFFDA291C)
-                "nedbank" -> Color(0xFF006D4E)
-                else -> surfaceColor
-            }
-        }
-        val onBankColor = if (bankColor == surfaceColor) onSurfaceColor else Color.White
-
-        GlassCard(color = bankColor) {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Text("Banking Details", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = onBankColor)
-                IconButton(onClick = { showBankingDialog = true }) {
-                    Icon(Icons.Default.Edit, contentDescription = "Edit Banking Details", tint = onBankColor, modifier = Modifier.size(20.dp))
-                }
-            }
-            DetailRow("Bank", member?.bankName?.takeIf { it.isNotBlank() } ?: "Not captured", color = onBankColor)
-            DetailRow("Account No", member?.accountNo?.takeIf { it.isNotBlank() } ?: "Not captured", color = onBankColor)
-            DetailRow("Branch", member?.branchCode?.takeIf { it.isNotBlank() } ?: "Not captured", color = onBankColor)
-        }
-
-        if (showBankingDialog) {
-            com.sanibonani.save.features.member.ui.BankingDetailsDialog(
-                initialBank = member?.bankName ?: "",
-                initialAccount = member?.accountNo ?: "",
-                initialBranch = member?.branchCode ?: "",
-                onDismiss = { showBankingDialog = false },
-                onConfirm = { b, a, br ->
-                    vm.updateBankingDetails(b, a, br)
-                    showBankingDialog = false
-                }
-            )
-        }
-
-        GlassCard(color = MaterialTheme.colorScheme.surface) {
-            SanibonaniSectionHeader(stringResource(R.string.ui_security_access))
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(stringResource(R.string.ui_biometric_signin), style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.onSurface)
-                    Text(stringResource(R.string.ui_secure_access_with_fingerprint_or_face), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
+                    Text(stringResource(R.string.ui_biometric_signin), style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                    Text(stringResource(R.string.ui_secure_access_with_fingerprint_or_face), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f))
                 }
                 Switch(
                     checked = state.biometricEnabled,
                     onCheckedChange = { vm.toggleBiometric(it) },
                     colors = SwitchDefaults.colors(
-                        checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
-                        checkedTrackColor = MaterialTheme.colorScheme.onSurface,
-                        uncheckedThumbColor = MaterialTheme.colorScheme.onPrimary,
-                        uncheckedTrackColor = LightGray
+                        checkedThumbColor = MaterialTheme.colorScheme.primary,
+                        checkedTrackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)
                     )
                 )
             }
         }
 
-        GlassCard(color = MaterialTheme.colorScheme.surface) {
-            SanibonaniSectionHeader("Data Management")
-            Column(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("Sync All Data", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.onSurface)
-                        Text("Refresh all group and member data from server.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
-                    }
-                    val isSyncing = state.syncStatus is SyncRepository.SyncStatus.SYNCING
-                    Button(
-                        onClick = { vm.syncAllData() },
-                        enabled = !isSyncing,
-                        shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = Navy)
-                    ) {
-                        if (isSyncing) {
-                            CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = Color.White)
-                        } else {
-                            Text("Sync Now", style = MaterialTheme.typography.labelMedium)
-                        }
-                    }
-                }
-
-                if (state.syncStatus != SyncRepository.SyncStatus.IDLE) {
-                    Spacer(Modifier.height(12.dp))
-                    val statusText = when (val s = state.syncStatus) {
-                        is SyncRepository.SyncStatus.SYNCING -> s.message
-                        is SyncRepository.SyncStatus.ERROR -> "Sync failed: ${s.message}"
-                        is SyncRepository.SyncStatus.SUCCESS -> "Sync complete"
+        val syncStatus = state.syncStatus
+        if (syncStatus != SyncStatus.Idle) {
+            GlassCard(accentColor = Forest) {
+                Column(Modifier.padding(vertical = 8.dp)) {
+                    val statusText = when (syncStatus) {
+                        is SyncStatus.Progress -> syncStatus.message
+                        is SyncStatus.Error -> "Sync failed: ${syncStatus.message}"
+                        is SyncStatus.Completed -> "Sync complete"
                         else -> ""
                     }
                     Text(
                         text = statusText,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = when (state.syncStatus) {
-                            is SyncRepository.SyncStatus.ERROR -> ErrorRed
-                            is SyncRepository.SyncStatus.SUCCESS -> SuccessGreen
+                        style = MaterialTheme.typography.labelMedium,
+                        color = when (syncStatus) {
+                            is SyncStatus.Error -> ErrorRed
+                            is SyncStatus.Completed -> SuccessGreen
                             else -> Navy.copy(alpha = 0.7f)
                         },
                         fontWeight = FontWeight.Bold
                     )
-                    if (state.syncStatus is SyncRepository.SyncStatus.SYNCING) {
-                        val progress = (state.syncStatus as? SyncRepository.SyncStatus.SYNCING)?.progress ?: 0f
+                    if (syncStatus is SyncStatus.Progress) {
+                        Spacer(Modifier.height(8.dp))
                         LinearProgressIndicator(
-                            progress = { progress },
-                            modifier = Modifier.fillMaxWidth().padding(top = 8.dp).height(4.dp).clip(CircleShape),
+                            progress = { syncStatus.progress },
+                            modifier = Modifier.fillMaxWidth().height(4.dp).clip(CircleShape),
                             color = Navy,
                             trackColor = LightGray.copy(alpha = 0.3f)
                         )
@@ -270,12 +205,41 @@ fun MemberProfileTab(
             }
         }
 
+        var showUserManual by remember { mutableStateOf(false) }
+
+        OutlinedButton(
+            onClick = { showUserManual = true },
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(12.dp),
+            colors = ButtonDefaults.outlinedButtonColors(contentColor = Navy),
+            border = BorderStroke(1.dp, Navy.copy(alpha = 0.3f))
+        ) {
+            Icon(Icons.Default.Info, null, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text("User Manual & Help")
+        }
+
+        if (showUserManual) {
+            UserManualDialog(onDismiss = { showUserManual = false })
+        }
+
         LogoutButton(
             onLogout = onLogout,
-            style = if (state.isImpersonating) LogoutButtonStyle.Filled else LogoutButtonStyle.Outlined,
-            label = if (state.isImpersonating) "Exit Support" else "Log Out"
+            style = if (state.isImpersonating) LogoutButtonStyle.Filled else LogoutButtonStyle.Outlined
         )
 
-        Spacer(Modifier.height(40.dp))
+        if (showBankEdit) {
+            BankingDetailsDialog(
+                initialBank = member?.bankName ?: "",
+                initialAccount = member?.accountNo ?: "",
+                initialBranch = member?.branchCode ?: "",
+                onDismiss = { showBankEdit = false },
+                onConfirm = { b: String, a: String, br: String ->
+                    vm.updateBankingDetails(b, a, br)
+                    showBankEdit = false
+                }
+            )
+        }
     }
 }
+

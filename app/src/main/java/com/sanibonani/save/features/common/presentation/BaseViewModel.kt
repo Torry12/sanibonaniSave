@@ -2,15 +2,14 @@ package com.sanibonani.save.features.common.presentation
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.sanibonani.save.data.errors.ErrorMessageMapper
 import com.sanibonani.save.domain.logging.AppLogger
 import com.sanibonani.save.domain.event.EventBus
 import com.sanibonani.save.domain.event.PillarRefreshRequestedEvent
 import com.sanibonani.save.domain.model.AsyncResult
 import com.sanibonani.save.domain.model.DomainPillar
-import com.sanibonani.save.domain.model.UserRole
-import com.sanibonani.save.domain.repository.system.SupabaseRepository
-import com.sanibonani.save.viewmodel.LoadingManager
+import com.sanibonani.save.domain.repository.system.SyncRepository
+import com.sanibonani.save.domain.utils.toUserMessage
+import com.sanibonani.save.domain.service.NetworkConnectivityService
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -41,6 +40,28 @@ abstract class BaseViewModel<S>(protected val initialState: S) : ViewModel() {
     }
 
     /**
+     * Executes a job with error handling and cancels any previous job with the same key.
+     */
+    protected fun launchSafeJob(
+        key: String,
+        errorPrefix: String? = null,
+        dispatcher: kotlinx.coroutines.CoroutineDispatcher = kotlinx.coroutines.Dispatchers.Main,
+        block: suspend kotlinx.coroutines.CoroutineScope.() -> Unit
+    ): Job {
+        cancelJob(key)
+        val job = viewModelScope.launch(dispatcher) {
+            try {
+                block()
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                handleError(e, errorPrefix?.let { "$it: ${e.message}" })
+            }
+        }
+        jobRegistry[key] = job
+        return job
+    }
+
+    /**
      * Cancels the job associated with the given key.
      */
     protected fun cancelJob(key: String) {
@@ -52,6 +73,26 @@ abstract class BaseViewModel<S>(protected val initialState: S) : ViewModel() {
         super.onCleared()
         jobRegistry.values.forEach { it.cancel() }
         jobRegistry.clear()
+    }
+
+    /**
+     * Standard Network Observation
+     * Call this in init to keep isSystemOnline and isAirplaneMode updated in state.
+     * State S must have these fields.
+     */
+    protected fun observeNetwork(
+        networkService: NetworkConnectivityService,
+        update: (S, Boolean, Boolean) -> S
+    ): Job {
+        return launchJob("base_network_observation") {
+            combine(
+                networkService.isOnline,
+                networkService.isAirplaneModeActive
+            ) { online, airplane -> online to airplane }
+                .collect { (online, airplane) ->
+                    updateState { update(it, online, airplane) }
+                }
+        }
     }
 
     /**
@@ -110,6 +151,15 @@ abstract class BaseViewModel<S>(protected val initialState: S) : ViewModel() {
     }
 
     /**
+     * Resets the UI state to its initial value and cancels all active jobs.
+     */
+    protected fun resetState() {
+        jobRegistry.values.forEach { it.cancel() }
+        jobRegistry.clear()
+        _uiState.value = initialState
+    }
+
+    /**
      * Sends a one-time event to the UI.
      */
     protected fun sendEvent(event: UIEvent) {
@@ -126,7 +176,7 @@ abstract class BaseViewModel<S>(protected val initialState: S) : ViewModel() {
         if (throwable is kotlinx.coroutines.CancellationException) return
 
         val tag = this::class.simpleName ?: "BaseViewModel"
-        val message = userMessage ?: ErrorMessageMapper.mapThrowableToUserMessage(throwable)
+        val message = userMessage ?: throwable.toUserMessage()
         AppLogger.e(tag, "UI Error: $message", throwable)
         sendEvent(UIEvent.ShowError(message))
     }
@@ -148,7 +198,7 @@ abstract class BaseViewModel<S>(protected val initialState: S) : ViewModel() {
     /**
      * Standardized Outbox Status Observation
      */
-    protected fun observeOutboxStatus(syncRepo: com.sanibonani.save.domain.repository.system.SyncRepository): Flow<Int> {
+    protected fun observeOutboxStatus(syncRepo: SyncRepository): Flow<Int> {
         return syncRepo.outboxCount
     }
 
@@ -164,8 +214,8 @@ abstract class BaseViewModel<S>(protected val initialState: S) : ViewModel() {
             onSuccess = { data -> updateState { state -> update(state, AsyncResult.Success(data)) } },
             onFailure = { error ->
                 if (error is kotlinx.coroutines.CancellationException) throw error
-                val msg = ErrorMessageMapper.mapThrowableToUserMessage(error)
-                updateState { state -> update(state, AsyncResult.Error(msg, error)) }
+                val msg = error.toUserMessage()
+                updateState { state -> update(state, AsyncResult.Error(msg, error.javaClass.simpleName)) }
             }
         )
     }

@@ -1,6 +1,6 @@
 package com.sanibonani.save.domain.event
 
-import com.sanibonani.save.data.logging.AppLogger
+import com.sanibonani.save.domain.logging.AppLogger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -10,7 +10,7 @@ import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 
-interface EventHandler<in T : DomainEvent> {
+interface EventHandler<T : DomainEvent> {
     suspend fun handle(event: T)
 }
 

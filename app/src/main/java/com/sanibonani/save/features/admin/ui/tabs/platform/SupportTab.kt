@@ -11,23 +11,24 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.sanibonani.save.R
-import com.sanibonani.save.features.admin.presentation.PlatformAdminViewModel
-import com.sanibonani.save.features.admin.presentation.state.PlatformAdminUiState
+import com.sanibonani.save.features.admin.presentation.PlatformSupportViewModel
+import com.sanibonani.save.features.admin.presentation.state.PlatformAnalyticsUiState
+import com.sanibonani.save.features.admin.presentation.state.PlatformSupportUiState
 import com.sanibonani.save.features.admin.ui.components.GroupSelectionDialog
 import com.sanibonani.save.features.admin.ui.components.MemberImpersonationDialog
-import com.sanibonani.save.ui.components.GlassCard
-import com.sanibonani.save.ui.components.SanibonaniButton
+import com.sanibonani.save.ui.components.*
+import com.sanibonani.save.ui.components.*
 import com.sanibonani.save.ui.theme.Navy
 
 @Composable
 fun SupportTab(
-    state: PlatformAdminUiState,
-    vm: PlatformAdminViewModel,
+    analyticsState: PlatformAnalyticsUiState,
+    supportState: PlatformSupportUiState,
+    vm: PlatformSupportViewModel,
     onImpersonateGroupAdmin: (groupId: String) -> Unit,
     onImpersonateMember: (memberId: String, groupId: String) -> Unit
 ) {
@@ -52,7 +53,7 @@ fun SupportTab(
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
 
-        GlassCard(color = MaterialTheme.colorScheme.surface) {
+        GlassCard(accentColor = MaterialTheme.colorScheme.primary) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Default.SupportAgent, null, tint = Navy, modifier = Modifier.size(32.dp))
                 Spacer(Modifier.width(16.dp))
@@ -71,7 +72,7 @@ fun SupportTab(
 
             if (showGroupSelect) {
                 GroupSelectionDialog(
-                    groups = state.groups,
+                    groups = analyticsState.groups,
                     onDismiss = { showGroupSelect = false }
                 ) { groupId ->
                     showGroupSelect = false
@@ -91,7 +92,8 @@ fun SupportTab(
 
             if (showMemberSelect) {
                 MemberImpersonationDialog(
-                    state = state,
+                    groups = analyticsState.groups,
+                    state = supportState,
                     vm = vm,
                     onDismiss = { showMemberSelect = false }
                 ) { memberId, groupId ->
