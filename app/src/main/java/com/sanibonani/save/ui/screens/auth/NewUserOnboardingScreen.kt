@@ -21,6 +21,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.sanibonani.save.service.UserProfileCacheService
 import com.sanibonani.save.ui.theme.*
+import com.sanibonani.save.ui.utils.rememberClickDebouncer
 
 /**
  * Shown immediately after a new user registers an account.
@@ -36,6 +37,7 @@ fun NewUserOnboardingScreen(
     onRegisterGroup: () -> Unit,
     onBrowseGroups: () -> Unit
 ) {
+    val clickDebouncer = rememberClickDebouncer()
     val firstName = remember {
         profileCache.getFullName().trim().substringBefore(" ").ifBlank { "there" }
     }
@@ -89,7 +91,7 @@ fun NewUserOnboardingScreen(
                 actionLabel    = "Register Group",
                 actionColor    = Gold,
                 actionTextColor = Forest,
-                onClick        = onRegisterGroup
+                onClick        = { clickDebouncer.processClick(onRegisterGroup) }
             )
 
             Spacer(Modifier.height(20.dp))
@@ -125,7 +127,7 @@ fun NewUserOnboardingScreen(
                 actionLabel     = "Browse Groups",
                 actionColor     = Color.White,
                 actionTextColor = Forest,
-                onClick         = onBrowseGroups
+                onClick         = { clickDebouncer.processClick(onBrowseGroups) }
             )
 
             Spacer(Modifier.height(48.dp))

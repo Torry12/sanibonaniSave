@@ -63,7 +63,9 @@ class UpdateGroupSettingsUseCase @Inject constructor(
             "period_months" to (settings.periodMonths.toIntOrNull() ?: 12),
             "loan_interest_rate" to loanInterestRate,
             "loan_max_amount" to (settings.loanMaxAmount.toDoubleOrNull() ?: 0.0),
-            "loan_max_months" to (settings.loanMaxMonths.toIntOrNull() ?: 0)
+            "loan_max_months" to (settings.loanMaxMonths.toIntOrNull() ?: 0),
+            // ROSCA — stored as lowercase snake_case to satisfy DB CHECK constraint
+            "rosca_rotation_method" to settings.rotationMethod.name.lowercase()
         )
 
         return groupRepo.updateGroupSettings(groupId, updates)

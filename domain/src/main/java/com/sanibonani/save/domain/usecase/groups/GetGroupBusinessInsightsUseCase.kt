@@ -84,7 +84,7 @@ class GetGroupBusinessInsightsUseCase @Inject constructor(
             GroupType.COMMUNITY_SAVINGS,
             GroupType.TONTINE,
             GroupType.OTHER ->
-                runCatching { actuarialRepository.computeGroupInsight(group, members) }
+                actuarialRepository.computeGroupInsight(group, members)
                     .map { GroupBusinessInsight.FullInsight(it) }
         }
     }

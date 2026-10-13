@@ -81,10 +81,6 @@ object BiometricHelper {
                     onSuccess(result)
                 }
 
-                override fun onAuthenticationFailed() {
-                    super.onAuthenticationFailed()
-                    // Handled by system UI
-                }
             })
 
         val promptInfo = BiometricPrompt.PromptInfo.Builder()

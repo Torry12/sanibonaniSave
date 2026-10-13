@@ -1,15 +1,31 @@
 package com.sanibonani.save.data.repository
 
-import com.sanibonani.save.domain.repository.*
-import com.sanibonani.save.domain.model.PlatformAnalytics
 import com.sanibonani.save.data.local.SanibonaniDatabase
 import com.sanibonani.save.data.logging.AppLogger
+import com.sanibonani.save.data.remote.PostgrestColumns
 import com.sanibonani.save.data.utils.logAndGetMessage
-import com.sanibonani.save.domain.model.*
+import com.sanibonani.save.domain.model.ActuarialMetrics
+import com.sanibonani.save.domain.model.AdminFeeState
+import com.sanibonani.save.domain.model.AppNotification
+import com.sanibonani.save.domain.model.AuditLog
+import com.sanibonani.save.domain.model.Group
+import com.sanibonani.save.domain.model.LedgerEntry
+import com.sanibonani.save.domain.model.Member
+import com.sanibonani.save.domain.model.MemberBehaviorInsight
+import com.sanibonani.save.domain.model.MemberStatus
+import com.sanibonani.save.domain.model.NotifChannel
+import com.sanibonani.save.domain.model.NotifEvent
+import com.sanibonani.save.domain.model.Payment
+import com.sanibonani.save.domain.model.PlatformAnalytics
+import com.sanibonani.save.domain.model.PlatformSummaryStats
+import com.sanibonani.save.domain.repository.ActuarialRepository
+import com.sanibonani.save.domain.repository.NotificationRepository
+import com.sanibonani.save.domain.repository.PlatformRepository
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.postgrest.query.Columns
+import io.github.jan.supabase.postgrest.query.Order
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.buildJsonObject
@@ -23,21 +39,17 @@ class PlatformRepositoryImpl @Inject constructor(
     private val notifRepo: NotificationRepository
 ) : BaseRepository("PlatformRepository"), PlatformRepository {
 
-    private val GROUP_COLUMNS_SAFE = "id,name,type,province,city,township,description,logo_emoji,joining_fee,monthly_contribution,late_fee,late_fee_grace_days,probation_months,payment_due_day,max_members,current_members,is_public,allow_partial_payment,auto_suspend_after,bank_name,account_number,branch_code,account_type,gateway_public_key,balance,admin_user_id,fee_status,registration_paid,latitude,longitude,geohash,created_at,is_platform_suspended"
-
     override suspend fun getPlatformAnalytics(): Result<PlatformAnalytics> = retryWithExponentialBackoff {
         runCatching {
-            // NOTE:
-            // - In production you likely want a single RPC for analytics.
-            // - For anon users, some tables may be intentionally hidden by RLS.
-            // - If table GRANTS are missing, PostgREST throws "permission denied".
+            // Fetch high-level summary from performance view (avoids member OOM)
+            val summary: PlatformSummaryStats? = runCatching {
+                supabase.postgrest["platform_summary_stats"].select().decodeSingle<PlatformSummaryStats>()
+            }.getOrNull()
 
             val groups: List<Group> = runCatching {
-                // Prefer full dataset (platform admin / authenticated access)
-                supabase.postgrest["groups"].select(columns = Columns.raw(GROUP_COLUMNS_SAFE)).decodeList<Group>()
+                supabase.postgrest["groups"].select(columns = Columns.raw(PostgrestColumns.GROUPS_SAFE)).decodeList<Group>()
             }.recoverCatching {
-                // Fallback for anon: only discoverable groups (if policy allows)
-                supabase.postgrest["groups"].select(columns = Columns.raw(GROUP_COLUMNS_SAFE)) {
+                supabase.postgrest["groups"].select(columns = Columns.raw(PostgrestColumns.GROUPS_SAFE)) {
                     filter {
                         eq("is_public", true)
                         eq("registration_paid", true)
@@ -49,71 +61,32 @@ class PlatformRepositoryImpl @Inject constructor(
                 throw IllegalStateException(userMsg)
             }
 
-            val members: List<Member> = if (supabase.auth.currentSessionOrNull() != null) {
-                runCatching {
-                    supabase.postgrest["members"].select().decodeList<Member>()
-                }.getOrElse { e ->
-                    // Members are often private; don't fail analytics for non-admins.
-                    val userMsg = e.logAndGetMessage("PlatformRepo")
-                    AppLogger.w(tag = "PlatformRepo", message = "Members not accessible: $userMsg")
-                    emptyList()
-                }
-            } else {
-                emptyList()
-            }
-
-            val totalGroups = groups.size
-            // RLS can expose only a subset of member rows for non-platform users.
-            // Use group-level counters as canonical platform totals and only use member rows as a lower-bound signal.
-            val membersFromGroups = groups.sumOf { it.currentMembers }
-            val membersFromRows = members
-                .filter { it.status != MemberStatus.PENDING_PAYMENT }
-                .size
-            val totalMembers = maxOf(membersFromGroups, membersFromRows)
-            val totalProvinces = groups
+            val totalGroups = summary?.totalGroups ?: groups.size
+            val totalMembers = summary?.totalMembers ?: groups.sumOf { it.currentMembers }
+            val totalProvinces = summary?.totalProvinces ?: groups
                 .mapNotNull { it.province?.trim()?.takeIf(String::isNotEmpty) }
                 .distinct()
                 .size
-            val totalBalance = groups.sumOf { it.balance }
+            val totalBalance = summary?.totalBalance ?: groups.sumOf { it.balance }
+            val totalPlatformFees = summary?.platformRevenue ?: 0.0
+            val averageRiskScore = summary?.averageRiskScore ?: 0.0
 
-            val totalPlatformFees = runCatching {
-                // Sum platform fees from payments table (may be restricted)
-                supabase.postgrest["payments"].select {
-                    filter { eq("payment_type", "platform_fee") }
-                }.decodeList<Payment>().sumOf { it.amount }
-            }.getOrElse { 0.0 }
-
-            withContext(Dispatchers.Default) {
-                val averageRiskScore = if (members.isNotEmpty()) {
-                    val scores: List<Double> = groups.map { group ->
-                        val groupMembers = members.filter { it.groupId == group.id }
-                        runCatching {
-                            actuarialRepo.calculateMetrics(group, groupMembers).compositeRiskScore.toDouble()
-                        }.getOrElse { 0.5 } // Default medium risk
-                    }
-                    if (scores.isNotEmpty()) scores.average() else 0.0
-                } else {
-                    // Avoid triggering extra network/RLS requirements for anon
-                    0.0
-                }
-
-                PlatformAnalytics(
-                    totalGroups = totalGroups,
-                    totalMembers = totalMembers,
-                    totalProvinces = totalProvinces,
-                    totalBalance = totalBalance,
-                    totalPlatformFees = totalPlatformFees,
-                    averageRiskScore = averageRiskScore,
-                    groupTypeDistribution = groups.groupingBy { it.type.name }.eachCount(),
-                    provinceDistribution = groups.groupingBy { it.province }.eachCount()
-                )
-            }
+            PlatformAnalytics(
+                totalGroups = totalGroups,
+                totalMembers = totalMembers,
+                totalProvinces = totalProvinces,
+                totalBalance = totalBalance,
+                totalPlatformFees = totalPlatformFees,
+                averageRiskScore = averageRiskScore,
+                groupTypeDistribution = groups.groupingBy { it.type.name }.eachCount(),
+                provinceDistribution = groups.groupingBy { it.province }.eachCount()
+            )
         }
     }
 
     override suspend fun getAllGroups(): Result<List<Group>> = retryWithExponentialBackoff {
         runCatching {
-            val groups = supabase.postgrest["groups"].select(columns = Columns.raw(GROUP_COLUMNS_SAFE)).decodeList<Group>()
+            val groups = supabase.postgrest["groups"].select(columns = Columns.raw(PostgrestColumns.GROUPS_SAFE)).decodeList<Group>()
             db.groupDao().upsertGroups(groups.map { it.toEntity() })
             groups
         }
@@ -270,26 +243,26 @@ class PlatformRepositoryImpl @Inject constructor(
     override suspend fun getAuditLogs(limit: Int): Result<List<AuditLog>> = retryWithExponentialBackoff {
         runCatching {
             supabase.postgrest["audit_logs"].select {
-                order("created_at", order = io.github.jan.supabase.postgrest.query.Order.DESCENDING)
+                order("created_at", order = Order.DESCENDING)
                 limit(limit.toLong())
             }.decodeList<AuditLog>()
         }
     }
 
-    override suspend fun getPlatformLedger(): Result<List<com.sanibonani.save.domain.model.LedgerEntry>> = retryWithExponentialBackoff {
+    override suspend fun getPlatformLedger(): Result<List<LedgerEntry>> = retryWithExponentialBackoff {
         runCatching {
             supabase.postgrest["platform_ledger"].select {
-                order("created_at", order = io.github.jan.supabase.postgrest.query.Order.DESCENDING)
-            }.decodeList<com.sanibonani.save.domain.model.LedgerEntry>()
+                order("created_at", order = Order.DESCENDING)
+            }.decodeList<LedgerEntry>()
         }
     }
 
-    override suspend fun getMemberBehaviorInsights(): Result<List<com.sanibonani.save.domain.model.MemberBehaviorInsight>> = retryWithExponentialBackoff {
+    override suspend fun getMemberBehaviorInsights(): Result<List<MemberBehaviorInsight>> = retryWithExponentialBackoff {
         runCatching {
             supabase.postgrest["platform_member_behavior_insights_v1"].select {
-                order("overdue_loans", order = io.github.jan.supabase.postgrest.query.Order.DESCENDING)
-                order("outstanding_amount", order = io.github.jan.supabase.postgrest.query.Order.DESCENDING)
-            }.decodeList<com.sanibonani.save.domain.model.MemberBehaviorInsight>()
+                order("overdue_loans", order = Order.DESCENDING)
+                order("outstanding_amount", order = Order.DESCENDING)
+            }.decodeList<MemberBehaviorInsight>()
         }
     }
 }

@@ -851,11 +851,17 @@ val MIGRATION_39_40 = object : Migration(39, 40) {
 
 val MIGRATION_40_41 = object : Migration(40, 41) {
     override fun migrate(db: SupportSQLiteDatabase) {
-        // Change default payment_method from 'yoco' to 'bank' for contributions
-        // and rename yoco_transaction_id to transaction_id
+        // Align Room 'contributions' table to ContributionEntity and document type mapping for cross-system compatibility.
+        // Type mapping notes:
+        // - UUID in Postgres is stored as TEXT in Room (String)
+        // - NUMERIC/REAL in Postgres is Double in Room
+        // - TIMESTAMPTZ/DATE in Postgres is ISO8601 String in Room
+        // - BOOLEAN in Postgres is INTEGER (0/1) in Room
+        // - updated_at: TIMESTAMPTZ in Postgres, epoch ms (INTEGER) in Room
+        // - Room does not store receipt_url (add if needed for feature parity)
         db.safeExec("""
             CREATE TABLE IF NOT EXISTS `contributions_new` (
-                `id` TEXT NOT NULL,
+                `id` TEXT NOT NULL PRIMARY KEY,
                 `member_id` TEXT NOT NULL,
                 `group_id` TEXT NOT NULL,
                 `policy_id` TEXT,
@@ -866,10 +872,9 @@ val MIGRATION_40_41 = object : Migration(40, 41) {
                 `status` TEXT NOT NULL,
                 `type` TEXT NOT NULL DEFAULT 'contribution',
                 `payment_method` TEXT NOT NULL DEFAULT 'bank',
-                `late_fees_applied` INTEGER NOT NULL,
+                `late_fees_applied` INTEGER NOT NULL DEFAULT 0,
                 `transaction_id` TEXT,
-                `updated_at` INTEGER NOT NULL,
-                PRIMARY KEY(`id`)
+                `updated_at` INTEGER NOT NULL
             )
         """.trimIndent())
         db.safeExec("""
@@ -878,8 +883,20 @@ val MIGRATION_40_41 = object : Migration(40, 41) {
                 `status`, `type`, `payment_method`, `late_fees_applied`, `transaction_id`, `updated_at`
             )
             SELECT 
-                `id`, `member_id`, `group_id`, `policy_id`, `amount`, `created_at`, `due_date`, `paid_at`,
-                `status`, `type`, `payment_method`, `late_fees_applied`, `yoco_transaction_id`, `updated_at`
+                COALESCE(`id`, ''),
+                COALESCE(`member_id`, ''),
+                COALESCE(`group_id`, ''),
+                `policy_id`,
+                COALESCE(`amount`, 0.0),
+                `created_at`,
+                COALESCE(`due_date`, ''),
+                `paid_at`,
+                COALESCE(`status`, ''),
+                COALESCE(`type`, 'contribution'),
+                COALESCE(`payment_method`, 'bank'),
+                COALESCE(CAST(`late_fees_applied` AS INTEGER), 0),
+                COALESCE(`transaction_id`, `yoco_transaction_id`, NULL),
+                COALESCE(`updated_at`, 0)
             FROM `contributions`
         """.trimIndent())
         db.safeExec("DROP TABLE `contributions`")
@@ -933,4 +950,3 @@ val ALL_MIGRATIONS = arrayOf(
     MIGRATION_39_40,
     MIGRATION_40_41
 )
-

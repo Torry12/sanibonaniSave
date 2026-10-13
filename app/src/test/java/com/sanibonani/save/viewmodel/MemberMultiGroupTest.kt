@@ -8,6 +8,7 @@ import com.sanibonani.save.domain.repository.*
 import com.sanibonani.save.domain.usecase.*
 import com.sanibonani.save.service.MemberGroupContextCacheService
 import com.sanibonani.save.service.UserProfileCacheService
+import io.github.jan.supabase.auth.user.UserSession
 import io.mockk.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -63,7 +64,12 @@ class MemberMultiGroupTest {
         Dispatchers.setMain(testDispatcher)
 
         every { supabaseRepo.currentUserId } returns "user_1"
-        every { supabaseRepo.currentSession } returns null
+        val mockSession = mockk<UserSession>(relaxed = true)
+        val mockUser = mockk<io.github.jan.supabase.auth.user.UserInfo>(relaxed = true)
+        every { mockUser.id } returns "user_1"
+        every { mockSession.user } returns mockUser
+        every { supabaseRepo.sessionFlow } returns MutableStateFlow(mockSession)
+        every { supabaseRepo.currentSession } returns mockSession
         coEvery { supabaseRepo.getUserRole() } returns UserRole.MEMBER
         
         // Mock cache service
@@ -90,6 +96,7 @@ class MemberMultiGroupTest {
             getGroupBusinessInsightsUseCase, geoapifyService, contextCacheService,
             userProfileCacheService
         )
+        viewModel.setActive(true)
     }
 
     @After

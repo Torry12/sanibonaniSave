@@ -2,9 +2,9 @@ package com.sanibonani.save.ui.screens.landing
 
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.automirrored.filled.TrendingUp
 import androidx.compose.material.icons.filled.*
@@ -22,6 +22,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.sanibonani.save.ui.utils.rememberClickDebouncer
 import com.sanibonani.save.domain.model.UserRole
 import com.sanibonani.save.ui.components.*
 import com.sanibonani.save.ui.theme.*
@@ -39,6 +40,7 @@ fun LandingScreen(
     val isLoggedIn = uiState.isLoggedIn
     val userRole = uiState.userRole
     val isQualifyingPlatformAdmin = uiState.isQualifyingPlatformAdmin
+    val clickDebouncer = rememberClickDebouncer()
 
     LaunchedEffect(Unit) {
         viewModel.refreshData()
@@ -117,13 +119,13 @@ fun LandingScreen(
                                 else -> "Member Portal"
                             }
                             val primaryAction = when {
-                                userRole == UserRole.PLATFORM_ADMIN || isQualifyingPlatformAdmin -> onNavigateMemberPortal
+                                userRole == UserRole.PLATFORM_ADMIN || isQualifyingPlatformAdmin -> onNavigateDashboard
                                 userRole == UserRole.GROUP_ADMIN -> onNavigateDashboard
                                 else -> onNavigateMemberPortal
                             }
                             SanibonaniButton(
                                 text = primaryLabel,
-                                onClick = primaryAction,
+                                onClick = { clickDebouncer.processClick(primaryAction) },
                                 containerColor = Gold,
                                 contentColor = Forest,
                                 modifier = Modifier.weight(1f),
@@ -131,7 +133,7 @@ fun LandingScreen(
                             )
                             Spacer(Modifier.width(8.dp))
                             OutlinedButton(
-                                onClick = onNavigateBrowseGroups,
+                                onClick = { clickDebouncer.processClick(onNavigateBrowseGroups) },
                                 modifier = Modifier.weight(1f).height(48.dp),
                                 shape = RoundedCornerShape(12.dp),
                                 border = BorderStroke(2.dp, Color.White),
@@ -149,7 +151,7 @@ fun LandingScreen(
                         } else {
                             SanibonaniButton(
                                 text = "Browse Groups",
-                                onClick = onNavigateBrowseGroups,
+                                onClick = { clickDebouncer.processClick(onNavigateBrowseGroups) },
                                 containerColor = Gold,
                                 contentColor = Forest,
                                 modifier = Modifier.weight(1f),
@@ -157,7 +159,7 @@ fun LandingScreen(
                             )
                             Spacer(Modifier.width(8.dp))
                             OutlinedButton(
-                                onClick = onNavigateRegisterGroup,
+                                onClick = { clickDebouncer.processClick(onNavigateRegisterGroup) },
                                 modifier = Modifier.weight(1f).height(48.dp),
                                 shape = RoundedCornerShape(12.dp),
                                 border = BorderStroke(2.dp, Color.White),
@@ -178,13 +180,13 @@ fun LandingScreen(
 
                     if (isLoggedIn) {
                         Spacer(Modifier.height(16.dp))
-                        TextButton(onClick = onNavigateRegisterGroup) {
+                        TextButton(onClick = { clickDebouncer.processClick(onNavigateRegisterGroup) }) {
                             Text("Register a new group →", color = GoldLight)
                         }
                     } else {
                         Spacer(Modifier.height(16.dp))
-                        TextButton(onClick = { onNavigateLogin(null) }) {
-                            Text("Already have an account? Log In →", color = GoldLight)
+                        TextButton(onClick = { clickDebouncer.processClick { onNavigateLogin(null) } }) {
+                            Text("Already a member? Log in →", color = GoldLight)
                         }
                     }
                 }
@@ -252,7 +254,7 @@ fun LandingScreen(
                     description = "Find and join trusted groups in your neighborhood using our interactive map and geolocated search.",
                     icon = Icons.Default.Map,
                     iconColor = ForestMid,
-                    onClick = onNavigateBrowseGroups
+                    onClick = { clickDebouncer.processClick(onNavigateBrowseGroups) }
                 )
             }
 
@@ -308,7 +310,7 @@ fun LandingScreen(
                 Spacer(Modifier.height(24.dp))
                 SanibonaniButton(
                     text = "Register Your Group Now",
-                    onClick = onNavigateRegisterGroup,
+                    onClick = { clickDebouncer.processClick(onNavigateRegisterGroup) },
                     containerColor = Gold,
                     contentColor = Forest,
                     modifier = Modifier.fillMaxWidth()
@@ -345,45 +347,57 @@ fun FeatureCard(
     iconColor: Color,
     onClick: (() -> Unit)? = null
 ) {
-    Row(
+    Card(
+        onClick = { onClick?.invoke() },
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 12.dp)
-            .clip(RoundedCornerShape(16.dp))
-            .background(Color.White)
-            .border(1.dp, LightGray.copy(alpha = 0.5f), RoundedCornerShape(16.dp))
-            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
-            .padding(20.dp),
-        verticalAlignment = Alignment.Top
+            .padding(vertical = 8.dp),
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        border = BorderStroke(1.dp, iconColor.copy(alpha = 0.08f))
     ) {
-        Box(
-            modifier = Modifier
-                .size(48.dp)
-                .clip(CircleShape)
-                .background(iconColor.copy(alpha = 0.1f)),
-            contentAlignment = Alignment.Center
+        Row(
+            modifier = Modifier.padding(20.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
+            Surface(
+                color = iconColor.copy(alpha = 0.1f),
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier.size(52.dp)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(icon, null, tint = iconColor, modifier = Modifier.size(24.dp))
+                }
+            }
+            
+            Spacer(Modifier.width(20.dp))
+            
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = Charcoal,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = description,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MidGray,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    lineHeight = 16.sp
+                )
+            }
+            
             Icon(
-                imageVector = icon,
+                imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
                 contentDescription = null,
-                tint = iconColor,
-                modifier = Modifier.size(24.dp)
-            )
-        }
-        Spacer(Modifier.width(20.dp))
-        Column {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                color = Charcoal
-            )
-            Spacer(Modifier.height(4.dp))
-            Text(
-                text = description,
-                style = MaterialTheme.typography.bodySmall,
-                color = MidGray,
-                lineHeight = 18.sp
+                tint = MidGray.copy(alpha = 0.3f),
+                modifier = Modifier.size(20.dp)
             )
         }
     }

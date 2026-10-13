@@ -32,7 +32,7 @@ fun getSafeProp(key: String, default: String = ""): String {
 
 android {
     namespace   = "com.sanibonani.save"
-    compileSdk  = 35
+    compileSdk  = 36
 
     sourceSets {
         getByName("androidTest") {
@@ -45,7 +45,7 @@ android {
     defaultConfig {
         applicationId   = "com.sanibonani.save"
         minSdk          = 26          // Android 8.0 — covers ~98% SA active devices
-        targetSdk       = 35
+        targetSdk       = 36
         versionCode     = 1
         versionName     = "1.0.0"
         testInstrumentationRunner = "com.sanibonani.save.HiltTestRunner"
@@ -127,17 +127,12 @@ android {
         targetCompatibility             = JavaVersion.VERSION_17
         isCoreLibraryDesugaringEnabled  = false
     }
+    // Moved to tasks.withType configuration to avoid DSL version issues
+    /*
     kotlinOptions {
         jvmTarget = "17"
-        freeCompilerArgs += listOf(
-            "-opt-in=androidx.compose.material3.ExperimentalMaterial3Api",
-            "-opt-in=androidx.compose.foundation.ExperimentalFoundationApi",
-            "-opt-in=androidx.compose.foundation.layout.ExperimentalLayoutApi",
-            "-opt-in=kotlinx.coroutines.ExperimentalCoroutinesApi",
-            "-opt-in=kotlinx.serialization.ExperimentalSerializationApi",
-            "-opt-in=kotlin.time.ExperimentalTime"
-        )
     }
+    */
     buildFeatures {
         compose     = true
         buildConfig = true
@@ -153,13 +148,25 @@ android {
                 "META-INF/NOTICE",
                 "META-INF/LICENSE.md",
                 "META-INF/NOTICE.md",
-                "META-INF/LICENSE-notice.md"
+                "META-INF/LICENSE-notice.md",
+                "META-INF/versions/9/OSGI-INF/MANIFEST.MF"
             )
         }
     }
 }
 
 tasks.withType<KotlinCompile>().configureEach {
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+        freeCompilerArgs.addAll(
+            "-opt-in=androidx.compose.material3.ExperimentalMaterial3Api",
+            "-opt-in=androidx.compose.foundation.ExperimentalFoundationApi",
+            "-opt-in=androidx.compose.foundation.layout.ExperimentalLayoutApi",
+            "-opt-in=kotlinx.coroutines.ExperimentalCoroutinesApi",
+            "-opt-in=kotlinx.serialization.ExperimentalSerializationApi",
+            "-opt-in=kotlin.time.ExperimentalTime"
+        )
+    }
     if (name == "compileDebugAndroidTestKotlin") {
         exclude(
             "**/e2e/**",
@@ -303,4 +310,6 @@ dependencies {
     androidTestImplementation(libs.hilt.android.testing)
     androidTestImplementation(libs.room.testing)
     kspAndroidTest(libs.hilt.android.compiler)
+
+    debugImplementation("com.squareup.leakcanary:leakcanary-android:2.14")
 }

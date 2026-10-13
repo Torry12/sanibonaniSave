@@ -170,7 +170,7 @@ class SupabaseManager @Inject constructor(
                 payload = buildJsonObject {
                     put("action", "record_login")
                     put("user_id", userId)
-                    put("last_login_at", kotlinx.datetime.Clock.System.now().toString())
+                    put("last_login_at", java.time.Instant.now().toString())
                 }
             ).getOrThrow()
         } catch (e: Exception) {

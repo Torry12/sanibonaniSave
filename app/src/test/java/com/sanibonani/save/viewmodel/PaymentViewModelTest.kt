@@ -47,11 +47,12 @@ class PaymentViewModelTest {
         every { supabaseRepo.currentUserId } returns "user_123"
 
         viewModel = PaymentViewModel(supabaseRepo, groupRepo, memberRepo, processPaymentUseCase)
+        viewModel.setActive(true)
     }
 
     private fun mockPaymentContext(groupId: String = "g1") {
         val member = Member(id = "m1", groupId = groupId, joinedAt = "2026-01-01T00:00:00Z", status = MemberStatus.ACTIVE)
-        val group = Group(id = groupId, monthlyContribution = 200.0, paymentDueDay = 1)
+        val group = Group(id = groupId, monthlyContribution = 200.0, paymentDueDay = 1, allowPartialPayment = true)
 
         coEvery { memberRepo.getMemberByUserId("user_123", groupId) } returns Result.success(member)
         coEvery { groupRepo.getGroupById(groupId) } returns Result.success(group)

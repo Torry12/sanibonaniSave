@@ -5,6 +5,7 @@ import com.sanibonani.save.domain.repository.*
 import kotlinx.datetime.Clock
 import kotlinx.coroutines.flow.first
 import java.time.LocalDateTime
+import java.time.Instant
 import javax.inject.Inject
 
 /**
@@ -27,7 +28,14 @@ class CalculateGroupHealthScoreUseCase @Inject constructor(
         val contributionsResult: Result<List<Contribution>> = memberRepository.getGroupContributions(groupId).first()
         val contributions = contributionsResult.getOrThrow()
         val currentMemberCount = members.size
-        val previousMonthMemberCount = currentMemberCount
+        // Count members who joined before the previous month for retention calculation
+        val oneMonthAgo = java.time.LocalDate.now().minusMonths(1)
+        val previousMonthMemberCount = members.count { member ->
+            runCatching {
+                val joined = member.joinedAt?.substringBefore("T")?.let { java.time.LocalDate.parse(it) }
+                joined != null && !joined.isAfter(oneMonthAgo)
+            }.getOrDefault(false)
+        }.coerceAtLeast(1)
 
         // Calculate raw metrics
         val solvencyRatio = calculateSolvencyRatio(group, contributions)
@@ -59,7 +67,7 @@ class CalculateGroupHealthScoreUseCase @Inject constructor(
         )
 
         // Create timestamp
-        val now = Clock.System.now().toString()
+        val now = Instant.now().toString()
         val sevenDaysFromNow = java.time.OffsetDateTime.now().plusDays(7).toString()
 
         val score = GroupHealthScore(
@@ -87,7 +95,10 @@ class CalculateGroupHealthScoreUseCase @Inject constructor(
 
     private fun calculateSolvencyRatio(group: Group, contributions: List<Contribution>): Double {
         val avgMonthlyContribution = contributions
-            .groupBy { it.dueDate.substringBefore("-") }
+            .filter { it.type == "contribution" }
+            .groupBy { 
+                runCatching { it.dueDate.substringBeforeLast("-").substringBefore("T") }.getOrDefault("unknown")
+            }
             .values
             .mapNotNull { list -> list.sumOf { c -> c.amount }.takeIf { it > 0 } }
             .average()
@@ -97,8 +108,8 @@ class CalculateGroupHealthScoreUseCase @Inject constructor(
     }
 
     private fun calculateLossRatio(contributions: List<Contribution>): Double {
-        val claimTypes = setOf("claim", "payout")
-        val incomingTypes = setOf("contribution", "joining_fee", "late_fee", "registration_contribution")
+        val claimTypes = setOf("claim", "payout", "burial_claim", "loan_disbursement")
+        val incomingTypes = setOf("contribution") // Only savings income for loss ratio base
         val totalClaims = contributions.filter { it.type in claimTypes }.sumOf { it.amount }
         val totalIncoming = contributions.filter { it.type in incomingTypes }.sumOf { it.amount }
         return if (totalIncoming > 0) totalClaims / totalIncoming else 0.0
@@ -106,7 +117,10 @@ class CalculateGroupHealthScoreUseCase @Inject constructor(
 
     private fun calculateReserveAdequacy(group: Group, contributions: List<Contribution>): Double {
         val avgMonthlyContribution = contributions
-            .groupBy { it.dueDate.substringBefore("-") }
+            .filter { it.type == "contribution" }
+            .groupBy { 
+                runCatching { it.dueDate.substringBeforeLast("-").substringBefore("T") }.getOrDefault("unknown")
+            }
             .values
             .mapNotNull { list -> list.sumOf { c -> c.amount }.takeIf { it > 0 } }
             .average()

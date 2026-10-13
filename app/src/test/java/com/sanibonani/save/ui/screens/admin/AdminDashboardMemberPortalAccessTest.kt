@@ -18,7 +18,7 @@ class AdminDashboardMemberPortalAccessTest {
             currentGroupId = "group_1"
         )
 
-        val access = resolveAdminMemberPortalAccess(state, isSupportMode = true)
+        val access = resolveAdminMemberPortalAccess(state, supportActive = true)
 
         assertFalse(access.enabled)
         assertEquals("group_1", access.groupId)
@@ -34,7 +34,7 @@ class AdminDashboardMemberPortalAccessTest {
             selectedMember = Member(id = "member_1", fullName = "Alice Member", groupId = "group_1")
         )
 
-        val access = resolveAdminMemberPortalAccess(state, isSupportMode = true)
+        val access = resolveAdminMemberPortalAccess(state, supportActive = true)
 
         assertTrue(access.enabled)
         assertEquals("group_1", access.groupId)
@@ -49,7 +49,7 @@ class AdminDashboardMemberPortalAccessTest {
             currentGroupId = "group_1"
         )
 
-        val access = resolveAdminMemberPortalAccess(state, isSupportMode = false)
+        val access = resolveAdminMemberPortalAccess(state, supportActive = false)
 
         assertTrue(access.enabled)
         assertEquals("group_1", access.groupId)

@@ -7,9 +7,11 @@ import com.sanibonani.save.domain.repository.*
 import com.sanibonani.save.domain.usecase.CalculateGroupHealthScoreUseCase
 import com.sanibonani.save.domain.usecase.ProcessBurialClaimUseCase
 import com.sanibonani.save.domain.usecase.ProcessPayoutUseCase
+import io.github.jan.supabase.auth.user.UserSession
 import io.mockk.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.*
 import org.junit.After
@@ -35,6 +37,7 @@ class PlatformAdminViewModelTest {
     private val supabaseRepo = mockk<SupabaseRepository>()
     private val platformConfigRepo = mockk<PlatformConfigRepository>(relaxed = true)
     private val calculateGroupHealthScoreUseCase = mockk<CalculateGroupHealthScoreUseCase>()
+    private val exportRepo = mockk<ExportRepository>(relaxed = true)
 
     private lateinit var viewModel: PlatformAdminViewModel
     private val testDispatcher = StandardTestDispatcher()
@@ -68,8 +71,11 @@ class PlatformAdminViewModelTest {
         coEvery { platformRepo.getAuditLogs(any()) } returns Result.success(emptyList())
         coEvery { platformRepo.getPlatformLedger() } returns Result.success(emptyList())
         coEvery { platformRepo.getMemberBehaviorInsights() } returns Result.success(emptyList())
+        coEvery { platformRepo.logAuditEvent(any()) } returns Result.success(Unit)
         coEvery { calculateGroupHealthScoreUseCase(any()) } returns Result.success(GroupHealthScore("g1", 80, RiskZone.GREEN, emptyMap(), emptyList(), "", ""))
+        every { claimRepo.observeEscalatedClaims() } returns flowOf(Result.success(emptyList()))
         every { loanRepo.getGroupLoans(any()) } returns flowOf(Result.success(emptyList()))
+        coEvery { memberRepo.getMemberById(any()) } returns Result.success(Member(id = "m1", fullName = "Test Member", groupId = "g1"))
 
         every { platformConfigRepo.current() } returns PlatformConfig(
             monthlyMemberFee = 15.0,
@@ -80,6 +86,12 @@ class PlatformAdminViewModelTest {
             autoSuspensionDays = 30
         )
         every { supabaseRepo.currentUserId } returns "platform_admin"
+        val mockSession = mockk<UserSession>(relaxed = true)
+        val mockUser = mockk<io.github.jan.supabase.auth.user.UserInfo>(relaxed = true)
+        every { mockUser.id } returns "platform_admin"
+        every { mockSession.user } returns mockUser
+        val sessionFlow = MutableStateFlow<UserSession?>(mockSession)
+        every { supabaseRepo.sessionFlow } returns sessionFlow
 
         viewModel = PlatformAdminViewModel(
             platformRepo,
@@ -92,10 +104,14 @@ class PlatformAdminViewModelTest {
             notifRepo,
             supabaseRepo,
             platformConfigRepo,
-            calculateGroupHealthScoreUseCase
+            calculateGroupHealthScoreUseCase,
+            exportRepo
         )
-        // NOTE: Do NOT call advanceUntilIdle() here — doing so outside runTest can leak
-        // uncaught coroutine exceptions into subsequent test classes.
+    }
+
+    private fun TestScope.ensureActive() {
+        viewModel.setActive(true)
+        advanceUntilIdle()
     }
 
     @After
@@ -106,6 +122,7 @@ class PlatformAdminViewModelTest {
 
     @Test
     fun `loadData updates state with analytics, groups and payouts`() = runTest {
+        ensureActive()
         val analytics = PlatformAnalytics(totalGroups = 10, totalMembers = 100)
         val groups = listOf(Group(id = "g1", name = "Group 1"))
         val payouts = listOf(PayoutRequest(
@@ -134,6 +151,7 @@ class PlatformAdminViewModelTest {
 
     @Test
     fun `saveGlobalFees updates persistence and platform config repository`() = runTest {
+        ensureActive()
         viewModel.updateMemberCharge("20.0")
         viewModel.updateRegistrationFee("800.0")
         viewModel.updatePayoutFee("10.0")
@@ -161,6 +179,7 @@ class PlatformAdminViewModelTest {
 
     @Test
     fun `saveGlobalFees does not broadcast when values are unchanged`() = runTest {
+        ensureActive()
         // Values from setup() mock settings
         viewModel.updateMemberCharge("15.0")
         viewModel.updateRegistrationFee("750.0")
@@ -179,45 +198,49 @@ class PlatformAdminViewModelTest {
 
     @Test
     fun `approvePayout triggers processPayoutUseCase`() = runTest {
+        ensureActive()
         val payoutId = "payout_123"
         val groupId = "group_456"
         
-        coEvery { processPayoutUseCase(payoutId, groupId, PayoutStatus.PROCESSING) } returns Result.success(Unit)
+        coEvery { processPayoutUseCase(payoutId, groupId, PayoutStatus.PROCESSING, "platform_admin") } returns Result.success(Unit)
 
         viewModel.approvePayout(payoutId, groupId)
         advanceUntilIdle()
 
-        coVerify { processPayoutUseCase(payoutId, groupId, PayoutStatus.PROCESSING) }
+        coVerify { processPayoutUseCase(payoutId, groupId, PayoutStatus.PROCESSING, "platform_admin") }
     }
 
     @Test
     fun `completePayout triggers processPayoutUseCase with COMPLETED status`() = runTest {
+        ensureActive()
         val payoutId = "payout_123"
         val groupId = "group_456"
 
-        coEvery { processPayoutUseCase(payoutId, groupId, PayoutStatus.COMPLETED) } returns Result.success(Unit)
+        coEvery { processPayoutUseCase(payoutId, groupId, PayoutStatus.COMPLETED, "platform_admin") } returns Result.success(Unit)
 
         viewModel.completePayout(payoutId, groupId)
         advanceUntilIdle()
 
-        coVerify { processPayoutUseCase(payoutId, groupId, PayoutStatus.COMPLETED) }
+        coVerify { processPayoutUseCase(payoutId, groupId, PayoutStatus.COMPLETED, "platform_admin") }
     }
 
     @Test
     fun `rejectPayout triggers processPayoutUseCase with FAILED status`() = runTest {
+        ensureActive()
         val payoutId = "payout_123"
         val groupId = "group_456"
 
-        coEvery { processPayoutUseCase(payoutId, groupId, PayoutStatus.FAILED) } returns Result.success(Unit)
+        coEvery { processPayoutUseCase(payoutId, groupId, PayoutStatus.FAILED, "platform_admin") } returns Result.success(Unit)
 
         viewModel.rejectPayout(payoutId, groupId)
         advanceUntilIdle()
 
-        coVerify { processPayoutUseCase(payoutId, groupId, PayoutStatus.FAILED) }
+        coVerify { processPayoutUseCase(payoutId, groupId, PayoutStatus.FAILED, "platform_admin") }
     }
 
     @Test
     fun `approveLoanRequest updates loan status and logs audit`() = runTest {
+        ensureActive()
         val loan = Loan(id = "l1", memberId = "m1", groupId = "g1", amount = 500.0)
         coEvery { loanRepo.approveLoan("l1") } returns Result.success(Unit)
         coEvery { platformRepo.logAuditEvent(any()) } returns Result.success(Unit)
@@ -236,6 +259,7 @@ class PlatformAdminViewModelTest {
 
     @Test
     fun `rejectLoanRequest updates loan status with reason and logs audit`() = runTest {
+        ensureActive()
         val loan = Loan(id = "l1", memberId = "m1", groupId = "g1", amount = 500.0)
         coEvery { loanRepo.rejectLoan("l1", "Credit check failed") } returns Result.success(Unit)
         coEvery { platformRepo.logAuditEvent(any()) } returns Result.success(Unit)
@@ -254,128 +278,42 @@ class PlatformAdminViewModelTest {
     @Test
     fun `suspendGroup updates group list status immediately`() = runTest {
         val groupId = "g1"
-        val groups = listOf(
-            Group(
-                id = groupId,
-                name = "Group 1",
-                isPlatformSuspended = false,
-                feeStatus = AdminFeeState.PAID
-            )
-        )
-
-        // Override ALL init-block mocks BEFORE creating the VM so the init coroutines
-        // always execute with the correct data regardless of test ordering.
-        coEvery { platformRepo.getAllGroups() } returns Result.success(groups)
-        coEvery { platformRepo.getPlatformAnalytics() } returns Result.success(PlatformAnalytics())
-        coEvery { platformRepo.getPlatformPayments() } returns Result.success(emptyList())
-        coEvery { payoutRepo.getPendingPayouts() } returns Result.success(emptyList())
-        coEvery { platformRepo.getPlatformSettings() } returns Result.success(
-            mapOf(
-                "monthly_per_member" to 15.0,
-                "registration_fee" to 750.0,
-                "payout_fee" to 5.0,
-                "whatsapp_fee" to 0.50,
-                "late_fee_percent" to 10.0,
-                "auto_suspension_days" to 30.0
-            )
-        )
-
-        val freshVm = PlatformAdminViewModel(
-            platformRepo,
-            payoutRepo,
-            loanRepo,
-            processPayoutUseCase,
-            claimRepo,
-            processBurialClaimUseCase,
-            memberRepo,
-            notifRepo,
-            supabaseRepo,
-            platformConfigRepo,
-            calculateGroupHealthScoreUseCase
-        )
-
-        // Drain init { loadData(); loadSettings() } so groups are populated
-        advanceUntilIdle()
-
-        assertFalse("Precondition: groups must be loaded before testing suspend",
-            freshVm.state.value.groups.isEmpty())
+        coEvery { platformRepo.getAllGroups() } returns Result.success(listOf(
+            Group(id = groupId, name = "Group 1", isPlatformSuspended = false, feeStatus = AdminFeeState.PAID)
+        ))
+        ensureActive()
 
         coEvery { platformRepo.suspendGroup(groupId, any()) } returns Result.success(Unit)
 
-        freshVm.suspendGroup(groupId, "Rule violation")
+        viewModel.suspendGroup(groupId, "Rule violation")
         advanceUntilIdle()
 
-        val updatedGroup = freshVm.state.value.groups.find { it.id == groupId }
-        assertTrue("Group should be marked as suspended after suspendGroup()",
-            updatedGroup?.isPlatformSuspended ?: false)
-        assertEquals(
-            "Group fee status should reflect suspension after suspendGroup()",
-            AdminFeeState.SUSPENDED,
-            updatedGroup?.feeStatus
-        )
+        val updatedGroup = viewModel.state.value.groups.find { it.id == groupId }
+        assertTrue(updatedGroup?.isPlatformSuspended ?: false)
+        assertEquals(AdminFeeState.SUSPENDED, updatedGroup?.feeStatus)
     }
 
     @Test
     fun `unsuspendGroup restores paid status immediately`() = runTest {
         val groupId = "g1"
-        val groups = listOf(
-            Group(
-                id = groupId,
-                name = "Group 1",
-                isPlatformSuspended = true,
-                feeStatus = AdminFeeState.SUSPENDED
-            )
-        )
-
-        coEvery { platformRepo.getAllGroups() } returns Result.success(groups)
-        coEvery { platformRepo.getPlatformAnalytics() } returns Result.success(PlatformAnalytics())
-        coEvery { platformRepo.getPlatformPayments() } returns Result.success(emptyList())
-        coEvery { payoutRepo.getPendingPayouts() } returns Result.success(emptyList())
-        coEvery { platformRepo.getPlatformSettings() } returns Result.success(
-            mapOf(
-                "monthly_per_member" to 15.0,
-                "registration_fee" to 750.0,
-                "payout_fee" to 5.0,
-                "whatsapp_fee" to 0.50,
-                "late_fee_percent" to 10.0,
-                "auto_suspension_days" to 30.0
-            )
-        )
-
-        val freshVm = PlatformAdminViewModel(
-            platformRepo,
-            payoutRepo,
-            loanRepo,
-            processPayoutUseCase,
-            claimRepo,
-            processBurialClaimUseCase,
-            memberRepo,
-            notifRepo,
-            supabaseRepo,
-            platformConfigRepo,
-            calculateGroupHealthScoreUseCase
-        )
-        advanceUntilIdle()
+        coEvery { platformRepo.getAllGroups() } returns Result.success(listOf(
+            Group(id = groupId, name = "Group 1", isPlatformSuspended = true, feeStatus = AdminFeeState.SUSPENDED)
+        ))
+        ensureActive()
 
         coEvery { platformRepo.unsuspendGroup(groupId) } returns Result.success(Unit)
 
-        freshVm.unsuspendGroup(groupId)
+        viewModel.unsuspendGroup(groupId)
         advanceUntilIdle()
 
-        val updatedGroup = freshVm.state.value.groups.find { it.id == groupId }
-        assertFalse(
-            "Group should no longer be marked as suspended after unsuspendGroup()",
-            updatedGroup?.isPlatformSuspended ?: true
-        )
-        assertEquals(
-            "Group fee status should return to paid after unsuspendGroup()",
-            AdminFeeState.PAID,
-            updatedGroup?.feeStatus
-        )
+        val updatedGroup = viewModel.state.value.groups.find { it.id == groupId }
+        assertFalse(updatedGroup?.isPlatformSuspended ?: true)
+        assertEquals(AdminFeeState.PAID, updatedGroup?.feeStatus)
     }
 
     @Test
     fun `selectImpersonationGroup loads members for the group`() = runTest {
+        ensureActive()
         val groupId = "g1"
         val members = listOf(Member(id = "m1", fullName = "Member 1", groupId = groupId))
 
@@ -391,6 +329,7 @@ class PlatformAdminViewModelTest {
 
     @Test
     fun `selectImpersonationGroup with empty id resets state`() = runTest {
+        ensureActive()
         viewModel.selectImpersonationGroup("")
         advanceUntilIdle()
 
@@ -400,6 +339,7 @@ class PlatformAdminViewModelTest {
 
     @Test
     fun `selectImpersonationGroup forceReload refetches same group`() = runTest {
+        ensureActive()
         val groupId = "g1"
         val firstLoad = listOf(Member(id = "m1", fullName = "Member 1", groupId = groupId))
         val secondLoad = listOf(
@@ -423,7 +363,58 @@ class PlatformAdminViewModelTest {
     }
 
     @Test
+    fun `selectImpersonationGroup ignores stale member load after re-entry`() = runTest {
+        ensureActive()
+        val slowGroupId = "g_slow"
+        val fastGroupId = "g_fast"
+        val slowMembers = listOf(Member(id = "m_slow", fullName = "Slow Member", groupId = slowGroupId))
+        val fastMembers = listOf(Member(id = "m_fast", fullName = "Fast Member", groupId = fastGroupId))
+
+        coEvery { memberRepo.syncGroupMembers(slowGroupId) } coAnswers {
+            kotlinx.coroutines.delay(1_000)
+            Result.success(slowMembers)
+        }
+        coEvery { memberRepo.syncGroupMembers(fastGroupId) } returns Result.success(fastMembers)
+
+        viewModel.selectImpersonationGroup(slowGroupId)
+        runCurrent()
+        assertEquals(slowGroupId, viewModel.state.value.impersonationGroupId)
+        assertTrue(viewModel.state.value.isLoadingImpersonationMembers)
+
+        viewModel.selectImpersonationGroup(fastGroupId)
+        advanceUntilIdle()
+
+        assertEquals(fastGroupId, viewModel.state.value.impersonationGroupId)
+        assertEquals(fastMembers, viewModel.state.value.impersonationMembers)
+        assertFalse(viewModel.state.value.impersonationMembers.any { it.groupId == slowGroupId })
+        assertFalse(viewModel.state.value.isLoadingImpersonationMembers)
+    }
+
+    @Test
+    fun `refreshMaintenanceData prevents stale impersonation load from repopulating members`() = runTest {
+        ensureActive()
+        val groupId = "g1"
+        coEvery { memberRepo.syncGroupMembers(groupId) } coAnswers {
+            kotlinx.coroutines.delay(1_000)
+            Result.success(listOf(Member(id = "m1", fullName = "Member 1", groupId = groupId)))
+        }
+        coEvery { platformRepo.getAllGroups() } returns Result.success(emptyList())
+
+        viewModel.selectImpersonationGroup(groupId)
+        runCurrent()
+        assertEquals(groupId, viewModel.state.value.impersonationGroupId)
+
+        viewModel.refreshMaintenanceData()
+        advanceUntilIdle()
+
+        assertNull(viewModel.state.value.impersonationGroupId)
+        assertTrue(viewModel.state.value.impersonationMembers.isEmpty())
+        assertFalse(viewModel.state.value.isLoadingImpersonationMembers)
+    }
+
+    @Test
     fun `resetLocalData clears impersonation state and refreshes platform data`() = runTest {
+        ensureActive()
         val groupId = "g1"
         val members = listOf(Member(id = "m1", fullName = "Member 1", groupId = groupId))
         val refreshedGroups = listOf(Group(id = groupId, name = "Reloaded Group"))
@@ -447,6 +438,7 @@ class PlatformAdminViewModelTest {
 
     @Test
     fun `refreshMaintenanceData clears impersonation state and reloads platform data`() = runTest {
+        ensureActive()
         val groupId = "g1"
         val members = listOf(Member(id = "m1", fullName = "Member 1", groupId = groupId))
         val refreshedGroups = listOf(Group(id = groupId, name = "Refreshed Group"))
@@ -468,6 +460,7 @@ class PlatformAdminViewModelTest {
 
     @Test
     fun `logAudit surfaces repository failure`() = runTest {
+        ensureActive()
         every { supabaseRepo.currentUserId } returns "platform_admin"
         coEvery { platformRepo.logAuditEvent(any()) } returns Result.failure(IllegalStateException("audit unavailable"))
 
@@ -480,6 +473,7 @@ class PlatformAdminViewModelTest {
 
     @Test
     fun `approveBurialClaim without session shows auth error and does not call repository`() = runTest {
+        ensureActive()
         every { supabaseRepo.currentUserId } returns null
 
         viewModel.approveBurialClaim("claim_1", "Approved")
@@ -493,6 +487,7 @@ class PlatformAdminViewModelTest {
 
     @Test
     fun `payBurialClaim updates claim status to PAID`() = runTest {
+        ensureActive()
         val claimId = "claim_1"
         every { supabaseRepo.currentUserId } returns "admin_user"
         coEvery { processBurialClaimUseCase(claimId, BeneficiaryClaimStatus.PAID, "admin_user", any(), any()) } returns Result.success(Unit)
@@ -506,6 +501,7 @@ class PlatformAdminViewModelTest {
 
     @Test
     fun `rejectBurialClaim updates claim status to REJECTED with reason`() = runTest {
+        ensureActive()
         val claimId = "claim_1"
         every { supabaseRepo.currentUserId } returns "admin_user"
         coEvery { processBurialClaimUseCase(claimId, BeneficiaryClaimStatus.REJECTED, "admin_user", any(), any()) } returns Result.success(Unit)
@@ -519,6 +515,7 @@ class PlatformAdminViewModelTest {
 
     @Test
     fun `broadcastMessage calls repository and logs audit`() = runTest {
+        ensureActive()
         viewModel.updateBroadcastMessage("Hello groups!")
         coEvery { platformRepo.broadcastPlatformMessage("Hello groups!") } returns Result.success(Unit)
         coEvery { platformRepo.logAuditEvent(any()) } returns Result.success(Unit)
@@ -534,6 +531,7 @@ class PlatformAdminViewModelTest {
 
     @Test
     fun `sendWhatsAppTestToAdmin calls notification repository`() = runTest {
+        ensureActive()
         val groupId = "g1"
         coEvery { notifRepo.sendNotification(any()) } returns Result.success(Unit)
 
@@ -546,6 +544,7 @@ class PlatformAdminViewModelTest {
 
     @Test
     fun `sendDirectWhatsAppTest validates south african phone number before sending`() = runTest {
+        ensureActive()
         viewModel.updateWhatsAppTestPhone("12345")
 
         viewModel.sendDirectWhatsAppTest()
@@ -557,6 +556,7 @@ class PlatformAdminViewModelTest {
 
     @Test
     fun `fetchGroupMetrics updates state with actuarial metrics`() = runTest {
+        ensureActive()
         val groupId = "g1"
         val metrics = ActuarialMetrics(
             solvencyMarginPct = 1.5,
@@ -572,6 +572,7 @@ class PlatformAdminViewModelTest {
 
     @Test
     fun `setRiskFilter filters behavior insights correctly`() = runTest {
+        ensureActive()
         val groups = listOf(Group(id = "g1", name = "Group 1"))
         coEvery { platformRepo.getAllGroups() } returns Result.success(groups)
         
@@ -602,6 +603,7 @@ class PlatformAdminViewModelTest {
 
     @Test
     fun `sendWhatsAppTestToAdmin handles failure gracefully`() = runTest {
+        ensureActive()
         val groupId = "g1"
         coEvery { notifRepo.sendNotification(any()) } returns Result.failure(Exception("network error"))
 
@@ -614,6 +616,7 @@ class PlatformAdminViewModelTest {
 
     @Test
     fun `setTab updates selectedTab and resets flags`() = runTest {
+        ensureActive()
         viewModel.setTab(2)
         assertEquals(2, viewModel.state.value.selectedTab)
         assertFalse(viewModel.state.value.saveSuccess)

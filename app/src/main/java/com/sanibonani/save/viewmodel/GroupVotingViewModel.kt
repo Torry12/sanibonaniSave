@@ -9,6 +9,7 @@ import com.sanibonani.save.domain.usecase.voting.CastGroupPollVoteUseCase
 import com.sanibonani.save.domain.usecase.voting.CreateGroupPollUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -25,8 +26,20 @@ class GroupVotingViewModel @Inject constructor(
     private val _state = MutableStateFlow(GroupVotingUiState())
     val state: StateFlow<GroupVotingUiState> = _state.asStateFlow()
 
+    private var pollsJob: Job? = null
+    private val isActive = MutableStateFlow(false)
+
+    fun setActive(active: Boolean) {
+        isActive.value = active
+        if (!active) {
+            pollsJob?.cancel()
+            pollsJob = null
+        }
+    }
+
     fun loadPolls(groupId: String, memberId: String?) {
-        viewModelScope.launch {
+        pollsJob?.cancel()
+        pollsJob = viewModelScope.launch {
             _state.update { it.copy(isLoading = true, error = null, groupId = groupId, memberId = memberId) }
             votingRepository.observePolls(groupId, memberId).collect { result ->
                 result.onSuccess { polls ->
@@ -109,6 +122,12 @@ class GroupVotingViewModel @Inject constructor(
 
     fun clearMessage() {
         _state.update { it.copy(message = null) }
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        pollsJob?.cancel()
+        _state.update { GroupVotingUiState() }
     }
 }
 

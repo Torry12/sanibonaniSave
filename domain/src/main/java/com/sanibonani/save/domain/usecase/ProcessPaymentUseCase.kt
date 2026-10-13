@@ -2,31 +2,27 @@ package com.sanibonani.save.domain.usecase
 
 import com.sanibonani.save.data.utils.PaymentCalculator
 import com.sanibonani.save.domain.model.AdminFeeState
-import com.sanibonani.save.domain.model.AppNotification
 import com.sanibonani.save.domain.model.Contribution
 import com.sanibonani.save.domain.model.ContributionStatus
 import com.sanibonani.save.domain.model.Group
 import com.sanibonani.save.domain.model.Member
-import com.sanibonani.save.domain.model.MemberStatus
-import com.sanibonani.save.domain.model.NotifChannel
-import com.sanibonani.save.domain.model.NotifEvent
 import com.sanibonani.save.domain.model.Payment
+import com.sanibonani.save.domain.model.PaymentMethod
 import com.sanibonani.save.domain.model.PaymentStatus
 import com.sanibonani.save.domain.model.PaymentType
 import com.sanibonani.save.domain.model.PlatformFees
-import com.sanibonani.save.domain.model.PaymentMethod
 import com.sanibonani.save.domain.repository.GroupRepository
 import com.sanibonani.save.domain.repository.MemberRepository
 import com.sanibonani.save.domain.repository.NotificationRepository
 import com.sanibonani.save.domain.repository.PaymentGatewayRepository
 import com.sanibonani.save.domain.repository.PaymentRepository
 import com.sanibonani.save.domain.repository.PlatformRepository
+import com.sanibonani.save.domain.utils.OperationKeys
 import com.sanibonani.save.domain.utils.isPositiveMoneyAmount
 import com.sanibonani.save.domain.utils.toMoneyBigDecimal
-import com.sanibonani.save.domain.utils.OperationKeys
-import com.sanibonani.save.domain.utils.formatZAR
-import javax.inject.Inject
 import java.math.BigDecimal
+import java.time.Instant
+import javax.inject.Inject
 
 /**
  * Orchestrates payment processing across different payment types and gateways.
@@ -74,7 +70,7 @@ class ProcessPaymentUseCase @Inject constructor(
     ): Result<Unit> = runCatching {
         require(amount.isPositiveMoneyAmount()) { "Payment amount must be greater than zero." }
 
-        val timestampStr = kotlinx.datetime.Clock.System.now().toString()
+        val timestampStr = Instant.now().toString()
 
         when (type) {
             PaymentType.PLATFORM_FEE -> processPlatformFeePayment(txId, amount, groupId, group, member, timestampStr, method)
@@ -95,11 +91,17 @@ class ProcessPaymentUseCase @Inject constructor(
     ) {
         if (groupId == NEW_GROUP_SENTINEL) return
         
+        val feeType = if (group?.registrationPaid == false) "registration" else "monthly"
+
         if (group?.registrationPaid == false) {
             groupRepository.activateGroup(groupId, txId)
                 .onFailure { throw it }
                 .getOrThrow()
         } else {
+            groupRepository.payPlatformFee(groupId, amount, feeType, txId)
+                .onFailure { throw it }
+                .getOrThrow()
+            
             groupRepository.updateFeeStatus(groupId, AdminFeeState.PAID)
                 .onFailure { throw it }
                 .getOrThrow()
@@ -107,6 +109,7 @@ class ProcessPaymentUseCase @Inject constructor(
                 .onFailure { throw it }
                 .getOrThrow()
         }
+
         recordPayment(txId, amount, groupId, PaymentType.PLATFORM_FEE, timestampStr, member?.id, method)
             .onFailure { throw it }
             .getOrThrow()
@@ -121,31 +124,17 @@ class ProcessPaymentUseCase @Inject constructor(
         method: PaymentMethod
     ) {
         val targetMember = member ?: throw Exception("Member context required for joining fee")
-        
-        recordPayment(txId, amount, groupId, PaymentType.JOINING_FEE, timestampStr, targetMember.id, method)
+
+        val registeredMember = memberRepository.registerMember(targetMember, txId)
             .onFailure { throw it }
             .getOrThrow()
-        
-        val activatedMember = memberRepository.registerMember(targetMember, txId)
+        val registeredMemberId = registeredMember.id ?: throw IllegalStateException("Registered member has no ID")
+
+        recordPayment(txId, amount, groupId, PaymentType.JOINING_FEE, timestampStr, registeredMemberId, method)
             .onFailure { throw it }
             .getOrThrow()
             
-        val welcomeMsg = if (activatedMember.status == MemberStatus.PROBATION) {
-            "Joining fee of ${formatZAR(amount)} received! You are now on probation until ${activatedMember.probationEndAt ?: "the end of your period"}."
-        } else {
-            "Joining fee of ${formatZAR(amount)} received! Welcome as an active member."
-        }
-
-        notificationRepository.sendNotification(
-            AppNotification(
-                id = OperationKeys.stableUuid("payment_notification", txId, NotifEvent.PAYMENT_CONFIRMED.name),
-                groupId = groupId,
-                memberId = activatedMember.id,
-                message = welcomeMsg,
-                triggerEvent = NotifEvent.PAYMENT_CONFIRMED,
-                channel = NotifChannel.BOTH
-            )
-        ).onFailure { throw it }.getOrThrow()
+        // Side effects (Audit/Notification) are now handled by DomainEventDispatcher via recordPayment()
     }
 
     private suspend fun processContributionPayment(
@@ -161,6 +150,8 @@ class ProcessPaymentUseCase @Inject constructor(
         val targetMember = member ?: throw Exception("Member context required for contribution")
         val targetGroup = group ?: throw Exception("Group context required for contribution")
         val calc = calculation ?: throw Exception("Calculation context required for contribution")
+
+        require(targetMember.groupId == groupId) { "Member does not belong to this group" }
         
         val memberId = targetMember.id ?: throw IllegalStateException("Member ID missing")
         val memberMonthlyContribution = PaymentCalculator.calculateMonthlyContribution(targetGroup, targetMember)
@@ -193,7 +184,7 @@ class ProcessPaymentUseCase @Inject constructor(
                     memberId = memberId,
                     groupId = groupId,
                     amount = feeComponentMoney.toDouble(),
-                    type = "member_fee_ledger",
+                    type = "member_fee",
                     status = ContributionStatus.PAID,
                     dueDate = calc.nextDueDate,
                     paidAt = timestampStr,
@@ -202,20 +193,7 @@ class ProcessPaymentUseCase @Inject constructor(
             ).onFailure { throw it }.getOrThrow()
         }
 
-        notificationRepository.sendNotification(
-            AppNotification(
-                id = OperationKeys.stableUuid("payment_notification", txId, NotifEvent.PAYMENT_CONFIRMED.name),
-                groupId = groupId,
-                memberId = targetMember.id,
-                message = if (amount >= memberMonthlyContribution - 0.01) {
-                    "Contribution of ${formatZAR(amount)} received. Thank you!"
-                } else {
-                    "Partial contribution of ${formatZAR(amount)} received. Thank you!"
-                },
-                triggerEvent = NotifEvent.PAYMENT_CONFIRMED,
-                channel = NotifChannel.BOTH
-            )
-        ).onFailure { throw it }.getOrThrow()
+        // Side effects (Audit/Notification) are now handled by DomainEventDispatcher via recordPayment()
     }
 
     private suspend fun recordPayment(

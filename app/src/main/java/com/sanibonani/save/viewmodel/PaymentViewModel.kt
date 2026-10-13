@@ -120,6 +120,16 @@ class PaymentViewModel @Inject constructor(
     val state: StateFlow<PaymentUiState> = _state.asStateFlow()
     private var paymentContextJob: Job? = null
 
+    private val isActive = MutableStateFlow(false)
+
+    fun setActive(active: Boolean) {
+        isActive.value = active
+        if (!active) {
+            paymentContextJob?.cancel()
+            paymentContextJob = null
+        }
+    }
+
     fun loadPaymentContext(groupId: String) {
         AppAnalytics.track(
             AnalyticsTaxonomy.Events.PAYMENT_CONTEXT_LOAD_STARTED,
@@ -393,6 +403,12 @@ class PaymentViewModel @Inject constructor(
                 }
             }
         }
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        paymentContextJob?.cancel()
+        // No hard state reset here to prevent race conditions during fast navigation transitions.
     }
 }
 

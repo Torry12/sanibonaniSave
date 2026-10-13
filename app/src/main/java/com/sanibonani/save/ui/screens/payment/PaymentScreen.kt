@@ -13,6 +13,7 @@ import androidx.compose.material.icons.filled.CreditCard
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -28,6 +29,7 @@ import com.sanibonani.save.ui.components.*
 import com.sanibonani.save.ui.theme.*
 import com.sanibonani.save.ui.utils.ToastUtils
 import com.sanibonani.save.viewmodel.PaymentViewModel
+import com.sanibonani.save.ui.utils.rememberClickDebouncer
 import java.util.Locale
 
 @Composable
@@ -36,12 +38,21 @@ fun PaymentScreen(
     amount            : Double,
     groupId           : String,
     onPaymentComplete : () -> Unit,
+    onPaymentFailed   : (Throwable) -> Unit,
     onBack            : () -> Unit,
     vm                : PaymentViewModel = hiltViewModel()
 ) {
     val state by vm.state.collectAsState()
     val context = LocalContext.current
     val uriHandler = LocalUriHandler.current
+    val clickDebouncer = rememberClickDebouncer()
+
+    DisposableEffect(Unit) {
+        vm.setActive(true)
+        onDispose {
+            vm.setActive(false)
+        }
+    }
 
     LaunchedEffect(groupId, paymentType) {
         // Load member context for joining_fee and contribution payment types
@@ -60,6 +71,7 @@ fun PaymentScreen(
     LaunchedEffect(state.error) {
         state.error?.let {
             ToastUtils.showError(context, it)
+            onPaymentFailed(Exception(it))
         }
     }
 
@@ -80,7 +92,7 @@ fun PaymentScreen(
                     "joining_fee"  -> "Joining Fee"
                     else           -> "Monthly Contribution"
                 },
-                onBack = onBack
+                onBack = { clickDebouncer.processClick(onBack) }
             )
         }
     ) { padding ->
@@ -172,7 +184,7 @@ fun PaymentScreen(
                 onPay    = { card, expiry, cvv, finalAmount ->
                     vm.processPayment(paymentType, finalAmount, groupId, card, expiry, cvv)
                 },
-                onCancel  = onBack,
+                onCancel  = { clickDebouncer.processClick(onBack) },
                 isLoading = state.isProcessing,
                 onAmountChanged = { newAmount ->
                     vm.onAmountChanged(newAmount)

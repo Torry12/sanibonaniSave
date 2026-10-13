@@ -1,6 +1,8 @@
 package com.sanibonani.save
 
 import com.sanibonani.save.domain.model.*
+import com.sanibonani.save.domain.model.ActuarialMetrics
+import com.sanibonani.save.domain.model.GroupFinancialInsight
 import com.sanibonani.save.data.repository.ActuarialRepositoryImpl
 import com.sanibonani.save.domain.repository.GroupRepository
 import com.sanibonani.save.domain.repository.MemberRepository
@@ -33,44 +35,44 @@ class ActuarialRepositoryTest {
 
     @Test
     fun `pure premium is positive for valid inputs`() {
-        val m = repo.computeActuarialScalars(24, 45000.0, 0.82, 15000.0, 35.0, 25.0, 8.5, 250.0, 18000.0, 108000.0, 95.0, 72000.0)
+        val m = GroupTypeActuarialEngine.computeActuarialScalars(24, 45000.0, 0.82, 15000.0, 35.0, 25.0, 8.5, 250.0, 18000.0, 108000.0, 95.0, 72000.0)
         assertTrue("Pure premium must be > 0", m.purePremium > 0)
     }
 
     @Test
     fun `gross premium is greater than pure premium`() {
-        val m = repo.computeActuarialScalars(24, 45000.0, 0.82, 15000.0, 35.0, 25.0, 8.5, 250.0, 18000.0, 108000.0, 95.0, 72000.0)
+        val m = GroupTypeActuarialEngine.computeActuarialScalars(24, 45000.0, 0.82, 15000.0, 35.0, 25.0, 8.5, 250.0, 18000.0, 108000.0, 95.0, 72000.0)
         assertTrue(m.grossPremium > m.purePremium)
     }
 
     @Test
     fun `risk score is within 0 to 100`() {
-        val m = repo.computeActuarialScalars(24, 45000.0, 0.82, 15000.0, 35.0, 25.0, 8.5, 250.0, 18000.0, 108000.0, 95.0, 72000.0)
+        val m = GroupTypeActuarialEngine.computeActuarialScalars(24, 45000.0, 0.82, 15000.0, 35.0, 25.0, 8.5, 250.0, 18000.0, 108000.0, 95.0, 72000.0)
         assertTrue(m.compositeRiskScore in 0..100)
     }
 
     @Test
     fun `reserve adequacy improves with higher balance`() {
-        val low  = repo.computeActuarialScalars(24, 10000.0, 0.82, 15000.0, 35.0, 25.0, 8.5, 250.0, 5000.0, 30000.0, 90.0, 72000.0)
-        val high = repo.computeActuarialScalars(24, 80000.0, 0.82, 15000.0, 35.0, 25.0, 8.5, 250.0, 5000.0, 30000.0, 90.0, 72000.0)
+        val low  = GroupTypeActuarialEngine.computeActuarialScalars(24, 10000.0, 0.82, 15000.0, 35.0, 25.0, 8.5, 250.0, 5000.0, 30000.0, 90.0, 72000.0)
+        val high = GroupTypeActuarialEngine.computeActuarialScalars(24, 80000.0, 0.82, 15000.0, 35.0, 25.0, 8.5, 250.0, 5000.0, 30000.0, 90.0, 72000.0)
         assertTrue(high.reserveAdequacyPct > low.reserveAdequacyPct)
     }
 
     @Test
     fun `APV is less than undiscounted expected claims`() {
-        val m = repo.computeActuarialScalars(24, 45000.0, 0.82, 15000.0, 35.0, 25.0, 8.5, 250.0, 18000.0, 108000.0, 95.0, 72000.0)
+        val m = GroupTypeActuarialEngine.computeActuarialScalars(24, 45000.0, 0.82, 15000.0, 35.0, 25.0, 8.5, 250.0, 18000.0, 108000.0, 95.0, 72000.0)
         assertTrue("APV < undiscounted claims (time value)", m.actuarialPresentValue < m.expectedAnnualClaims)
     }
 
     @Test
     fun `sustainable group has infinite insolvency months`() {
-        val m = repo.computeActuarialScalars(24, 45000.0, 0.82, 15000.0, 35.0, 25.0, 8.5, 500.0, 5000.0, 60000.0, 100.0, 144000.0)
+        val m = GroupTypeActuarialEngine.computeActuarialScalars(24, 45000.0, 0.82, 15000.0, 35.0, 25.0, 8.5, 500.0, 5000.0, 60000.0, 100.0, 144000.0)
         assertEquals(Int.MAX_VALUE, m.insolvencyMonths)
     }
 
     @Test
     fun `loss ratio is zero when no claims paid`() {
-        val m = repo.computeActuarialScalars(24, 45000.0, 0.82, 15000.0, 35.0, 25.0, 8.5, 250.0, 0.0, 108000.0, 95.0, 72000.0)
+        val m = GroupTypeActuarialEngine.computeActuarialScalars(24, 45000.0, 0.82, 15000.0, 35.0, 25.0, 8.5, 250.0, 0.0, 108000.0, 95.0, 72000.0)
         assertEquals(0.0, m.lossRatioPct, 0.001)
     }
 
@@ -92,7 +94,7 @@ class ActuarialRepositoryTest {
             val paymentRate = random.nextDouble(0.0, 100.0)
             val expectedAnnual = random.nextDouble(0.0, 3_000_000.0)
 
-            val m = repo.computeActuarialScalars(
+            val m = GroupTypeActuarialEngine.computeActuarialScalars(
                 members,
                 balance,
                 mortality,
@@ -138,7 +140,7 @@ class ActuarialRepositoryTest {
                 random.nextDouble(30_000.0, 600_000.0)
             )
 
-            val low = repo.computeActuarialScalars(
+            val low = GroupTypeActuarialEngine.computeActuarialScalars(
                 members,
                 lowBalance,
                 params[0],
@@ -153,7 +155,7 @@ class ActuarialRepositoryTest {
                 params[9]
             )
 
-            val high = repo.computeActuarialScalars(
+            val high = GroupTypeActuarialEngine.computeActuarialScalars(
                 members,
                 highBalance,
                 params[0],
@@ -177,7 +179,7 @@ class ActuarialRepositoryTest {
 
     @Test
     fun `computeActuarialScalars sanitizes negative numeric inputs`() {
-        val m = repo.computeActuarialScalars(
+        val m = GroupTypeActuarialEngine.computeActuarialScalars(
             membersCount = -10,
             balance = -1000.0,
             mortalityRatePct = -2.0,
@@ -201,7 +203,7 @@ class ActuarialRepositoryTest {
 
     @Test
     fun `break even members is max value when premium cannot cover risk and loadings`() {
-        val m = repo.computeActuarialScalars(
+        val m = GroupTypeActuarialEngine.computeActuarialScalars(
             membersCount = 20,
             balance = 10000.0,
             mortalityRatePct = 1.0,
@@ -291,7 +293,7 @@ class ActuarialRepositoryTest {
             monthlyContribution = 250.0, goalAmount = 30000.0, balance = 50000.0
         )
         val members = (1..20).map { Member(status = MemberStatus.ACTIVE) }
-        val m = repo.calculateMetrics(group, members)
+        val m = repo.calculateMetrics(group, members).getOrThrow()
         assertTrue("projectedBalanceM3 should be set", m.projectedBalanceM3 >= 0.0)
         assertTrue("projectedBalanceM6 should be set", m.projectedBalanceM6 >= 0.0)
         assertTrue("projectedBalanceM12 should be set", m.projectedBalanceM12 >= 0.0)
@@ -307,7 +309,7 @@ class ActuarialRepositoryTest {
             monthlyContribution = 50.0, goalAmount = 30000.0, balance = 100.0
         )
         val members = (1..30).map { Member(status = MemberStatus.ACTIVE) }
-        val m = repo.calculateMetrics(group, members)
+        val m = repo.calculateMetrics(group, members).getOrThrow()
         assertTrue("Should have type-specific warnings", m.typeSpecificWarnings.isNotEmpty())
     }
 
@@ -430,6 +432,61 @@ class ActuarialRepositoryTest {
         val plan = repo.calculateViabilityPlan(groupId, 9600.0, 12).getOrThrow()
 
         assertEquals(0.5, plan.activeMemberRatio, 0.001)
+    }
+
+    @Test
+    fun `emergency fund viability enforces six month coverage target`() = runBlocking {
+        val groupId = "g_emergency_target"
+        val group = Group(
+            id = groupId,
+            type = GroupType.EMERGENCY_FUND,
+            monthlyContribution = 400.0,
+            balance = 0.0,
+            goalAmount = 1000.0,
+            autoSuspendAfter = 2
+        )
+        val members = List(5) { Member(status = MemberStatus.ACTIVE) }
+        coEvery { groupRepo.getGroupById(groupId) } returns Result.success(group)
+        coEvery { memberRepo.getGroupMembers(groupId) } returns flowOf(Result.success(members))
+
+        val plan = repo.calculateViabilityPlan(groupId, 1000.0, 12).getOrThrow()
+
+        assertEquals(400.0 * 5 * GroupTypeActuarialEngine.EMERGENCY_TARGET_MONTHS, plan.goalAmount, 0.01)
+        assertTrue(plan.messages.any { it.contains("minimum") })
+    }
+
+    @Test
+    fun `rosca viability uses full cycle pot as required monthly contribution`() = runBlocking {
+        val groupId = "g_rosca_pot"
+        val group = Group(id = groupId, type = GroupType.ROSCA, monthlyContribution = 300.0, balance = 5000.0)
+        val members = List(8) { Member(status = MemberStatus.ACTIVE) }
+        coEvery { groupRepo.getGroupById(groupId) } returns Result.success(group)
+        coEvery { memberRepo.getGroupMembers(groupId) } returns flowOf(Result.success(members))
+
+        val plan = repo.calculateViabilityPlan(groupId, 0.0, 12).getOrThrow()
+
+        assertEquals(300.0 * 8, plan.goalAmount, 0.01)
+        assertEquals(plan.goalAmount / 8, plan.requiredMonthlyToMeetGoal, 0.01)
+        assertTrue(plan.messages.any { it.contains("Target cycle pot") })
+    }
+
+    @Test
+    fun `existing investment club balance reduces contribution burden`() = runBlocking {
+        val groupId = "g_investment_balance"
+        val baseGroup = Group(id = groupId, type = GroupType.INVESTMENT_CLUB, monthlyContribution = 500.0, balance = 0.0, goalAmount = 60000.0)
+        val fundedGroup = baseGroup.copy(balance = 20000.0)
+        val members = List(10) { Member(status = MemberStatus.ACTIVE, totalPaid = 1000.0) }
+        coEvery { groupRepo.getGroupById(groupId) } returnsMany listOf(Result.success(baseGroup), Result.success(fundedGroup))
+        coEvery { memberRepo.getGroupMembers(groupId) } returnsMany listOf(
+            flowOf(Result.success(members)),
+            flowOf(Result.success(members))
+        )
+
+        val withoutBalance = repo.calculateViabilityPlan(groupId, 60000.0, 24).getOrThrow()
+        val withBalance = repo.calculateViabilityPlan(groupId, 60000.0, 24).getOrThrow()
+
+        assertTrue(withBalance.suggestedMonthlyContribution < withoutBalance.suggestedMonthlyContribution)
+        assertTrue(withBalance.messages.any { it.contains("Existing assets") })
     }
 
     // ══════════════════════════════════════════════════════════════════════
@@ -678,7 +735,7 @@ class ActuarialRepositoryTest {
             monthlyContribution = 300.0, goalAmount = 30000.0, balance = 100000.0
         )
         val members = (1..25).map { Member(status = MemberStatus.ACTIVE) }
-        val insight = repo.computeGroupInsight(group, members)
+        val insight = repo.computeGroupInsight(group, members).getOrThrow()
         assertEquals(GroupType.BURIAL_SOCIETY, insight.groupType)
         assertTrue("Solvency ratio should be > 0", insight.solvencyRatio > 0.0)
         assertTrue("Key findings not empty", insight.keyFindings.isNotEmpty())
@@ -690,7 +747,7 @@ class ActuarialRepositoryTest {
     fun `computeGroupInsight for investment club sets navPerUnit`() {
         val group = Group(id = "i1", type = GroupType.INVESTMENT_CLUB, monthlyContribution = 500.0, balance = 15000.0, goalAmount = 60000.0, periodMonths = 24)
         val members = (1..10).map { Member(status = MemberStatus.ACTIVE, totalPaid = 1000.0) }
-        val insight = repo.computeGroupInsight(group, members)
+        val insight = repo.computeGroupInsight(group, members).getOrThrow()
         assertEquals(GroupType.INVESTMENT_CLUB, insight.groupType)
         assertTrue("navPerUnit should be set", insight.navPerUnit > 0.0)
     }
@@ -699,7 +756,7 @@ class ActuarialRepositoryTest {
     fun `computeGroupInsight for ROSCA sets monthlyPot`() {
         val group = Group(id = "r1", type = GroupType.ROSCA, monthlyContribution = 300.0, balance = 2400.0)
         val members = (1..8).map { Member(status = MemberStatus.ACTIVE) }
-        val insight = repo.computeGroupInsight(group, members)
+        val insight = repo.computeGroupInsight(group, members).getOrThrow()
         assertEquals(GroupType.ROSCA, insight.groupType)
         assertEquals(300.0 * 8, insight.monthlyPot, 0.01)
     }
@@ -708,7 +765,7 @@ class ActuarialRepositoryTest {
     fun `computeGroupInsight for stokvel sets potMilestonePct`() {
         val group = Group(id = "s1", type = GroupType.STOKVEL, monthlyContribution = 200.0, balance = 5000.0)
         val members = (1..12).map { Member(status = MemberStatus.ACTIVE) }
-        val insight = repo.computeGroupInsight(group, members)
+        val insight = repo.computeGroupInsight(group, members).getOrThrow()
         assertEquals(GroupType.STOKVEL, insight.groupType)
         assertTrue("potMilestonePct in range", insight.potMilestonePct in 0.0..100.0)
     }
@@ -717,7 +774,7 @@ class ActuarialRepositoryTest {
     fun `computeGroupInsight for emergency fund sets coverageMonths`() {
         val group = Group(id = "e1", type = GroupType.EMERGENCY_FUND, monthlyContribution = 500.0, balance = 40000.0)
         val members = (1..8).map { Member(status = MemberStatus.ACTIVE) }
-        val insight = repo.computeGroupInsight(group, members)
+        val insight = repo.computeGroupInsight(group, members).getOrThrow()
         assertEquals(GroupType.EMERGENCY_FUND, insight.groupType)
         assertTrue("coverageMonths >= 0", insight.coverageMonths >= 0.0)
     }
@@ -726,7 +783,7 @@ class ActuarialRepositoryTest {
     fun `computeGroupInsight for tontine sets projectedShareAtEnd`() {
         val group = Group(id = "t1", type = GroupType.TONTINE, monthlyContribution = 400.0, balance = 20000.0, periodMonths = 60)
         val members = (1..15).map { Member(status = MemberStatus.ACTIVE) }
-        val insight = repo.computeGroupInsight(group, members)
+        val insight = repo.computeGroupInsight(group, members).getOrThrow()
         assertEquals(GroupType.TONTINE, insight.groupType)
         assertTrue("projectedShareAtEnd > 0", insight.projectedShareAtEnd > 0.0)
     }
@@ -741,8 +798,37 @@ class ActuarialRepositoryTest {
         val group = Group(monthlyContribution = 300.0, balance = 10000.0)
         val members = (1..10).map { Member(status = MemberStatus.ACTIVE) }
         types.forEach { type ->
-            val insight = repo.computeGroupInsight(group.copy(type = type), members)
+            val insight = repo.computeGroupInsight(group.copy(type = type), members).getOrThrow()
             assertTrue("Benchmark notes for $type", insight.industryBenchmark.benchmarkNotes.isNotEmpty())
         }
+    }
+
+    @Test
+    fun `computeGroupInsight differentiates community savings and other messaging`() {
+        val members = List(10) { Member(status = MemberStatus.ACTIVE) }
+        val communityInsight = repo.computeGroupInsight(
+            Group(
+                id = "community",
+                type = GroupType.COMMUNITY_SAVINGS,
+                monthlyContribution = 250.0,
+                balance = 10000.0,
+                goalAmount = 40000.0
+            ),
+            members
+        ).getOrThrow()
+        val otherInsight = repo.computeGroupInsight(
+            Group(
+                id = "other",
+                type = GroupType.OTHER,
+                monthlyContribution = 250.0,
+                balance = 10000.0,
+                goalAmount = 40000.0
+            ),
+            members
+        ).getOrThrow()
+
+        assertTrue(communityInsight.statusSummary.contains("Community goal"))
+        assertTrue(otherInsight.statusSummary.contains("Custom savings group"))
+        assertTrue(otherInsight.recommendations.any { it.contains("custom group", ignoreCase = true) })
     }
 }

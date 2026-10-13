@@ -52,7 +52,7 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:theme="@style/Theme.SanibonaniSave"
+            android:theme="@style/Theme.App.Starting"
             android:windowSoftInputMode="adjustResize"
             android:screenOrientation="portrait"
             android:configChanges="orientation|screenSize|keyboardHidden">

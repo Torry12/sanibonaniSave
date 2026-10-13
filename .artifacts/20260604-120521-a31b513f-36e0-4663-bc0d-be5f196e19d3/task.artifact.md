@@ -1,0 +1,20 @@
+# Tasks
+- [x] Fix navigation "exit to launcher" behavior in `NavGraph.kt`
+- [x] Harden `AdminViewModel` state restoration and lifecycle
+- [x] Fix `JsonDecodingException` in instrumentation tests
+- [x] Fix unit test failures across Administrative and Member modules
+- [x] Verify all fixes with comprehensive test runs
+- [x] Update documentation and walkthrough
+- [x] Audit data access and navigation race conditions
+- [x] Audit and harden calculation integrity
+    - [x] Audit calculation logic for type pollution
+    - [x] Audit SQL RPCs for balance integrity
+    - [x] Fix `PaymentCalculator` contribution type filtering
+    - [x] Update `record_contribution_v1` SQL function
+    - [x] Fix `BehaviorTrackingRepositoryImpl` double-counting
+    - [x] Hardened `CalculateGroupHealthScoreUseCase` date/type logic
+- [x] SQL Script Audit and Cleanup
+    - [x] List and categorize all SQL files
+    - [x] Sync `SUPABASE_MASTER_FUNCTIONS.sql` with latest fixes
+    - [x] Remove redundant scripts from project root and subdirectories
+- [x] Verify system stability with final unit test suite

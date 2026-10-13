@@ -18,6 +18,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.sanibonani.save.ui.components.*
 import com.sanibonani.save.ui.theme.*
+import com.sanibonani.save.ui.utils.rememberClickDebouncer
 import com.sanibonani.save.viewmodel.CreatePlatformAdminViewModel
 
 @Composable
@@ -26,6 +27,7 @@ fun CreatePlatformAdminScreen(
     vm: CreatePlatformAdminViewModel = hiltViewModel()
 ) {
     val state by vm.state.collectAsState()
+    val clickDebouncer = rememberClickDebouncer()
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var confirmPassword by remember { mutableStateOf("") }
@@ -34,7 +36,7 @@ fun CreatePlatformAdminScreen(
         topBar = {
             SanibonaniTopBar(
                 title = "Create Admin Account",
-                onBack = onBack
+                onBack = { clickDebouncer.processClick(onBack) }
             )
         }
     ) { padding ->
@@ -98,7 +100,7 @@ fun CreatePlatformAdminScreen(
             } else {
                 SanibonaniButton(
                     text = "CREATE ADMINISTRATOR",
-                    onClick = { vm.createPlatformAdmin(email, password, confirmPassword) },
+                    onClick = { clickDebouncer.processClick { vm.createPlatformAdmin(email, password, confirmPassword) } },
                     modifier = Modifier.fillMaxWidth(),
                     enabled = email.isNotBlank() && password.length >= 6
                 )
@@ -120,7 +122,7 @@ fun CreatePlatformAdminScreen(
             }
             
             Spacer(Modifier.height(24.dp))
-            TextButton(onClick = onBack) {
+            TextButton(onClick = { clickDebouncer.processClick(onBack) }) {
                 Text("CANCEL", color = MidGray, fontWeight = FontWeight.Bold)
             }
         }

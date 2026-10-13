@@ -18,7 +18,10 @@ import com.sanibonani.save.service.MemberGroupContextCacheService
 import com.sanibonani.save.service.UserProfileCacheService
 import dagger.hilt.android.lifecycle.HiltViewModel
 import io.github.jan.supabase.auth.status.SessionStatus
-import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -456,8 +459,7 @@ class AuthViewModel @Inject constructor(
       return
     }
 
-		val current = _state.value
-		val savedEmail = credentialsRepo.getSavedEmail()
+        val savedEmail = credentialsRepo.getSavedEmail()
 		val savedPassword = credentialsRepo.getSavedPassword()
 
 		if (savedEmail.isBlank() || savedPassword.isBlank()) {

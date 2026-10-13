@@ -2,7 +2,9 @@ package com.sanibonani.save.di
 
 import com.sanibonani.save.data.remote.SupabaseManager
 import com.sanibonani.save.data.repository.*
+import com.sanibonani.save.data.service.InMemoryGovernanceService
 import com.sanibonani.save.domain.repository.*
+import com.sanibonani.save.domain.service.GovernanceService
 import dagger.Binds
 import dagger.Module
 import dagger.hilt.InstallIn
@@ -155,19 +157,19 @@ abstract class RepoModule {
 
     @Binds
     @Singleton
-    abstract fun bindPaymentSandboxRepository(
-        paymentSandboxRepositoryImpl: PaymentSandboxRepositoryImpl
-    ): PaymentSandboxRepository
-
-    @Binds
-    @Singleton
-    abstract fun bindMockBankRepository(
-        mockBankRepositoryImpl: MockBankRepositoryImpl
-    ): MockBankRepository
-
-    @Binds
-    @Singleton
     abstract fun bindPaymentGatewayRepository(
         paymentGatewayRepositoryImpl: PaymentGatewayRepositoryImpl
     ): PaymentGatewayRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindGovernanceService(
+        impl: InMemoryGovernanceService
+    ): GovernanceService
+
+    @Binds
+    @Singleton
+    abstract fun bindAuditLogRepository(
+        impl: AuditLogRepositoryImpl
+    ): AuditLogRepository
 }

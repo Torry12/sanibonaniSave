@@ -31,6 +31,7 @@ interface GroupRepository {
     suspend fun updateGroupSettings(groupId: String, settings: Map<String, Any>): Result<Unit>
     fun observeGroupFeeStatus(groupId: String): Flow<AdminFeeState>
     suspend fun activateGroup(groupId: String, txId: String? = null): Result<Unit>
+    suspend fun payPlatformFee(groupId: String, amount: Double, feeType: String, txId: String? = null): Result<Unit>
     suspend fun updateFeeStatus(groupId: String, status: AdminFeeState): Result<Unit>
     suspend fun uploadConstitution(groupId: String, fileBytes: ByteArray, fileName: String): Result<String>
     suspend fun updateGroup(group: Group): Result<Unit>

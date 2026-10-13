@@ -13,6 +13,7 @@ import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -30,6 +31,7 @@ import android.location.Location
 import com.google.android.gms.location.LocationServices
 import android.Manifest
 import android.annotation.SuppressLint
+import com.sanibonani.save.ui.utils.rememberClickDebouncer
 import com.sanibonani.save.domain.config.SaReferenceData
 import com.sanibonani.save.domain.model.*
 import com.sanibonani.save.ui.components.*
@@ -47,6 +49,7 @@ fun BrowseGroupsScreen(
 ) {
     val state by vm.listState.collectAsState()
     val context = LocalContext.current
+    val clickDebouncer = rememberClickDebouncer()
     var showMap by remember { mutableStateOf(false) }
     var showFilters by remember { mutableStateOf(false) }
     var selectedLocationGroups by remember { mutableStateOf<List<Group>>(emptyList()) }
@@ -54,6 +57,13 @@ fun BrowseGroupsScreen(
     
     val locationPermissionState = rememberPermissionState(Manifest.permission.ACCESS_FINE_LOCATION)
     val fusedLocationClient = remember(context) { LocationServices.getFusedLocationProviderClient(context) }
+
+    DisposableEffect(Unit) {
+        vm.setActive(true)
+        onDispose {
+            vm.setActive(false)
+        }
+    }
 
     fun requestLocation() {
         if (locationPermissionState.status.isGranted) {
@@ -66,7 +76,6 @@ fun BrowseGroupsScreen(
     }
 
     LaunchedEffect(Unit) {
-        vm.loadGroups()
         if (locationPermissionState.status.isGranted) {
             requestLocation()
         }
@@ -76,7 +85,7 @@ fun BrowseGroupsScreen(
         topBar = {
             SanibonaniTopBar(
                 title = "Discover Groups",
-                onBack = onBack,
+                onBack = { clickDebouncer.processClick(onBack) },
                 actions = {
                     IconButton(onClick = { showFilters = !showFilters }) {
                         Icon(
@@ -190,7 +199,7 @@ fun BrowseGroupsScreen(
                 if (showMap) {
                     SaOsmMap(
                         groups = state.filteredGroups,
-                        onMarker = onGroupClick,
+                        onMarker = { clickDebouncer.processClick { onGroupClick(it) } },
                         onLocationTap = { groupsAtLocation ->
                             selectedLocationGroups = groupsAtLocation.sortedBy { it.name }
                         },
@@ -256,7 +265,7 @@ fun BrowseGroupsScreen(
                             ) { group ->
                                 GroupDiscoveryCard(
                                     group = group,
-                                    onClick = { onGroupClick(group.id ?: "") }
+                                    onClick = { clickDebouncer.processClick { onGroupClick(group.id ?: "") } }
                                 )
                             }
                             item { Spacer(Modifier.height(80.dp)) }
@@ -266,7 +275,7 @@ fun BrowseGroupsScreen(
 
                 // Register Group FAB
                 FloatingActionButton(
-                    onClick = onRegisterGroup,
+                    onClick = { clickDebouncer.processClick(onRegisterGroup) },
                     modifier = Modifier
                         .align(if (showMap) Alignment.BottomStart else Alignment.BottomEnd)
                         .padding(
@@ -336,8 +345,10 @@ fun BrowseGroupsScreen(
                                     items(selectedLocationGroups, key = { it.id ?: it.name }) { group ->
                                         Surface(
                                             onClick = {
-                                                selectedLocationGroups = emptyList()
-                                                group.id?.let(onGroupClick)
+                                                clickDebouncer.processClick {
+                                                    selectedLocationGroups = emptyList()
+                                                    group.id?.let(onGroupClick)
+                                                }
                                             },
                                             shape = RoundedCornerShape(10.dp),
                                             color = Cream.copy(alpha = 0.6f)
@@ -392,17 +403,17 @@ fun GroupDiscoveryCard(group: Group, onClick: () -> Unit) {
     Card(
         onClick = onClick,
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(24.dp),
+        shape = RoundedCornerShape(32.dp),
         colors = CardDefaults.cardColors(containerColor = Color.White),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-        border = BorderStroke(1.dp, Forest.copy(alpha = 0.08f))
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        border = BorderStroke(1.dp, Forest.copy(alpha = 0.05f))
     ) {
-        Column(Modifier.padding(20.dp)) {
+        Column(Modifier.padding(24.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(
                     modifier = Modifier
-                        .size(64.dp)
-                        .clip(RoundedCornerShape(18.dp))
+                        .size(68.dp)
+                        .clip(RoundedCornerShape(20.dp))
                         .background(
                             Brush.linearGradient(
                                 listOf(Forest.copy(alpha = 0.12f), Forest.copy(alpha = 0.04f))
@@ -410,39 +421,50 @@ fun GroupDiscoveryCard(group: Group, onClick: () -> Unit) {
                         ),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text(group.logoEmoji, fontSize = 32.sp)
+                    Text(group.logoEmoji, fontSize = 36.sp)
                 }
                 
-                Spacer(Modifier.width(16.dp))
+                Spacer(Modifier.width(18.dp))
                 
                 Column(Modifier.weight(1f)) {
                     Text(
                         text = group.name,
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Black,
-                        color = Charcoal
+                        color = Charcoal,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
-                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 2.dp)) {
-                        Icon(Icons.Default.LocationOn, null, tint = Forest, modifier = Modifier.size(14.dp))
-                        Spacer(Modifier.width(4.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
+                        Icon(Icons.Default.LocationOn, null, tint = Forest, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(6.dp))
                         Text(
                             text = "${group.city}, ${group.province}",
                             style = MaterialTheme.typography.labelMedium,
                             color = MidGray,
-                            fontWeight = FontWeight.Medium
+                            fontWeight = FontWeight.Bold
                         )
                     }
                 }
                 
-                Icon(
-                    imageVector = Icons.AutoMirrored.Rounded.KeyboardArrowRight,
-                    contentDescription = null,
-                    tint = MidGray.copy(alpha = 0.4f),
-                    modifier = Modifier.size(28.dp)
-                )
+                Surface(
+                    color = Cream,
+                    shape = CircleShape,
+                    modifier = Modifier.size(36.dp),
+                    border = BorderStroke(1.dp, LightGray.copy(0.5f))
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Rounded.KeyboardArrowRight,
+                            contentDescription = null,
+                            tint = Forest,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+                }
             }
             
-            Spacer(Modifier.height(16.dp))
+            Spacer(Modifier.height(20.dp))
             
             Text(
                 text = group.description ?: "A savings group focused on community financial growth and mutual support.",
@@ -450,64 +472,74 @@ fun GroupDiscoveryCard(group: Group, onClick: () -> Unit) {
                 color = MidGray,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
-                lineHeight = 20.sp
+                lineHeight = 22.sp
             )
             
-            Spacer(Modifier.height(20.dp))
+            Spacer(Modifier.height(24.dp))
             
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment = Alignment.Bottom
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    modifier = Modifier.weight(1f),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Surface(
                         color = Forest.copy(alpha = 0.08f),
-                        shape = CircleShape
+                        shape = RoundedCornerShape(12.dp)
                     ) {
                         Row(
-                            Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Icon(Icons.Default.Groups, null, tint = Forest, modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(6.dp))
+                            Icon(Icons.Default.Groups, null, tint = Forest, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(8.dp))
                             Text(
                                 text = "${group.currentMembers} / ${group.maxMembers}",
                                 style = MaterialTheme.typography.labelMedium,
                                 color = Forest,
-                                fontWeight = FontWeight.Bold
+                                fontWeight = FontWeight.ExtraBold
                             )
                         }
                     }
                     
-                    Spacer(Modifier.width(8.dp))
+                    Spacer(Modifier.width(10.dp))
                     
                     Surface(
-                        color = Gold.copy(alpha = 0.1f),
-                        shape = CircleShape
+                        color = Gold.copy(alpha = 0.12f),
+                        shape = RoundedCornerShape(12.dp)
                     ) {
                         Text(
                             text = group.type.displayName,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
                             style = MaterialTheme.typography.labelMedium,
                             color = Charcoal,
-                            fontWeight = FontWeight.Bold
+                            fontWeight = FontWeight.ExtraBold
                         )
                     }
                 }
                 
-                Column(horizontalAlignment = Alignment.End) {
+                Column(
+                    modifier = Modifier.padding(start = 16.dp),
+                    horizontalAlignment = Alignment.End
+                ) {
                     Text(
-                        text = "Monthly",
+                        text = "MONTHLY",
                         style = MaterialTheme.typography.labelSmall,
                         color = MidGray,
-                        fontWeight = FontWeight.SemiBold
+                        fontWeight = FontWeight.Black,
+                        letterSpacing = 1.sp,
+                        maxLines = 1,
+                        softWrap = false
                     )
                     Text(
                         text = formatZAR(group.monthlyContribution),
-                        style = MaterialTheme.typography.titleLarge,
+                        style = MaterialTheme.typography.headlineSmall,
                         color = Forest,
-                        fontWeight = FontWeight.Black
+                        fontWeight = FontWeight.Black,
+                        maxLines = 1,
+                        softWrap = false
                     )
                 }
             }

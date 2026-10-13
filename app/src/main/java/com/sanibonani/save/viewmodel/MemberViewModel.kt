@@ -115,10 +115,29 @@ class MemberViewModel @Inject constructor(
     // INITIALIZATION
     // ══════════════════════════════════════════════════════════════════════════
 
+    private val isActive = MutableStateFlow(false)
+
     init {
         loadSavedSecuritySettings()
         observeCacheFreshness()
-        loadUserMemberships()
+        
+        viewModelScope.launch {
+            combine(observeSessionFlow(), isActive) { session, active ->
+                session?.user?.id to active
+            }
+                .distinctUntilChanged()
+                .collectLatest { (sessionUserId, active) ->
+                    if (active && !sessionUserId.isNullOrBlank()) {
+                        loadUserMemberships(sessionUserId)
+                    } else {
+                        cancelAllObservations()
+                    }
+                }
+        }
+    }
+
+    fun setActive(active: Boolean) {
+        isActive.value = active
     }
 
     private fun loadSavedSecuritySettings() {
@@ -155,8 +174,17 @@ class MemberViewModel @Inject constructor(
      * Loads all memberships for the current user.
      * Automatically switches to the most recent membership if available.
      */
-    private fun loadUserMemberships() {
-        val userId = supabaseRepo.currentUserId ?: return
+    private fun loadUserMemberships(resolvedUserId: String? = null) {
+        val userId = resolvedUserId ?: resolveAuthenticatedUserId()
+        if (userId.isNullOrBlank()) {
+            _uiState.update {
+                it.copy(
+                    isLoading = false,
+                    error = "You are not signed in. Please log in and try again."
+                )
+            }
+            return
+        }
         contextCacheService.ensureUserSession(userId)
 
         membershipObservationJob?.cancel()
@@ -308,9 +336,18 @@ class MemberViewModel @Inject constructor(
      * Only shows loading indicator when switching to a new group without cached data.
      */
     fun startRealtimeObservation(groupId: String) {
-        val userId = supabaseRepo.currentUserId ?: return
         val targetMemberId = impersonatedMemberId
         val isImpersonating = !targetMemberId.isNullOrBlank()
+        val userId = resolveAuthenticatedUserId()
+        if (userId.isNullOrBlank()) {
+            _uiState.update {
+                it.copy(
+                    isLoading = false,
+                    error = "Session expired. Please sign in again."
+                )
+            }
+            return
+        }
         val cachedContext = if (isImpersonating) null else contextCacheService.getContext(groupId)
 
         if (hasActiveObservationFor(groupId)) {
@@ -325,6 +362,9 @@ class MemberViewModel @Inject constructor(
         notificationObservationJob?.cancel()
         beneficiaryObservationJob?.cancel()
         documentObservationJob?.cancel()
+        loanObservationJob?.cancel()
+        burialClaimObservationJob?.cancel()
+        repaymentsJob?.cancel()
 
         viewModelScope.launch {
             val role = withTimeoutOrNull(2500) {
@@ -404,6 +444,7 @@ class MemberViewModel @Inject constructor(
                 loanObservationJob = observeLoans(memberFlow, groupId, requestVersion)
                 burialClaimObservationJob = observeBurialClaims(memberFlow, groupId, requestVersion)
                 activeObservedGroupId = groupId
+                activeObservedMemberId = targetMemberId
             }
         }
     }
@@ -732,8 +773,11 @@ class MemberViewModel @Inject constructor(
     private fun hasActiveObservationFor(groupId: String): Boolean {
         return activeObservedGroupId == groupId &&
             groupObservationJob?.isActive == true &&
-            observationVersion > 0
+            observationVersion > 0 &&
+            impersonatedMemberId == activeObservedMemberId
     }
+
+    private var activeObservedMemberId: String? = null
 
     private fun isStaleObservation(groupId: String, requestVersion: Long): Boolean {
         return requestVersion != observationVersion || _uiState.value.currentGroupId != groupId
@@ -761,7 +805,17 @@ class MemberViewModel @Inject constructor(
      * Reloads member data. Public entry point for refresh operations.
      */
     fun loadMemberData() {
-        loadUserMemberships()
+        loadUserMemberships(resolveAuthenticatedUserId())
+    }
+
+    private fun resolveAuthenticatedUserId(): String? {
+        return supabaseRepo.currentUserId ?: supabaseRepo.currentSession?.user?.id
+    }
+
+    private fun observeSessionFlow(): Flow<io.github.jan.supabase.auth.user.UserSession?> {
+        // Some tests only stub currentSession/currentUserId; gracefully degrade when sessionFlow is not mocked.
+        return runCatching { supabaseRepo.sessionFlow }
+            .getOrElse { flowOf(supabaseRepo.currentSession) }
     }
 
     // ══════════════════════════════════════════════════════════════════════════
@@ -824,8 +878,12 @@ class MemberViewModel @Inject constructor(
         dob: String?,
         isOver65: Boolean = false
     ) {
-        val memberId = _uiState.value.member?.id ?: return
-        val groupId = _uiState.value.group?.id ?: return
+        val memberId = _uiState.value.member?.id
+        val groupId = _uiState.value.group?.id
+        if (memberId.isNullOrBlank() || groupId.isNullOrBlank()) {
+            _uiState.update { it.copy(error = "No active member or group context. Please refresh and try again.") }
+            return
+        }
 
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, error = null) }
@@ -856,9 +914,13 @@ class MemberViewModel @Inject constructor(
      * Deletes a beneficiary.
      */
     fun deleteBeneficiary(id: String) {
-        val memberId = _uiState.value.member?.id ?: return
-        val groupId = _uiState.value.group?.id ?: return
-        
+        val memberId = _uiState.value.member?.id
+        val groupId = _uiState.value.group?.id
+        if (memberId.isNullOrBlank() || groupId.isNullOrBlank()) {
+            _uiState.update { it.copy(error = "No active member or group context. Please refresh and try again.") }
+            return
+        }
+
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, error = null) }
 
@@ -886,9 +948,13 @@ class MemberViewModel @Inject constructor(
             return
         }
 
-        val memberId = _uiState.value.member?.id ?: return
-        val groupId = _uiState.value.group?.id ?: return
-        
+        val memberId = _uiState.value.member?.id
+        val groupId = _uiState.value.group?.id
+        if (memberId.isNullOrBlank() || groupId.isNullOrBlank()) {
+            sendEvent(MemberEvent.ShowMessage("No active member or group context. Please refresh and try again."))
+            return
+        }
+
         viewModelScope.launch {
             _uiState.update { it.copy(isUploading = true, error = null) }
             
@@ -966,8 +1032,12 @@ class MemberViewModel @Inject constructor(
     }
 
     fun uploadRelationalDocument(label: String, bytes: ByteArray, fileName: String) {
-        val member = _uiState.value.member ?: return
-        val memberId = member.id ?: return
+        val member = _uiState.value.member
+        val memberId = member?.id
+        if (member == null || memberId.isNullOrBlank()) {
+            _uiState.update { it.copy(error = "No active member context. Please refresh and try again.") }
+            return
+        }
         val groupId = member.groupId
 
         viewModelScope.launch {
@@ -1516,13 +1586,23 @@ class MemberViewModel @Inject constructor(
                 return@launch
             }
 
-            // Validate banking details before building the claim
-            val bankingValidation = ValidationUtils.validateGroupStep4(bankName, accountNo, branchCode)
+            // Resolve banking details from explicit input first, then fallback to group/member profile context.
+            val resolvedBankName = bankName.ifBlank { group.bankName.orEmpty() }
+            val resolvedAccountNo = accountNo.ifBlank { group.accountNumber.orEmpty() }
+            val resolvedBranchCode = branchCode.ifBlank { group.branchCode.orEmpty() }
+            val resolvedAccountHolder = accountHolder.ifBlank { member.fullName }
+
+            // Validate banking details before building the claim.
+            val bankingValidation = ValidationUtils.validateGroupStep4(
+                resolvedBankName,
+                resolvedAccountNo,
+                resolvedBranchCode
+            )
             if (bankingValidation !is ValidationResult.Valid) {
                 _uiState.update { it.copy(isSubmittingClaim = false, error = bankingValidation.getErrorMessage()) }
                 return@launch
             }
-            if (accountHolder.isBlank()) {
+            if (resolvedAccountHolder.isBlank()) {
                 _uiState.update { it.copy(isSubmittingClaim = false, error = "Account holder name is required.") }
                 return@launch
             }
@@ -1535,10 +1615,10 @@ class MemberViewModel @Inject constructor(
                 causeOfDeath = causeOfDeath,
                 dateOfDeath = dateOfDeath,
                 claimAmount = claimAmount,
-                bankName = bankName,
-                accountNo = accountNo,
-                branchCode = branchCode,
-                accountHolder = accountHolder,
+                bankName = resolvedBankName,
+                accountNo = resolvedAccountNo,
+                branchCode = resolvedBranchCode,
+                accountHolder = resolvedAccountHolder,
                 notes = notes,
                 status = BeneficiaryClaimStatus.SUBMITTED
             )
@@ -1622,7 +1702,7 @@ class MemberViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.update { it.copy(isExporting = true) }
 
-            exportRepo.exportContributionsToPdf(group!!, member!!, contributions)
+            exportRepo.exportContributionsToPdf(group, member, contributions)
                 .onSuccess { file ->
                     _uiState.update { it.copy(isExporting = false, exportFile = file) }
                 }
@@ -1676,6 +1756,13 @@ class MemberViewModel @Inject constructor(
         _uiState.update { it.copy(error = null) }
     }
 
+    /**
+     * Selects a contribution for detail view.
+     */
+    fun selectContribution(contribution: Contribution?) {
+        _uiState.update { it.copy(selectedContribution = contribution) }
+    }
+
     // ══════════════════════════════════════════════════════════════════════════
     // EVENT HELPERS
     // ══════════════════════════════════════════════════════════════════════════
@@ -1708,6 +1795,29 @@ class MemberViewModel @Inject constructor(
         private val ADDRESS_SEARCH_FIELDS = setOf(FIELD_STREET, FIELD_CITY, FIELD_SUBURB)
         private const val MIN_ADDRESS_QUERY_LENGTH = 3
         private const val ADDRESS_SEARCH_DEBOUNCE_MS = 500L
+    }
+
+    private fun cancelAllObservations() {
+        membershipObservationJob?.cancel()
+        groupObservationJob?.cancel()
+        memberDataObservationJob?.cancel()
+        allMembersObservationJob?.cancel()
+        notificationObservationJob?.cancel()
+        beneficiaryObservationJob?.cancel()
+        documentObservationJob?.cancel()
+        loanObservationJob?.cancel()
+        burialClaimObservationJob?.cancel()
+        repaymentsJob?.cancel()
+        cacheObservationJob?.cancel()
+        addressSearchJob?.cancel()
+
+        activeObservedGroupId = null
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        cancelAllObservations()
+        // No hard state reset here to prevent race conditions during fast navigation transitions.
     }
 }
 

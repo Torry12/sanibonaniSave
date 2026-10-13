@@ -3,7 +3,9 @@
 -- For advanced or dashboard scenarios, see E2E_SEED.sql or legacy seeds (deprecated).
 \echo '\n-- Applying canonical E2E seed (E2E_SEED.sql)'
 \i 'supabase/seeds/E2E_SEED.sql'
-\echo '\n-- E2E seed applied.'
+\echo '\n-- Applying Realistic E2E scenarios (REALISTIC_E2E_SEED.sql)'
+\i 'supabase/seeds/REALISTIC_E2E_SEED.sql'
+\echo '\n-- E2E seeds applied.'
 -- Legacy/test seeds below are deprecated and not included by default:
 -- \i 'supabase/25_SEED_FULL_APP_E2E.sql'
 -- \i 'supabase/33_REBUILD_DATABASE_WITH_TEST_SEED.sql'

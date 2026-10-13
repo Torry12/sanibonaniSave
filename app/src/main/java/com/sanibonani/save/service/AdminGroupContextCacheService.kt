@@ -40,7 +40,7 @@ class AdminGroupContextCacheService @Inject constructor(
     val contexts: StateFlow<Map<String, CachedAdminGroupContext>> = _contexts.asStateFlow()
 
     private var cachedUserId: String? = null
-    private val warmupJobs = mutableMapOf<String, Job>()
+    private val warmupJobs = java.util.concurrent.ConcurrentHashMap<String, Job>()
 
     fun getContext(groupId: String): CachedAdminGroupContext? = _contexts.value[groupId]
 

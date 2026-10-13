@@ -2,6 +2,7 @@ package com.sanibonani.save.domain.usecase.actuarial
 
 import com.sanibonani.save.domain.model.*
 import com.sanibonani.save.domain.usecase.rosca.sortRoscaParticipants
+import kotlin.math.*
 
 /**
  * Industry-standard actuarial calculation engine for South African savings groups.
@@ -42,6 +43,9 @@ object GroupTypeActuarialEngine {
     /** Standard actuarial safety loading */
     const val BURIAL_SAFETY_LOADING_PCT = 35.0
 
+    /** Standard administrative cost per member per year */
+    const val ADMIN_COST_PER_MEMBER = 25.0
+
     // ── Stokvel / ROSCA Standards (NASASA 2024) ───────────────────────────
     /** SA average stokvel membership size */
     const val STOKVEL_AVG_MEMBERS = 38.0
@@ -61,6 +65,17 @@ object GroupTypeActuarialEngine {
     // ── Tontine ───────────────────────────────────────────────────────────
     /** Discount rate used for tontine NPV calculations */
     const val TONTINE_DISCOUNT_RATE_PCT = 10.0
+
+    /**
+     * Common statistics for a group used across multiple actuarial calculations.
+     */
+    data class GroupStats(
+        val activeMemberCount: Int,
+        val monthsActive: Int,
+        val totalExpectedAnnualContributions: Double,
+        val paymentRatePct: Double,
+        val activeMembers: List<Member>
+    )
 
     // ══════════════════════════════════════════════════════════════════════
     //  BURIAL SOCIETY  –  FSCA / FSB Prudential Standard
@@ -148,7 +163,7 @@ object GroupTypeActuarialEngine {
             BURIAL_MIN_RESERVE_MONTHS * 4.0
 
         val benefitAdequacyPct = (benefitAmount / SA_AVG_FUNERAL_COST) * 100.0
-        val claimRatePerThousand = if (n > 0) expectedAnnualClaimsCount / n * 1000.0 else 0.0
+        val claimRatePerThousand = if (n > 0) (expectedAnnualClaimsCount / n) * 1000.0 else 0.0
 
         val isCapitalAdequate = balance >= minimumCapitalAmount
         val isReserveAdequate = reserveCoverageMonths >= BURIAL_MIN_RESERVE_MONTHS
@@ -166,7 +181,7 @@ object GroupTypeActuarialEngine {
             if (!isCapitalAdequate)
                 add("⚠️ Capital adequacy below 15% regulatory minimum. Required: R${r(minimumCapitalAmount)}.")
             if (!isReserveAdequate)
-                add("⚠️ Reserve covers ${r(reserveCoverageMonths)} months (min: ${BURIAL_MIN_RESERVE_MONTHS} months).")
+                add("⚠️ Reserve covers ${r(reserveCoverageMonths)} months (min: $BURIAL_MIN_RESERVE_MONTHS months).")
             if (benefitAdequacyPct < 60.0)
                 add("⚠️ Benefit R${r(benefitAmount)} is below 60% of average SA funeral cost (R${SA_AVG_FUNERAL_COST.toInt()}).")
             if (yearsToInsolvency in 0.0..3.0)
@@ -352,11 +367,7 @@ object GroupTypeActuarialEngine {
         // PV of saving alone: annuity of c payments for n months at rate r
         //   PV_alone = c × (1 - (1+r)^-n) / r   [or c×n when r≈0]
         // PV of saving alone: annuity PV = c × (1 - (1+r)^-n) / r
-        val pvSavingAlone = if (r > 0.0) {
-            group.monthlyContribution * (1.0 - (1.0 + r).pow(-n.toDouble())) / r
-        } else {
-            group.monthlyContribution * n
-        }
+        val pvSavingAlone = group.monthlyContribution * (1.0 - (1.0 + r).pow(-n.toDouble())) / r
 
         // Early receiver (position 1): gets full pot at end of month 1
         //   PV_early = monthlyPot / (1+r)
@@ -452,7 +463,7 @@ object GroupTypeActuarialEngine {
     ): StokvelActuarialMetrics {
         val n = memberCount.coerceAtLeast(1)
         val monthInYear = (monthsActive % 12).let { if (it == 0) 12 else it }
-        val monthsToTarget = (12 - monthInYear).let { if (it == 0) 12 else it }
+        val monthsToTarget = (12 - monthInYear).let { if (it == 0) 0 else it }
 
         val futureContribs = group.monthlyContribution * n * monthsToTarget
         val totalProjectedFund = balance + futureContribs
@@ -594,7 +605,7 @@ object GroupTypeActuarialEngine {
 
         val r = TONTINE_DISCOUNT_RATE_PCT / 100.0 / 12.0
         val pmt = group.monthlyContribution * n
-        val projectedFund = if (r > 0.0 && remainingMonths > 0)
+        val projectedFund = if (remainingMonths > 0)
             balance * (1.0 + r).pow(remainingMonths.toDouble()) +
                 pmt * ((1.0 + r).pow(remainingMonths.toDouble()) - 1.0) / r
         else
@@ -745,6 +756,390 @@ object GroupTypeActuarialEngine {
     }
 
     // ══════════════════════════════════════════════════════════════════════
+    //  CORE ACTUARIAL MATH
+    // ══════════════════════════════════════════════════════════════════════
+
+    data class ActuarialScalarInput(
+        val membersCount: Int,
+        val balance: Double,
+        val mortalityRatePct: Double,
+        val avgClaim: Double,
+        val safetyLoadingPct: Double,
+        val adminCostPerMember: Double,
+        val annualDiscountRatePct: Double,
+        val currentPremium: Double,
+        val claimsPaid: Double,
+        val totalContributions: Double,
+        val paymentRatePct: Double,
+        val totalExpectedContributionsAnnual: Double
+    )
+
+    /**
+     * Computes all scalar actuarial indicators from raw parameters.
+     * Pure function – no side effects.
+     */
+    fun computeActuarialScalars(
+        membersCount: Int,
+        balance: Double,
+        mortalityRatePct: Double,
+        avgClaim: Double,
+        safetyLoadingPct: Double,
+        adminCostPerMember: Double,
+        annualDiscountRatePct: Double,
+        currentPremium: Double,
+        claimsPaid: Double,
+        totalContributions: Double,
+        paymentRatePct: Double,
+        totalExpectedContributionsAnnual: Double
+    ): ActuarialMetrics = computeActuarialScalars(
+        ActuarialScalarInput(
+            membersCount = membersCount,
+            balance = balance,
+            mortalityRatePct = mortalityRatePct,
+            avgClaim = avgClaim,
+            safetyLoadingPct = safetyLoadingPct,
+            adminCostPerMember = adminCostPerMember,
+            annualDiscountRatePct = annualDiscountRatePct,
+            currentPremium = currentPremium,
+            claimsPaid = claimsPaid,
+            totalContributions = totalContributions,
+            paymentRatePct = paymentRatePct,
+            totalExpectedContributionsAnnual = totalExpectedContributionsAnnual
+        )
+    )
+
+    fun computeActuarialScalars(input: ActuarialScalarInput): ActuarialMetrics {
+        val sanitizedMembers = input.membersCount.coerceAtLeast(1)
+        val sanitizedBalance = input.balance.coerceAtLeast(0.0)
+        val sanitizedMortalityPct = input.mortalityRatePct.coerceIn(0.0, 100.0)
+        val sanitizedAvgClaim = input.avgClaim.coerceAtLeast(0.0)
+        val sanitizedSafetyLoadingPct = input.safetyLoadingPct.coerceAtLeast(0.0)
+        val sanitizedAdminCost = input.adminCostPerMember.coerceAtLeast(0.0)
+        val sanitizedDiscountPct = input.annualDiscountRatePct.coerceAtLeast(0.0)
+        val sanitizedCurrentPremium = input.currentPremium.coerceAtLeast(0.0)
+        val sanitizedClaimsPaid = input.claimsPaid.coerceAtLeast(0.0)
+        val sanitizedTotalContributions = input.totalContributions.coerceAtLeast(0.0)
+        val sanitizedPaymentRatePct = input.paymentRatePct.coerceIn(0.0, 100.0)
+        val sanitizedExpectedAnnualContrib = input.totalExpectedContributionsAnnual.coerceAtLeast(0.0)
+
+        val q = sanitizedMortalityPct / 100.0
+        val expectedAnnualClaims = sanitizedMembers * q * sanitizedAvgClaim
+
+        val i = sanitizedDiscountPct / 100.0
+        val v = 1.0 / (1.0 + i)
+        val actuarialPresentValue = expectedAnnualClaims * v
+
+        val purePremium = expectedAnnualClaims / sanitizedMembers
+        val safetyLoading = purePremium * (sanitizedSafetyLoadingPct / 100.0)
+        val grossPremium = purePremium + safetyLoading + sanitizedAdminCost
+
+        val reserveAdequacyPct = if (expectedAnnualClaims > 0)
+            (sanitizedBalance / expectedAnnualClaims) * 100.0 else 1_000.0
+        val solvencyMarginPct = ((sanitizedBalance + sanitizedTotalContributions - sanitizedClaimsPaid) /
+            max(1.0, expectedAnnualClaims)) * 100.0
+        val lossRatioPct = if (sanitizedTotalContributions > 0)
+            (sanitizedClaimsPaid / sanitizedTotalContributions) * 100.0 else 0.0
+
+        val contributionSufficiencyPct = if (grossPremium > 0)
+            (sanitizedCurrentPremium / grossPremium) * 100.0 else 0.0
+        val breakEvenDenominator = sanitizedCurrentPremium - purePremium - safetyLoading
+        val breakEvenMembers = if (breakEvenDenominator <= 0.0) Int.MAX_VALUE
+        else kotlin.math.ceil((sanitizedAdminCost * sanitizedMembers) / breakEvenDenominator).toInt()
+
+        val fundingRatioPct = if (actuarialPresentValue > 0)
+            (sanitizedBalance / actuarialPresentValue) * 100.0 else 1_000.0
+
+        val score = (
+            min(100.0, reserveAdequacyPct * 0.3) +
+                min(100.0, contributionSufficiencyPct * 0.4) +
+                min(100.0, sanitizedPaymentRatePct * 0.3)
+            ).roundToInt().coerceIn(0, 100)
+
+        val monthlyNetFlow = (sanitizedExpectedAnnualContrib / 12.0 * (sanitizedPaymentRatePct / 100.0)) -
+            (expectedAnnualClaims / 12.0) -
+            (sanitizedMembers * sanitizedAdminCost / 12.0)
+        val insolvencyMonths = if (monthlyNetFlow >= 0.0) Int.MAX_VALUE
+        else (sanitizedBalance / abs(monthlyNetFlow)).toInt().coerceAtLeast(0)
+
+        return ActuarialMetrics(
+            purePremium                 = r(purePremium),
+            grossPremium                = r(grossPremium),
+            reserveAdequacyPct          = r(reserveAdequacyPct),
+            solvencyMarginPct           = r(solvencyMarginPct),
+            lossRatioPct                = r(lossRatioPct),
+            contributionSufficiencyPct  = r(contributionSufficiencyPct),
+            breakEvenMembers            = breakEvenMembers,
+            actuarialPresentValue       = r(actuarialPresentValue),
+            fundingRatioPct             = r(fundingRatioPct),
+            paymentRatePct              = r(sanitizedPaymentRatePct),
+            compositeRiskScore          = score,
+            insolvencyMonths            = insolvencyMonths,
+            expectedAnnualClaims        = r(expectedAnnualClaims)
+        )
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
+    //  VIABILITY PLANNING
+    // ══════════════════════════════════════════════════════════════════════
+
+    /**
+     * Builds a comprehensive viability plan for the group to reach a financial goal.
+     */
+    fun calculateViabilityPlan(
+        group: Group,
+        members: List<Member>,
+        goalAmount: Double,
+        periodMonths: Int
+    ): ViabilityPlan {
+        val activeList = members.filter {
+            it.status == MemberStatus.ACTIVE || it.status == MemberStatus.PROBATION
+        }
+        val n = max(activeList.size, 1)
+        val messages = mutableListOf<String>()
+
+        val currentBalance = group.balance.coerceAtLeast(0.0)
+        val effectivePeriod = if (periodMonths > 0) periodMonths else max(group.periodMonths, 1)
+        val activeRatio = if (members.isEmpty()) 1.0 else n.toDouble() / members.size.toDouble()
+        val inflationAdjustmentFactor = 1.0 +
+            ((SA_CPI_INFLATION_PCT / 100.0) * (effectivePeriod / 12.0))
+        val investmentMonthlyRate = SA_REPO_RATE_PCT / 100.0 / 12.0
+        val investmentAnnuityFactor =
+            ((1.0 + investmentMonthlyRate).pow(effectivePeriod.toDouble()) - 1.0) / investmentMonthlyRate
+        val tontineMonthlyRate = TONTINE_DISCOUNT_RATE_PCT / 100.0 / 12.0
+        val tontineAnnuityFactor =
+            ((1.0 + tontineMonthlyRate).pow(effectivePeriod.toDouble()) - 1.0) / tontineMonthlyRate
+        val emergencyCoverageTarget = group.monthlyContribution * n * EMERGENCY_TARGET_MONTHS
+        val defaultGoal = when (group.type) {
+            GroupType.BURIAL_SOCIETY -> group.goalAmount.takeIf { it > 0.0 } ?: SA_AVG_FUNERAL_COST
+            GroupType.STOKVEL -> group.goalAmount.takeIf { it > 0.0 } ?: (currentBalance + (group.monthlyContribution * n * effectivePeriod))
+            GroupType.ROSCA -> group.goalAmount.takeIf { it > 0.0 } ?: (group.monthlyContribution * n)
+            GroupType.INVESTMENT_CLUB -> group.goalAmount.takeIf { it > 0.0 } ?: (currentBalance * (1.0 + investmentMonthlyRate).pow(effectivePeriod.toDouble()) + (group.monthlyContribution * n * effectivePeriod))
+            GroupType.EMERGENCY_FUND -> max(group.goalAmount, emergencyCoverageTarget)
+            GroupType.TONTINE -> group.goalAmount.takeIf { it > 0.0 } ?: (currentBalance * (1.0 + tontineMonthlyRate).pow(effectivePeriod.toDouble()) + (group.monthlyContribution * n * effectivePeriod))
+            GroupType.COMMUNITY_SAVINGS,
+            GroupType.OTHER -> group.goalAmount.takeIf { it > 0.0 } ?: (currentBalance + (group.monthlyContribution * n * effectivePeriod))
+        }
+        val requestedGoal = if (goalAmount > 0) goalAmount else defaultGoal
+        val effectiveGoal = when (group.type) {
+            GroupType.EMERGENCY_FUND -> max(requestedGoal, emergencyCoverageTarget)
+            GroupType.ROSCA -> max(requestedGoal, group.monthlyContribution * n)
+            else -> requestedGoal
+        }
+        val openingBalanceCredit = when (group.type) {
+            GroupType.ROSCA -> 0.0
+            else -> currentBalance
+        }
+        val targetGap = (effectiveGoal - openingBalanceCredit).coerceAtLeast(0.0)
+        val baseMonthly = if (n > 0 && effectivePeriod > 0) targetGap / (n * effectivePeriod) else 0.0
+
+        var claimReadinessFactor = 1.0
+        var mortalityBufferFactor = 1.0
+        var reserveAdequacyFactor = 1.0
+        var marketReturnPremiumFactor = 1.0
+        var volatilityHaircutFactor = 1.0
+        var collectionEfficiencyFactor = 1.0
+        var festivePayoutPressureFactor = 1.0
+        var defaultRiskFactor = 1.0
+        var cycleSlippageFactor = 1.0
+        var withdrawalPressureFactor = 1.0
+        var inflationSafetyFactor = 1.0
+        var survivorUncertaintyFactor = 1.0
+        var horizonCompoundingFactor = 1.0
+        var goalStretchRatio = 1.0
+        var growthConservatismFactor = 1.0
+
+        val suggestedMonthly = when (group.type) {
+            GroupType.BURIAL_SOCIETY -> {
+                mortalityBufferFactor = 1.0 + (SA_WORKING_AGE_MORT_PER_1000 / 1000.0)
+                val reserveCoverageMonths = if (n > 0 && group.monthlyContribution > 0.0) {
+                    (currentBalance / (group.monthlyContribution * n)).coerceAtLeast(0.0)
+                } else 0.0
+                reserveAdequacyFactor = if (reserveCoverageMonths >= 3.0) 1.0 else 1.15
+                claimReadinessFactor = 1.25
+                messages += "Burial Society factors: claim_readiness=${r(claimReadinessFactor)}, mortality_buffer=${r(mortalityBufferFactor)}, reserve_adequacy=${r(reserveAdequacyFactor)}."
+                if (openingBalanceCredit > 0.0) {
+                    messages += "Burial Society: Current reserve balance of R${r(openingBalanceCredit)} reduces the funding gap."
+                }
+                baseMonthly * claimReadinessFactor * mortalityBufferFactor * reserveAdequacyFactor
+            }
+            GroupType.INVESTMENT_CLUB -> {
+                val openingBalanceFutureValue = currentBalance * (1.0 + investmentMonthlyRate).pow(effectivePeriod.toDouble())
+                val futureGap = (effectiveGoal - openingBalanceFutureValue).coerceAtLeast(0.0)
+                marketReturnPremiumFactor = 0.93
+                volatilityHaircutFactor = if (effectivePeriod < 18) 1.10 else 1.04
+                messages += "Investment Club factors: annual_rate=${SA_REPO_RATE_PCT}%, return_premium=${r(marketReturnPremiumFactor)}, volatility_haircut=${r(volatilityHaircutFactor)}."
+                if (openingBalanceCredit > 0.0) {
+                    messages += "Investment Club: Existing assets of R${r(openingBalanceCredit)} are compounded into the target projection."
+                }
+                if (futureGap == 0.0) 0.0 else (futureGap / (n * investmentAnnuityFactor)) * marketReturnPremiumFactor * volatilityHaircutFactor
+            }
+            GroupType.STOKVEL -> {
+                collectionEfficiencyFactor = if (group.allowPartialPayment) 0.98 else 1.0
+                festivePayoutPressureFactor = if (effectivePeriod >= 11) 1.03 else 1.0
+                messages += "Stokvel factors: collection_efficiency=${r(collectionEfficiencyFactor)}, payout_pressure=${r(festivePayoutPressureFactor)}."
+                if (openingBalanceCredit > 0.0) {
+                    messages += "Stokvel: Current pot of R${r(openingBalanceCredit)} is included in the year-end payout target."
+                }
+                baseMonthly * festivePayoutPressureFactor / collectionEfficiencyFactor
+            }
+            GroupType.ROSCA -> {
+                val baseDefault = ROSCA_DEFAULT_RISK_BASE_PCT / 100.0
+                val participationPenalty = (1.0 - activeRatio).coerceAtLeast(0.0) * 0.30
+                val cycleLengthPenalty = (n - 12).coerceAtLeast(0) * 0.003
+                defaultRiskFactor = 1.0 + baseDefault + participationPenalty + cycleLengthPenalty
+                cycleSlippageFactor = when {
+                    activeRatio >= 0.95 -> 1.0
+                    activeRatio >= 0.85 -> 1.03
+                    else -> 1.07
+                }
+                messages += "ROSCA factors: default_risk=${r(defaultRiskFactor)}, cycle_slippage=${r(cycleSlippageFactor)}, active_ratio=${r(activeRatio * 100.0)}%."
+                messages += "ROSCA: Target cycle pot = R${r(effectiveGoal)} with member pot share of R${r(effectiveGoal / n)}."
+                ((effectiveGoal / n) * defaultRiskFactor * cycleSlippageFactor).coerceAtLeast(0.0)
+            }
+            GroupType.EMERGENCY_FUND -> {
+                withdrawalPressureFactor = if (group.autoSuspendAfter <= 1) 1.10 else 1.03
+                inflationSafetyFactor = inflationAdjustmentFactor
+                messages += "Emergency Fund factors: withdrawal_pressure=${r(withdrawalPressureFactor)}, inflation_safety=${r(inflationSafetyFactor)}."
+                messages += "Emergency Fund: Target is ${EMERGENCY_TARGET_MONTHS.toInt()} months of pooled expenses (minimum R${r(emergencyCoverageTarget)})."
+                if (openingBalanceCredit > 0.0) {
+                    messages += "Emergency Fund: Existing reserves of R${r(openingBalanceCredit)} count toward the safety buffer."
+                }
+                baseMonthly * withdrawalPressureFactor * inflationSafetyFactor
+            }
+            GroupType.TONTINE -> {
+                survivorUncertaintyFactor = if (n < 10) 1.08 else 1.03
+                horizonCompoundingFactor = if (effectivePeriod >= 24) 0.97 else 1.0
+                messages += "Tontine factors: survivor_uncertainty=${r(survivorUncertaintyFactor)}, horizon_compounding=${r(horizonCompoundingFactor)}."
+                messages += "Tontine: Contributions accumulate for ${effectivePeriod/12} years."
+                if (openingBalanceCredit > 0.0) {
+                    messages += "Tontine: Current pooled fund of R${r(openingBalanceCredit)} compounds toward survivor benefits."
+                }
+                val openingBalanceFutureValue = currentBalance * (1.0 + tontineMonthlyRate).pow(effectivePeriod.toDouble())
+                val futureGap = (effectiveGoal - openingBalanceFutureValue).coerceAtLeast(0.0)
+                if (futureGap == 0.0) 0.0 else (futureGap / (n * tontineAnnuityFactor)) * survivorUncertaintyFactor * horizonCompoundingFactor
+            }
+            GroupType.COMMUNITY_SAVINGS -> {
+                goalStretchRatio = if (group.balance > 0.0) (effectiveGoal / group.balance).coerceAtLeast(1.0) else 1.2
+                growthConservatismFactor = if (goalStretchRatio > 4.0) 1.10 else 1.03
+                messages += "Community Savings factors: goal_stretch_ratio=${r(goalStretchRatio)}, conservatism=${r(growthConservatismFactor)}."
+                if (openingBalanceCredit > 0.0) {
+                    messages += "Community Savings: Existing pooled savings of R${r(openingBalanceCredit)} accelerate goal progress."
+                }
+                baseMonthly * growthConservatismFactor
+            }
+            GroupType.OTHER -> {
+                goalStretchRatio = if (group.balance > 0.0) (effectiveGoal / group.balance).coerceAtLeast(1.0) else 1.25
+                growthConservatismFactor = if (goalStretchRatio > 4.0) 1.12 else 1.05
+                messages += "Custom Savings factors: goal_stretch_ratio=${r(goalStretchRatio)}, conservatism=${r(growthConservatismFactor)}."
+                if (openingBalanceCredit > 0.0) {
+                    messages += "Custom Savings: Current balance of R${r(openingBalanceCredit)} is credited toward the target."
+                }
+                baseMonthly * growthConservatismFactor
+            }
+        }
+
+        val initialContribution = if (group.type == GroupType.BURIAL_SOCIETY) suggestedMonthly * 2 else suggestedMonthly
+
+        val projectionRetentionFactor = when (group.type) {
+            GroupType.ROSCA -> (0.99 - ((1.0 - activeRatio).coerceAtLeast(0.0) * 0.08)).coerceIn(0.90, 0.99)
+            GroupType.BURIAL_SOCIETY, GroupType.EMERGENCY_FUND -> 0.99
+            GroupType.STOKVEL -> if (group.allowPartialPayment) 0.98 else 1.0
+            else -> 1.0
+        }
+
+        val periodicContribution = n * suggestedMonthly
+        val roscaCycles = ceil(effectivePeriod.toDouble() / n).toInt().coerceAtLeast(1)
+        val projectedValue = when (group.type) {
+            GroupType.ROSCA -> periodicContribution * roscaCycles * projectionRetentionFactor
+            else -> openingBalanceCredit + (periodicContribution * effectivePeriod * projectionRetentionFactor)
+        }
+        val compoundedProjectedValue = when (group.type) {
+            GroupType.ROSCA -> projectedValue
+            GroupType.INVESTMENT_CLUB -> {
+                val openingBalanceFutureValue = openingBalanceCredit * (1.0 + investmentMonthlyRate).pow(effectivePeriod.toDouble())
+                openingBalanceFutureValue + (periodicContribution * investmentAnnuityFactor * projectionRetentionFactor)
+            }
+            GroupType.TONTINE -> {
+                val openingBalanceFutureValue = openingBalanceCredit * (1.0 + tontineMonthlyRate).pow(effectivePeriod.toDouble())
+                openingBalanceFutureValue + (periodicContribution * tontineAnnuityFactor * projectionRetentionFactor)
+            }
+            else -> {
+                val openingBalanceFutureValue = openingBalanceCredit * (1.0 + investmentMonthlyRate).pow(effectivePeriod.toDouble())
+                openingBalanceFutureValue + (periodicContribution * investmentAnnuityFactor * projectionRetentionFactor)
+            }
+        }
+
+        val optimistic  = when (group.type) {
+            GroupType.ROSCA -> periodicContribution * 1.15 * projectionRetentionFactor
+            else -> openingBalanceCredit + (n * (suggestedMonthly * 1.15) * effectivePeriod * projectionRetentionFactor)
+        }
+        val pessimistic = when (group.type) {
+            GroupType.ROSCA -> periodicContribution * 0.85 * projectionRetentionFactor
+            else -> openingBalanceCredit + (n * (suggestedMonthly * 0.85) * effectivePeriod * projectionRetentionFactor)
+        }
+        val shortfall   = (effectiveGoal - projectedValue).coerceAtLeast(0.0)
+        val requiredMonthly = when (group.type) {
+            GroupType.ROSCA -> if (n > 0) effectiveGoal / n else suggestedMonthly
+            GroupType.INVESTMENT_CLUB -> {
+                val openingBalanceFutureValue = openingBalanceCredit * (1.0 + investmentMonthlyRate).pow(effectivePeriod.toDouble())
+                val futureGap = (effectiveGoal - openingBalanceFutureValue).coerceAtLeast(0.0)
+                if (n > 0 && investmentAnnuityFactor > 0.0) futureGap / (n * investmentAnnuityFactor) else suggestedMonthly
+            }
+            GroupType.TONTINE -> {
+                val openingBalanceFutureValue = openingBalanceCredit * (1.0 + tontineMonthlyRate).pow(effectivePeriod.toDouble())
+                val futureGap = (effectiveGoal - openingBalanceFutureValue).coerceAtLeast(0.0)
+                if (n > 0 && tontineAnnuityFactor > 0.0) futureGap / (n * tontineAnnuityFactor) else suggestedMonthly
+            }
+            else -> if (n > 0 && effectivePeriod > 0) targetGap / (n * effectivePeriod) else suggestedMonthly
+        }
+        val breakEvenMonths = when {
+            targetGap <= 0.0 -> 0
+            group.type == GroupType.ROSCA && periodicContribution > 0.0 -> 1
+            periodicContribution > 0.0 -> ceil(targetGap / (periodicContribution * projectionRetentionFactor.coerceAtLeast(0.01))).toInt()
+            else -> effectivePeriod
+        }
+
+        if (n < 5) messages += "Warning: Low member count ($n) increases individual burden."
+
+        return ViabilityPlan(
+            initialContribution            = r(initialContribution),
+            suggestedMonthlyContribution   = r(suggestedMonthly),
+            projectedValue                 = r(projectedValue),
+            isViable                       = when (group.type) {
+                GroupType.ROSCA -> projectedValue >= effectiveGoal
+                else -> compoundedProjectedValue >= effectiveGoal
+            },
+            goalAmount                     = r(effectiveGoal),
+            periodMonths                   = effectivePeriod,
+            messages                       = messages,
+            requiredMonthlyToMeetGoal      = r(requiredMonthly),
+            shortfallAmount                = r(shortfall),
+            breakEvenMonths                = breakEvenMonths,
+            compoundedProjectedValue       = r(compoundedProjectedValue),
+            optimisticProjectedValue       = r(optimistic),
+            pessimisticProjectedValue      = r(pessimistic),
+            activeMemberRatio              = r(activeRatio),
+            inflationAdjustmentFactor      = r(inflationAdjustmentFactor),
+            projectionRetentionFactor      = r(projectionRetentionFactor),
+            claimReadinessFactor           = r(claimReadinessFactor),
+            mortalityBufferFactor          = r(mortalityBufferFactor),
+            reserveAdequacyFactor          = r(reserveAdequacyFactor),
+            marketReturnPremiumFactor      = r(marketReturnPremiumFactor),
+            volatilityHaircutFactor        = r(volatilityHaircutFactor),
+            collectionEfficiencyFactor     = r(collectionEfficiencyFactor),
+            festivePayoutPressureFactor    = r(festivePayoutPressureFactor),
+            defaultRiskFactor              = r(defaultRiskFactor),
+            cycleSlippageFactor            = r(cycleSlippageFactor),
+            withdrawalPressureFactor       = r(withdrawalPressureFactor),
+            inflationSafetyFactor          = r(inflationSafetyFactor),
+            survivorUncertaintyFactor      = r(survivorUncertaintyFactor),
+            horizonCompoundingFactor       = r(horizonCompoundingFactor),
+            goalStretchRatio               = r(goalStretchRatio),
+            growthConservatismFactor       = r(growthConservatismFactor)
+        )
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
     //  INDUSTRY BENCHMARKS  –  per group type
     // ══════════════════════════════════════════════════════════════════════
 
@@ -818,10 +1213,7 @@ object GroupTypeActuarialEngine {
     // ══════════════════════════════════════════════════════════════════════
 
     /** Round to 2 decimal places (monetary precision). */
-    private fun r(v: Double): Double = (kotlin.math.round(v * 100.0) / 100.0)
-
-    /** Kotlin `Double.pow` via java.lang.Math. */
-    private fun Double.pow(exp: Double): Double = Math.pow(this, exp)
+    private fun r(v: Double): Double = (round(v * 100.0) / 100.0)
 
     private fun max(a: Int, b: Int): Int = kotlin.math.max(a, b)
     private fun min(a: Double, b: Double): Double = kotlin.math.min(a, b)

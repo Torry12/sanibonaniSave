@@ -23,7 +23,7 @@ interface ActuarialRepository {
     /**
      * Pure function to calculate generic actuarial metrics from group and member data.
      */
-    fun calculateMetrics(group: Group, members: List<Member>): ActuarialMetrics
+    fun calculateMetrics(group: Group, members: List<Member>): Result<ActuarialMetrics>
 
     /**
      * Calculates the adjusted monthly contribution for a specific member based on beneficiaries.
@@ -43,7 +43,7 @@ interface ActuarialRepository {
      *
      * Pure (synchronous) – call inside a Dispatchers.Default coroutine if performance matters.
      */
-    fun computeGroupInsight(group: Group, members: List<Member>): GroupFinancialInsight
+    fun computeGroupInsight(group: Group, members: List<Member>): Result<GroupFinancialInsight>
 
     /**
      * Async version: loads group + members then calls [computeGroupInsight].

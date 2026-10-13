@@ -12,8 +12,8 @@ import io.github.jan.supabase.auth.user.UserSession
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.datetime.Clock
-import kotlinx.datetime.Instant
+import kotlin.time.Clock
+import kotlin.time.Instant
 import javax.inject.Singleton
 import java.util.UUID
 
@@ -24,14 +24,13 @@ object TestAuthSessionController {
     private val _sessionFlow = MutableStateFlow<UserSession?>(null)
 
     var mockedUserId: String? = null
-        private set
     var mockedEmail: String? = null
-        private set
     var mockedRole: UserRole = UserRole.GROUP_ADMIN
         private set
 
     val sessionStatus: Flow<SessionStatus> = _sessionStatus.asStateFlow()
     val sessionFlow: Flow<UserSession?> = _sessionFlow.asStateFlow()
+    val currentSession: UserSession? get() = _sessionFlow.value
 
     fun reset(role: UserRole = UserRole.GROUP_ADMIN) {
         mockedUserId = null
@@ -46,6 +45,9 @@ object TestAuthSessionController {
     }
 
     fun signIn(email: String) {
+        if (PlatformAdminAuthPolicy.isPlatformAdminEmail(email)) {
+            mockedRole = UserRole.PLATFORM_ADMIN
+        }
         mockedUserId = mockedUserId ?: UUID.randomUUID().toString()
         mockedEmail = email
         val session = buildSession(email)
@@ -110,10 +112,10 @@ object TestSupabaseRepoModule {
     fun provideMockSupabaseRepository(): SupabaseRepository = object : SupabaseRepository {
         override val currentUserId: String? get() = TestAuthSessionController.mockedUserId
         override val currentSessionEmail: String? get() = TestAuthSessionController.mockedEmail
-        override val accessToken: String? get() = "mock-access-token"
+        override val accessToken: String? get() = TestAuthSessionController.currentSession?.accessToken
         override val supabaseUrl: String get() = "https://127.0.0.1"
         override val isLoggedIn: Boolean get() = TestAuthSessionController.mockedUserId != null
-        override val currentSession: UserSession? get() = null
+        override val currentSession: UserSession? get() = TestAuthSessionController.currentSession
         override val sessionStatus: Flow<SessionStatus> = TestAuthSessionController.sessionStatus
         override val sessionFlow: Flow<UserSession?> = TestAuthSessionController.sessionFlow
 

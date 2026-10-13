@@ -1,6 +1,7 @@
 package com.sanibonani.save.data.local
 
 import androidx.room.*
+import androidx.room.Transaction
 import com.sanibonani.save.domain.model.*
 import kotlinx.coroutines.flow.Flow
 
@@ -16,10 +17,15 @@ class Converters {
         AdminFeeState.entries.find { it.name == v || it.name.lowercase() == v.lowercase() } ?: AdminFeeState.DUE 
     } catch (e: Exception) { AdminFeeState.DUE }
 
-    @TypeConverter fun fromMemberStatus(v: MemberStatus): String = v.name
-    @TypeConverter fun toMemberStatus(v: String): MemberStatus = try { 
-        MemberStatus.entries.find { it.name == v || it.name.lowercase() == v.lowercase() } ?: MemberStatus.PROBATION 
-    } catch (e: Exception) { MemberStatus.PROBATION }
+    // MemberStatus: stored lowercase to match Supabase @SerialName convention.
+    // The reader handles both uppercase (legacy Room) and lowercase (Supabase).
+    @TypeConverter fun fromMemberStatus(v: MemberStatus): String = v.name.lowercase()
+    @TypeConverter fun toMemberStatus(v: String): MemberStatus = try {
+        val match = MemberStatus.entries.find { it.name.equals(v, ignoreCase = true) }
+        if (match != null) return match
+        android.util.Log.w("Converters", "Unrecognized MemberStatus '$v' — mapping to SUSPENDED")
+        MemberStatus.SUSPENDED
+    } catch (e: Exception) { MemberStatus.SUSPENDED }
 
     @TypeConverter fun fromDocStatus(v: DocumentStatus): String = v.name
     @TypeConverter fun toDocStatus(v: String): DocumentStatus = try { 
@@ -116,7 +122,6 @@ data class GroupEntity(
     @ColumnInfo(name = "account_number") val accountNumber: String?,
     @ColumnInfo(name = "branch_code") val branchCode: String?,
     @ColumnInfo(name = "account_type") val accountType: String,
-    @ColumnInfo(name = "gateway_public_key") val gatewayPublicKey: String?,
     val balance: Double,
     @ColumnInfo(name = "admin_user_id") val adminUserId: String?,
     @ColumnInfo(name = "fee_status") val feeStatus: AdminFeeState,
@@ -443,6 +448,22 @@ interface MemberDao {
     @Query("SELECT * FROM members WHERE group_id = :groupId ORDER BY full_name ASC")
     fun observeMembers(groupId: String): Flow<List<MemberEntity>>
 
+    @Query("""
+        SELECT * FROM members
+        WHERE group_id = :groupId
+          AND (LOWER(status) = 'active' OR LOWER(status) = 'probation')
+        ORDER BY full_name ASC
+    """)
+    fun observeActiveMembers(groupId: String): Flow<List<MemberEntity>>
+
+    @Query("""
+        SELECT * FROM members
+        WHERE group_id = :groupId
+          AND (LOWER(status) = 'active' OR LOWER(status) = 'probation')
+        ORDER BY full_name ASC
+    """)
+    suspend fun getActiveMembersSync(groupId: String): List<MemberEntity>
+
     @Query("SELECT * FROM members WHERE user_id = :userId AND group_id = :groupId LIMIT 1")
     suspend fun getMemberByUserId(userId: String, groupId: String): MemberEntity?
 
@@ -473,19 +494,39 @@ interface MemberDao {
     @Query("DELETE FROM members")
     suspend fun clearAll()
 
+    @Query("SELECT id FROM members WHERE user_id = :userId")
+    suspend fun getMemberIdsForUser(userId: String): List<String>
+
+    @Transaction
+    suspend fun syncMembershipsForUser(userId: String, members: List<MemberEntity>) {
+        if (members.isEmpty()) return
+        val current = getMemberIdsForUser(userId).toSet()
+        val incoming = members.map { it.id }.toSet()
+        (current - incoming).forEach { deleteMember(it) }
+        upsertMembers(members)
+    }
+
     @Transaction
     suspend fun syncMembers(groupId: String, members: List<MemberEntity>) {
-        // Get current members
+        // Safety guard: never delete local members on an empty network response.
+        // An empty incoming list likely means a fetch error (RLS, timeout) rather
+        // than all members having been removed. The stale list is better than an
+        // empty one.
+        if (members.isEmpty()) return
+
         val current = getMembersSync(groupId).map { it.id }.toSet()
         val incoming = members.map { it.id }.toSet()
 
-        // Only delete members that are NO LONGER in the incoming list
         val toDelete = current - incoming
-        toDelete.forEach { memberId ->
-            deleteMember(memberId)
-        }
+        toDelete.forEach { memberId -> deleteMember(memberId) }
+        upsertMembers(members)
+    }
 
-        // Upsert all incoming members
+    @Transaction
+    suspend fun syncActiveMembers(groupId: String, members: List<MemberEntity>) {
+        // Like syncMembers but only touches ACTIVE / PROBATION slots.
+        // Suspended/pending members that weren't returned by the filtered
+        // network query are preserved rather than deleted.
         upsertMembers(members)
     }
 

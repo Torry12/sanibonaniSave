@@ -38,6 +38,18 @@ class BehaviorTrackingViewModel @Inject constructor(
     private var flaggedMembersJob: Job? = null
     private var fraudEventsJob: Job? = null
 
+    private val isActive = MutableStateFlow(false)
+
+    fun setActive(active: Boolean) {
+        isActive.value = active
+        if (!active) {
+            groupMembersJob?.cancel()
+            highRiskMembersJob?.cancel()
+            flaggedMembersJob?.cancel()
+            fraudEventsJob?.cancel()
+        }
+    }
+
     /**
      * Load behavior tracking data for a specific member
      */
@@ -306,10 +318,11 @@ class BehaviorTrackingViewModel @Inject constructor(
     }
 
     override fun onCleared() {
+        super.onCleared()
         groupMembersJob?.cancel()
         highRiskMembersJob?.cancel()
         flaggedMembersJob?.cancel()
         fraudEventsJob?.cancel()
-        super.onCleared()
+        _state.update { BehaviorTrackingUiState() }
     }
 }

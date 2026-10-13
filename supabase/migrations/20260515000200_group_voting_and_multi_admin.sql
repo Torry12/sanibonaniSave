@@ -1,4 +1,4 @@
-reanalyse app polish and stremline ,then update all related filesreanalyse app polish and stremline ,then update all related files-- ─────────────────────────────────────────────────────────────────────────────
+-- ─────────────────────────────────────────────────────────────────────────────
 -- SanibonaniSave — GROUP VOTING + MULTI-ADMIN AUTHORIZATION
 -- Date: 2026-05-15
 -- Purpose:

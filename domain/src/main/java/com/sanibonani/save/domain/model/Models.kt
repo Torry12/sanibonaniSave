@@ -79,7 +79,6 @@ data class Group(
     @SerialName("account_number")         val accountNumber: String? = null,
     @SerialName("branch_code")            val branchCode: String? = null,
     @SerialName("account_type")           val accountType: String = "Savings",
-    @SerialName("gateway_public_key")     val gatewayPublicKey: String? = null,
     val balance: Double = 0.0,
     @SerialName("goal_amount")            val goalAmount: Double = 0.0,
     @SerialName("period_months")          val periodMonths: Int = 12,
@@ -495,6 +494,18 @@ enum class ContributionStatus(val displayName: String) {
     @SerialName("partial") PARTIAL("Partial")
 }
 
+@Serializable
+data class RecordContributionResult(
+    val contribution: Contribution,
+    @SerialName("new_balance") val newBalance: Double
+)
+
+@Serializable
+data class RecordRepaymentResult(
+    val repayment: LoanRepayment,
+    @SerialName("new_balance") val newBalance: Double
+)
+
 // ─────────────────────────────────────────────────────────────────────────────
 //  PLATFORM FEE
 // ─────────────────────────────────────────────────────────────────────────────
@@ -840,6 +851,7 @@ data class GroupSettings(
     val loanInterestRate: String = "0",
     val loanMaxAmount: String = "0",
     val loanMaxMonths: String = "0",
+    val rotationMethod: RoscaRotationMethod = RoscaRotationMethod.FIXED,
     val isSaving: Boolean = false,
     val savedSuccess: Boolean = false
 )

@@ -14,6 +14,7 @@ import com.sanibonani.save.domain.repository.ExportRepository
 import com.sanibonani.save.domain.repository.GroupRepository
 import com.sanibonani.save.domain.repository.LoanRepository
 import com.sanibonani.save.domain.repository.MemberDocumentRepository
+import com.sanibonani.save.domain.repository.HealthScoreRepository
 import com.sanibonani.save.domain.repository.LedgerRepository
 import com.sanibonani.save.domain.repository.MemberRepository
 import com.sanibonani.save.domain.repository.NotificationRepository
@@ -21,6 +22,7 @@ import com.sanibonani.save.domain.repository.PaymentRepository
 import com.sanibonani.save.domain.repository.PayoutRepository
 import com.sanibonani.save.domain.repository.SupabaseRepository
 import com.sanibonani.save.domain.usecase.ApplyViabilityPlanUseCase
+import com.sanibonani.save.domain.usecase.CalculateGroupHealthScoreUseCase
 import com.sanibonani.save.domain.usecase.CalculateViabilityUseCase
 import com.sanibonani.save.domain.usecase.CreateGroupUseCase
 import com.sanibonani.save.domain.usecase.GenerateLoanContractUseCase
@@ -46,7 +48,6 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Before
-import org.junit.Ignore
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -136,6 +137,12 @@ class AdminMultiGroupIntegrationTest {
     lateinit var getGroupBusinessInsightsUseCase: GetGroupBusinessInsightsUseCase
 
     @Inject
+    lateinit var calculateGroupHealthScoreUseCase: CalculateGroupHealthScoreUseCase
+
+    @Inject
+    lateinit var healthScoreRepo: HealthScoreRepository
+
+    @Inject
     lateinit var ledgerRepo: LedgerRepository
 
     lateinit var viewModel: AdminViewModel
@@ -168,6 +175,8 @@ class AdminMultiGroupIntegrationTest {
             validateLoanEligibilityUseCase,
             generateLoanContractUseCase,
             getGroupBusinessInsightsUseCase,
+            calculateGroupHealthScoreUseCase,
+            healthScoreRepo,
             ledgerRepo
         )
     }
@@ -206,7 +215,6 @@ class AdminMultiGroupIntegrationTest {
     }
 
     @Test
-    @Ignore("Temporarily disabled: multi-group admin state reset flow is flaky under instrumentation and needs deterministic test fixtures.")
     fun testSwitchingGroupsResetsAndReloadsState() = runBlocking {
         val adminUserId = ensureAuthenticated()
         val adminEmail = supabaseRepo.currentSessionEmail ?: "test@example.com"

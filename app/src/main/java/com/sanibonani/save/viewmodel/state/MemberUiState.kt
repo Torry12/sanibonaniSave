@@ -23,6 +23,7 @@ data class MemberUiState(
     // Financial data
     val contributions: List<Contribution> = emptyList(),
     val calculation: PaymentCalculation? = null,
+    val selectedContribution: Contribution? = null,
 
     // Beneficiaries
     val beneficiaries: List<Beneficiary> = emptyList(),
@@ -94,6 +95,45 @@ data class MemberUiState(
      */
     val isInGoodStanding: Boolean
         get() = member?.status == MemberStatus.ACTIVE
+
+    /**
+     * Returns the number of payments that match the total contributed (PAID or PARTIAL).
+     */
+    val paymentsCount: Int
+        get() = contributions.count { it.status == ContributionStatus.PAID || it.status == ContributionStatus.PARTIAL }
+
+    /**
+     * Returns the next payment due date, or indicates if overdue.
+     */
+    val nextPaymentInfo: String
+        get() {
+            val calc = calculation
+            return if (calc == null || calc.nextDueDate == "N/A") {
+                "No payment due"
+            } else if (calc.isOverdue) {
+                "Overdue: ${calc.nextDueDate}"
+            } else {
+                "Next due: ${calc.nextDueDate}"
+            }
+        }
+
+    /**
+     * Returns a cleaned-up recent activity list: one entry per period, correct status.
+     */
+    val recentActivity: List<Contribution>
+        get() = contributions
+            .groupBy { it.dueDate }
+            .mapNotNull { (_, periodContribs) ->
+                periodContribs.maxByOrNull { contrib ->
+                    when (contrib.status) {
+                        ContributionStatus.PAID -> 4
+                        ContributionStatus.PARTIAL -> 3
+                        ContributionStatus.OVERDUE -> 2
+                        ContributionStatus.DUE -> 1
+                    }
+                }
+            }
+            .sortedByDescending { it.dueDate }
 }
 
 /**
@@ -188,4 +228,3 @@ sealed class MemberEvent {
         val headers: Map<String, String>
     ) : MemberEvent()
 }
-

@@ -330,9 +330,9 @@ object BehaviorScoringUtils {
      * Should member be suspended?
      */
     fun shouldSuspend(track: MemberBehaviorTrack): Boolean {
+        if (track.isSuspended) return false
         return track.fraudScore >= 80 ||
                track.loanDefaultCount >= 3 ||
-               track.isSuspended || // Already suspended
                (track.overdueCount >= 5 && track.behaviorScore < 30) ||
                track.multipleAccountsDetected && track.velocityCheckFailed
     }

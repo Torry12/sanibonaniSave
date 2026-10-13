@@ -7,6 +7,7 @@ import com.sanibonani.save.domain.model.AgentTask
 import com.sanibonani.save.domain.model.AgentResult
 import com.sanibonani.save.domain.usecase.SubmitAgentTaskUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -21,8 +22,20 @@ class AgentViewModel @Inject constructor(
     private val _state = MutableStateFlow(AgentUiState())
     val state: StateFlow<AgentUiState> = _state.asStateFlow()
 
+    private var taskJob: Job? = null
+    private val isActive = MutableStateFlow(false)
+
+    fun setActive(active: Boolean) {
+        isActive.value = active
+        if (!active) {
+            taskJob?.cancel()
+            taskJob = null
+        }
+    }
+
     fun submitTask(task: AgentTask) {
-        viewModelScope.launch {
+        taskJob?.cancel()
+        taskJob = viewModelScope.launch {
             _state.update { it.copy(isLoading = true, error = null) }
             submitAgentTask(task).collect { result ->
                 result.onSuccess { agentResult ->
@@ -34,6 +47,12 @@ class AgentViewModel @Inject constructor(
                 }
             }
         }
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        taskJob?.cancel()
+        _state.update { AgentUiState() }
     }
 }
 

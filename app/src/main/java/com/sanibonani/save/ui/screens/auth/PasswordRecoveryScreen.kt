@@ -11,6 +11,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.sanibonani.save.ui.utils.rememberClickDebouncer
 import com.sanibonani.save.ui.components.SanibonaniButton
 import com.sanibonani.save.ui.components.InfoBox
 import com.sanibonani.save.ui.components.InfoType
@@ -26,6 +27,7 @@ fun PasswordRecoveryScreen(
     vm: PasswordRecoveryViewModel = hiltViewModel()
 ) {
     val state by vm.state.collectAsState()
+    val clickDebouncer = rememberClickDebouncer()
     var selectedMethod by remember { mutableStateOf(RecoveryMethod.EMAIL) }
 
     KeyboardAwareScrollColumn(Modifier.fillMaxSize().padding(24.dp)) {
@@ -74,11 +76,11 @@ fun PasswordRecoveryScreen(
         }
         SanibonaniButton(
             text = if (state.isLoading) "Sending..." else "Send Reset Link",
-            onClick = { vm.sendRecovery(selectedMethod) },
+            onClick = { clickDebouncer.processClick { vm.sendRecovery(selectedMethod) } },
             modifier = Modifier.fillMaxWidth(),
             enabled = !state.isLoading && state.input.isNotBlank()
         )
         Spacer(Modifier.height(16.dp))
-        TextButton(onClick = onBack) { Text("Back to Login") }
+        TextButton(onClick = { clickDebouncer.processClick(onBack) }) { Text("Back to Login") }
     }
 }

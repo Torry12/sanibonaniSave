@@ -513,6 +513,111 @@ class ExportRepositoryImpl @Inject constructor(
         file
     }
 
+    override suspend fun exportLedgerToCsv(group: Group, entries: List<com.sanibonani.save.domain.model.LedgerEntry>): Result<File> = runCatching {
+        val sanitizedGroupName = group.name.replace(Regex("[^a-zA-Z0-9_-]"), "_")
+        val fileName = "Ledger_${sanitizedGroupName}_${System.currentTimeMillis()}.csv"
+        val storageDir = context.getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS)
+            ?: context.filesDir.let { File(it, "documents").apply { if (!exists()) mkdirs() } }
+        val file = File(storageDir, fileName)
+
+        FileWriter(file).use { writer ->
+            writer.append("Date,Description,Category,Amount,Balance After\n")
+            entries.sortedByDescending { it.createdAt }.forEach { e ->
+                writer.append("${e.createdAt?.take(16)?.replace("T", " ")},")
+                writer.append("\"${e.description}\",")
+                writer.append("${e.category},")
+                writer.append("${e.amount},")
+                writer.append("${e.balanceAfter}\n")
+            }
+        }
+        file
+    }
+
+    override suspend fun exportLedgerToPdf(group: Group, entries: List<com.sanibonani.save.domain.model.LedgerEntry>): Result<File> = runCatching {
+        val sanitizedGroupName = group.name.replace(Regex("[^a-zA-Z0-9_-]"), "_")
+        val fileName = "Ledger_${sanitizedGroupName}_${System.currentTimeMillis()}.pdf"
+        val storageDir = context.getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS)
+            ?: context.filesDir.let { File(it, "documents").apply { if (!exists()) mkdirs() } }
+        val file = File(storageDir, fileName)
+
+        val pageWidth = 595
+        val pageHeight = 842
+        val margin = 40
+        val rowHeight = 20
+
+        val titlePaint = Paint().apply { textSize = 18f; typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD); isAntiAlias = true }
+        val subtitlePaint = Paint().apply { textSize = 11f; isAntiAlias = true }
+        val headerPaint = Paint().apply { textSize = 10f; typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD); isAntiAlias = true }
+        val textPaint = Paint().apply { textSize = 9f; isAntiAlias = true }
+
+        val pdf = PdfDocument()
+        val now = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date())
+
+        var pageNo = 1
+        var currentPage: PdfDocument.Page? = null
+        var canvas: android.graphics.Canvas? = null
+        var y = 0f
+
+        fun drawHeader(cv: android.graphics.Canvas) {
+            var localY = margin.toFloat()
+            cv.drawText("Group Financial Ledger", margin.toFloat(), localY, titlePaint)
+            localY += 24
+            cv.drawText("Group: ${group.name}", margin.toFloat(), localY, subtitlePaint)
+            localY += 16
+            cv.drawText("Generated: $now", margin.toFloat(), localY, subtitlePaint)
+            localY += 30
+
+            val col1 = margin
+            val col2 = margin + 80
+            val col3 = margin + 280
+            val col4 = margin + 360
+            val col5 = margin + 440
+
+            cv.drawText("Date", col1.toFloat(), localY, headerPaint)
+            cv.drawText("Description", col2.toFloat(), localY, headerPaint)
+            cv.drawText("Category", col3.toFloat(), localY, headerPaint)
+            cv.drawText("Amount", col4.toFloat(), localY, headerPaint)
+            cv.drawText("Balance", col5.toFloat(), localY, headerPaint)
+            y = localY + rowHeight
+        }
+
+        fun startNewPage() {
+            currentPage?.let { pdf.finishPage(it) }
+            val pageInfo = PdfDocument.PageInfo.Builder(pageWidth, pageHeight, pageNo++).create()
+            val page = pdf.startPage(pageInfo)
+            currentPage = page
+            canvas = page.canvas
+            drawHeader(page.canvas)
+        }
+
+        startNewPage()
+        if (entries.isEmpty()) {
+            canvas?.drawText("No ledger entries found.", margin.toFloat(), y, textPaint)
+        } else {
+            entries.sortedByDescending { it.createdAt }.forEach { e ->
+                if (y + rowHeight >= pageHeight - margin) startNewPage()
+                
+                val date = e.createdAt?.take(16)?.replace("T", " ") ?: "N/A"
+                val desc = e.description.take(40)
+                val cat = e.category.take(15)
+                val amt = "R%.2f".format(Locale.getDefault(), e.amount)
+                val bal = "R%.2f".format(Locale.getDefault(), e.balanceAfter)
+
+                canvas?.drawText(date, margin.toFloat(), y, textPaint)
+                canvas?.drawText(desc, (margin + 80).toFloat(), y, textPaint)
+                canvas?.drawText(cat, (margin + 280).toFloat(), y, textPaint)
+                canvas?.drawText(amt, (margin + 360).toFloat(), y, textPaint)
+                canvas?.drawText(bal, (margin + 440).toFloat(), y, textPaint)
+                y += rowHeight
+            }
+        }
+
+        currentPage?.let { pdf.finishPage(it) }
+        FileOutputStream(file).use { pdf.writeTo(it) }
+        pdf.close()
+        file
+    }
+
     override fun downloadStatementPdf(context: Context, groupId: String, memberId: String?) {
         var supabaseUrl = supabaseRepo.supabaseUrl
         if (!supabaseUrl.startsWith("http")) {

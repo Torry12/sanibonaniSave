@@ -16,6 +16,7 @@ import com.sanibonani.save.domain.repository.*
 import com.sanibonani.save.domain.config.FileUploadLimits
 import com.sanibonani.save.service.AdminGroupContextCacheService
 import com.sanibonani.save.domain.usecase.groups.GetGroupBusinessInsightsUseCase
+import com.sanibonani.save.data.utils.toUserMessage
 import javax.inject.Inject
 
 data class AdminUiState(
@@ -87,7 +88,9 @@ data class AdminUiState(
     // Burial Society Claims
     val burialClaims: List<BeneficiaryPayoutClaim> = emptyList(),
     val isProcessingClaim: Boolean = false,
-    val ledger: List<LedgerEntry> = emptyList()
+    val ledger: List<LedgerEntry> = emptyList(),
+    val selectedLedgerEntry: LedgerEntry? = null,
+    val healthScore: GroupHealthScore? = null
 )
 
 @HiltViewModel
@@ -117,20 +120,34 @@ class AdminViewModel @Inject constructor(
     private val validateLoanEligibilityUseCase: ValidateLoanEligibilityUseCase,
     private val generateLoanContractUseCase: GenerateLoanContractUseCase,
     private val getGroupBusinessInsightsUseCase: GetGroupBusinessInsightsUseCase,
+    private val calculateGroupHealthScoreUseCase: CalculateGroupHealthScoreUseCase,
+    private val healthScoreRepo: HealthScoreRepository,
     private val ledgerRepo: LedgerRepository
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(AdminUiState())
     val state: StateFlow<AdminUiState> = _state.asStateFlow()
 
+    private val isActive = MutableStateFlow(false)
+
     init {
         viewModelScope.launch {
-            supabaseRepo.sessionFlow.collect { session ->
-                if (session != null) {
+            combine(supabaseRepo.sessionFlow, isActive) { session, active ->
+                session != null && active
+            }.collect { shouldObserve ->
+                if (shouldObserve) {
                     observeAdminData()
+                } else {
+                    cancelGroupJobs()
+                    managedGroupsJob?.cancel()
+                    managedGroupsJob = null
                 }
             }
         }
+    }
+
+    fun setActive(active: Boolean) {
+        isActive.value = active
     }
 
     private var currentObservedGroupId: String? = null
@@ -144,6 +161,9 @@ class AdminViewModel @Inject constructor(
     private var groupLoansJob: Job? = null
     private var burialClaimsJob: Job? = null
     private var ledgerJob: Job? = null
+    private var healthScoreJob: Job? = null
+    private var refreshMetricsJob: Job? = null
+    private var businessInsightsJob: Job? = null
 
     /** Returns true when the current emission belongs to a superseded observation request. */
     private fun isStaleAdminObservation(groupId: String, requestVersion: Long): Boolean {
@@ -211,6 +231,9 @@ class AdminViewModel @Inject constructor(
         calculationsJob?.cancel()
         burialClaimsJob?.cancel()
         ledgerJob?.cancel()
+        healthScoreJob?.cancel()
+        refreshMetricsJob?.cancel()
+        businessInsightsJob?.cancel()
         cancelMemberJobs()
     }
 
@@ -229,6 +252,7 @@ class AdminViewModel @Inject constructor(
             members = emptyList(),
             payouts = emptyList(),
             metrics = ActuarialMetrics(),
+            healthScore = null,
             settings = GroupSettings(),
             viabilityPlan = null,
             payoutRequestSuccess = false,
@@ -378,8 +402,11 @@ class AdminViewModel @Inject constructor(
                     }
                     
                     // Specialized Business Insights
-                    val insights = getGroupBusinessInsightsUseCase(group, members)
-                    _state.update { it.copy(businessInsight = insights) }
+                    businessInsightsJob?.cancel()
+                    businessInsightsJob = viewModelScope.launch {
+                        val insights = getGroupBusinessInsightsUseCase(group, members)
+                        _state.update { it.copy(businessInsight = insights) }
+                    }
                 }
             }
         }
@@ -405,6 +432,15 @@ class AdminViewModel @Inject constructor(
                 if (isStaleAdminObservation(groupId, requestVersion)) return@collect
                 val entries = result.getOrDefault(emptyList())
                 _state.update { it.copy(ledger = entries) }
+            }
+        }
+
+        healthScoreJob = viewModelScope.launch {
+            healthScoreRepo.observeGroupHealthScore(groupId).collect { result ->
+                if (isStaleAdminObservation(groupId, requestVersion)) return@collect
+                result.onSuccess { score ->
+                    _state.update { it.copy(healthScore = score) }
+                }
             }
         }
     }
@@ -434,7 +470,9 @@ class AdminViewModel @Inject constructor(
 
 
     private fun refreshMetrics(groupId: String) {
-        viewModelScope.launch {
+        refreshMetricsJob?.cancel()
+        refreshMetricsJob = viewModelScope.launch {
+            // 1. Compute basic actuarial metrics
             actuarialRepo.computeMetrics(groupId).onSuccess { m ->
                 _state.update { it.copy(metrics = m) }
                 adminContextCacheService.updateContext(groupId) { cached ->
@@ -443,6 +481,11 @@ class AdminViewModel @Inject constructor(
             }
             .onFailure { e ->
                 _state.update { it.copy(error = e.toUserMessage()) }
+            }
+
+            // 2. Compute comprehensive health score
+            calculateGroupHealthScoreUseCase(groupId).onFailure { e ->
+                AppLogger.e("AdminVM", "Failed to calculate health score", e)
             }
         }
     }
@@ -455,24 +498,28 @@ class AdminViewModel @Inject constructor(
             cached.memberMessages.isNotEmpty() ||
             cached.payouts.isNotEmpty() ||
             cached.metrics != null
-        if (!hasUsefulData) return false
 
-        resetStateForNewGroup(groupId, isLoading = false)
-
-        _state.update { state ->
-            val cachedGroup = cached.group
-            state.copy(
-                group = cachedGroup,
+        if (hasUsefulData) {
+            _state.update { it.copy(
+                currentGroupId = groupId,
+                group = cached.group,
                 members = cached.members,
-                payouts = cached.payouts,
-                metrics = cached.metrics ?: state.metrics,
-                feeStatus = cached.feeStatus ?: cachedGroup?.feeStatus ?: state.feeStatus,
-                settings = cachedGroup?.let { toGroupSettings(it) } ?: state.settings,
                 notifications = cached.notifications,
-                memberMessages = cached.memberMessages
-            )
+                memberMessages = cached.memberMessages,
+                payouts = cached.payouts,
+                metrics = cached.metrics ?: it.metrics,
+                feeStatus = cached.feeStatus ?: it.feeStatus,
+                isLoading = false,
+                error = null
+            ) }
+            
+            // Re-sync settings if we have the group
+            cached.group?.let { g ->
+                _state.update { it.copy(settings = toGroupSettings(g)) }
+                refreshAllMemberCalculations(g, cached.members)
+            }
         }
-        return true
+        return hasUsefulData
     }
 
     private fun toGroupSettings(group: Group): GroupSettings {
@@ -690,8 +737,7 @@ class AdminViewModel @Inject constructor(
         _state.update {
             it.copy(
                 selectedTab = index,
-                messageSentSuccess = false,
-                loadingMessage = "Opening ${tabDisplayName(index)} form..."
+                messageSentSuccess = false
             )
         }
     }
@@ -839,6 +885,7 @@ class AdminViewModel @Inject constructor(
                 "loanInterestRate" -> s.copy(loanInterestRate = value.toString())
                 "loanMaxAmount" -> s.copy(loanMaxAmount = value.toString())
                 "loanMaxMonths" -> s.copy(loanMaxMonths = value.toString())
+                "rotationMethod" -> s.copy(rotationMethod = value as? RoscaRotationMethod ?: s.rotationMethod)
                 else -> s
             })
         }
@@ -884,6 +931,27 @@ class AdminViewModel @Inject constructor(
         }
     }
 
+    fun clearExportFile() {
+        _state.update { it.copy(exportFile = null) }
+    }
+
+    fun updateMemberStatus(memberId: String, status: MemberStatus) {
+        if (_state.value.currentGroupId.isNullOrBlank()) {
+            _state.update { it.copy(error = "No group selected. Please select a group first.") }
+            return
+        }
+        viewModelScope.launch {
+            _state.update { it.copy(isLoading = true) }
+            val result = updateMemberStatusUseCase(memberId, status)
+            _state.update { it.copy(isLoading = false) }
+            result.onSuccess {
+                _state.update { it.copy(successMessage = "Member status updated to ${status.displayName}") }
+            }.onFailure { err ->
+                _state.update { it.copy(error = err.toUserMessage()) }
+            }
+        }
+    }
+
     fun clearError() {
         _state.update { it.copy(error = null) }
     }
@@ -893,6 +961,34 @@ class AdminViewModel @Inject constructor(
     }
 
     fun exportGroupStatement() = performExport(pdf = false)
+
+    fun exportGroupLedger(pdf: Boolean) {
+        val group = state.value.group
+        if (group == null) {
+            _state.update { it.copy(error = "No group selected. Please select a group first.") }
+            return
+        }
+        val entries = state.value.ledger
+        if (entries.isEmpty()) {
+            _state.update { it.copy(error = "No ledger entries found to export.") }
+            return
+        }
+
+        viewModelScope.launch {
+            _state.update { it.copy(isExporting = true, error = null) }
+            val result = if (pdf) {
+                exportRepo.exportLedgerToPdf(group, entries)
+            } else {
+                exportRepo.exportLedgerToCsv(group, entries)
+            }
+            
+            result.onSuccess { file ->
+                _state.update { it.copy(isExporting = false, exportFile = file) }
+            }.onFailure { e ->
+                _state.update { it.copy(isExporting = false, error = e.toUserMessage()) }
+            }
+        }
+    }
 
     fun exportMemberStatement(member: Member, pdf: Boolean = true) {
         val group = state.value.group
@@ -1245,7 +1341,16 @@ class AdminViewModel @Inject constructor(
                 .onFailure { e ->
                     _state.update { it.copy(error = e.toUserMessage()) }
                     // Revert optimistic update by refreshing member data
-                    memberRepo.getMemberById(memberId)
+                    memberRepo.getMemberById(memberId).onSuccess { refreshedMember ->
+                        if (refreshedMember != null) {
+                            _state.update { s ->
+                                s.copy(
+                                    selectedMember = if (s.selectedMember?.id == memberId) refreshedMember else s.selectedMember,
+                                    members = s.members.map { if (it.id == memberId) refreshedMember else it }
+                                )
+                            }
+                        }
+                    }
                 }
         }
     }
@@ -1284,8 +1389,19 @@ class AdminViewModel @Inject constructor(
                 }
                 .onFailure { e ->
                     _state.update { it.copy(error = e.toUserMessage()) }
-                    // Revert by re-fetching documents
-                    memberDocumentRepo.syncMemberDocuments(memberId)
+                    // Revert by re-fetching documents and member data
+                    memberDocumentRepo.syncMemberDocuments(memberId).onSuccess {
+                        memberRepo.getMemberById(memberId).onSuccess { refreshedMember ->
+                            if (refreshedMember != null) {
+                                _state.update { s ->
+                                    s.copy(
+                                        selectedMember = if (s.selectedMember?.id == memberId) refreshedMember else s.selectedMember,
+                                        members = s.members.map { if (it.id == memberId) refreshedMember else it }
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
         }
     }
@@ -1392,7 +1508,7 @@ class AdminViewModel @Inject constructor(
         viewModelScope.launch {
             _state.update { it.copy(isLoading = true) }
             // Small delay to ensure DB/Network consistency if called immediately after success
-            delay(500)
+            delay(500L)
             payoutRepo.observePayouts(group.id ?: "").first().onSuccess { list ->
                 _state.update { it.copy(payouts = list, isLoading = false) }
             }.onFailure { e ->
@@ -1420,7 +1536,7 @@ class AdminViewModel @Inject constructor(
             amount <= 0 -> "Amount must be greater than zero"
             amount > balance -> "Insufficient balance"
             s.payoutBankName.isBlank() -> "Bank Name is required"
-            !isValidAccount(s.payoutAccountNo) -> "Invalid Account Number (7–11 digits)"
+            !isValidAccount(s.payoutAccountNo) -> "Invalid Account Number (7-13 digits)"
             !isValidBranch(s.payoutBranchCode) -> "Invalid Branch Code (6 digits)"
             else -> null
         }
@@ -1512,13 +1628,17 @@ class AdminViewModel @Inject constructor(
             ).onSuccess {
                 _state.update { it.copy(isProcessingClaim = false, successMessage = if (approve) "Claim verified and under review." else "Claim rejected.") }
             }.onFailure { error ->
-                _state.update { it.copy(isProcessingClaim = false, error = error.message) }
+                _state.update { it.copy(isProcessingClaim = false, error = error.toUserMessage()) }
             }
         }
     }
 
     fun escalateClaim(claimId: String) {
-        val adminId = supabaseRepo.currentUserId ?: return
+        val adminId = supabaseRepo.currentUserId
+        if (adminId.isNullOrBlank()) {
+            _state.update { it.copy(error = "You are not signed in. Please sign in and try again.") }
+            return
+        }
         viewModelScope.launch {
             _state.update { it.copy(isProcessingClaim = true) }
             claimRepo.updateClaimStatus(
@@ -1529,12 +1649,24 @@ class AdminViewModel @Inject constructor(
             ).onSuccess {
                 _state.update { it.copy(isProcessingClaim = false, successMessage = "Claim escalated to platform admin.") }
             }.onFailure { error ->
-                _state.update { it.copy(isProcessingClaim = false, error = error.message) }
+                _state.update { it.copy(isProcessingClaim = false, error = error.toUserMessage()) }
             }
         }
     }
 
     fun clearClaimProcessing() {
         _state.update { it.copy(isProcessingClaim = false) }
+    }
+
+    fun selectLedgerEntry(entry: LedgerEntry?) {
+        _state.update { it.copy(selectedLedgerEntry = entry) }
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        cancelGroupJobs()
+        managedGroupsJob?.cancel()
+        // No hard state reset here to prevent race conditions during fast navigation transitions.
+        // Caches are managed by singleton services.
     }
 }

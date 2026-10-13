@@ -70,7 +70,7 @@ class CredentialLoginTest {
     private val memorySessionManager = object : SessionManager {
         private var stored: UserSession? = null
         override suspend fun saveSession(session: UserSession) { stored = session }
-        override suspend fun loadSession(): UserSession? = stored
+        override suspend fun loadSession(): UserSession = stored ?: error("No session stored")
         override suspend fun deleteSession() { stored = null }
     }
 

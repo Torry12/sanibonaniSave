@@ -2,16 +2,11 @@ package com.sanibonani.save.data.repository
 
 import com.sanibonani.save.data.local.SanibonaniDatabase
 import com.sanibonani.save.data.logging.AppLogger
+import com.sanibonani.save.data.remote.PostgrestColumns
 import com.sanibonani.save.data.utils.logAndGetMessage
-import com.sanibonani.save.domain.model.AdminFeeState
-import com.sanibonani.save.domain.model.Contribution
-import com.sanibonani.save.domain.model.DocumentStatus
-import com.sanibonani.save.domain.model.Group
-import com.sanibonani.save.domain.model.GroupSettings
-import com.sanibonani.save.domain.model.Member
-import com.sanibonani.save.domain.model.MemberStatus
-import com.sanibonani.save.domain.model.PlatformFee
-import com.sanibonani.save.domain.model.PlatformFees
+import com.sanibonani.save.domain.event.EventBus
+import com.sanibonani.save.domain.event.LedgerEntryCreatedEvent
+import com.sanibonani.save.domain.model.*
 import com.sanibonani.save.domain.repository.GroupRepository
 import com.sanibonani.save.domain.repository.StorageRepository
 import com.sanibonani.save.domain.repository.SupabaseRepository
@@ -95,14 +90,12 @@ class GroupRepositoryImpl @Inject constructor(
         }
     }
 
-    private val GROUP_COLUMNS_SAFE = "id,name,type,province,city,township,description,logo_emoji,joining_fee,monthly_contribution,late_fee,late_fee_grace_days,probation_months,payment_due_day,max_members,current_members,is_public,allow_partial_payment,auto_suspend_after,bank_name,account_number,branch_code,account_type,gateway_public_key,balance,admin_user_id,fee_status,registration_paid,latitude,longitude,geohash,created_at,is_platform_suspended,goal_amount,period_months,max_beneficiaries,beneficiary_increase_pct,constitution_url,constitution_status"
-
     override fun getPublicGroups(): Flow<Result<List<Group>>> = observeAndSync(
         dbFlow = db.groupDao().observePublicGroups(),
         mapper = { it.toModel() },
         toEntity = { it.toEntity() },
         networkFetch = { 
-            supabase.postgrest["groups"].select(columns = Columns.raw(GROUP_COLUMNS_SAFE)) { 
+            supabase.postgrest["groups"].select(columns = Columns.raw(PostgrestColumns.GROUPS_SAFE)) { 
                 filter { 
                     eq("is_public", true)
                     eq("registration_paid", true)
@@ -114,15 +107,17 @@ class GroupRepositoryImpl @Inject constructor(
 
     override suspend fun getGroupById(id: String): Result<Group> = retryWithExponentialBackoff {
         runCatching {
-            val group = supabase.postgrest["groups"].select(columns = Columns.raw(GROUP_COLUMNS_SAFE)) { 
+            val group = supabase.postgrest["groups"].select(columns = Columns.raw(PostgrestColumns.GROUPS_SAFE)) { 
                 filter { eq("id", id) } 
             }.decodeSingle<Group>()
             db.groupDao().upsertGroup(group.toEntity())
             group
         }.recoverCatching { exception ->
-            // Fallback to local database if network fails
-            db.groupDao().getGroupById(id)?.toModel() 
-                ?: throw IllegalStateException(exception.logAndGetMessage(tag))
+            db.groupDao().getGroupById(id)?.toModel()
+                ?: run {
+                    AppLogger.e(tag, "Network + local fallback failed for group $id", exception)
+                    throw exception
+                }
         }
     }
 
@@ -133,7 +128,7 @@ class GroupRepositoryImpl @Inject constructor(
                 mapper = { it.toModel() },
                 toEntity = { it.toEntity() },
                 networkFetch = {
-                    supabase.postgrest["groups"].select(columns = Columns.raw(GROUP_COLUMNS_SAFE)) {
+                    supabase.postgrest["groups"].select(columns = Columns.raw(PostgrestColumns.GROUPS_SAFE)) {
                         filter { eq("id", groupId) }
                     }.decodeSingle<Group>()
                 },
@@ -167,7 +162,7 @@ class GroupRepositoryImpl @Inject constructor(
         mapper = { it.toModel() },
         toEntity = { it.toEntity() },
         networkFetch = {
-            supabase.postgrest["groups"].select(columns = Columns.raw(GROUP_COLUMNS_SAFE)) {
+            supabase.postgrest["groups"].select(columns = Columns.raw(PostgrestColumns.GROUPS_SAFE)) {
                 filter { eq("admin_user_id", adminId) }
             }.decodeList<Group>()
         },
@@ -224,7 +219,7 @@ class GroupRepositoryImpl @Inject constructor(
         }
 
         val created = supabase.postgrest["groups"].insert(insertData) {
-            select(columns = Columns.raw(GROUP_COLUMNS_SAFE))
+            select(columns = Columns.raw(PostgrestColumns.GROUPS_SAFE))
         }.decodeSingle<Group>()
         val createdGroupId = created.id ?: throw Exception("Failed to get created group ID")
         
@@ -266,6 +261,21 @@ class GroupRepositoryImpl @Inject constructor(
             db.groupDao().getGroupById(groupId)?.let { local ->
                 db.groupDao().upsertGroup(local.copy(balance = newBalance))
             }
+
+            // Emit event for real-time audit logs
+            EventBus.emit(
+                LedgerEntryCreatedEvent(
+                    LedgerEntry(
+                        groupId = groupId,
+                        amount = amount,
+                        balanceAfter = newBalance,
+                        description = "Atomic balance update",
+                        category = "adjustment",
+                        transactionId = null
+                    )
+                )
+            )
+            
             newBalance
         }
     }
@@ -292,6 +302,21 @@ class GroupRepositoryImpl @Inject constructor(
             db.groupDao().getGroupById(groupId)?.let { local ->
                 db.groupDao().upsertGroup(local.copy(balance = newBalance))
             }
+
+            // Emit event for side effects (Audit logs)
+            EventBus.emit(
+                LedgerEntryCreatedEvent(
+                    LedgerEntry(
+                        groupId = groupId,
+                        amount = -amount, // Outflow
+                        balanceAfter = newBalance,
+                        description = description,
+                        category = category,
+                        transactionId = transactionId
+                    )
+                )
+            )
+
             newBalance
         }
     }
@@ -315,6 +340,8 @@ class GroupRepositoryImpl @Inject constructor(
             put("period_months", settings.periodMonths.toIntOrNull() ?: 12)
             settings.maxBeneficiaries.toIntOrNull()?.let { if (it > 0) put("max_beneficiaries", it) }
             settings.beneficiaryIncreasePct.toDoubleOrNull()?.let { if (it > 0.0) put("beneficiary_increase_pct", it) }
+            // ROSCA — stored as lowercase snake_case to satisfy DB CHECK constraint
+            put("rosca_rotation_method", settings.rotationMethod.name.lowercase())
         }
 
         supabase.postgrest["groups"].update(updateData) { filter { eq("id", groupId) } }
@@ -371,21 +398,10 @@ class GroupRepositoryImpl @Inject constructor(
         // Refresh local cache IMMEDIATELY after update
         getGroupById(groupId)
         
-        // 2. Mark corresponding platform registration fee as paid
-        try {
-            supabase.postgrest["platform_fees"].update(buildJsonObject {
-                put("status", "paid")
-            }) {
-                filter { 
-                    eq("group_id", groupId)
-                    eq("fee_type", "registration")
-                }
-            }
-        } catch (e: Exception) {
-            val userMsg = e.logAndGetMessage(tag)
-            AppLogger.w(tag, "Failed to update platform_fee record: $userMsg")
-        }
-        
+        // 2. Process Platform Registration Fee (Group -> Platform)
+        payPlatformFee(groupId, PlatformFees.REGISTRATION, "registration", txId)
+            .onFailure { AppLogger.w(tag, "Platform fee payment failed during activation: ${it.message}") }
+
         val group = getGroupById(groupId).getOrThrow()
         
         // 3. Finalize Admin Member Registration & Credit their first contribution
@@ -533,6 +549,27 @@ class GroupRepositoryImpl @Inject constructor(
         db.groupDao().upsertGroup(group.copy(feeStatus = status).toEntity())
     }
 
+    override suspend fun payPlatformFee(
+        groupId: String,
+        amount: Double,
+        feeType: String,
+        txId: String?
+    ): Result<Unit> = retryWithExponentialBackoff {
+        runCatching {
+            val rpcParams = buildJsonObject {
+                put("p_group_id", groupId)
+                put("p_amount", amount)
+                put("p_fee_type", feeType)
+                txId?.let { put("p_tx_id", it) }
+            }
+            supabase.postgrest.rpc("pay_platform_fee_v1", rpcParams)
+            
+            // Refresh local group state since balance decreased
+            getGroupById(groupId)
+            Unit
+        }
+    }
+
     override suspend fun updateGroup(group: Group): Result<Unit> {
         return try {
             supabase.from("groups").update(group) {
@@ -548,8 +585,11 @@ class GroupRepositoryImpl @Inject constructor(
     override suspend fun getCurrentUserEmail(): String? = supabaseRepo.currentSessionEmail
 
     override suspend fun getGroupsByAdmin(adminId: String): Result<List<Group>> = runCatching {
-        supabase.postgrest["groups"].select(columns = Columns.raw(GROUP_COLUMNS_SAFE)) {
+        val groups = supabase.postgrest["groups"].select(columns = Columns.raw(PostgrestColumns.GROUPS_SAFE)) {
             filter { eq("admin_user_id", adminId) }
         }.decodeList<Group>()
+        db.groupDao().upsertGroups(groups.map { it.toEntity() })
+        groups
     }
+
 }

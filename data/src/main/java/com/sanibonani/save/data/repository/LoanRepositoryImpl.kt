@@ -5,6 +5,7 @@ import com.sanibonani.save.data.local.LoanEntity
 import com.sanibonani.save.data.local.LoanRepaymentEntity
 import com.sanibonani.save.data.utils.logAndGetMessage
 import com.sanibonani.save.domain.model.*
+import com.sanibonani.save.domain.model.RecordRepaymentResult
 import com.sanibonani.save.domain.repository.LoanRepository
 import com.sanibonani.save.domain.repository.StorageRepository
 import io.github.jan.supabase.SupabaseClient
@@ -102,7 +103,7 @@ class LoanRepositoryImpl @Inject constructor(
     override suspend fun disburseLoan(loanId: String, paymentMethod: PaymentMethod): Result<Unit> = runCatching {
         val adminId = supabase.auth.currentUserOrNull()?.id ?: throw IllegalStateException("Not authenticated")
         
-        supabase.postgrest.rpc("disburse_loan_v1", buildJsonObject {
+        supabase.postgrest.rpc("approve_and_disburse_loan_v1", buildJsonObject {
             put("p_loan_id", loanId)
             put("p_admin_id", adminId)
             put("p_payment_method", paymentMethod.name.lowercase())
@@ -148,13 +149,23 @@ class LoanRepositoryImpl @Inject constructor(
             put("p_payment_method", repayment.paymentMethod.name.lowercase())
         }
         
-        val inserted = supabase.postgrest.rpc("record_loan_repayment_v1", rpcParams)
-            .decodeAs<LoanRepayment>()
+        val result = supabase.postgrest.rpc("record_loan_repayment_v1", rpcParams)
+            .decodeAs<RecordRepaymentResult>()
         
+        val inserted = result.repayment
+        val newBalance = result.newBalance
+
         db.loanDao().upsertRepayment(inserted.toEntity())
         
         // Refresh local loan record to reflect new balance/status
         getLoanById(repayment.loanId)
+
+        // Update local group balance cache
+        val group = db.groupDao().getGroupById(repayment.groupId)?.toModel()
+        if (group != null) {
+            db.groupDao().upsertGroup(group.copy(balance = newBalance).toEntity())
+        }
+
         Unit
     }
 
