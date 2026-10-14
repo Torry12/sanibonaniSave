@@ -33,7 +33,6 @@ import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.ui.geometry.Offset
 import com.sanibonani.save.ui.theme.*
 import com.sanibonani.save.domain.model.Money
-import com.sanibonani.save.domain.utils.formatZAR
 import com.sanibonani.save.domain.utils.formatPlain
 
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType

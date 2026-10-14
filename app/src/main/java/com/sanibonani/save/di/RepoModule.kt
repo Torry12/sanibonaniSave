@@ -1,6 +1,5 @@
 package com.sanibonani.save.di
 
-import com.sanibonani.save.data.remote.SupabaseManager
 import com.sanibonani.save.data.repository.admin.*
 import com.sanibonani.save.data.repository.auth.*
 import com.sanibonani.save.data.repository.credit.LoanRepositoryImpl
@@ -33,7 +32,6 @@ import com.sanibonani.save.domain.repository.treasury.ReconciliationRepository
 import com.sanibonani.save.domain.repository.group.*
 import com.sanibonani.save.domain.repository.member.*
 import com.sanibonani.save.domain.repository.system.*
-import com.sanibonani.save.domain.service.GovernanceService
 import dagger.Binds
 import dagger.Module
 import dagger.hilt.InstallIn

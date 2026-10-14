@@ -10,20 +10,16 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.sanibonani.save.R
 import com.sanibonani.save.domain.model.AdminFeeState
 import com.sanibonani.save.domain.model.Group
 import com.sanibonani.save.ui.components.*
-import com.sanibonani.save.ui.components.*
 import com.sanibonani.save.ui.theme.*
 
-import com.sanibonani.save.ui.components.ActionButton
 
 @Composable
 fun AdminFeeBanner(group: Group, status: AdminFeeState, daysOverdue: Int, onAction: () -> Unit) {

@@ -1,7 +1,6 @@
 package com.sanibonani.save.data.datasource
 
 import com.sanibonani.save.domain.model.Money
-import com.sanibonani.save.domain.model.Payment
 import com.sanibonani.save.domain.model.PlatformFee
 
 interface RemoteFinancialDataSource {

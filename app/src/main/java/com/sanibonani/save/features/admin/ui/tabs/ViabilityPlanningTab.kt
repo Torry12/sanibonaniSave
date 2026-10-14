@@ -12,12 +12,10 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.sanibonani.save.domain.model.GroupType
-import com.sanibonani.save.domain.model.Money
 import com.sanibonani.save.domain.model.ViabilityPlan
 import com.sanibonani.save.ui.components.DetailRow
 import com.sanibonani.save.ui.components.SanibonaniButton

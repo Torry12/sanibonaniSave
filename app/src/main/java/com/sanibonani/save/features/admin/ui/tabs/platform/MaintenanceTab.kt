@@ -3,8 +3,6 @@ package com.sanibonani.save.features.admin.ui.tabs.platform
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -25,15 +23,12 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.sanibonani.save.R
-import com.sanibonani.save.domain.model.RealtimeSyncStatus
 import com.sanibonani.save.ui.components.InfoType
-import com.sanibonani.save.ui.components.*
 import com.sanibonani.save.ui.components.*
 import com.sanibonani.save.features.admin.ui.components.AccordionHeader
 import com.sanibonani.save.features.admin.ui.components.GroupSelectionDialog
 import com.sanibonani.save.features.admin.ui.components.MemberImpersonationDialog
 import com.sanibonani.save.ui.theme.*
-import com.sanibonani.save.ui.utils.rememberClickDebouncer
 import com.sanibonani.save.features.admin.presentation.PlatformSupportViewModel
 import com.sanibonani.save.features.admin.presentation.state.PlatformAdminUiState
 import com.sanibonani.save.features.admin.presentation.state.PlatformAnalyticsUiState

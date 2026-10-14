@@ -5,7 +5,6 @@ import com.sanibonani.save.data.local.*
 import com.sanibonani.save.data.local.toEntity
 import com.sanibonani.save.data.local.toModel
 import com.sanibonani.save.domain.model.*
-import com.sanibonani.save.domain.repository.group.GroupRepository
 import com.sanibonani.save.domain.repository.equity.MemberContributionRepository
 import com.sanibonani.save.domain.repository.member.MemberRepository
 import io.github.jan.supabase.SupabaseClient

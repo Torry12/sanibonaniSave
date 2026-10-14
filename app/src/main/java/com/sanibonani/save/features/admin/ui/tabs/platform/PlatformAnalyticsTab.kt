@@ -12,17 +12,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.sanibonani.save.R
 import com.sanibonani.save.domain.model.Money
 import com.sanibonani.save.domain.model.PlatformAnalytics
-import com.sanibonani.save.domain.config.PlatformFees
-import com.sanibonani.save.ui.components.*
 import com.sanibonani.save.ui.components.*
 import com.sanibonani.save.features.admin.ui.components.*
 import com.sanibonani.save.ui.theme.*
-import com.sanibonani.save.ui.utils.formatDecimal
-import com.sanibonani.save.ui.utils.formatZAR
 import com.sanibonani.save.features.admin.presentation.PlatformAnalyticsViewModel
 
 @Composable

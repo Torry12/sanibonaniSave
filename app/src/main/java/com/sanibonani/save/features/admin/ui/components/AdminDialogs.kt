@@ -19,20 +19,16 @@ import androidx.compose.ui.unit.dp
 import com.sanibonani.save.domain.model.*
 import com.sanibonani.save.data.utils.FileDownloader
 import com.sanibonani.save.ui.components.*
-import com.sanibonani.save.ui.components.*
 import com.sanibonani.save.ui.theme.*
 import com.sanibonani.save.ui.utils.formatZAR
 import com.sanibonani.save.features.admin.presentation.*
 import com.sanibonani.save.features.admin.presentation.state.*
 import androidx.compose.foundation.lazy.*
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SupportAgent
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 
 
 @Composable

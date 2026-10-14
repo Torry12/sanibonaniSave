@@ -17,12 +17,10 @@ import androidx.compose.material3.adaptive.layout.ListDetailPaneScaffold
 import androidx.compose.material3.adaptive.layout.ListDetailPaneScaffoldRole
 import androidx.compose.material3.adaptive.navigation.rememberListDetailPaneScaffoldNavigator
 import androidx.compose.material3.windowsizeclass.WindowSizeClass
-import androidx.compose.material3.windowsizeclass.WindowWidthSizeClass
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -30,11 +28,6 @@ import com.sanibonani.save.R
 import com.sanibonani.save.domain.utils.PaymentCalculation
 import com.sanibonani.save.domain.model.Member
 import com.sanibonani.save.domain.model.MemberStatus
-import com.sanibonani.save.ui.components.*
-import com.sanibonani.save.ui.components.*
-import com.sanibonani.save.ui.components.*
-import com.sanibonani.save.ui.components.*
-import com.sanibonani.save.ui.components.*
 import com.sanibonani.save.ui.components.*
 import com.sanibonani.save.ui.theme.*
 import com.sanibonani.save.features.admin.presentation.state.AdminMemberUiState

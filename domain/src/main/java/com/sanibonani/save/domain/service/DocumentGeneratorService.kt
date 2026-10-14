@@ -3,7 +3,6 @@ package com.sanibonani.save.domain.service
 import com.sanibonani.save.domain.model.Group
 import com.sanibonani.save.domain.model.GroupType
 import com.sanibonani.save.domain.model.Member
-import com.sanibonani.save.domain.model.Money
 import javax.inject.Inject
 import javax.inject.Singleton
 

@@ -21,7 +21,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.sanibonani.save.domain.model.*
 import com.sanibonani.save.ui.components.*
-import com.sanibonani.save.ui.components.*
 import com.sanibonani.save.ui.theme.SuccessGreen
 import com.sanibonani.save.ui.theme.ErrorRed
 import com.sanibonani.save.ui.utils.formatDate

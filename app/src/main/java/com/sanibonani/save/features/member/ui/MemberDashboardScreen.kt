@@ -1,6 +1,5 @@
 package com.sanibonani.save.features.member.ui
 
-import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -9,8 +8,6 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.material.icons.Icons
@@ -21,7 +18,6 @@ import androidx.compose.material3.windowsizeclass.WindowWidthSizeClass
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -42,11 +38,9 @@ import com.sanibonani.save.features.member.presentation.MemberFinanceViewModel
 import com.sanibonani.save.features.member.presentation.MemberBeneficiaryViewModel
 import com.sanibonani.save.features.member.presentation.MemberProfileViewModel
 import com.sanibonani.save.features.member.presentation.MemberOverviewViewModel
-import com.sanibonani.save.features.audit.MemberAuditTab
 import com.sanibonani.save.features.admin.ui.tabs.platform.LedgerEntryDetailDialog
 import com.sanibonani.save.features.member.presentation.state.MemberEvent
 import com.sanibonani.save.features.common.presentation.UIEvent
-import com.sanibonani.save.ui.components.*
 import kotlinx.coroutines.launch
 
 @Composable

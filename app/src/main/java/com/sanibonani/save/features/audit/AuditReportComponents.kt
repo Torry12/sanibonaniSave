@@ -1,6 +1,5 @@
 package com.sanibonani.save.features.audit
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -15,10 +14,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.sanibonani.save.domain.model.Money
 import com.sanibonani.save.ui.components.AutoFitText
 import com.sanibonani.save.ui.theme.*
-import com.sanibonani.save.ui.utils.formatZAR
 
 @Composable
 fun AuditSummaryCard(

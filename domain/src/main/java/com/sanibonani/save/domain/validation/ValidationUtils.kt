@@ -1,7 +1,6 @@
 package com.sanibonani.save.domain.validation
 
 import com.sanibonani.save.domain.model.Money
-import com.sanibonani.save.domain.utils.isPositiveMoneyAmount
 import com.sanibonani.save.domain.utils.parseMoneyAmountOrNull
 import java.math.BigDecimal
 import java.util.Calendar

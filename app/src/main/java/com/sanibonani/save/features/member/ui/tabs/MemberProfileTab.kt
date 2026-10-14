@@ -17,13 +17,11 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.appcompat.app.AppCompatDelegate
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
@@ -33,13 +31,11 @@ import com.sanibonani.save.R
 import com.sanibonani.save.domain.model.*
 import com.sanibonani.save.domain.repository.system.SyncStatus
 import com.sanibonani.save.ui.components.*
-import com.sanibonani.save.ui.components.*
 import com.sanibonani.save.features.member.ui.handleProfilePhotoSelection
 import com.sanibonani.save.features.member.ui.BankingDetailsDialog
 import com.sanibonani.save.ui.theme.*
 import com.sanibonani.save.features.member.presentation.MemberProfileViewModel
 import com.sanibonani.save.ui.components.LogoutButtonStyle
-import com.sanibonani.save.ui.utils.rememberClickDebouncer
 import com.sanibonani.save.ui.utils.formatZAR
 
 @Composable

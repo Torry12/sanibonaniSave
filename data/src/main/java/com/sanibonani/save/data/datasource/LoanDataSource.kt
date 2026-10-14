@@ -4,7 +4,6 @@ import com.sanibonani.save.domain.model.Loan
 import com.sanibonani.save.domain.model.LoanRepayment
 import com.sanibonani.save.domain.model.LoanStatus
 import com.sanibonani.save.domain.model.PaymentMethod
-import com.sanibonani.save.domain.model.Money
 import kotlinx.coroutines.flow.Flow
 
 interface RemoteLoanDataSource {

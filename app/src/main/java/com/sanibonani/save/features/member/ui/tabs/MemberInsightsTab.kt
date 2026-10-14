@@ -10,7 +10,6 @@ import com.sanibonani.save.domain.model.GroupType
 import com.sanibonani.save.features.admin.ui.components.FullInsightWidget
 import com.sanibonani.save.features.member.presentation.state.MemberUiState
 import com.sanibonani.save.ui.components.*
-import com.sanibonani.save.ui.components.*
 
 @Composable
 fun MemberInsightsTab(state: MemberUiState) {
