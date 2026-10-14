@@ -16,6 +16,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 import javax.inject.Singleton
+import com.sanibonani.save.domain.utils.safeRunCatching
 
 /**
  * Consolidated manager for Supabase and Room connections.
@@ -55,18 +56,18 @@ class SupabaseConnectionManager @Inject constructor(
         }
     }
 
-    override suspend fun initialize(): Result<Unit> = runCatching {
+    override suspend fun initialize(): Result<Unit> = safeRunCatching {
         rebuildConnections()
     }
 
-    override suspend fun shutdown(): Result<Unit> = runCatching {
+    override suspend fun shutdown(): Result<Unit> = safeRunCatching {
         _currentDatabase.value?.close()
         _currentClient.value?.close()
         _remoteStatus.value = ConnectionStatus.Idle
         _localStatus.value = ConnectionStatus.Idle
     }
 
-    override suspend fun rebuild(): Result<Unit> = runCatching {
+    override suspend fun rebuild(): Result<Unit> = safeRunCatching {
         rebuildConnections()
     }
 
@@ -94,8 +95,8 @@ class SupabaseConnectionManager @Inject constructor(
             val oldClient = _currentClient.value
             val oldDb = _currentDatabase.value
             scope.launch(Dispatchers.IO) {
-                runCatching { oldClient?.close() }
-                runCatching { oldDb?.close() }
+                safeRunCatching { oldClient?.close() }
+                safeRunCatching { oldDb?.close() }
             }
 
             _currentClient.value = clientProvider.createClient(useOnline)

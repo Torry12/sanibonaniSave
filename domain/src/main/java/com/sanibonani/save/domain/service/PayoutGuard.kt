@@ -5,6 +5,7 @@ import java.time.LocalDate
 import java.time.temporal.ChronoUnit
 import javax.inject.Inject
 import javax.inject.Singleton
+import com.sanibonani.save.domain.utils.safeRunCatching
 
 /**
  * Centralized service to enforce high-integrity guards on payouts.
@@ -28,7 +29,7 @@ class PayoutGuardImpl @Inject constructor(
         member: Member?,
         amount: Money,
         type: PayoutType
-    ): Result<Unit> = runCatching {
+    ): Result<Unit> = safeRunCatching {
         // 1. Group Status Check
         if (group.isPlatformSuspended) {
             throw GroupSuspendedException(group.id ?: "unknown")

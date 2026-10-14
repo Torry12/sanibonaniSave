@@ -3,6 +3,7 @@ import com.sanibonani.save.domain.model.*
 import com.sanibonani.save.domain.repository.payment.BankRepository
 import com.sanibonani.save.domain.repository.payment.FinancialProviderRepository
 import javax.inject.Inject
+import com.sanibonani.save.domain.utils.safeRunCatching
 
 /**
  * Orchestrates the process of linking a physical bank account to a savings group.
@@ -16,7 +17,7 @@ class LinkBankAccountUseCase @Inject constructor(
         groupId: String,
         providerId: String,
         metadata: Map<String, String> = emptyMap()
-    ): Result<LinkAccountResult> = runCatching {
+    ): Result<LinkAccountResult> = safeRunCatching {
         val request = FinancialOperationRequest(
             operation = FinancialOperationType.LINK_ACCOUNT,
             providerId = providerId,

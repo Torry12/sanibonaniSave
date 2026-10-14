@@ -6,7 +6,7 @@ import android.graphics.Typeface
 import android.graphics.pdf.PdfDocument
 import java.io.File
 import java.io.FileOutputStream
-import java.util.Locale
+import com.sanibonani.save.domain.utils.safeRunCatching
 
 /**
  * Reusable utility for generating PDF documents using Android's PdfDocument API.
@@ -112,7 +112,7 @@ class PdfGenerator(
         }
     }
 
-    fun save(file: File): Result<File> = runCatching {
+    fun save(file: File): Result<File> = safeRunCatching {
         finishPage()
         FileOutputStream(file).use { out ->
             document.writeTo(out)

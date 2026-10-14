@@ -2,22 +2,18 @@ package com.sanibonani.save.data.repository.admin
 
 import com.sanibonani.save.data.repository.BaseRepository
 
-import com.sanibonani.save.data.local.GroupHealthScoreEntity
 import com.sanibonani.save.data.local.SanibonaniDatabase
 import com.sanibonani.save.data.local.toEntity
 import com.sanibonani.save.data.local.toModel
 import com.sanibonani.save.domain.model.GroupHealthScore
-import com.sanibonani.save.domain.model.RiskZone
 import com.sanibonani.save.domain.repository.admin.HealthScoreRepository
-import com.sanibonani.save.domain.utils.OperationKeys
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.postgrest.postgrest
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
-import kotlinx.datetime.Clock
 import kotlinx.datetime.Instant
-import kotlinx.serialization.json.Json
 import javax.inject.Inject
+import com.sanibonani.save.domain.utils.safeRunCatching
 
 class HealthScoreRepositoryImpl @Inject constructor(
     private val supabaseProvider: javax.inject.Provider<SupabaseClient>,
@@ -46,7 +42,7 @@ class HealthScoreRepositoryImpl @Inject constructor(
         }
     }
 
-    override suspend fun saveHealthScore(score: GroupHealthScore): Result<Unit> = runCatching {
+    override suspend fun saveHealthScore(score: GroupHealthScore): Result<Unit> = safeRunCatching {
         retryWithExponentialBackoff {
             supabase.postgrest["group_health_scores"].upsert(score) {
                 onConflict = "group_id"
@@ -56,10 +52,10 @@ class HealthScoreRepositoryImpl @Inject constructor(
         Unit
     }
 
-    override suspend fun getHealthScore(groupId: String): Result<GroupHealthScore> = runCatching {
+    override suspend fun getHealthScore(groupId: String): Result<GroupHealthScore> = safeRunCatching {
         val local = db.groupHealthScoreDao().getByGroupId(groupId)
         if (local != null && !isExpired(local.expiresAt)) {
-            return@runCatching local.toModel()
+            return@safeRunCatching local.toModel()
         }
 
         val remote = supabase.postgrest["group_health_scores"].select {
@@ -73,13 +69,13 @@ class HealthScoreRepositoryImpl @Inject constructor(
             ?: throw it
     }
 
-    override suspend fun invalidateCache(groupId: String): Result<Unit> = runCatching {
+    override suspend fun invalidateCache(groupId: String): Result<Unit> = safeRunCatching {
         db.groupHealthScoreDao().deleteByGroupId(groupId)
     }
 
     private fun isExpired(expiresAt: String?): Boolean {
         if (expiresAt.isNullOrBlank()) return true
-        val expiry = runCatching { java.time.Instant.parse(expiresAt) }.getOrNull() ?: return true
+        val expiry = safeRunCatching { java.time.Instant.parse(expiresAt) }.getOrNull() ?: return true
         return expiry.isBefore(java.time.Instant.now())
     }
 }

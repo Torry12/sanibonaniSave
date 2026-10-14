@@ -8,6 +8,7 @@ import io.github.jan.supabase.storage.storage
 import io.ktor.http.ContentType
 import javax.inject.Inject
 import kotlin.time.Duration.Companion.seconds
+import com.sanibonani.save.domain.utils.safeRunCatching
 
 class StorageRepositoryImpl @Inject constructor(
     private val supabase: SupabaseClient
@@ -88,7 +89,7 @@ class StorageRepositoryImpl @Inject constructor(
         bucketName: String,
         path: String,
         expiresIn: Long
-    ): Result<String> = runCatching {
+    ): Result<String> = safeRunCatching {
         AppLogger.d(tag, "🔐 Creating signed URL for $bucketName/$path (expires in ${expiresIn}s)")
         val bucket = supabase.storage[bucketName]
         val url = bucket.createSignedUrl(path, expiresIn.seconds)

@@ -9,20 +9,21 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
 import javax.inject.Inject
+import com.sanibonani.save.domain.utils.safeRunCatching
 
 class AiServiceImpl @Inject constructor(
     private val aiRepository: AiRepository
 ) : AiService {
 
     override suspend fun extractIdInfo(documentImage: File): Result<IdDocumentExtraction> = withContext(Dispatchers.IO) {
-        runCatching {
+        safeRunCatching {
             val base64 = fileToBase64(documentImage)
             aiRepository.extractIdInfo(base64).getOrThrow()
         }
     }
 
     override suspend fun compareFaces(documentImage: File, selfieImage: File): Result<FaceMatchResult> = withContext(Dispatchers.IO) {
-        runCatching {
+        safeRunCatching {
             val idBase64 = fileToBase64(documentImage)
             val selfieBase64 = fileToBase64(selfieImage)
             aiRepository.compareFaces(idBase64, selfieBase64).getOrThrow()

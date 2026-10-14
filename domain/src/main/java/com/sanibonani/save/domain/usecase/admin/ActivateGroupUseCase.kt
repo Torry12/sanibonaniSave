@@ -4,6 +4,7 @@ import com.sanibonani.save.domain.model.*
 import com.sanibonani.save.domain.repository.group.*
 import com.sanibonani.save.domain.repository.member.*
 import javax.inject.Inject
+import com.sanibonani.save.domain.utils.safeRunCatching
 
 /**
  * Orchestrates the activation side-effects for a newly created group.
@@ -15,7 +16,7 @@ class ActivateGroupUseCase @Inject constructor(
     private val groupRepository: GroupRepository,
     private val memberRepository: MemberRepository
 ) {
-    suspend operator fun invoke(groupId: String, txId: String? = null): Result<Unit> = runCatching {
+    suspend operator fun invoke(groupId: String, txId: String? = null): Result<Unit> = safeRunCatching {
         // 1. Fetch group
         val group = groupRepository.getGroupById(groupId).getOrThrow()
 

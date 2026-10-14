@@ -6,6 +6,7 @@ import com.sanibonani.save.domain.repository.member.*
 import kotlinx.coroutines.flow.first
 import java.time.Instant
 import javax.inject.Inject
+import com.sanibonani.save.domain.utils.safeRunCatching
 /**
  * Calculate composite health score for a group based on actuarial metrics.
  *
@@ -18,7 +19,7 @@ class CalculateGroupHealthScoreUseCase @Inject constructor(
     private val memberRepository: MemberRepository,
     private val healthScoreRepository: HealthScoreRepository
 ) {
-    suspend operator fun invoke(groupId: String): Result<GroupHealthScore> = runCatching {
+    suspend operator fun invoke(groupId: String): Result<GroupHealthScore> = safeRunCatching {
         val group = groupRepository.getGroupById(groupId).getOrThrow()
         val membersResult: Result<List<Member>> = memberRepository.getGroupMembers(groupId).first()
         val members = membersResult.getOrThrow()
@@ -28,7 +29,7 @@ class CalculateGroupHealthScoreUseCase @Inject constructor(
         // Count members who joined before the previous month for retention calculation
         val oneMonthAgo = java.time.LocalDate.now().minusMonths(1)
         val previousMonthMemberCount = members.count { member ->
-            runCatching {
+            safeRunCatching {
                 val joined = member.joinedAt?.substringBefore("T")?.let { java.time.LocalDate.parse(it) }
                 joined != null && !joined.isAfter(oneMonthAgo)
             }.getOrDefault(false)
@@ -83,7 +84,7 @@ class CalculateGroupHealthScoreUseCase @Inject constructor(
         val monthlyTotals = contributions
             .filter { it.type == "contribution" }
             .groupBy {
-                runCatching { it.dueDate.substringBeforeLast("-").substringBefore("T") }.getOrDefault("unknown")
+                safeRunCatching { it.dueDate.substringBeforeLast("-").substringBefore("T") }.getOrDefault("unknown")
             }
             .values
             .mapNotNull { list -> list.fold(Money.ZERO) { acc, c -> acc + c.amount }.takeIf { it.isPositive } }

@@ -2,13 +2,14 @@ package com.sanibonani.save.data.local
 
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
+import com.sanibonani.save.domain.utils.safeRunCatching
 
 /** Restore precision-safe contribution Money columns and align nullable timestamps with Room. */
 val MIGRATION_80_81 = object : Migration(80, 81) {
     override fun migrate(db: SupportSQLiteDatabase) {
-        runCatching { db.execSQL("ALTER TABLE `groups` ADD COLUMN `burial_claim_amount` TEXT NOT NULL DEFAULT '10000.00'") }
-        runCatching { db.execSQL("ALTER TABLE `groups` ADD COLUMN `min_members_for_claims` INTEGER NOT NULL DEFAULT 0") }
-        runCatching { db.execSQL("ALTER TABLE `groups` ADD COLUMN `min_reserve_percentage` REAL NOT NULL DEFAULT 0.0") }
+        safeRunCatching { db.execSQL("ALTER TABLE `groups` ADD COLUMN `burial_claim_amount` TEXT NOT NULL DEFAULT '10000.00'") }
+        safeRunCatching { db.execSQL("ALTER TABLE `groups` ADD COLUMN `min_members_for_claims` INTEGER NOT NULL DEFAULT 0") }
+        safeRunCatching { db.execSQL("ALTER TABLE `groups` ADD COLUMN `min_reserve_percentage` REAL NOT NULL DEFAULT 0.0") }
 
         val sourceColumns = db.tableColumns("contributions")
         if (sourceColumns.isEmpty()) return

@@ -14,6 +14,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import javax.inject.Inject
+import com.sanibonani.save.domain.utils.safeRunCatching
 
 /**
  * Payment adapter layer for future real bank API integration.
@@ -31,7 +32,7 @@ class SupabaseEdgeBankAdapter @Inject constructor(
         groupId: String,
         memberId: String?,
         description: String?,
-    ): Result<PaymentInitiationResult> = runCatching {
+    ): Result<PaymentInitiationResult> = safeRunCatching {
         val payload = buildJsonObject {
             put("action", "initiate")
             put("amount", amount.amount.toPlainString())
@@ -45,7 +46,7 @@ class SupabaseEdgeBankAdapter @Inject constructor(
             body = payload,
         )
         val responseText = responseHttp.bodyAsText()
-        val response = runCatching { json.parseToJsonElement(responseText) as? JsonObject }
+        val response = safeRunCatching { json.parseToJsonElement(responseText) as? JsonObject }
             .getOrNull() ?: throw Exception("Invalid response from bank API: $responseText")
 
         val txId = response["transactionId"]?.jsonPrimitive?.content ?: throw Exception("Missing transactionId in response")
@@ -58,7 +59,7 @@ class SupabaseEdgeBankAdapter @Inject constructor(
         )
     }
 
-    override suspend fun verify(transactionId: String, method: PaymentMethod): Result<PaymentStatusResult> = runCatching {
+    override suspend fun verify(transactionId: String, method: PaymentMethod): Result<PaymentStatusResult> = safeRunCatching {
         val payload = buildJsonObject {
             put("action", "verify")
             put("transactionId", transactionId)
@@ -69,7 +70,7 @@ class SupabaseEdgeBankAdapter @Inject constructor(
             body = payload,
         )
         val responseText = responseHttp.bodyAsText()
-        val response = runCatching { json.parseToJsonElement(responseText) as? JsonObject }
+        val response = safeRunCatching { json.parseToJsonElement(responseText) as? JsonObject }
             .getOrNull() ?: throw Exception("Invalid response from bank API: $responseText")
 
         val status = response["status"]?.jsonPrimitive?.content
@@ -91,7 +92,7 @@ class SupabaseEdgeBankAdapter @Inject constructor(
         accountNo: String,
         branchCode: String,
         reference: String
-    ): Result<String> = runCatching {
+    ): Result<String> = safeRunCatching {
         // Forward disbursement via Edge Function Gateway
         val payload = buildJsonObject {
             put("payout_id", payoutId)
@@ -108,7 +109,7 @@ class SupabaseEdgeBankAdapter @Inject constructor(
                 put("payload", payload)
             }
         )
-        val response = runCatching { json.parseToJsonElement(responseHttp.bodyAsText()) as? JsonObject }
+        val response = safeRunCatching { json.parseToJsonElement(responseHttp.bodyAsText()) as? JsonObject }
             .getOrNull() ?: throw Exception("Invalid response from bank API")
 
         response["transaction_id"]?.jsonPrimitive?.content ?: "EDGE-OUT-${UUID.randomUUID().toString().take(6).uppercase()}"

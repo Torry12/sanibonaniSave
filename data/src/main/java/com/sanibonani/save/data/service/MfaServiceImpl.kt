@@ -11,6 +11,7 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
 import javax.inject.Inject
 import javax.inject.Singleton
+import com.sanibonani.save.domain.utils.safeRunCatching
 
 @Singleton
 class MfaServiceImpl @Inject constructor(
@@ -22,7 +23,7 @@ class MfaServiceImpl @Inject constructor(
     override val isMfaVerified: Boolean
         get() = client.auth.currentSessionOrNull()?.user?.appMetadata?.get("aal")?.jsonPrimitive?.contentOrNull == "aal2"
 
-    override suspend fun enrollTotp(friendlyName: String): Result<TotpEnrollment> = runCatching {
+    override suspend fun enrollTotp(friendlyName: String): Result<TotpEnrollment> = safeRunCatching {
         val response = client.auth.mfa.enroll(FactorType.TOTP, friendlyName)
         TotpEnrollment(
             id = response.id,
@@ -32,16 +33,16 @@ class MfaServiceImpl @Inject constructor(
         )
     }
 
-    override suspend fun verifyMfa(factorId: String, code: String, saveChallenge: Boolean): Result<Unit> = runCatching {
+    override suspend fun verifyMfa(factorId: String, code: String, saveChallenge: Boolean): Result<Unit> = safeRunCatching {
         val challenge = client.auth.mfa.createChallenge(factorId)
         client.auth.mfa.verifyChallenge(factorId, challenge.id, code, saveChallenge)
     }
 
-    override suspend fun unenrollMfa(factorId: String): Result<Unit> = runCatching {
+    override suspend fun unenrollMfa(factorId: String): Result<Unit> = safeRunCatching {
         client.auth.mfa.unenroll(factorId)
     }
 
-    override suspend fun getMfaFactors(): Result<List<MfaFactor>> = runCatching {
+    override suspend fun getMfaFactors(): Result<List<MfaFactor>> = safeRunCatching {
         client.auth.currentUserOrNull()?.factors?.map {
             MfaFactor(
                 id = it.id,

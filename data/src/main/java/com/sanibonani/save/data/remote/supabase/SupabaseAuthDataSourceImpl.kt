@@ -2,7 +2,6 @@ package com.sanibonani.save.data.remote.supabase
 
 import com.sanibonani.save.data.datasource.AuthDataSource
 import com.sanibonani.save.data.remote.EdgeFunctionGateway
-import com.sanibonani.save.domain.logging.AppLogger
 import com.sanibonani.save.domain.model.AuthSession
 import com.sanibonani.save.domain.model.AuthSessionStatus
 import com.sanibonani.save.domain.model.MfaFactor
@@ -12,7 +11,6 @@ import com.sanibonani.save.domain.utils.AuthIdentityUtils
 import com.sanibonani.save.domain.utils.PlatformAdminAuthPolicy
 import com.sanibonani.save.domain.utils.UserRoleMapper
 import com.sanibonani.save.domain.repository.system.DataConnectionProtocol
-import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.auth.mfa.FactorType
 import io.github.jan.supabase.auth.parseSessionFromUrl
@@ -21,15 +19,14 @@ import io.github.jan.supabase.auth.providers.builtin.OTP
 import io.github.jan.supabase.auth.status.SessionStatus
 import io.github.jan.supabase.auth.user.UserSession
 import io.github.jan.supabase.postgrest.postgrest
-import io.github.jan.supabase.postgrest.query.Columns
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.*
-import java.io.IOException
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CancellationException
+import com.sanibonani.save.domain.utils.safeRunCatching
 
 @Singleton
 class SupabaseAuthDataSourceImpl @Inject constructor(
@@ -72,7 +69,7 @@ class SupabaseAuthDataSourceImpl @Inject constructor(
         else -> AuthSessionStatus.NotAuthenticated()
     }
 
-    override suspend fun signUp(email: String, password: String, metadata: Map<String, String>): Result<String> = runCatching {
+    override suspend fun signUp(email: String, password: String, metadata: Map<String, String>): Result<String> = safeRunCatching {
         val normalizedEmail = canonicalEmail(email)
         try {
             val response = client.auth.signUpWith(Email) {
@@ -102,7 +99,7 @@ class SupabaseAuthDataSourceImpl @Inject constructor(
         }
     }
 
-    override suspend fun adminSignUp(email: String, password: String, metadata: Map<String, String>, confirm: Boolean): Result<String> = runCatching {
+    override suspend fun adminSignUp(email: String, password: String, metadata: Map<String, String>, confirm: Boolean): Result<String> = safeRunCatching {
         edgeFunctionGateway.invoke(
             functionName = "mobile-admin-actions",
             payload = buildJsonObject {
@@ -118,36 +115,36 @@ class SupabaseAuthDataSourceImpl @Inject constructor(
             ?: throw IllegalStateException("Admin account creation succeeded but no user ID was returned.")
     }
 
-    override suspend fun signIn(email: String, password: String): Result<Unit> = runCatching {
+    override suspend fun signIn(email: String, password: String): Result<Unit> = safeRunCatching {
         client.auth.signInWith(Email) {
             this.email = canonicalEmail(email)
             this.password = password
         }
     }
 
-    override suspend fun signInWithMagicLink(email: String): Result<Unit> = runCatching {
+    override suspend fun signInWithMagicLink(email: String): Result<Unit> = safeRunCatching {
         client.auth.signInWith(OTP) {
             this.email = canonicalEmail(email)
             createUser = false
         }
     }
 
-    override suspend fun signOut(): Result<Unit> = runCatching {
+    override suspend fun signOut(): Result<Unit> = safeRunCatching {
         client.auth.signOut()
     }
 
-    override suspend fun sendPasswordResetEmail(email: String): Result<Unit> = runCatching {
+    override suspend fun sendPasswordResetEmail(email: String): Result<Unit> = safeRunCatching {
         client.auth.resetPasswordForEmail(
             email = canonicalEmail(email),
             redirectUrl = "sanibonani://reset-password"
         )
     }
 
-    override suspend fun updatePassword(newPassword: String): Result<Unit> = runCatching {
+    override suspend fun updatePassword(newPassword: String): Result<Unit> = safeRunCatching {
         client.auth.updateUser { password = newPassword }
     }
 
-    override suspend fun handleDeepLink(url: String): Result<Unit> = runCatching {
+    override suspend fun handleDeepLink(url: String): Result<Unit> = safeRunCatching {
         val session = client.auth.parseSessionFromUrl(url)
         client.auth.importSession(session)
     }
@@ -161,7 +158,7 @@ class SupabaseAuthDataSourceImpl @Inject constructor(
 
         val metadataRole = user.userMetadata?.get("role")?.jsonPrimitive?.contentOrNull?.let(UserRoleMapper::fromRaw)
 
-        val profileRole = runCatching {
+        val profileRole = safeRunCatching {
             client.postgrest["profiles"].select { filter { eq("id", userId) } }.decodeSingleOrNull<ProfileResponse>()?.role?.let(UserRoleMapper::fromRaw)
         }.getOrNull()
 
@@ -171,7 +168,7 @@ class SupabaseAuthDataSourceImpl @Inject constructor(
     @Serializable
     private data class ProfileResponse(val id: String, val role: String? = null)
 
-    override suspend fun updateUserRole(userId: String, role: UserRole, groupId: String?): Result<Unit> = runCatching {
+    override suspend fun updateUserRole(userId: String, role: UserRole, groupId: String?): Result<Unit> = safeRunCatching {
         if (currentUserId == userId) {
             val existingMeta = rawSession?.user?.userMetadata ?: buildJsonObject {}
             val updatedMeta = buildJsonObject {
@@ -197,23 +194,23 @@ class SupabaseAuthDataSourceImpl @Inject constructor(
         }
     }
 
-    override suspend fun getMfaFactors(): Result<List<MfaFactor>> = runCatching {
+    override suspend fun getMfaFactors(): Result<List<MfaFactor>> = safeRunCatching {
         client.auth.currentUserOrNull()?.factors?.map {
             MfaFactor(id = it.id, friendlyName = it.friendlyName ?: "Unnamed", type = it.factorType.toString(), status = "active")
         } ?: emptyList()
     }
 
-    override suspend fun verifyMfa(factorId: String, code: String, saveSession: Boolean): Result<Unit> = runCatching {
+    override suspend fun verifyMfa(factorId: String, code: String, saveSession: Boolean): Result<Unit> = safeRunCatching {
         val challenge = client.auth.mfa.createChallenge(factorId)
         client.auth.mfa.verifyChallenge(factorId, challenge.id, code, saveSession)
     }
 
-    override suspend fun enrollMfa(): Result<TotpEnrollment> = runCatching {
+    override suspend fun enrollMfa(): Result<TotpEnrollment> = safeRunCatching {
         val response = client.auth.mfa.enroll(FactorType.TOTP)
         TotpEnrollment(id = response.id, qrCode = response.data.qrCode, secret = response.data.secret, uri = response.data.uri)
     }
 
-    override suspend fun resendVerificationEmail(email: String): Result<Unit> = runCatching {
+    override suspend fun resendVerificationEmail(email: String): Result<Unit> = safeRunCatching {
         client.auth.resendEmail(type = io.github.jan.supabase.auth.OtpType.Email.SIGNUP, email = canonicalEmail(email))
     }
 }

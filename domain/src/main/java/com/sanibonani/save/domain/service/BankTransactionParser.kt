@@ -9,6 +9,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import com.sanibonani.save.domain.utils.safeRunCatching
 
 /**
  * Strategy interface for parsing raw bank data into domain models.
@@ -19,10 +20,10 @@ interface BankTransactionParser {
 
 class StandardJsonBankParser(private val json: Json) : BankTransactionParser {
     override fun parse(rawData: String, groupId: String): List<BankTransaction> {
-        val element = runCatching { json.parseToJsonElement(rawData) }.getOrNull() ?: return emptyList()
-        val array = runCatching { element.jsonArray }.getOrNull() ?: return emptyList()
+        val element = safeRunCatching { json.parseToJsonElement(rawData) }.getOrNull() ?: return emptyList()
+        val array = safeRunCatching { element.jsonArray }.getOrNull() ?: return emptyList()
         return array.mapIndexedNotNull { index, item ->
-            runCatching {
+            safeRunCatching {
                 val obj = item.jsonObject
                 val rawAmount = obj["amount"]?.jsonPrimitive?.content ?: "0.00"
                 val cleanAmount = rawAmount.replace(Regex("[R\\s,]"), "")
@@ -53,7 +54,7 @@ class CsvBankParser : BankTransactionParser {
             val parts = line.split(",").map { it.trim().removeSurrounding("\"") }
             if (parts.size < 3) return@mapIndexedNotNull null
 
-            runCatching {
+            safeRunCatching {
                 // Clean the string (remove ZAR symbol, spaces, and commas) to prevent BigDecimal exception
                 val rawAmount = parts[2].replace(Regex("[R\\s,]"), "")
                 val rawRef = parts[1]

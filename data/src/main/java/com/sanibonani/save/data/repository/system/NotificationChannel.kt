@@ -7,6 +7,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 import javax.inject.Inject
+import com.sanibonani.save.domain.utils.safeRunCatching
 
 /**
  * Polymorphic interface for different notification delivery channels.
@@ -19,7 +20,7 @@ class WhatsAppChannel @Inject constructor(
     private val edgeFunctionGateway: EdgeFunctionGateway
 ) : NotificationChannel {
 
-    override suspend fun deliver(recipientPhone: String, message: String): Result<Unit> = runCatching {
+    override suspend fun deliver(recipientPhone: String, message: String): Result<Unit> = safeRunCatching {
         val templatePayload = buildJsonObject {
             put("to", recipientPhone)
             put("message", message)
@@ -46,7 +47,7 @@ class WhatsAppChannel @Inject constructor(
         }
 
         val templateResult = edgeFunctionGateway.invoke("send-whatsapp", templatePayload)
-        if (templateResult.isSuccess) return@runCatching
+        if (templateResult.isSuccess) return@safeRunCatching
 
         val templateError = templateResult.exceptionOrNull()
         if (templateError != null && isTemplateDeliveryFailure(templateError)) {

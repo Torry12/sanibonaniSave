@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.serialization.json.Json
 import javax.inject.Inject
 import javax.inject.Singleton
+import com.sanibonani.save.domain.utils.safeRunCatching
 
 @Singleton
 class AuditRepositoryImpl @Inject constructor(
@@ -70,7 +71,7 @@ class AuditRepositoryImpl @Inject constructor(
     override suspend fun getPlatformAuditReport(): Result<PlatformAuditReport> =
         remoteSource.generatePlatformAudit().map { it.data }
 
-    override suspend fun triggerMemberAudit(memberId: String): Result<MemberAuditReport> = runCatching {
+    override suspend fun triggerMemberAudit(memberId: String): Result<MemberAuditReport> = safeRunCatching {
         val result = remoteSource.generateMemberAudit(memberId).getOrThrow()
         localSource.saveReport(
             AuditReportEntity(
@@ -88,7 +89,7 @@ class AuditRepositoryImpl @Inject constructor(
         result.data
     }
 
-    override suspend fun triggerGroupAudit(groupId: String): Result<GroupAuditReport> = runCatching {
+    override suspend fun triggerGroupAudit(groupId: String): Result<GroupAuditReport> = safeRunCatching {
         val result = remoteSource.generateGroupAudit(groupId).getOrThrow()
         localSource.saveReport(
             AuditReportEntity(
@@ -106,7 +107,7 @@ class AuditRepositoryImpl @Inject constructor(
         result.data
     }
 
-    override suspend fun triggerPlatformAudit(): Result<PlatformAuditReport> = runCatching {
+    override suspend fun triggerPlatformAudit(): Result<PlatformAuditReport> = safeRunCatching {
         val result = remoteSource.generatePlatformAudit().getOrThrow()
         localSource.saveReport(
             AuditReportEntity(

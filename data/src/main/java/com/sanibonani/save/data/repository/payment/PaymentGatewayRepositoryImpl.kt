@@ -10,6 +10,7 @@ import io.ktor.client.HttpClient
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
+import com.sanibonani.save.domain.utils.safeRunCatching
 
 @Singleton
 class PaymentGatewayRepositoryImpl @Inject constructor(
@@ -40,7 +41,7 @@ class PaymentGatewayRepositoryImpl @Inject constructor(
         return provider.initiate(method, type, amount, groupId, memberId, description)
     }
 
-    private fun fallbackInitiation(method: PaymentMethod, amount: Money): Result<PaymentInitiationResult> = runCatching {
+    private fun fallbackInitiation(method: PaymentMethod, amount: Money): Result<PaymentInitiationResult> = safeRunCatching {
         // AI Note: In production, every PaymentMethod should have a dedicated provider.
         // Fallback is primarily for development/testing when a real gateway is not configured.
         val txId = "ref_${UUID.randomUUID().toString().take(8)}"
@@ -48,13 +49,10 @@ class PaymentGatewayRepositoryImpl @Inject constructor(
         PaymentInitiationResult(checkoutUrl, txId, method)
     }
 
-    override suspend fun verifyPayment(transactionId: String, method: PaymentMethod): Result<PaymentStatusResult> = runCatching {
+    override suspend fun verifyPayment(transactionId: String, method: PaymentMethod): Result<PaymentStatusResult> = safeRunCatching {
         val provider = providers[method]
-        if (provider != null) {
-            provider.verify(transactionId, method).getOrThrow()
-        } else {
-            PaymentStatusResult(transactionId, true, Money.ZERO)
-        }
+            ?: error("No payment provider is configured for ${method.name}; cannot report it as verified.")
+        provider.verify(transactionId, method).getOrThrow()
     }
 
     override suspend fun disburseFunds(
@@ -64,11 +62,10 @@ class PaymentGatewayRepositoryImpl @Inject constructor(
         accountNo: String,
         branchCode: String,
         reference: String
-    ): Result<String> = runCatching {
-        // By default, route to STITCH (or use group metadata to determine the payout gateway)
+    ): Result<String> = safeRunCatching {
         val provider = providers[PaymentMethod.STITCH]
             ?: providers[PaymentMethod.PAYFAST]
-            ?: providers.values.first()
+            ?: error("No payout gateway configured; refusing to disburse through an unrelated provider.")
 
         provider.disburse(payoutId, amount, bankName, accountNo, branchCode, reference).getOrThrow()
     }

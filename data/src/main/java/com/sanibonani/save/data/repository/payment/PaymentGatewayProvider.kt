@@ -6,6 +6,7 @@ import com.sanibonani.save.domain.repository.payment.PaymentInitiationResult
 import com.sanibonani.save.domain.repository.payment.PaymentStatusResult
 import java.util.UUID
 import kotlinx.coroutines.delay
+import com.sanibonani.save.domain.utils.safeRunCatching
 
 /**
  * Strategy interface for external payment gateway providers (Stitch, PayFast, YoCo).
@@ -42,7 +43,7 @@ class SimulatedBankProvider(
         groupId: String,
         memberId: String?,
         description: String?
-    ): Result<PaymentInitiationResult> = runCatching {
+    ): Result<PaymentInitiationResult> = safeRunCatching {
         val txId = "sim_${UUID.randomUUID().toString().take(8)}"
         simulation.bank.simulateSinglePayment(groupId, amount, txId).getOrThrow()
         PaymentInitiationResult(
@@ -52,7 +53,7 @@ class SimulatedBankProvider(
         )
     }
 
-    override suspend fun verify(transactionId: String, method: PaymentMethod): Result<PaymentStatusResult> = runCatching {
+    override suspend fun verify(transactionId: String, method: PaymentMethod): Result<PaymentStatusResult> = safeRunCatching {
         val simTx = simulation.bank.getTransactionStatus(transactionId).getOrThrow()
         if (simTx != null) {
             PaymentStatusResult(transactionId, true, simTx.amount)
@@ -68,7 +69,7 @@ class SimulatedBankProvider(
         accountNo: String,
         branchCode: String,
         reference: String
-    ): Result<String> = runCatching {
+    ): Result<String> = safeRunCatching {
         // Simulate external API call for banking disbursement
         delay(800)
         "EXT-SIM-${UUID.randomUUID().toString().take(6).uppercase()}"

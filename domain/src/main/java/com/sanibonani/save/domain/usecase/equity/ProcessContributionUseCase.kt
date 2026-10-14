@@ -20,6 +20,7 @@ import com.sanibonani.save.domain.service.PaymentAllocationService
 import com.sanibonani.save.domain.utils.PaymentCalculation
 import com.sanibonani.save.domain.utils.OperationKeys
 import javax.inject.Inject
+import com.sanibonani.save.domain.utils.safeRunCatching
 
 /**
  * Orchestrates all fund inflows (contributions, fees, joining fees).
@@ -57,7 +58,7 @@ class ProcessContributionUseCase @Inject constructor(
         member: Member? = null,
         group: Group? = null,
         calculation: PaymentCalculation? = null
-    ): Result<Unit> = runCatching {
+    ): Result<Unit> = safeRunCatching {
         require(amount.isPositive) { "Amount must be positive" }
 
         val destination = resolveDestination(type)

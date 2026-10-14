@@ -6,6 +6,7 @@ import com.sanibonani.save.domain.repository.member.*
 import com.sanibonani.save.domain.event.EventBus
 import com.sanibonani.save.domain.event.ClaimProcessedEvent
 import javax.inject.Inject
+import com.sanibonani.save.domain.utils.safeRunCatching
 class ProcessBurialClaimUseCase @Inject constructor(
     private val claimRepository: BeneficiaryClaimRepository,
     private val groupRepository: GroupRepository,
@@ -19,7 +20,7 @@ class ProcessBurialClaimUseCase @Inject constructor(
         reviewedBy: String,
         adminNotes: String? = null,
         rejectionReason: String? = null
-    ): Result<BeneficiaryPayoutClaim> = runCatching {
+    ): Result<BeneficiaryPayoutClaim> = safeRunCatching {
         val claim = claimRepository.getClaimById(claimId).getOrThrow()
         if (status == BeneficiaryClaimStatus.APPROVED || status == BeneficiaryClaimStatus.PAID) {
             val group = groupRepository.getGroupById(claim.groupId).getOrThrow()

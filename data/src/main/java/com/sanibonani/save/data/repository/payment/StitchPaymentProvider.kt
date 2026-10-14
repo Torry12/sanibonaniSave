@@ -15,6 +15,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
+import com.sanibonani.save.domain.utils.safeRunCatching
 
 class StitchPaymentProvider(
     private val httpClient: HttpClient
@@ -29,7 +30,7 @@ class StitchPaymentProvider(
         groupId: String,
         memberId: String?,
         description: String?
-    ): Result<PaymentInitiationResult> = runCatching {
+    ): Result<PaymentInitiationResult> = safeRunCatching {
         // Prepare a GraphQL mutation to Stitch API to create a payment request
         val mutation = """
             mutation CreatePaymentRequest(${'$'}amount: MoneyInput!, ${'$'}payerReference: String!, ${'$'}beneficiaryReference: String!) {
@@ -82,7 +83,7 @@ class StitchPaymentProvider(
         )
     }
 
-    override suspend fun verify(transactionId: String, method: PaymentMethod): Result<PaymentStatusResult> = runCatching {
+    override suspend fun verify(transactionId: String, method: PaymentMethod): Result<PaymentStatusResult> = safeRunCatching {
         val query = """
             query GetPaymentStatus(${'$'}id: ID!) {
               node(id: ${'$'}id) {
@@ -128,7 +129,7 @@ class StitchPaymentProvider(
         accountNo: String,
         branchCode: String,
         reference: String
-    ): Result<String> = runCatching {
+    ): Result<String> = safeRunCatching {
         // Stitch Payout/Disbursement GraphQL implementation would go here
         val mutation = """
             mutation CreateDisbursement(...) {

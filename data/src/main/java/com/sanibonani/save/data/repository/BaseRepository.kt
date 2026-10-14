@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.launch
+import com.sanibonani.save.domain.utils.safeRunCatching
 
 /**
  * Base class for all repositories in the data layer.
@@ -167,7 +168,7 @@ abstract class BaseRepository(protected val tag: String) {
         payload: String,
         dao: com.sanibonani.save.data.local.PendingOperationDao,
         block: suspend () -> T
-    ): Result<T> = runCatching {
+    ): Result<T> = safeRunCatching("$tag.$operationType") {
         block()
     }.onFailure { e ->
         if (e is CancellationException) throw e
@@ -176,7 +177,7 @@ abstract class BaseRepository(protected val tag: String) {
                            (e is ResponseException && e.response.status.value >= 500)
 
         if (isRecoverable) {
-            AppLogger.e(tag, "API Call failed. Queuing for retry: ${e.message}")
+            AppLogger.w(tag, "$operationType queued for retry.")
             dao.upsert(com.sanibonani.save.data.local.PendingOperationEntity(
                 id = java.util.UUID.randomUUID().toString(),
                 type = operationType,
@@ -185,7 +186,7 @@ abstract class BaseRepository(protected val tag: String) {
                 createdAt = System.currentTimeMillis()
             ))
         } else {
-            AppLogger.e(tag, "API Call failed with permanent error. Not queuing: ${e.message}")
+            AppLogger.e(tag, "$operationType failed with a permanent error; not queued.")
         }
     }
 }

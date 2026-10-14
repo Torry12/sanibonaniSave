@@ -12,9 +12,9 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonArray
 import javax.inject.Inject
 import javax.inject.Provider
+import com.sanibonani.save.domain.utils.safeRunCatching
 
 class ContributionRepositoryImpl @Inject constructor(
     private val remoteSource: RemoteContributionDataSource,
@@ -52,7 +52,7 @@ class ContributionRepositoryImpl @Inject constructor(
         cacheSync = { localSource.syncGroupContributions(groupId, it) }
     )
 
-    override suspend fun recordPayment(payment: Payment): Result<String> = runCatching {
+    override suspend fun recordPayment(payment: Payment): Result<String> = safeRunCatching {
         val paymentId = remoteSource.recordPayment(payment).getOrThrow()
         localSource.savePayments(listOf(payment.copy(id = paymentId)))
         EventBus.emit(PaymentProcessedEvent(payment.copy(id = paymentId)))
@@ -76,7 +76,7 @@ class ContributionRepositoryImpl @Inject constructor(
         method: PaymentMethod,
         paymentType: PaymentType,
         destination: PaymentDestination
-    ): Result<Money> = runCatching {
+    ): Result<Money> = safeRunCatching {
         val newBalance = remoteSource.processComplexPayment(groupId, memberId, totalAmount, txId, allocations, method, paymentType, destination).getOrThrow()
 
         // 1. Sync local group balance

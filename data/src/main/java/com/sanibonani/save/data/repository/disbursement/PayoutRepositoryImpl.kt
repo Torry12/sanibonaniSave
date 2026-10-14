@@ -15,6 +15,7 @@ import dagger.Lazy
 import kotlinx.coroutines.flow.Flow
 import kotlinx.serialization.json.*
 import javax.inject.Inject
+import com.sanibonani.save.domain.utils.safeRunCatching
 
 class PayoutRepositoryImpl @Inject constructor(
     private val remoteSource: RemotePayoutDataSource,
@@ -74,7 +75,7 @@ class PayoutRepositoryImpl @Inject constructor(
             saved.id ?: ""
         }
 
-    override suspend fun getPendingPayouts(): Result<List<PayoutRequest>> = runCatching {
+    override suspend fun getPendingPayouts(): Result<List<PayoutRequest>> = safeRunCatching {
         val remote = remoteSource.getPendingPayouts().getOrThrow()
         localSource.savePayouts(remote)
         remote
@@ -88,7 +89,7 @@ class PayoutRepositoryImpl @Inject constructor(
         cacheSync = { localSource.savePayouts(it) }
     )
 
-    override suspend fun getPayoutById(payoutId: String): Result<PayoutRequest> = runCatching {
+    override suspend fun getPayoutById(payoutId: String): Result<PayoutRequest> = safeRunCatching {
         val remote = remoteSource.getPayoutById(payoutId).getOrThrow()
         localSource.savePayout(remote)
         remote
@@ -99,7 +100,7 @@ class PayoutRepositoryImpl @Inject constructor(
         memberId: String?,
         amount: Money,
         type: PayoutType
-    ): Result<Unit> = runCatching {
+    ): Result<Unit> = safeRunCatching {
         val group = groupRepo.get().getGroupById(groupId).getOrThrow()
         val member = memberId?.let { memberRepo.get().getMemberById(it).getOrThrow() }
         payoutGuard.get().validateRequest(group, member, amount, type).getOrThrow()
@@ -142,7 +143,7 @@ class PayoutRepositoryImpl @Inject constructor(
         )
     }
 
-    override suspend fun completePayoutAtomic(payoutId: String, adminId: String, payoutReference: String?): Result<Unit> = runCatching {
+    override suspend fun completePayoutAtomic(payoutId: String, adminId: String, payoutReference: String?): Result<Unit> = safeRunCatching {
         remoteSource.completePayoutAtomic(payoutId, adminId, payoutReference).getOrThrow()
         val updated = remoteSource.getPayoutById(payoutId).getOrThrow()
         localSource.savePayout(updated)
@@ -175,7 +176,7 @@ class PayoutRepositoryImpl @Inject constructor(
         )))
     }
 
-    override suspend fun verifyPayoutDocument(payoutId: String, status: DocumentStatus): Result<Unit> = runCatching {
+    override suspend fun verifyPayoutDocument(payoutId: String, status: DocumentStatus): Result<Unit> = safeRunCatching {
         remoteSource.updatePayoutDocumentStatus(payoutId, status).getOrThrow()
         val updated = remoteSource.getPayoutById(payoutId).getOrThrow()
         localSource.savePayout(updated)

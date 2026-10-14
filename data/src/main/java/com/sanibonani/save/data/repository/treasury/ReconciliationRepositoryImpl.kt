@@ -17,6 +17,7 @@ import com.sanibonani.save.domain.logging.AppLogger
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.firstOrNull
+import com.sanibonani.save.domain.utils.safeRunCatching
 
 @Singleton
 class ReconciliationRepositoryImpl @Inject constructor(
@@ -38,7 +39,7 @@ class ReconciliationRepositoryImpl @Inject constructor(
         }
     )
 
-    override suspend fun performReconciliation(groupId: String): Result<ReconciliationRecord> = runCatching {
+    override suspend fun performReconciliation(groupId: String): Result<ReconciliationRecord> = safeRunCatching {
         try {
             val record = remoteSource.performReconciliation(groupId).getOrThrow()
             localSource.saveReconciliations(listOf(record))
@@ -107,7 +108,7 @@ class ReconciliationRepositoryImpl @Inject constructor(
         }
     )
 
-    override suspend fun getSettlementByTransactionId(transactionId: String): Result<SettlementRecord?> = runCatching {
+    override suspend fun getSettlementByTransactionId(transactionId: String): Result<SettlementRecord?> = safeRunCatching {
         localSource.getSettlementByTransactionId(transactionId)
             ?: remoteSource.getSettlementByTransactionId(transactionId).getOrThrow()
     }

@@ -10,6 +10,7 @@ import com.sanibonani.save.domain.validation.ValidationUtils
 import java.time.LocalDateTime
 import java.util.UUID
 import javax.inject.Inject
+import com.sanibonani.save.domain.utils.safeRunCatching
 
 /**
  * Orchestrates the process of a user joining a group.
@@ -23,7 +24,7 @@ class RegisterMemberUseCase @Inject constructor(
     private val tag = "RegisterMemberUseCase"
 
     suspend operator fun invoke(member: Member, transactionId: String? = null): Result<Member> =
-        runCatching {
+        safeRunCatching(tag) {
             require(member.groupId.isNotBlank()) { "Group ID required for registration." }
 
             val fullNameTrim = member.fullName.trim()
@@ -50,7 +51,7 @@ class RegisterMemberUseCase @Inject constructor(
 
             // 3. Prevent duplicate enrollment in the same group
             if (!currentUserId.isNullOrBlank()) {
-                val existingMembership = runCatching { memberRepository.getMemberByUserId(currentUserId, member.groupId).getOrNull() }.getOrNull()
+                val existingMembership = safeRunCatching { memberRepository.getMemberByUserId(currentUserId, member.groupId).getOrNull() }.getOrNull()
                 if (existingMembership != null) {
                     error("You are already enrolled as a member in this group.")
                 }
@@ -94,7 +95,5 @@ class RegisterMemberUseCase @Inject constructor(
 
             AppLogger.d(tag, "Successfully registered member: ${registeredMember.id} with status $initialStatus")
             registeredMember
-        }.onFailure { e ->
-            AppLogger.e(tag, "Member registration failed: ${e.message}", e)
         }
 }

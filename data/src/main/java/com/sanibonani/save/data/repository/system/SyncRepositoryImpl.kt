@@ -22,7 +22,15 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withLock
+import com.sanibonani.save.domain.utils.safeRunCatching
 
 class SyncRepositoryImpl @Inject constructor(
     private val supabase: SupabaseClient,
@@ -53,15 +61,27 @@ class SyncRepositoryImpl @Inject constructor(
     private val _syncStatus = MutableStateFlow<SyncStatus>(SyncStatus.Idle)
     override val syncStatus = _syncStatus.asStateFlow()
 
-    private var isSyncing = false
+    private val globalSyncMutex = Mutex()
+    private val globalSyncScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private var activeSync: Deferred<Result<Unit>>? = null
 
     override val outboxCount: kotlinx.coroutines.flow.Flow<Int> = db.pendingOperationDao().observeCount()
 
-    override suspend fun syncAllData(): Result<Unit> = runCatching {
-        if (isSyncing) return@runCatching
-        isSyncing = true
+    /**
+     * Single-flight global sync. Concurrent triggers (cold start, pull-to-refresh, Support Mode entry,
+     * SyncTriggerService) join the in-flight sync and share its Result rather than overlapping.
+     * The Mutex only guards join-or-start; the sync itself runs on [globalSyncScope] so that one
+     * caller cancelling does not tear down the sync other callers are awaiting.
+     */
+    override suspend fun syncAllData(): Result<Unit> {
+        val flight = globalSyncMutex.withLock {
+            activeSync?.takeIf { it.isActive }
+                ?: globalSyncScope.async { runGlobalSync() }.also { activeSync = it }
+        }
+        return flight.await()
+    }
 
-        try {
+    private suspend fun runGlobalSync(): Result<Unit> = safeRunCatching("$tag.fullSync") {
             kotlinx.coroutines.withTimeout(120_000) {
                 val userId = supabaseRepo.currentUserId ?: run {
                     val message = "Please sign in to sync your data."
@@ -120,13 +140,9 @@ class SyncRepositoryImpl @Inject constructor(
 
                 _syncStatus.value = SyncStatus.Completed
             }
-        } finally {
-            isSyncing = false
-        }
     }.onFailure { e ->
-        isSyncing = false
+        if (e is CancellationException && e !is TimeoutCancellationException) throw e
         val userMessage = e.toUserMessage()
-        AppLogger.e(tag, "Full sync failed: $userMessage")
         _syncStatus.value = SyncStatus.Error(userMessage)
     }
 
@@ -171,42 +187,42 @@ class SyncRepositoryImpl @Inject constructor(
         }
     }
 
-    override suspend fun syncGroupData(groupId: String): Result<Unit> = runCatching {
+    override suspend fun syncGroupData(groupId: String): Result<Unit> = safeRunCatching {
         AppLogger.i(tag, "Targeted refresh for group $groupId")
         val userRole = supabaseRepo.getUserRole()
         syncGroupDataInternal(groupId, userRole)
         Unit
     }
 
-    override suspend fun syncRefresh(pillar: DomainPillar, groupId: String): Result<Unit> = runCatching {
+    override suspend fun syncRefresh(pillar: DomainPillar, groupId: String): Result<Unit> = safeRunCatching {
         AppLogger.d(tag, "Refreshing pillar ${pillar.name} for group $groupId")
         when (pillar) {
             DomainPillar.EQUITY -> {
-                runCatching {
+                safeRunCatching("$tag.equityContributions") {
                     val data = supabase.postgrest["contributions"].select { filter { eq("group_id", groupId) } }.decodeList<Contribution>()
                     db.contributionDao().syncGroupContributions(groupId, data.map { it.toEntity() })
-                }.onFailure { AppLogger.w(tag, "Failed syncing equity contributions: ${it.message}") }
+                }
 
-                runCatching {
+                safeRunCatching("$tag.equityPayments") {
                     val payments = supabase.postgrest["payments"].select { filter { eq("group_id", groupId) } }.decodeList<Payment>()
                     db.paymentDao().syncPayments(groupId, payments.map { it.toEntity() })
-                }.onFailure { AppLogger.w(tag, "Failed syncing equity payments: ${it.message}") }
+                }
             }
             DomainPillar.GLOBAL -> memberRepo.syncGroupMembers(groupId).getOrNull()
             DomainPillar.CREDIT -> {
-                runCatching {
+                safeRunCatching("$tag.loans") {
                     val data = supabase.postgrest["loans"].select { filter { eq("group_id", groupId) } }.decodeList<Loan>()
                     db.loanDao().syncGroupLoans(groupId, data.map { it.toEntity() })
-                }.onFailure { AppLogger.w(tag, "Failed syncing loans: ${it.message}") }
+                }
             }
             DomainPillar.DISBURSEMENT -> {
-                runCatching {
+                safeRunCatching("$tag.payouts") {
                     val payouts = supabase.postgrest["payouts"].select { filter { eq("group_id", groupId) } }.decodeList<PayoutRequest>()
                     db.payoutDao().syncPayouts(groupId, payouts.map { it.toEntity() })
-                }.onFailure { AppLogger.w(tag, "Failed syncing payouts: ${it.message}") }
+                }
 
-                runCatching {
-                    val claims = runCatching {
+                safeRunCatching("$tag.claims") {
+                    val claims = safeRunCatching("$tag.beneficiaryClaims") {
                         supabase.postgrest["beneficiary_payout_claims"].select(columns = Columns.raw("*")) {
                             filter { eq("group_id", groupId) }
                         }.decodeList<BeneficiaryPayoutClaim>()
@@ -216,18 +232,18 @@ class SyncRepositoryImpl @Inject constructor(
                         }.decodeList<BeneficiaryPayoutClaim>()
                     }
                     db.beneficiaryClaimDao().syncForGroup(groupId, claims.map { it.toEntity() })
-                }.onFailure { AppLogger.w(tag, "Failed syncing claims: ${it.message}") }
+                }
             }
             DomainPillar.TREASURY -> {
-                runCatching {
+                safeRunCatching("$tag.treasuryLedger") {
                     val data = supabase.postgrest["group_ledger"].select(columns = Columns.raw("*")) {
                         filter { eq("group_id", groupId) }
                     }.decodeList<LedgerEntry>()
                     db.ledgerDao().syncLedger(groupId, data.map { it.toLedgerEntity() })
-                }.onFailure { AppLogger.w(tag, "Failed syncing treasury ledger: ${it.message}") }
+                }
             }
             DomainPillar.BANK -> {
-                runCatching {
+                safeRunCatching("$tag.bankTransactions") {
                     // Sync Bank Connection
                     val connection = supabase.postgrest["bank_connections"].select(columns = Columns.raw("*")) {
                         filter { eq("group_id", groupId) }
@@ -244,23 +260,23 @@ class SyncRepositoryImpl @Inject constructor(
                         }
                     }.decodeList<BankTransaction>()
                     db.bankTransactionDao().upsert(transactions.map { it.toEntity() })
-                }.onFailure { AppLogger.w(tag, "Failed syncing bank transactions: ${it.message}") }
+                }
             }
             DomainPillar.DYNAMICS -> {
-                runCatching {
+                safeRunCatching("$tag.memberBehaviorTracks") {
                     val tracks = supabase.postgrest["member_behavior_tracks"].select(columns = Columns.raw("*")) {
                         filter { eq("group_id", groupId) }
                     }.decodeList<MemberBehaviorTrack>()
                     db.memberBehaviorTrackDao().syncForGroup(groupId, tracks.map { it.toEntity() })
-                }.onFailure { AppLogger.w(tag, "Failed syncing member behavior tracks: ${it.message}") }
+                }
             }
             else -> {}
         }
     }
 
-    override suspend fun processOutbox(): Result<Unit> = runCatching {
+    override suspend fun processOutbox(): Result<Unit> = safeRunCatching {
         val pending = db.pendingOperationDao().getAll()
-        if (pending.isEmpty()) return@runCatching
+        if (pending.isEmpty()) return@safeRunCatching
 
         AppLogger.i(tag, "📦 Processing outbox queue: ${pending.size} operations")
 

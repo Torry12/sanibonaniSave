@@ -11,6 +11,7 @@ import java.time.LocalDate
 import kotlinx.serialization.json.*
 import javax.inject.Inject
 import javax.inject.Singleton
+import com.sanibonani.save.domain.utils.safeRunCatching
 
 @Singleton
 class SupabasePayoutDataSourceImpl @Inject constructor(
@@ -19,17 +20,17 @@ class SupabasePayoutDataSourceImpl @Inject constructor(
 
     private val tag = "SupabasePayout"
 
-    override suspend fun requestPayout(payout: PayoutRequest): Result<PayoutRequest> = runCatching {
+    override suspend fun requestPayout(payout: PayoutRequest): Result<PayoutRequest> = safeRunCatching {
         AppLogger.d(tag, "Requesting payout for group ${payout.groupId}")
         client.postgrest["payouts"].upsert(payout) { onConflict = "id"; select() }.decodeSingle<PayoutRequest>()
     }
 
-    override suspend fun getPayouts(groupId: String): Result<List<PayoutRequest>> = runCatching {
+    override suspend fun getPayouts(groupId: String): Result<List<PayoutRequest>> = safeRunCatching {
         AppLogger.d(tag, "Fetching payouts for group $groupId")
         client.postgrest["payouts"].select { filter { eq("group_id", groupId) } }.decodeList<PayoutRequest>()
     }
 
-    override suspend fun getPendingPayouts(): Result<List<PayoutRequest>> = runCatching {
+    override suspend fun getPendingPayouts(): Result<List<PayoutRequest>> = safeRunCatching {
         AppLogger.d(tag, "Fetching all actionable payouts")
         val statuses = listOf(
             PayoutStatus.PENDING.name.lowercase(),
@@ -42,12 +43,12 @@ class SupabasePayoutDataSourceImpl @Inject constructor(
         }.decodeList<PayoutRequest>()
     }
 
-    override suspend fun getPayoutsForMember(memberId: String): Result<List<PayoutRequest>> = runCatching {
+    override suspend fun getPayoutsForMember(memberId: String): Result<List<PayoutRequest>> = safeRunCatching {
         AppLogger.d(tag, "Fetching payouts for member $memberId")
         client.postgrest["payouts"].select { filter { eq("member_id", memberId) } }.decodeList<PayoutRequest>()
     }
 
-    override suspend fun getPayoutById(id: String): Result<PayoutRequest> = runCatching {
+    override suspend fun getPayoutById(id: String): Result<PayoutRequest> = safeRunCatching {
         AppLogger.d(tag, "Fetching payout $id")
         client.postgrest["payouts"].select { filter { eq("id", id) } }.decodeSingle<PayoutRequest>()
     }
@@ -59,7 +60,7 @@ class SupabasePayoutDataSourceImpl @Inject constructor(
         processedBy: String?,
         processedAt: String?,
         metadata: JsonObject?
-    ): Result<Unit> = runCatching {
+    ): Result<Unit> = safeRunCatching {
         AppLogger.d(tag, "Updating payout $payoutId status to ${status.name}")
         client.postgrest["payouts"].update(buildJsonObject {
             put("status", status.name.lowercase())
@@ -70,7 +71,7 @@ class SupabasePayoutDataSourceImpl @Inject constructor(
         }) { filter { eq("id", payoutId) } }
     }
 
-    override suspend fun completePayoutAtomic(payoutId: String, adminId: String, reference: String?): Result<Unit> = runCatching {
+    override suspend fun completePayoutAtomic(payoutId: String, adminId: String, reference: String?): Result<Unit> = safeRunCatching {
         AppLogger.d(tag, "Completing payout $payoutId atomically by admin $adminId")
         val rpcParams = PayoutRepositoryImpl.buildCompletePayoutRpcParams(
             payoutId = payoutId,
@@ -78,16 +79,16 @@ class SupabasePayoutDataSourceImpl @Inject constructor(
             fallbackAdminId = null,
             payoutReference = reference
         )
-        runCatching {
+        safeRunCatching("$tag.complete_payout_v2") {
             client.postgrest.rpc("complete_payout_v2", rpcParams)
         }.getOrElse { primaryError ->
-            AppLogger.w(tag, "complete_payout_v2 failed: ${primaryError.message}. Initiating resilient fallback.")
+            AppLogger.w(tag, "complete_payout_v2 failed; initiating resilient fallback.")
             val payoutRes = client.postgrest["payouts"].select { filter { eq("id", payoutId) } }.decodeSingleOrNull<JsonObject>()
             val groupId = payoutRes?.get("group_id")?.jsonPrimitive?.content ?: throw primaryError
             val amountStr = payoutRes["amount"]?.jsonPrimitive?.content ?: "0.00"
             val memberId = payoutRes["member_id"]?.jsonPrimitive?.content
 
-            runCatching {
+            safeRunCatching("$tag.record_disbursement_v1") {
                 client.postgrest.rpc("record_disbursement_v1", buildJsonObject {
                     put("p_group_id", groupId)
                     put("p_amount", amountStr)
@@ -111,14 +112,14 @@ class SupabasePayoutDataSourceImpl @Inject constructor(
         }
     }
 
-    override suspend fun updatePayoutDocumentStatus(payoutId: String, status: DocumentStatus): Result<Unit> = runCatching {
+    override suspend fun updatePayoutDocumentStatus(payoutId: String, status: DocumentStatus): Result<Unit> = safeRunCatching {
         AppLogger.d(tag, "Updating payout $payoutId document status to ${status.name}")
         client.postgrest["payouts"].update(buildJsonObject {
             put("supporting_document_status", status.name.lowercase())
         }) { filter { eq("id", payoutId) } }
     }
 
-    override suspend fun processRoscaPayout(groupId: String, memberId: String, totalPot: Money, loanDeductions: JsonArray, payoutAmount: Money, payoutData: JsonObject): Result<String> = runCatching {
+    override suspend fun processRoscaPayout(groupId: String, memberId: String, totalPot: Money, loanDeductions: JsonArray, payoutAmount: Money, payoutData: JsonObject): Result<String> = safeRunCatching {
         AppLogger.d(tag, "Processing ROSCA payout for member $memberId in group $groupId")
         val rpcParams = buildJsonObject {
             put("p_group_id", groupId)

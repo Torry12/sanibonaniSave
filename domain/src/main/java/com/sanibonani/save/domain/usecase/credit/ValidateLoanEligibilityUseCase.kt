@@ -8,6 +8,7 @@ import com.sanibonani.save.domain.repository.equity.ContributionRepository
 import java.time.LocalDate
 import javax.inject.Inject
 import com.sanibonani.save.domain.usecase.firstValueOrNull
+import com.sanibonani.save.domain.utils.safeRunCatching
 
 class ValidateLoanEligibilityUseCase @Inject constructor(
     private val contributionRepository: ContributionRepository,
@@ -51,7 +52,7 @@ class ValidateLoanEligibilityUseCase @Inject constructor(
 
         val sixMonthsAgo = DateProvider.getCurrentDate().minusMonths(6)
         val last6MonthsContributions = contributions.filter {
-            runCatching {
+            safeRunCatching {
                 val paidAt = it.paidAt?.substringBefore("T")?.let { date -> LocalDate.parse(date) }
                 paidAt != null && !paidAt.isBefore(sixMonthsAgo)
             }.getOrDefault(false)

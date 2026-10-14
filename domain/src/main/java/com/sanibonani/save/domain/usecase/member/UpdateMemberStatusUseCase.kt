@@ -2,6 +2,7 @@ package com.sanibonani.save.domain.usecase.member
 import com.sanibonani.save.domain.model.MemberStatus
 import com.sanibonani.save.domain.repository.member.MemberRepository
 import javax.inject.Inject
+import com.sanibonani.save.domain.utils.safeRunCatching
 /**
  * Encapsulates the logic for updating a member's status.
  *
@@ -15,7 +16,7 @@ class UpdateMemberStatusUseCase @Inject constructor(
     private val memberRepository: MemberRepository
 ) {
     suspend operator fun invoke(memberId: String, newStatus: MemberStatus): Result<Unit> =
-        runCatching {
+        safeRunCatching {
             memberRepository.updateMemberStatus(memberId, newStatus).getOrThrow()
         }
     /**

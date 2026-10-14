@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import com.sanibonani.save.domain.utils.safeRunCatching
 
 class VotingRepositoryImpl @Inject constructor(
     private val connectionManager: com.sanibonani.save.data.remote.SupabaseConnectionManager,
@@ -66,7 +67,7 @@ class VotingRepositoryImpl @Inject constructor(
         )
     }
 
-    override suspend fun createPoll(groupId: String, createdByMemberId: String?, title: String, description: String?, options: List<String>, allowMultipleChoice: Boolean, endsAt: String?): Result<String> = runCatching {
+    override suspend fun createPoll(groupId: String, createdByMemberId: String?, title: String, description: String?, options: List<String>, allowMultipleChoice: Boolean, endsAt: String?): Result<String> = safeRunCatching {
         val poll = GroupPoll(
             groupId = groupId,
             createdByMemberId = createdByMemberId,
@@ -86,14 +87,14 @@ class VotingRepositoryImpl @Inject constructor(
         id
     }
 
-    override suspend fun castVote(groupId: String, pollId: String, optionId: String, memberId: String): Result<Unit> = runCatching {
+    override suspend fun castVote(groupId: String, pollId: String, optionId: String, memberId: String): Result<Unit> = safeRunCatching {
         val vote = GroupPollVote(groupId = groupId, pollId = pollId, optionId = optionId, memberId = memberId)
         supabase.postgrest["group_poll_votes"].upsert(vote) { onConflict = "poll_id,member_id" }
         db?.groupVotingDao()?.upsertVotes(listOf(vote.toEntity()))
         Unit
     }
 
-    override suspend fun closePoll(pollId: String): Result<Unit> = runCatching {
+    override suspend fun closePoll(pollId: String): Result<Unit> = safeRunCatching {
         supabase.postgrest.rpc("close_poll_v1", buildJsonObject { put("p_poll_id", pollId) })
         Unit
     }

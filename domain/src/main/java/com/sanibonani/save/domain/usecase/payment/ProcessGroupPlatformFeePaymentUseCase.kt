@@ -4,6 +4,7 @@ import com.sanibonani.save.domain.repository.equity.GroupFinancialRepository
 import com.sanibonani.save.domain.repository.group.GroupRepository
 import com.sanibonani.save.domain.utils.OperationKeys
 import javax.inject.Inject
+import com.sanibonani.save.domain.utils.safeRunCatching
 
 /**
  * Orchestrates the payment of outstanding platform fees from a group's bank account.
@@ -13,7 +14,7 @@ class ProcessGroupPlatformFeePaymentUseCase @Inject constructor(
     private val financialRepository: GroupFinancialRepository,
     private val groupRepository: GroupRepository
 ) {
-    suspend operator fun invoke(groupId: String): Result<Unit> = runCatching {
+    suspend operator fun invoke(groupId: String): Result<Unit> = safeRunCatching {
         // 1. Fetch all outstanding fees
         val fees = financialRepository.getOutstandingPlatformFees(groupId).getOrThrow()
         if (fees.isEmpty()) return Result.success(Unit)

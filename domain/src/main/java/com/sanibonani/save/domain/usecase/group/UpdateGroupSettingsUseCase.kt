@@ -1,9 +1,11 @@
 package com.sanibonani.save.domain.usecase.group
 import com.sanibonani.save.domain.model.GroupSettings
+import com.sanibonani.save.domain.model.Money
 import com.sanibonani.save.domain.model.UserRole
 import com.sanibonani.save.domain.repository.group.GroupRepository
 import com.sanibonani.save.domain.repository.auth.SupabaseRepository
 import javax.inject.Inject
+import com.sanibonani.save.domain.utils.safeRunCatching
 /**
  * Encapsulates the logic for updating group configuration settings.
  * Handles mapping from the UI [GroupSettings] model to the repository's data map.
@@ -28,7 +30,7 @@ class UpdateGroupSettingsUseCase @Inject constructor(
                                      currentGroup.branchCode != settings.branchCode
 
         if (hasExistingBankDetails && isChangingBankDetails) {
-            val userRole = runCatching { supabaseRepo.getUserRole() }.getOrDefault(UserRole.MEMBER)
+            val userRole = safeRunCatching { supabaseRepo.getUserRole() }.getOrDefault(UserRole.MEMBER)
             if (userRole != UserRole.PLATFORM_ADMIN) {
                 return Result.failure(
                     SecurityException("FRAUD_PREVENTION: Bank account details are locked. Please contact Sanibonani Support to change your group's banking information.")
@@ -41,8 +43,8 @@ class UpdateGroupSettingsUseCase @Inject constructor(
         if (paymentDueDay !in 1..28) {
             return Result.failure(IllegalArgumentException("Payment due day must be between 1 and 28."))
         }
-        val monthlyContrib = settings.monthlyContribution.toDoubleOrNull() ?: 0.0
-        if (monthlyContrib < 0) {
+        val monthlyContrib = settings.monthlyContribution.toBigDecimalOrNull()
+        if (monthlyContrib != null && monthlyContrib.signum() < 0) {
             return Result.failure(IllegalArgumentException("Monthly contribution cannot be negative."))
         }
         val probationMonths = settings.probationMonths.toIntOrNull() ?: 3
@@ -58,9 +60,9 @@ class UpdateGroupSettingsUseCase @Inject constructor(
             return Result.failure(IllegalArgumentException("Maximum members must be at least 1."))
         }
         val updates = mutableMapOf<String, Any>(
-            "joining_fee" to (settings.joiningFee.toDoubleOrNull() ?: 0.0),
-            "monthly_contribution" to monthlyContrib,
-            "late_fee" to (settings.lateFee.toDoubleOrNull() ?: 0.0),
+            "joining_fee" to settings.joiningFee.toMoneyStringOr("0.00"),
+            "monthly_contribution" to settings.monthlyContribution.toMoneyStringOr("0.00"),
+            "late_fee" to settings.lateFee.toMoneyStringOr("0.00"),
             "late_fee_grace_days" to (settings.lateFeeGraceDays.toIntOrNull() ?: 0),
             "probation_months" to probationMonths,
             "payment_due_day" to paymentDueDay,
@@ -72,14 +74,14 @@ class UpdateGroupSettingsUseCase @Inject constructor(
             "branch_code" to settings.branchCode,
             "account_type" to settings.accountType,
             "max_beneficiaries" to (settings.maxBeneficiaries.toIntOrNull() ?: 0),
-            "beneficiary_increase_pct" to (settings.beneficiaryIncreasePct.toDoubleOrNull() ?: 0.0),
-            "burial_claim_amount" to (settings.burialClaimAmount.toDoubleOrNull() ?: 10000.0),
+            "beneficiary_increase_pct" to settings.beneficiaryIncreasePct.toMoneyStringOr("0.00"),
+            "burial_claim_amount" to settings.burialClaimAmount.toMoneyStringOr("10000.00"),
             "min_members_for_claims" to (settings.minMembersForClaims.toIntOrNull() ?: 10),
-            "min_reserve_percentage" to (settings.minReservePercentage.toDoubleOrNull() ?: 20.0),
-            "goal_amount" to (settings.goalAmount.toDoubleOrNull() ?: 10000.0),
+            "min_reserve_percentage" to settings.minReservePercentage.toMoneyStringOr("20.00"),
+            "goal_amount" to settings.goalAmount.toMoneyStringOr("10000.00"),
             "period_months" to (settings.periodMonths.toIntOrNull() ?: 12),
-            "loan_interest_rate" to (settings.loanInterestRate.toDoubleOrNull() ?: 5.0),
-            "loan_max_amount" to (settings.loanMaxAmount.toDoubleOrNull() ?: 5000.0),
+            "loan_interest_rate" to settings.loanInterestRate.toMoneyStringOr("5.00"),
+            "loan_max_amount" to settings.loanMaxAmount.toMoneyStringOr("5000.00"),
             "loan_max_months" to (settings.loanMaxMonths.toIntOrNull() ?: 6),
             // ROSCA — stored as lowercase snake_case to satisfy DB CHECK constraint
             "rosca_rotation_method" to settings.rotationMethod.name.lowercase()
@@ -87,3 +89,11 @@ class UpdateGroupSettingsUseCase @Inject constructor(
         return groupRepo.updateGroupSettings(groupId, updates)
     }
 }
+
+/**
+ * Serialises a decimal input for a PostgREST NUMERIC(p,2) column as an exact 2-dp string.
+ * Falls back to [default] when the input is blank or unparseable, matching the previous
+ * `toDoubleOrNull() ?: default` behaviour without ever putting a Double on the wire.
+ */
+private fun String.toMoneyStringOr(default: String): String =
+    toBigDecimalOrNull()?.let { Money(it).toPlainString() } ?: default

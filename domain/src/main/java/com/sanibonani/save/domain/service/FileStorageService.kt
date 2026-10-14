@@ -4,6 +4,7 @@ import com.sanibonani.save.domain.repository.system.StorageNamingStrategy
 import com.sanibonani.save.domain.repository.system.StorageRepository
 import javax.inject.Inject
 import javax.inject.Singleton
+import com.sanibonani.save.domain.utils.safeRunCatching
 
 @Singleton
 class FileStorageService @Inject constructor(
@@ -31,7 +32,7 @@ class FileStorageService @Inject constructor(
         index: Int,
         byteArray: ByteArray,
         extension: String
-    ): Result<String> = runCatching {
+    ): Result<String> = safeRunCatching {
         validateFileBytes(byteArray)
         val cleanExt = sanitizeExtension(extension)
         val bucket = namingStrategy.getBucketForMemberDoc(index)
@@ -44,7 +45,7 @@ class FileStorageService @Inject constructor(
         groupId: String,
         byteArray: ByteArray,
         extension: String
-    ): Result<String> = runCatching {
+    ): Result<String> = safeRunCatching {
         validateFileBytes(byteArray)
         val cleanExt = sanitizeExtension(extension)
         val bucket = namingStrategy.getBucketForGroupDoc()
@@ -57,7 +58,7 @@ class FileStorageService @Inject constructor(
         loanId: String,
         byteArray: ByteArray,
         extension: String
-    ): Result<String> = runCatching {
+    ): Result<String> = safeRunCatching {
         validateFileBytes(byteArray)
         val cleanExt = sanitizeExtension(extension)
         val bucket = namingStrategy.getBucketForLoanContract()
@@ -71,7 +72,7 @@ class FileStorageService @Inject constructor(
         beneficiaryId: String,
         byteArray: ByteArray,
         extension: String
-    ): Result<String> = runCatching {
+    ): Result<String> = safeRunCatching {
         validateFileBytes(byteArray)
         val cleanExt = sanitizeExtension(extension)
         val bucket = namingStrategy.getBucketForBeneficiaryDoc()
@@ -84,7 +85,7 @@ class FileStorageService @Inject constructor(
         claimId: String,
         byteArray: ByteArray,
         extension: String
-    ): Result<String> = runCatching {
+    ): Result<String> = safeRunCatching {
         validateFileBytes(byteArray)
         val cleanExt = sanitizeExtension(extension)
         val bucket = namingStrategy.getBucketForClaimDoc()

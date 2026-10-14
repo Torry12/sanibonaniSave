@@ -8,6 +8,7 @@ import com.sanibonani.save.domain.repository.equity.GroupFinancialRepository
 import com.sanibonani.save.domain.repository.group.GroupRepository
 import javax.inject.Inject
 import javax.inject.Provider
+import com.sanibonani.save.domain.utils.safeRunCatching
 
 class GroupFinancialRepositoryImpl @Inject constructor(
     private val remoteGroupSource: RemoteGroupDataSource,
@@ -54,7 +55,7 @@ class GroupFinancialRepositoryImpl @Inject constructor(
 
     override suspend fun getVerifiedBalance(groupId: String): Result<Money> = remoteFinSource.getVerifiedBalance(groupId)
 
-    override suspend fun repairGroupData(groupId: String): Result<Unit> = runCatching {
+    override suspend fun repairGroupData(groupId: String): Result<Unit> = safeRunCatching {
         remoteFinSource.repairGroupData(groupId).getOrThrow()
         groupRepo.get().getGroupById(groupId)
     }

@@ -15,6 +15,9 @@ import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -92,6 +95,31 @@ class SyncRepositoryImplTest {
         coVerify(exactly = 1) { groupRepo.getGroupById("group_1") }
         coVerify(exactly = 1) { memberRepo.syncGroupMembers("group_1") }
         coVerify(exactly = 1) { notificationRepo.syncNotifications("group_1") }
+    }
+
+    @Test
+    fun `concurrent syncAllData calls join one in-flight sync`() = runBlocking {
+        every { supabaseRepo.currentUserId } returns "user_1"
+        coEvery { supabaseRepo.getUserRole() } returns UserRole.PLATFORM_ADMIN
+        coEvery { memberRepo.getMemberships("user_1") } coAnswers {
+            delay(150)
+            Result.success(listOf(Member(id = "m1", groupId = "group_1")))
+        }
+        coEvery { groupRepo.getGroupsByAdmin("user_1") } returns Result.success(emptyList())
+        coEvery { groupRepo.getGroupById("group_1") } returns Result.success(
+            Group(id = "group_1", name = "Group One")
+        )
+        coEvery { memberRepo.syncGroupMembers("group_1") } returns Result.success(emptyList())
+        coEvery { notificationRepo.syncNotifications("group_1") } returns Result.success(Unit)
+
+        val results = listOf(
+            async { repository.syncAllData() },
+            async { repository.syncAllData() },
+            async { repository.syncAllData() }
+        ).awaitAll()
+
+        assertTrue(results.all { it.isSuccess })
+        coVerify(exactly = 1) { memberRepo.getMemberships("user_1") }
     }
 }
 

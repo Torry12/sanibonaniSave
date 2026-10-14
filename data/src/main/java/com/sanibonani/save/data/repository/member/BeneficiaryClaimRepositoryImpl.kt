@@ -8,6 +8,7 @@ import com.sanibonani.save.domain.repository.member.BeneficiaryClaimRepository
 import kotlinx.coroutines.flow.Flow
 import kotlinx.serialization.json.*
 import javax.inject.Inject
+import com.sanibonani.save.domain.utils.safeRunCatching
 
 class BeneficiaryClaimRepositoryImpl @Inject constructor(
     private val remoteSource: RemoteClaimDataSource,
@@ -44,19 +45,19 @@ class BeneficiaryClaimRepositoryImpl @Inject constructor(
         cacheSync = { localSource.syncClaimsForGroup(groupId, it) }
     )
 
-    override suspend fun updateClaimStatus(claimId: String, status: BeneficiaryClaimStatus, reviewedBy: String?, adminNotes: String?, rejectionReason: String?): Result<Unit> = runCatching {
+    override suspend fun updateClaimStatus(claimId: String, status: BeneficiaryClaimStatus, reviewedBy: String?, adminNotes: String?, rejectionReason: String?): Result<Unit> = safeRunCatching {
         remoteSource.updateClaimStatus(claimId, status, reviewedBy, adminNotes, rejectionReason).getOrThrow()
         val updated = remoteSource.getClaimById(claimId).getOrThrow()
         localSource.saveClaim(updated)
     }
 
-    override suspend fun verifyClaimDocument(claimId: String, docKey: String, status: DocumentStatus): Result<Unit> = runCatching {
+    override suspend fun verifyClaimDocument(claimId: String, docKey: String, status: DocumentStatus): Result<Unit> = safeRunCatching {
         remoteSource.updateClaimDocumentStatus(claimId, docKey, status).getOrThrow()
         val updated = remoteSource.getClaimById(claimId).getOrThrow()
         localSource.saveClaim(updated)
     }
 
-    override suspend fun payClaimAtomic(claimId: String, adminId: String, notes: String?): Result<Unit> = runCatching {
+    override suspend fun payClaimAtomic(claimId: String, adminId: String, notes: String?): Result<Unit> = safeRunCatching {
         remoteSource.payClaimAtomic(claimId, adminId, notes).getOrThrow()
         val updated = remoteSource.getClaimById(claimId).getOrThrow()
         localSource.saveClaim(updated)
@@ -72,7 +73,7 @@ class BeneficiaryClaimRepositoryImpl @Inject constructor(
 
     override suspend fun getEscalatedClaimsSync(): Result<List<BeneficiaryPayoutClaim>> = remoteSource.getEscalatedClaims()
 
-    override suspend fun getClaimById(claimId: String): Result<BeneficiaryPayoutClaim> = runCatching {
+    override suspend fun getClaimById(claimId: String): Result<BeneficiaryPayoutClaim> = safeRunCatching {
         val remote = remoteSource.getClaimById(claimId).getOrThrow()
         localSource.saveClaim(remote)
         remote

@@ -11,6 +11,7 @@ import com.sanibonani.save.domain.usecase.disbursement.ExecuteRoscaPayoutUseCase
 import com.sanibonani.save.domain.usecase.disbursement.RequestPayoutUseCase
 import java.time.LocalDate
 import javax.inject.Inject
+import com.sanibonani.save.domain.utils.safeRunCatching
 class AutomateGovernanceUseCase @Inject constructor(
     private val groupRepository: GroupRepository,
     private val memberRepository: MemberRepository,
@@ -23,7 +24,7 @@ class AutomateGovernanceUseCase @Inject constructor(
     private val requestPayoutUseCase: RequestPayoutUseCase,
     private val auditLogRepository: AuditLogRepository
 ) {
-    suspend operator fun invoke(): Result<Unit> = runCatching {
+    suspend operator fun invoke(): Result<Unit> = safeRunCatching {
         val groups = platformRepository.getAllGroups().getOrThrow()
         val today = LocalDate.now()
         for (group in groups) {

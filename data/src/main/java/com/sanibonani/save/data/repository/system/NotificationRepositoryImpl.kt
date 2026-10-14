@@ -21,11 +21,11 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import kotlinx.serialization.json.*
 import javax.inject.Inject
-import java.text.NumberFormat
 import java.util.Locale
 
 // Added imports for friendly error mapping / logging
-import com.sanibonani.save.domain.utils.logAndGetMessage
+import com.sanibonani.save.domain.utils.toUserMessage
+import com.sanibonani.save.domain.utils.safeRunCatching
 
 class NotificationRepositoryImpl @Inject constructor(
     private val supabase: SupabaseClient,
@@ -49,7 +49,7 @@ class NotificationRepositoryImpl @Inject constructor(
         cacheSync = { list: List<NotificationEntity> -> db.notificationDao().syncNotifications(groupId, list) }
     )
 
-    override suspend fun syncNotifications(groupId: String): Result<Unit> = runCatching {
+    override suspend fun syncNotifications(groupId: String): Result<Unit> = safeRunCatching {
         val remoteNotifs = supabase.postgrest["notifications"].select {
             filter { eq("group_id", groupId) }
         }.decodeList<AppNotification>()
@@ -57,7 +57,7 @@ class NotificationRepositoryImpl @Inject constructor(
         db.notificationDao().syncNotifications(groupId, remoteNotifs.map { it.toEntity() })
     }
 
-    override suspend fun sendNotification(notification: AppNotification): Result<Unit> = runCatching {
+    override suspend fun sendNotification(notification: AppNotification): Result<Unit> = safeRunCatching {
         val notifId = if (notification.id.isNullOrBlank()) "notif_${java.util.UUID.randomUUID()}" else notification.id
         val nowStr = notification.createdAt ?: java.time.Instant.now().toString()
         val notifToSave = notification.copy(id = notifId, createdAt = nowStr)
@@ -78,8 +78,8 @@ class NotificationRepositoryImpl @Inject constructor(
                 db.notificationDao().upsertNotifications(listOf(serverNotification.toEntity()))
             }
         } catch (e: Exception) {
-            val userMsg = e.logAndGetMessage("NotificationRepo")
-            AppLogger.e("NotificationRepo", "Postgrest notification insert failed: $userMsg")
+            val userMsg = e.toUserMessage()
+            AppLogger.e("NotificationRepo", "Postgrest notification insert failed: $userMsg", e)
             if (notification.channel == NotifChannel.EMAIL) throw IllegalStateException(userMsg)
         }
 
@@ -130,7 +130,7 @@ class NotificationRepositoryImpl @Inject constructor(
         event: NotifEvent,
         memberCount: Int,
         amountDue: Money
-    ): Result<Unit> = runCatching {
+    ): Result<Unit> = safeRunCatching {
         val formattedAmount = amountDue.format()
         val message = when (event) {
             NotifEvent.PLATFORM_FEE_DUE -> "Monthly platform fee of $formattedAmount for $memberCount members is now due."
@@ -190,12 +190,12 @@ class NotificationRepositoryImpl @Inject constructor(
             try {
                 edgeFunctionGateway.invoke("send-whatsapp", feeDuePayload).getOrThrow()
             } catch (e: Exception) {
-                AppLogger.e("NotificationRepository", "Failed to send platform_fee_due template", e)
+                AppLogger.w("NotificationRepository", "platform_fee_due WhatsApp template not sent; notification still recorded locally.")
             }
         }
     }
 
-    override suspend fun notifyPlatformAdmin(message: String): Result<Unit> = runCatching {
+    override suspend fun notifyPlatformAdmin(message: String): Result<Unit> = safeRunCatching {
         val platformAdmins = supabase.postgrest["profiles"].select {
             filter { eq("role", "platform_admin") }
         }.decodeList<UserProfile>()
@@ -210,13 +210,13 @@ class NotificationRepositoryImpl @Inject constructor(
         }
     }
 
-    override suspend fun sendDirectWhatsAppMessage(phone: String, message: String): Result<Unit> = runCatching {
+    override suspend fun sendDirectWhatsAppMessage(phone: String, message: String): Result<Unit> = safeRunCatching {
         require(phone.isNotBlank()) { "Please enter a WhatsApp number." }
         require(message.isNotBlank()) { "Please enter a message to send." }
         whatsAppChannel.deliver(phone, message).getOrThrow()
     }
 
-    override suspend fun sendPasswordResetWhatsApp(phone: String): Result<Unit> = runCatching {
+    override suspend fun sendPasswordResetWhatsApp(phone: String): Result<Unit> = safeRunCatching {
         val currentLang = Locale.getDefault().language
         val whatsappLang = when(currentLang) {
             "zu" -> "zu"

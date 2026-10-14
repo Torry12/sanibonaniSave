@@ -30,6 +30,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.double
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
+import com.sanibonani.save.domain.utils.safeRunCatching
 
 /**
  * Reusable simulation engine for SanibonaniSave.
@@ -400,7 +401,7 @@ class LiveSimulationRunner(
         })
 
         println("SIM_TRACE: Completing $payoutType payout")
-        runCatching {
+        safeRunCatching {
             client.postgrest.rpc("complete_payout_v2", buildJsonObject {
                 put("p_payout_id", payoutId)
                 put("p_admin_id", adminUserId)
@@ -461,7 +462,7 @@ class LiveSimulationRunner(
 
         // 2. Approve & Disburse Loan
         println("SIM_TRACE: Approving and Disbursing Loan $loanId")
-        runCatching {
+        safeRunCatching {
             client.postgrest.rpc("approve_and_disburse_loan_v2", buildJsonObject {
                 put("p_loan_id", loanId)
                 put("p_admin_id", adminUserId)
@@ -546,7 +547,7 @@ class LiveSimulationRunner(
             put("processed_by", adminUserId)
         })
 
-        runCatching {
+        safeRunCatching {
             client.postgrest.rpc("complete_payout_v2", buildJsonObject {
                 put("p_payout_id", claimPayoutId)
                 put("p_admin_id", adminUserId)

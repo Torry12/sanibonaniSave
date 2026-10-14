@@ -6,6 +6,7 @@ import java.math.RoundingMode
 import java.time.LocalDate
 import javax.inject.Inject
 import javax.inject.Singleton
+import com.sanibonani.save.domain.utils.safeRunCatching
 
 data class DueBreakdown(
     val contributions: Money = Money.ZERO,
@@ -215,8 +216,8 @@ class PaymentCalculator @Inject constructor(
                 totalExpectedPlatform += platformFeePerMonth
 
                 for (loan in loans.filter { it.status == LoanStatus.ACTIVE || it.status == LoanStatus.PARTIALLY_PAID }) {
-                    val loanStartDate = loan.startDate?.let { runCatching { LocalDate.parse(it.substringBefore("T")) }.getOrNull() }
-                    val loanEndDate = loan.endDate?.let { runCatching { LocalDate.parse(it.substringBefore("T")) }.getOrNull() }
+                    val loanStartDate = loan.startDate?.let { safeRunCatching { LocalDate.parse(it.substringBefore("T")) }.getOrNull() }
+                    val loanEndDate = loan.endDate?.let { safeRunCatching { LocalDate.parse(it.substringBefore("T")) }.getOrNull() }
 
                     if (loanStartDate != null) {
                         val loanStartMonth = loanStartDate.withDayOfMonth(1)
@@ -299,14 +300,14 @@ class PaymentCalculator @Inject constructor(
     private fun resolveJoinedDate(member: Member, fallback: LocalDate, dueDay: Int, contributions: List<Contribution> = emptyList()): LocalDate {
         return try {
             val rawStr = member.joinedAt ?: member.createdAt
-            val parsedJoined = runCatching {
+            val parsedJoined = safeRunCatching {
                 if (!rawStr.isNullOrBlank()) {
                     LocalDate.parse(rawStr.substringBefore("T").substringBefore(" "))
                 } else null
             }.getOrNull()
 
             val earliestContrib = contributions.mapNotNull {
-                runCatching { LocalDate.parse(it.dueDate.substringBefore("T")) }.getOrNull()
+                safeRunCatching { LocalDate.parse(it.dueDate.substringBefore("T")) }.getOrNull()
             }.minOrNull()
 
             val effectiveDate = listOfNotNull(parsedJoined, earliestContrib)

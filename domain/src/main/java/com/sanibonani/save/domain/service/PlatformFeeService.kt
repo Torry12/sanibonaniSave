@@ -42,13 +42,6 @@ class PlatformFeeService @Inject constructor(
     }
 
     /**
-     * Business Rule: High-value disbursements require enhanced security.
-     */
-    fun isMfaRequiredForDisbursement(amount: Money): Boolean {
-        return amount >= Money(10000.0)
-    }
-
-    /**
      * Returns the registration fee for a group, prioritizing group-specific custom fees over global config.
      */
     fun getRegistrationFee(group: Group? = null): Money {

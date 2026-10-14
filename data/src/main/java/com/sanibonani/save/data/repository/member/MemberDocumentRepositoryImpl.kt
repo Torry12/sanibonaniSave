@@ -4,7 +4,6 @@ import com.sanibonani.save.data.repository.BaseRepository
 import com.sanibonani.save.data.local.*
 import com.sanibonani.save.data.local.toEntity
 import com.sanibonani.save.data.local.toModel
-import com.sanibonani.save.domain.logging.AppLogger
 import com.sanibonani.save.domain.model.DocumentStatus
 import com.sanibonani.save.domain.model.MemberDocument
 import com.sanibonani.save.domain.repository.member.MemberDocumentRepository
@@ -13,11 +12,9 @@ import com.sanibonani.save.domain.repository.system.StorageRepository
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.postgrest.postgrest
 import kotlinx.coroutines.flow.Flow
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.put
-import java.time.Instant
 import javax.inject.Inject
 import javax.inject.Provider
+import com.sanibonani.save.domain.utils.safeRunCatching
 
 class MemberDocumentRepositoryImpl @Inject constructor(
     private val supabaseProvider: Provider<SupabaseClient>,
@@ -39,7 +36,7 @@ class MemberDocumentRepositoryImpl @Inject constructor(
         cacheSync = { list -> db.memberDocumentDao().syncDocuments(memberId, list) }
     )
 
-    override suspend fun syncMemberDocuments(memberId: String): Result<List<MemberDocument>> = runCatching {
+    override suspend fun syncMemberDocuments(memberId: String): Result<List<MemberDocument>> = safeRunCatching {
         val remote = supabase.postgrest["member_documents"].select { filter { eq("member_id", memberId) } }.decodeList<MemberDocument>()
         db.memberDocumentDao().syncDocuments(memberId, remote.map { it.toEntity() })
         remote
@@ -70,7 +67,7 @@ class MemberDocumentRepositoryImpl @Inject constructor(
         byteArray: ByteArray,
         fileName: String,
         documentType: String?
-    ): Result<MemberDocument> = runCatching {
+    ): Result<MemberDocument> = safeRunCatching {
         val url = memberRepo.get().uploadMemberDocument(memberId, 99, byteArray, fileName, documentType).getOrThrow()
         val doc = MemberDocument(
             memberId = memberId,

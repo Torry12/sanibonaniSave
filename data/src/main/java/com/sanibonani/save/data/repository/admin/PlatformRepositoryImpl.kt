@@ -44,6 +44,7 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import com.sanibonani.save.domain.utils.safeRunCatching
 
 class PlatformRepositoryImpl @Inject constructor(
     private val protocol: DataConnectionProtocol,
@@ -57,11 +58,11 @@ class PlatformRepositoryImpl @Inject constructor(
 
     override suspend fun getPlatformAnalytics(): Result<PlatformAnalytics> = retryWithExponentialBackoff {
         // Fetch high-level summary from performance view (avoids member OOM)
-        val summary: PlatformAnalyticsSummary? = runCatching {
+        val summary: PlatformAnalyticsSummary? = safeRunCatching {
             supabase.postgrest["platform_summary_stats"].select().decodeList<PlatformAnalyticsSummary>().firstOrNull()
         }.getOrNull()
 
-        val groups: List<Group> = runCatching {
+        val groups: List<Group> = safeRunCatching {
             supabase.postgrest["groups"].select(columns = Columns.raw(PostgrestColumns.GROUPS_SAFE)).decodeList<Group>()
         }.recoverCatching {
             supabase.postgrest["groups"].select(columns = Columns.raw(PostgrestColumns.GROUPS_SAFE)) {
@@ -103,14 +104,14 @@ class PlatformRepositoryImpl @Inject constructor(
     }
 
     override suspend fun getAllGroups(): Result<List<Group>> = retryWithExponentialBackoff {
-        val groups = runCatching {
+        val groups = safeRunCatching {
             supabase.postgrest["groups"].select(columns = Columns.raw(PostgrestColumns.GROUPS_SAFE)).decodeList<Group>()
         }.recoverCatching {
             db.groupDao().observeAllGroups().firstOrNull()?.map { it.toModel() } ?: emptyList()
         }.getOrElse { emptyList() }
 
         if (groups.isNotEmpty()) {
-            runCatching { db.groupDao().upsertGroups(groups.map { it.toEntity() }) }
+            safeRunCatching { db.groupDao().upsertGroups(groups.map { it.toEntity() }) }
         }
         groups
     }
@@ -139,7 +140,7 @@ class PlatformRepositoryImpl @Inject constructor(
         )
 
         allSettings.forEach { (key, value) ->
-            runCatching {
+            safeRunCatching {
                 supabase.postgrest["platform_settings"].upsert(buildJsonObject {
                     put("key", key)
                     put("value", value)
@@ -161,21 +162,21 @@ class PlatformRepositoryImpl @Inject constructor(
     }
 
     override suspend fun triggerPlatformAudit(): Result<Unit> = retryWithExponentialBackoff {
-        runCatching { auditRemoteSource.generatePlatformAudit().getOrThrow() }.getOrDefault(Unit)
+        safeRunCatching { auditRemoteSource.generatePlatformAudit().getOrThrow() }.getOrDefault(Unit)
     }
 
     override suspend fun computeSystemWideMetrics(): Result<Unit> = retryWithExponentialBackoff {
-        runCatching { supabase.functions.invoke("compute-platform-metrics") }
+        safeRunCatching { supabase.functions.invoke("compute-platform-metrics") }
         Unit
     }
 
     override suspend fun triggerCloudBackup(): Result<Unit> = retryWithExponentialBackoff {
-        runCatching { supabase.functions.invoke("trigger-backup") }
+        safeRunCatching { supabase.functions.invoke("trigger-backup") }
         Unit
     }
 
     override suspend fun getCloudBackups(): Result<List<DatabaseBackup>> = retryWithExponentialBackoff {
-        runCatching {
+        safeRunCatching {
             supabase.postgrest["database_backups"].select {
                 order("created_at", order = Order.DESCENDING)
             }.decodeList<DatabaseBackup>()
@@ -183,7 +184,7 @@ class PlatformRepositoryImpl @Inject constructor(
     }
 
     override suspend fun deleteCloudBackup(name: String): Result<Unit> = retryWithExponentialBackoff {
-        runCatching { supabase.storage["backups"].delete(name) }
+        safeRunCatching { supabase.storage["backups"].delete(name) }
         Unit
     }
 
@@ -196,14 +197,14 @@ class PlatformRepositoryImpl @Inject constructor(
     }
 
     override suspend fun repairGroupData(groupId: String): Result<Unit> = retryWithExponentialBackoff {
-        runCatching {
+        safeRunCatching {
             supabase.postgrest.rpc("recalculate_all_group_financials_v3", buildJsonObject { put("p_group_id", groupId) })
         }
         Unit
     }
 
     override suspend fun searchMembers(query: String): Result<List<MemberBehaviorInsight>> = retryWithExponentialBackoff {
-        runCatching {
+        safeRunCatching {
             supabase.postgrest["platform_member_behavior_insights_v1"].select {
                 filter { ilike("full_name", "%$query%") }
             }.decodeList<MemberBehaviorInsight>()
@@ -211,18 +212,18 @@ class PlatformRepositoryImpl @Inject constructor(
     }
 
     override suspend fun getGranularFeeConfigs(): Result<List<PlatformFeeConfig>> = retryWithExponentialBackoff {
-        runCatching {
+        safeRunCatching {
             supabase.postgrest["platform_fee_config"].select().decodeList<PlatformFeeConfig>()
         }.getOrElse { emptyList() }
     }
 
     override suspend fun updateGranularFeeConfig(config: PlatformFeeConfig): Result<Unit> = retryWithExponentialBackoff {
-        runCatching { supabase.postgrest["platform_fee_config"].upsert(config) { select() } }
+        safeRunCatching { supabase.postgrest["platform_fee_config"].upsert(config) { select() } }
         Unit
     }
 
-    override suspend fun exportLocalDatabase(useOnline: Boolean): Result<File> = runCatching {
-        val dbPath = runCatching { db.openHelper.writableDatabase.path }.getOrNull()
+    override suspend fun exportLocalDatabase(useOnline: Boolean): Result<File> = safeRunCatching {
+        val dbPath = safeRunCatching { db.openHelper.writableDatabase.path }.getOrNull()
         if (dbPath != null && File(dbPath).exists()) {
             val src = File(dbPath)
             val exportFile = File.createTempFile("sanibonani_${if (useOnline) "online" else "local"}_export_", ".db")
@@ -272,7 +273,7 @@ class PlatformRepositoryImpl @Inject constructor(
     }
 
     override suspend fun getPlatformPayments(): Result<List<Payment>> = retryWithExponentialBackoff {
-        runCatching {
+        safeRunCatching {
             supabase.postgrest["payments"].select {
                 filter { eq("payment_type", "platform_fee") }
             }.decodeList<Payment>()
@@ -293,7 +294,7 @@ class PlatformRepositoryImpl @Inject constructor(
         }
 
         val txId = "unsuspend_group_${groupId}_${System.currentTimeMillis()}"
-        runCatching {
+        safeRunCatching {
             supabase.postgrest["payments"].insert(buildJsonObject {
                 put("group_id", groupId)
                 put("amount", liftingFee.amount.toPlainString())
@@ -334,7 +335,7 @@ class PlatformRepositoryImpl @Inject constructor(
     }
 
     override suspend fun logAuditEvent(auditLog: AuditLog): Result<Unit> = retryWithExponentialBackoff {
-        runCatching { supabase.postgrest["audit_logs"].insert(auditLog) { select() } }
+        safeRunCatching { supabase.postgrest["audit_logs"].insert(auditLog) { select() } }
         Unit
     }
 
@@ -351,11 +352,11 @@ class PlatformRepositoryImpl @Inject constructor(
     }
 
     override suspend fun getAuditLogs(limit: Int): Result<List<AuditLog>> = retryWithExponentialBackoff {
-        runCatching { auditRemoteSource.getAuditLogs(limit).getOrThrow() }.getOrElse { emptyList() }
+        safeRunCatching { auditRemoteSource.getAuditLogs(limit).getOrThrow() }.getOrElse { emptyList() }
     }
 
     override suspend fun getPlatformLedger(): Result<List<LedgerEntry>> = retryWithExponentialBackoff {
-        runCatching {
+        safeRunCatching {
             supabase.postgrest["platform_ledger"].select {
                 order("created_at", order = Order.DESCENDING)
             }.decodeList<LedgerEntry>()
@@ -365,7 +366,7 @@ class PlatformRepositoryImpl @Inject constructor(
     }
 
     override suspend fun getMemberBehaviorInsights(): Result<List<MemberBehaviorInsight>> = retryWithExponentialBackoff {
-        runCatching {
+        safeRunCatching {
             supabase.postgrest["platform_member_behavior_insights_v1"].select {
                 order("overdue_loans", order = Order.DESCENDING)
                 order("outstanding_amount", order = Order.DESCENDING)
@@ -374,7 +375,7 @@ class PlatformRepositoryImpl @Inject constructor(
     }
 
     override suspend fun deleteGroupFromPlatform(groupId: String): Result<Unit> = retryWithExponentialBackoff {
-        runCatching {
+        safeRunCatching {
             supabase.postgrest["groups"].delete {
                 filter { eq("id", groupId) }
             }

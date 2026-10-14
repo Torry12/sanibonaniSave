@@ -20,6 +20,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
+import com.sanibonani.save.domain.utils.safeRunCatching
 
 @Singleton
 class RealtimeSyncManager @Inject constructor(
@@ -179,12 +180,10 @@ class RealtimeSyncManager @Inject constructor(
                                 ?: (action as? PostgresAction.Update)?.record
                                 ?: return@collect
 
-                            runCatching {
+                            safeRunCatching("$tag.$tableName") {
                                 val entity = json.decodeFromJsonElement<T>(record.jsonObject)
                                 onUpdate(SyncAction.Upsert(entity))
                                 _syncMetrics.update { it + (tableName to RealtimeSyncStatus(isSubscribed = true, lastUpdate = System.currentTimeMillis())) }
-                            }.onFailure { e ->
-                                AppLogger.w(tag, "Failed to decode $tableName record: ${e.message}")
                             }
                         }
                         is PostgresAction.Delete -> {
@@ -215,8 +214,8 @@ class RealtimeSyncManager @Inject constructor(
         val scope = CoroutineScope(Dispatchers.IO)
         scope.launch {
             activeChannels.values.forEach { active ->
-                runCatching { supabase.realtime.removeChannel(active) }
-                    .onFailure { runCatching { active.unsubscribe() } }
+                safeRunCatching { supabase.realtime.removeChannel(active) }
+                    .onFailure { safeRunCatching { active.unsubscribe() } }
             }
             activeChannels.clear()
         }

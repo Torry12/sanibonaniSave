@@ -15,8 +15,11 @@ class FinancialSecurityService @Inject constructor(
     private val financialRepository: GroupFinancialRepository
 ) {
     companion object {
-        /** High-value disbursement threshold requiring AAL2 verification (R10,000.00). */
-        private val MFA_THRESHOLD = Money(10000.00)
+        /**
+         * Single source of truth for the high-value AAL2 threshold (R10,000.00).
+         * Callers and UI must read this rather than hardcoding an amount.
+         */
+        val MFA_THRESHOLD = Money("10000.00")
     }
 
     /**

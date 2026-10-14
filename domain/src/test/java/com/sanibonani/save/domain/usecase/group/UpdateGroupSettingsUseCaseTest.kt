@@ -76,5 +76,28 @@ class UpdateGroupSettingsUseCaseTest {
         val result = useCase("g5", settings)
         assertTrue(result.isFailure)
     }
+
+    @Test
+    fun `monetary settings are sent as exact 2dp decimal strings, never Double`() = runTest {
+        val slot = slot<Map<String, Any>>()
+        coEvery { groupRepo.updateGroupSettings("g6", capture(slot)) } returns Result.success(Unit)
+
+        val settings = GroupSettings(
+            goalAmount = "1234.567",
+            burialClaimAmount = "8000",
+            monthlyContribution = "50.005",
+            loanMaxAmount = "",
+            minReservePercentage = "12.5"
+        )
+        useCase("g6", settings)
+
+        val updates = slot.captured
+        assertEquals("1234.57", updates["goal_amount"])
+        assertEquals("8000.00", updates["burial_claim_amount"])
+        assertEquals("50.00", updates["monthly_contribution"])
+        assertEquals("5000.00", updates["loan_max_amount"])
+        assertEquals("12.50", updates["min_reserve_percentage"])
+        assertTrue(updates.values.none { it is Double })
+    }
 }
 

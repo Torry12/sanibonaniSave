@@ -15,6 +15,7 @@ import javax.inject.Inject
 import javax.inject.Provider
 import kotlin.math.max
 import kotlin.time.Duration.Companion.seconds
+import com.sanibonani.save.domain.utils.safeRunCatching
 
 @Suppress("UNCHECKED_CAST")
 class ActuarialRepositoryImpl @Inject constructor(
@@ -39,7 +40,7 @@ class ActuarialRepositoryImpl @Inject constructor(
 
     override suspend fun calculateDynamicJoiningFee(groupId: String): Result<Money> =
         withContext(Dispatchers.IO) {
-            runCatching {
+            safeRunCatching {
                 val group = groupRepo.getGroupById(groupId).getOrThrow()
                 val members = memberRepo.get().getGroupMembers(groupId).first().getOrThrow()
                 withContext(Dispatchers.Default) {
@@ -59,7 +60,7 @@ class ActuarialRepositoryImpl @Inject constructor(
         actuarialSettings: ActuarialSettings,
     ): Result<ViabilityPlan> = withContext(Dispatchers.IO) {
         kotlinx.coroutines.withTimeoutOrNull(10.seconds) {
-            runCatching {
+            safeRunCatching {
                 val group = groupRepo.getGroupById(groupId).getOrThrow()
                 val members = memberRepo.get().getGroupMembers(groupId).first().getOrThrow()
                 withContext(Dispatchers.Default) {
@@ -71,7 +72,7 @@ class ActuarialRepositoryImpl @Inject constructor(
 
     override suspend fun fetchGroupInsight(groupId: String): Result<GroupFinancialInsight> =
         withContext(Dispatchers.IO) {
-            runCatching {
+            safeRunCatching {
                 financialRepo.repairGroupData(groupId)
                 val group = groupRepo.getGroupById(groupId).getOrThrow()
                 val members = memberRepo.get().getGroupMembers(groupId).first().getOrThrow()
@@ -81,11 +82,11 @@ class ActuarialRepositoryImpl @Inject constructor(
             }
         }
 
-    override fun calculateMetrics(group: Group, members: List<Member>): Result<ActuarialMetrics> = runCatching {
+    override fun calculateMetrics(group: Group, members: List<Member>): Result<ActuarialMetrics> = safeRunCatching {
         actuarialEngine.calculateMetrics(group, members)
     }
 
-    override fun computeGroupInsight(group: Group, members: List<Member>): Result<GroupFinancialInsight> = runCatching {
+    override fun computeGroupInsight(group: Group, members: List<Member>): Result<GroupFinancialInsight> = safeRunCatching {
         actuarialEngine.computeGroupInsight(group, members)
     }
 

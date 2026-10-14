@@ -4,6 +4,7 @@ import com.sanibonani.save.domain.model.Money
 import com.sanibonani.save.domain.model.ViabilityPlan
 import com.sanibonani.save.domain.repository.admin.ActuarialRepository
 import javax.inject.Inject
+import com.sanibonani.save.domain.utils.safeRunCatching
 
 /**
  * Orchestrates the calculation of group viability and financial planning.
@@ -16,7 +17,7 @@ class CalculateViabilityUseCase @Inject constructor(
         goalAmount: Money,
         periodMonths: Int,
         actuarialSettings: ActuarialSettings = ActuarialSettings()
-    ): Result<ViabilityPlan> = runCatching {
+    ): Result<ViabilityPlan> = safeRunCatching {
         require(goalAmount.isPositive) { "Goal must be > 0" }
         require(periodMonths > 0) { "Period must be > 0" }
         actuarialRepository.calculateViabilityPlan(groupId, goalAmount, periodMonths, actuarialSettings).getOrThrow()

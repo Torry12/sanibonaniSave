@@ -6,7 +6,6 @@ import com.sanibonani.save.domain.model.Group
 import com.sanibonani.save.domain.model.GroupSettings
 import com.sanibonani.save.domain.model.AdminFeeState
 import com.sanibonani.save.domain.model.Money
-import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.postgrest.query.Columns
 import io.github.jan.supabase.postgrest.rpc
@@ -15,14 +14,15 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 import com.sanibonani.save.domain.repository.system.DataConnectionProtocol
+import com.sanibonani.save.domain.utils.safeRunCatching
 
 @Singleton
 class SupabaseGroupDataSourceImpl @Inject constructor(
     protocol: DataConnectionProtocol
 ) : BaseSupabaseDataSource(protocol), RemoteGroupDataSource {
 
-    override suspend fun getPublicGroups(): Result<List<Group>> = runCatching {
-        runCatching {
+    override suspend fun getPublicGroups(): Result<List<Group>> = safeRunCatching {
+        safeRunCatching {
             client.postgrest["groups"].select(columns = Columns.raw(PostgrestColumns.GROUPS_SAFE)) {
                 filter {
                     eq("is_public", true)
@@ -39,8 +39,8 @@ class SupabaseGroupDataSourceImpl @Inject constructor(
         }
     }
 
-    override suspend fun getGroupById(id: String): Result<Group> = runCatching {
-        runCatching {
+    override suspend fun getGroupById(id: String): Result<Group> = safeRunCatching {
+        safeRunCatching {
             client.postgrest["groups"].select(columns = Columns.raw(PostgrestColumns.GROUPS_SAFE)) {
                 filter { eq("id", id) }
             }.decodeSingle<Group>()
@@ -51,8 +51,8 @@ class SupabaseGroupDataSourceImpl @Inject constructor(
         }
     }
 
-    override suspend fun getGroupsByAdmin(adminId: String): Result<List<Group>> = runCatching {
-        runCatching {
+    override suspend fun getGroupsByAdmin(adminId: String): Result<List<Group>> = safeRunCatching {
+        safeRunCatching {
             client.postgrest["groups"].select(columns = Columns.raw(PostgrestColumns.GROUPS_SAFE)) {
                 filter { eq("admin_user_id", adminId) }
             }.decodeList<Group>()
@@ -63,7 +63,7 @@ class SupabaseGroupDataSourceImpl @Inject constructor(
         }
     }
 
-    override suspend fun createGroup(group: Group): Result<String> = runCatching {
+    override suspend fun createGroup(group: Group): Result<String> = safeRunCatching {
         val payload = buildJsonObject {
             group.id?.let { put("id", it) }
             put("name", group.name)
@@ -109,13 +109,13 @@ class SupabaseGroupDataSourceImpl @Inject constructor(
         created.id ?: throw Exception("Failed to get created group ID")
     }
 
-    override suspend fun updateGroup(group: Group): Result<Unit> = runCatching {
+    override suspend fun updateGroup(group: Group): Result<Unit> = safeRunCatching {
         client.postgrest["groups"].update(group) {
             filter { eq("id", group.id ?: throw IllegalStateException("Group ID is required for update")) }
         }
     }
 
-    override suspend fun updateGroupSettings(groupId: String, settings: GroupSettings): Result<Unit> = runCatching {
+    override suspend fun updateGroupSettings(groupId: String, settings: GroupSettings): Result<Unit> = safeRunCatching {
         val payload = buildJsonObject {
             put("joining_fee", Money(settings.joiningFee).amount.toPlainString())
             put("monthly_contribution", Money(settings.monthlyContribution).amount.toPlainString())
@@ -139,7 +139,7 @@ class SupabaseGroupDataSourceImpl @Inject constructor(
         client.postgrest["groups"].update(payload) { filter { eq("id", groupId) } }
     }
 
-    override suspend fun updateGroupSettings(groupId: String, settings: Map<String, Any>): Result<Unit> = runCatching {
+    override suspend fun updateGroupSettings(groupId: String, settings: Map<String, Any>): Result<Unit> = safeRunCatching {
         val payload = buildJsonObject {
             settings.forEach { (k, v) ->
                 when (v) {
@@ -153,7 +153,7 @@ class SupabaseGroupDataSourceImpl @Inject constructor(
         client.postgrest["groups"].update(payload) { filter { eq("id", groupId) } }
     }
 
-    override suspend fun activateGroup(groupId: String, txId: String?): Result<Unit> = runCatching {
+    override suspend fun activateGroup(groupId: String, txId: String?): Result<Unit> = safeRunCatching {
         client.postgrest["groups"].update(buildJsonObject {
             put("registration_paid", true)
             put("fee_status", "paid")
@@ -161,14 +161,14 @@ class SupabaseGroupDataSourceImpl @Inject constructor(
         }) { filter { eq("id", groupId) } }
     }
 
-    override suspend fun updateFeeStatus(groupId: String, status: AdminFeeState): Result<Unit> = runCatching {
+    override suspend fun updateFeeStatus(groupId: String, status: AdminFeeState): Result<Unit> = safeRunCatching {
         val statusStr = status.name.lowercase()
         client.postgrest["groups"].update(buildJsonObject { put("fee_status", statusStr) }) {
             filter { eq("id", groupId) }
         }
     }
 
-    override suspend fun incrementGroupBalance(groupId: String, amount: Money, memberId: String?): Result<Money> = runCatching {
+    override suspend fun incrementGroupBalance(groupId: String, amount: Money, memberId: String?): Result<Money> = safeRunCatching {
         val rpcParams = buildJsonObject {
             put("p_group_id", groupId)
             put("p_amount", amount.amount.toPlainString())
@@ -177,7 +177,7 @@ class SupabaseGroupDataSourceImpl @Inject constructor(
         client.postgrest.rpc("increment_group_balance", rpcParams).decodeAs<Money>()
     }
 
-    override suspend fun recordDisbursement(groupId: String, amount: Money, description: String, category: String, transactionId: String?, memberId: String?): Result<Money> = runCatching {
+    override suspend fun recordDisbursement(groupId: String, amount: Money, description: String, category: String, transactionId: String?, memberId: String?): Result<Money> = safeRunCatching {
         val rpcParams = buildJsonObject {
             put("p_group_id", groupId)
             put("p_amount", amount.amount.toPlainString())
@@ -189,7 +189,7 @@ class SupabaseGroupDataSourceImpl @Inject constructor(
         client.postgrest.rpc("record_disbursement_v1", rpcParams).decodeAs<Money>()
     }
 
-    override suspend fun deleteGroup(groupId: String): Result<Unit> = runCatching {
+    override suspend fun deleteGroup(groupId: String): Result<Unit> = safeRunCatching {
         client.postgrest["groups"].delete {
             filter { eq("id", groupId) }
         }

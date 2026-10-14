@@ -10,6 +10,7 @@ import com.sanibonani.save.domain.service.KycService
 import com.sanibonani.save.domain.validation.InputValidator
 import java.io.File
 import javax.inject.Inject
+import com.sanibonani.save.domain.utils.safeRunCatching
 
 class KycServiceImpl @Inject constructor(
     private val aiService: AiService,
@@ -31,7 +32,7 @@ class KycServiceImpl @Inject constructor(
         memberId: String,
         idFront: File,
         selfie: File
-    ): Result<Unit> = runCatching {
+    ): Result<Unit> = safeRunCatching {
         AppLogger.d("KycService", "Starting AI KYC for member: $memberId")
 
         val extraction = aiService.extractIdInfo(idFront).getOrThrow()

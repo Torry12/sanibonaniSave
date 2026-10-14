@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import com.sanibonani.save.domain.utils.safeRunCatching
 
 @Singleton
 class BankRepositoryImpl @Inject constructor(
@@ -28,16 +29,16 @@ class BankRepositoryImpl @Inject constructor(
     private val supabase: SupabaseClient get() = supabaseProvider.get()
     private val db: SanibonaniDatabase get() = dbProvider.get()
 
-    override suspend fun importBankTransactions(transactions: List<BankTransaction>): Result<Unit> = runCatching {
+    override suspend fun importBankTransactions(transactions: List<BankTransaction>): Result<Unit> = safeRunCatching {
         if (transactions.isEmpty()) return Result.success(Unit)
         val payloads = transactions.map { payloadFactory.createBankTransactionPayload(it) }
-        runCatching {
+        safeRunCatching {
             supabase.postgrest["bank_transactions"].insert(payloads)
         }
         db.bankTransactionDao().upsert(transactions.map { it.toEntity() })
     }
 
-    override suspend fun importRawStatement(rawData: String, format: String, groupId: String): Result<Unit> = runCatching {
+    override suspend fun importRawStatement(rawData: String, format: String, groupId: String): Result<Unit> = safeRunCatching {
         if (rawData.isBlank()) return Result.success(Unit)
         val parser = parserFactory.getParser(format)
         val transactions = parser.parse(rawData, groupId)
@@ -61,8 +62,8 @@ class BankRepositoryImpl @Inject constructor(
         cacheSync = { list -> db.bankTransactionDao().upsert(list) }
     )
 
-    override suspend fun reconcileManual(bankTxId: String, ledgerId: String): Result<Unit> = runCatching {
-        runCatching {
+    override suspend fun reconcileManual(bankTxId: String, ledgerId: String): Result<Unit> = safeRunCatching {
+        safeRunCatching {
             supabase.postgrest.rpc("reconcile_bank_transaction_v1", buildJsonObject {
                 put("p_bank_tx_id", bankTxId)
                 put("p_ledger_id", ledgerId)
@@ -76,8 +77,8 @@ class BankRepositoryImpl @Inject constructor(
         )
     }
 
-    override suspend fun ignoreTransaction(bankTxId: String, reason: String): Result<Unit> = runCatching {
-        runCatching {
+    override suspend fun ignoreTransaction(bankTxId: String, reason: String): Result<Unit> = safeRunCatching {
+        safeRunCatching {
             val payload = buildJsonObject {
                 put("status", BankTransactionStatus.IGNORED.name.lowercase())
                 put("metadata", buildJsonObject { put("ignore_reason", reason) })
@@ -146,7 +147,7 @@ class BankRepositoryImpl @Inject constructor(
         }
     )
 
-    override suspend fun saveBankConnection(connection: BankConnection): Result<Unit> = runCatching {
+    override suspend fun saveBankConnection(connection: BankConnection): Result<Unit> = safeRunCatching {
         supabase.postgrest["bank_connections"].upsert(connection) {
             onConflict = "group_id"
         }
@@ -163,7 +164,7 @@ class BankRepositoryImpl @Inject constructor(
         db.bankTransactionDao().upsertConnection(entity)
     }
 
-    override suspend fun deleteBankConnection(groupId: String): Result<Unit> = runCatching {
+    override suspend fun deleteBankConnection(groupId: String): Result<Unit> = safeRunCatching {
         supabase.postgrest["bank_connections"].delete {
             filter { eq("group_id", groupId) }
         }

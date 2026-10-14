@@ -7,13 +7,14 @@ import com.sanibonani.save.domain.service.LocationService
 import com.sanibonani.save.domain.utils.LocationUtils
 import javax.inject.Inject
 import javax.inject.Named
+import com.sanibonani.save.domain.utils.safeRunCatching
 
 class LocationServiceImpl @Inject constructor(
     private val geoapifyService: GeoapifyService,
     @Named("geoapify_api_key") private val apiKey: String
 ) : LocationService {
 
-    override suspend fun searchAddress(query: String): Result<List<LocationAddress>> = runCatching {
+    override suspend fun searchAddress(query: String): Result<List<LocationAddress>> = safeRunCatching {
         val response = geoapifyService.autocomplete(query, apiKey)
         response.features.map { feature ->
             val props = feature.properties
@@ -28,7 +29,7 @@ class LocationServiceImpl @Inject constructor(
         }
     }
 
-    override suspend fun geocodeAddress(city: String, province: String, township: String?): Result<GeocodedCoordinates> = runCatching {
+    override suspend fun geocodeAddress(city: String, province: String, township: String?): Result<GeocodedCoordinates> = safeRunCatching {
         val address = listOfNotNull(township, city, province)
             .filter { it.isNotBlank() }
             .joinToString(", ")

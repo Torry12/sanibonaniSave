@@ -8,6 +8,7 @@ import javax.inject.Inject
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.first
+import com.sanibonani.save.domain.utils.safeRunCatching
 
 /**
  * Orchestrates the synchronization of bank data (balance and transactions)
@@ -17,7 +18,7 @@ class SyncBankTransactionsUseCase @Inject constructor(
     private val financialProviderRepo: FinancialProviderRepository,
     private val bankRepo: BankRepository
 ) {
-    suspend operator fun invoke(groupId: String): Result<Unit> = runCatching {
+    suspend operator fun invoke(groupId: String): Result<Unit> = safeRunCatching {
         val connectionRes = bankRepo.observeBankConnection(groupId).first()
         val connection = connectionRes.getOrNull() ?: throw Exception("No active bank connection found for group.")
 

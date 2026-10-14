@@ -11,22 +11,13 @@ import com.sanibonani.save.domain.repository.admin.BehaviorTrackingRepository
 import com.sanibonani.save.domain.repository.credit.LoanRepository
 import com.sanibonani.save.domain.repository.member.MemberRepository
 import io.github.jan.supabase.SupabaseClient
-import io.github.jan.supabase.postgrest.postgrest
-import io.github.jan.supabase.postgrest.query.Columns
-import io.github.jan.supabase.auth.auth
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
-import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.encodeToJsonElement
 import javax.inject.Inject
 import java.time.Instant
-import java.time.LocalDate
-import java.time.LocalDateTime
-import java.time.YearMonth
-import java.time.ZoneOffset
-import java.time.temporal.ChronoUnit
+import com.sanibonani.save.domain.utils.safeRunCatching
 
 class BehaviorTrackingRepositoryImpl @Inject constructor(
     private val supabaseProvider: javax.inject.Provider<SupabaseClient>,
@@ -50,12 +41,12 @@ class BehaviorTrackingRepositoryImpl @Inject constructor(
 
     override fun observeSuspendedMembers(groupId: String): Flow<Result<List<MemberBehaviorTrack>>> = db.memberBehaviorTrackDao().observeSuspendedMembers().map { list -> Result.success(list.filter { it.groupId == groupId }.map { it.toModel() }) }
 
-    override suspend fun getMemberBehavior(memberId: String): Result<MemberBehaviorTrack?> = runCatching { db.memberBehaviorTrackDao().getByMemberId(memberId)?.toModel() }
+    override suspend fun getMemberBehavior(memberId: String): Result<MemberBehaviorTrack?> = safeRunCatching { db.memberBehaviorTrackDao().getByMemberId(memberId)?.toModel() }
 
-    override suspend fun getMemberBehaviorByIdNumber(idNumber: String, groupId: String): Result<MemberBehaviorTrack?> = runCatching { db.memberBehaviorTrackDao().getByIdNumber(idNumber, groupId)?.toModel() }
+    override suspend fun getMemberBehaviorByIdNumber(idNumber: String, groupId: String): Result<MemberBehaviorTrack?> = safeRunCatching { db.memberBehaviorTrackDao().getByIdNumber(idNumber, groupId)?.toModel() }
 
 
-    override suspend fun calculateAndUpdateMemberBehavior(memberId: String, groupId: String): Result<MemberBehaviorTrack> = runCatching {
+    override suspend fun calculateAndUpdateMemberBehavior(memberId: String, groupId: String): Result<MemberBehaviorTrack> = safeRunCatching {
         val member = memberRepository.getMemberById(memberId).getOrThrow()
         var track = getMemberBehavior(memberId).getOrNull() ?: createDefaultBehaviorTrack(member, groupId)
         track = updateContributionMetrics(track, memberId)
@@ -65,17 +56,17 @@ class BehaviorTrackingRepositoryImpl @Inject constructor(
         track
     }
 
-    override suspend fun recalculateGroupBehaviorScores(groupId: String): Result<Unit> = runCatching { memberRepository.getGroupMembers(groupId).first().getOrNull()?.forEach { it.id?.let { id -> calculateAndUpdateMemberBehavior(id, groupId) } } }
+    override suspend fun recalculateGroupBehaviorScores(groupId: String): Result<Unit> = safeRunCatching { memberRepository.getGroupMembers(groupId).first().getOrNull()?.forEach { it.id?.let { id -> calculateAndUpdateMemberBehavior(id, groupId) } } }
 
-    override suspend fun saveBehaviorTrack(track: MemberBehaviorTrack): Result<Unit> = runCatching { db.memberBehaviorTrackDao().upsert(track.toEntity()) }
+    override suspend fun saveBehaviorTrack(track: MemberBehaviorTrack): Result<Unit> = safeRunCatching { db.memberBehaviorTrackDao().upsert(track.toEntity()) }
 
-    override suspend fun saveBehaviorTracks(tracks: List<MemberBehaviorTrack>): Result<Unit> = runCatching { tracks.forEach { saveBehaviorTrack(it) } }
+    override suspend fun saveBehaviorTracks(tracks: List<MemberBehaviorTrack>): Result<Unit> = safeRunCatching { tracks.forEach { saveBehaviorTrack(it) } }
 
     override fun observeFraudEventsByMember(memberId: String): Flow<Result<List<FraudDetectionEvent>>> = db.fraudDetectionEventDao().observeEventsByMember(memberId).map { Result.success(it.map { e -> e.toModel() }) }
 
-    override suspend fun recordFraudEvent(event: FraudDetectionEvent): Result<Unit> = runCatching { db.fraudDetectionEventDao().upsert(event.toEntity()) }
+    override suspend fun recordFraudEvent(event: FraudDetectionEvent): Result<Unit> = safeRunCatching { db.fraudDetectionEventDao().upsert(event.toEntity()) }
 
-    override suspend fun resolveFraudEvent(eventId: String, actionTaken: String): Result<Unit> = runCatching {
+    override suspend fun resolveFraudEvent(eventId: String, actionTaken: String): Result<Unit> = safeRunCatching {
         db.fraudDetectionEventDao().getById(eventId)?.let { event ->
             db.fraudDetectionEventDao().upsert(event.copy(actionTaken = actionTaken, resolved = true))
         }
@@ -84,35 +75,35 @@ class BehaviorTrackingRepositoryImpl @Inject constructor(
     override fun observeUnresolvedFraudEvents(groupId: String): Flow<Result<List<FraudDetectionEvent>>> = db.fraudDetectionEventDao().observeUnresolvedEventsByGroup(groupId).map { list -> Result.success(list.map { it.toModel() }) }
 
 
-    override suspend fun flagMemberForReview(memberId: String, reason: String, reviewNotes: String?): Result<Unit> = runCatching {
+    override suspend fun flagMemberForReview(memberId: String, reason: String, reviewNotes: String?): Result<Unit> = safeRunCatching {
         val track = getMemberBehavior(memberId).getOrNull() ?: throw Exception("Not found")
         db.memberBehaviorTrackDao().upsert(track.copy(isFlaggedForReview = true, reviewNotes = reviewNotes ?: reason).toEntity())
     }
 
-    override suspend fun unflagMember(memberId: String): Result<Unit> = runCatching {
+    override suspend fun unflagMember(memberId: String): Result<Unit> = safeRunCatching {
         val track = getMemberBehavior(memberId).getOrNull() ?: throw Exception("Not found")
         db.memberBehaviorTrackDao().upsert(track.copy(isFlaggedForReview = false).toEntity())
     }
 
-    override suspend fun suspendMember(memberId: String, reason: String): Result<Unit> = runCatching {
+    override suspend fun suspendMember(memberId: String, reason: String): Result<Unit> = safeRunCatching {
         val track = getMemberBehavior(memberId).getOrNull() ?: throw Exception("Not found")
         db.memberBehaviorTrackDao().upsert(track.copy(isSuspended = true, suspensionReason = reason, memberStatus = BehaviorStatus.SUSPENDED).toEntity())
     }
 
-    override suspend fun unsuspendMember(memberId: String): Result<Unit> = runCatching {
+    override suspend fun unsuspendMember(memberId: String): Result<Unit> = safeRunCatching {
         val track = getMemberBehavior(memberId).getOrNull() ?: throw Exception("Not found")
         db.memberBehaviorTrackDao().upsert(track.copy(isSuspended = false, suspensionReason = null).toEntity())
     }
 
     override fun observeBehaviorAnalytics(groupId: String): Flow<Result<BehaviorAnalyticsSummary?>> = db.behaviorAnalyticsSummaryDao().observeByGroup(groupId).map { Result.success(it?.toModel()) }
 
-    override suspend fun calculateBehaviorAnalytics(groupId: String): Result<BehaviorAnalyticsSummary> = runCatching {
+    override suspend fun calculateBehaviorAnalytics(groupId: String): Result<BehaviorAnalyticsSummary> = safeRunCatching {
         val summary = BehaviorAnalyticsSummary(groupId = groupId, calculatedAt = Instant.now().toString())
         db.behaviorAnalyticsSummaryDao().upsert(summary.toEntity())
         summary
     }
 
-    override suspend fun getMembersBehaviorStats(groupId: String): Result<JsonObject> = runCatching { JsonObject(emptyMap()) }
+    override suspend fun getMembersBehaviorStats(groupId: String): Result<JsonObject> = safeRunCatching { JsonObject(emptyMap()) }
 
     /**
      * Generates a dataset formatted for Supervised Fine-Tuning (SFT) of Azure AI Foundry models.

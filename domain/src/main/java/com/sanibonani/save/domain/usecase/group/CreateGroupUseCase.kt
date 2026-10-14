@@ -13,6 +13,7 @@ import com.sanibonani.save.domain.repository.auth.SupabaseRepository
 import java.time.LocalDateTime
 import java.util.UUID
 import javax.inject.Inject
+import com.sanibonani.save.domain.utils.safeRunCatching
 
 /**
  * Encapsulates the logic for creating a new group.
@@ -40,7 +41,7 @@ class CreateGroupUseCase @Inject constructor(
         // Tracks the group id committed to the DB so a later failure can be rolled back.
         var committedGroupId: String? = null
 
-        return runCatching {
+        return safeRunCatching {
             AppLogger.d(tag, "📍 Starting group creation & member onboarding: ${group.name}")
             val normalizedAdminEmail = adminEmail?.trim()
             val normalizedAdminPassword = adminPassword?.trim()
@@ -95,7 +96,7 @@ class CreateGroupUseCase @Inject constructor(
 
             // Look up existing member profile if details were not explicitly provided
             val existingProfileMember = if (adminFullName.isNullOrBlank() || adminEmail.isNullOrBlank() || adminPhone.isNullOrBlank()) {
-                runCatching {
+                safeRunCatching {
                     memberRepository.getMemberships(userId).getOrNull()?.firstOrNull {
                         it.fullName.isNotBlank() && it.fullName != "Group Admin"
                     }

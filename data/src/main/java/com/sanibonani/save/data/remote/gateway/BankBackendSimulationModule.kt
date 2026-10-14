@@ -6,6 +6,7 @@ import com.sanibonani.save.domain.model.Money
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.random.Random
+import com.sanibonani.save.domain.utils.safeRunCatching
 
 /**
  * Orchestrates bank backend simulations, providing high-level scenarios
@@ -23,7 +24,7 @@ class BankBackendSimulationModule @Inject constructor(
         groupId: String,
         memberNames: List<String>,
         monthlyContribution: Money
-    ): Result<List<String>> = runCatching {
+    ): Result<List<String>> = safeRunCatching {
         val transactions = memberNames.mapNotNull { name ->
             val behavior = Random.nextDouble()
             when {

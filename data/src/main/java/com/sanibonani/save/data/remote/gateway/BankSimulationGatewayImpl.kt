@@ -13,6 +13,7 @@ import java.time.LocalDate
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
+import com.sanibonani.save.domain.utils.safeRunCatching
 
 @Singleton
 class BankSimulationGatewayImpl @Inject constructor(
@@ -25,7 +26,7 @@ class BankSimulationGatewayImpl @Inject constructor(
         amount: Money,
         reference: String,
         description: String?
-    ): Result<String> = runCatching {
+    ): Result<String> = safeRunCatching {
         val txId = UUID.randomUUID().toString()
         val transaction = BankTransaction(
             id = txId,
@@ -41,7 +42,7 @@ class BankSimulationGatewayImpl @Inject constructor(
         db.bankTransactionDao().upsert(listOf(transaction.toEntity()))
 
         // 2. Sync to Supabase
-        runCatching {
+        safeRunCatching {
             supabase.postgrest["bank_transactions"].insert(transaction)
         }
 
@@ -51,7 +52,7 @@ class BankSimulationGatewayImpl @Inject constructor(
     override suspend fun simulateBatchTransfers(
         groupId: String,
         transactions: List<SimulatedTransaction>
-    ): Result<List<String>> = runCatching {
+    ): Result<List<String>> = safeRunCatching {
         val now = LocalDate.now().toString()
         val bankTransactions = transactions.map { sim ->
             val txId = UUID.randomUUID().toString()
@@ -70,14 +71,14 @@ class BankSimulationGatewayImpl @Inject constructor(
         db.bankTransactionDao().upsert(bankTransactions.map { it.toEntity() })
 
         // 2. Sync to Supabase
-        runCatching {
+        safeRunCatching {
             supabase.postgrest["bank_transactions"].insert(bankTransactions)
         }
 
         bankTransactions.mapNotNull { it.id }
     }
 
-    override suspend fun getTransactionByReference(reference: String): Result<SimulatedTransaction?> = runCatching {
+    override suspend fun getTransactionByReference(reference: String): Result<SimulatedTransaction?> = safeRunCatching {
         supabase.postgrest["bank_transactions"].select {
             filter { eq("bank_reference", reference) }
         }.decodeSingleOrNull<BankTransaction>()?.let {

@@ -17,6 +17,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.time.Duration.Companion.seconds
+import com.sanibonani.save.domain.utils.safeRunCatching
 
 @Singleton
 class UserRoleServiceImpl @Inject constructor(
@@ -34,7 +35,7 @@ class UserRoleServiceImpl @Inject constructor(
         // Metadata & Database Role Resolution
         val metadataRole = user.userMetadata?.get("role")?.jsonPrimitive?.contentOrNull?.let(UserRoleMapper::fromRaw)
 
-        val profileRole = runCatching {
+        val profileRole = safeRunCatching {
             withTimeoutOrNull(5.seconds) {
                 client.postgrest["profiles"].select {
                     filter { eq("id", user.id) }
@@ -62,13 +63,13 @@ class UserRoleServiceImpl @Inject constructor(
         return resolved
     }
 
-    override suspend fun updateUserRole(userId: String, role: UserRole, groupId: String?): Result<Unit> = runCatching {
+    override suspend fun updateUserRole(userId: String, role: UserRole, groupId: String?): Result<Unit> = safeRunCatching {
         client.postgrest["profiles"].update(mapOf("role" to UserRoleMapper.toStorageValue(role))) {
             filter { eq("id", userId) }
         }
     }
 
-    override suspend fun hasOwnedGroup(userId: String): Boolean = runCatching {
+    override suspend fun hasOwnedGroup(userId: String): Boolean = safeRunCatching {
         withTimeoutOrNull(5.seconds) {
             client.postgrest["groups"].select(columns = Columns.list("id")) {
                 filter { eq("admin_user_id", userId) }

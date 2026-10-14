@@ -4,6 +4,7 @@ import com.sanibonani.save.domain.architecture.FinancialGroupModel
 import com.sanibonani.save.domain.model.Money
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import com.sanibonani.save.domain.utils.safeRunCatching
 
 /**
  * Domain-only policy routing contract for future governance engine extraction.
@@ -49,7 +50,7 @@ class InMemoryPolicyRouter(
     private val rules: List<PolicyRule> = emptyList()
 ) : PolicyRouter {
 
-    override fun evaluate(command: PolicyCommand): Result<PolicyDecision> = runCatching {
+    override fun evaluate(command: PolicyCommand): Result<PolicyDecision> = safeRunCatching {
         val decisions = rules.mapNotNull { it.evaluate(command) }
 
         val deny = decisions.firstOrNull { !it.allowed }

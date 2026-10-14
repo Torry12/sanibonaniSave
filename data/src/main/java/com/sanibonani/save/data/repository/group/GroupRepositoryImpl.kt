@@ -2,8 +2,6 @@ package com.sanibonani.save.data.repository.group
 
 import com.sanibonani.save.data.datasource.*
 import com.sanibonani.save.data.repository.BaseRepository
-import com.sanibonani.save.domain.event.EventBus
-import com.sanibonani.save.domain.event.LedgerEntryCreatedEvent
 import com.sanibonani.save.domain.model.*
 import com.sanibonani.save.domain.repository.group.GroupRepository
 import com.sanibonani.save.domain.service.FileStorageService
@@ -11,6 +9,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.json.Json
 import javax.inject.Inject
+import com.sanibonani.save.domain.utils.safeRunCatching
 
 class GroupRepositoryImpl @Inject constructor(
     private val remoteGroupSource: RemoteGroupDataSource,
@@ -21,7 +20,7 @@ class GroupRepositoryImpl @Inject constructor(
     private val json: Json
 ) : BaseRepository("GroupRepository"), GroupRepository {
 
-    override suspend fun uploadConstitution(groupId: String, fileBytes: ByteArray, fileName: String): Result<String> = runCatching {
+    override suspend fun uploadConstitution(groupId: String, fileBytes: ByteArray, fileName: String): Result<String> = safeRunCatching {
         val extension = fileName.substringAfterLast(".", "pdf")
         val url = fileStorageService.uploadGroupConstitution(groupId, fileBytes, extension).getOrThrow()
 
@@ -43,7 +42,7 @@ class GroupRepositoryImpl @Inject constructor(
     override fun getPublicGroupsFromCache(): Flow<Result<List<Group>>> =
         localGroupSource.observePublicGroups().map { Result.success(it) }
 
-    override suspend fun getGroupById(id: String): Result<Group> = runCatching {
+    override suspend fun getGroupById(id: String): Result<Group> = safeRunCatching {
         remoteGroupSource.getGroupById(id).getOrElse {
             localGroupSource.getGroupById(id) ?: throw it
         }
@@ -65,7 +64,7 @@ class GroupRepositoryImpl @Inject constructor(
         cacheSync = { localGroupSource.saveGroups(it) }
     )
 
-    override suspend fun createGroup(group: Group): Result<String> = runCatching {
+    override suspend fun createGroup(group: Group): Result<String> = safeRunCatching {
         val groupId = remoteGroupSource.createGroup(group).getOrThrow()
         val created = remoteGroupSource.getGroupById(groupId).getOrThrow()
         localGroupSource.saveGroup(created)
@@ -94,13 +93,13 @@ class GroupRepositoryImpl @Inject constructor(
         newBalance
     }
 
-    override suspend fun updateGroupSettings(groupId: String, settings: GroupSettings): Result<Unit> = runCatching {
+    override suspend fun updateGroupSettings(groupId: String, settings: GroupSettings): Result<Unit> = safeRunCatching {
         remoteGroupSource.updateGroupSettings(groupId, settings).getOrThrow()
         val updated = remoteGroupSource.getGroupById(groupId).getOrThrow()
         localGroupSource.saveGroup(updated)
     }
 
-    override suspend fun updateGroupSettings(groupId: String, settings: Map<String, Any>): Result<Unit> = runCatching {
+    override suspend fun updateGroupSettings(groupId: String, settings: Map<String, Any>): Result<Unit> = safeRunCatching {
         remoteGroupSource.updateGroupSettings(groupId, settings).getOrThrow()
         val updated = remoteGroupSource.getGroupById(groupId).getOrThrow()
         localGroupSource.saveGroup(updated)
@@ -108,14 +107,14 @@ class GroupRepositoryImpl @Inject constructor(
 
     override fun observeGroupFeeStatus(groupId: String): Flow<AdminFeeState> = realtimeSource.observeGroupFeeStatus(groupId)
 
-    override suspend fun updateFeeStatus(groupId: String, status: AdminFeeState): Result<Unit> = runCatching {
+    override suspend fun updateFeeStatus(groupId: String, status: AdminFeeState): Result<Unit> = safeRunCatching {
         remoteGroupSource.updateFeeStatus(groupId, status).getOrThrow()
         localGroupSource.getGroupById(groupId)?.let {
             localGroupSource.saveGroup(it.copy(feeStatus = status))
         }
     }
 
-    override suspend fun updateGroup(group: Group): Result<Unit> = runCatching {
+    override suspend fun updateGroup(group: Group): Result<Unit> = safeRunCatching {
         remoteGroupSource.updateGroup(group).getOrThrow()
         localGroupSource.saveGroup(group)
     }
@@ -124,7 +123,7 @@ class GroupRepositoryImpl @Inject constructor(
 
     override suspend fun getGroupsByAdmin(adminId: String): Result<List<Group>> = remoteGroupSource.getGroupsByAdmin(adminId)
 
-    override suspend fun deleteGroup(groupId: String): Result<Unit> = runCatching {
+    override suspend fun deleteGroup(groupId: String): Result<Unit> = safeRunCatching {
         remoteGroupSource.deleteGroup(groupId).getOrThrow()
         localGroupSource.deleteGroup(groupId)
     }

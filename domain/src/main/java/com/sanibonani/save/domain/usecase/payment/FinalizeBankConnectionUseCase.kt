@@ -4,6 +4,7 @@ import com.sanibonani.save.domain.repository.payment.BankRepository
 import com.sanibonani.save.domain.repository.payment.FinancialProviderRepository
 import kotlinx.coroutines.flow.first
 import javax.inject.Inject
+import com.sanibonani.save.domain.utils.safeRunCatching
 
 /**
  * Finalizes a bank connection after the user returns from the provider's authorization flow.
@@ -17,7 +18,7 @@ class FinalizeBankConnectionUseCase @Inject constructor(
         connectionId: String,
         status: String,
         metadata: Map<String, String> = emptyMap()
-    ): Result<Unit> = runCatching {
+    ): Result<Unit> = safeRunCatching {
         if (status != "success") {
             bankRepo.deleteBankConnection(groupId).getOrThrow()
             throw Exception("Bank linking was not successful (Status: $status)")

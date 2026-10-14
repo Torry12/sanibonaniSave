@@ -9,6 +9,7 @@ import io.ktor.client.request.get
 import io.ktor.client.request.url
 import io.ktor.client.statement.bodyAsText
 import java.util.UUID
+import com.sanibonani.save.domain.utils.safeRunCatching
 
 class PayFastPaymentProvider(
     private val httpClient: HttpClient
@@ -26,7 +27,7 @@ class PayFastPaymentProvider(
         groupId: String,
         memberId: String?,
         description: String?
-    ): Result<PaymentInitiationResult> = runCatching {
+    ): Result<PaymentInitiationResult> = safeRunCatching {
         val txId = "pf_${UUID.randomUUID().toString().take(8)}"
 
         // PayFast usually redirects via form post, so here we return a web intent URL
@@ -50,7 +51,7 @@ class PayFastPaymentProvider(
         )
     }
 
-    override suspend fun verify(transactionId: String, method: PaymentMethod): Result<PaymentStatusResult> = runCatching {
+    override suspend fun verify(transactionId: String, method: PaymentMethod): Result<PaymentStatusResult> = safeRunCatching {
         // Query PayFast API to verify the transaction
         val response = httpClient.get(queryUrl) {
             url {
@@ -66,7 +67,7 @@ class PayFastPaymentProvider(
         // Parse amount_gross if available in response
         val parsedAmount = Regex("amount_gross=([0-9.]+)")
             .find(responseText)?.groupValues?.get(1)
-            ?.let { runCatching { Money(it) }.getOrNull() } ?: Money.ZERO
+            ?.let { safeRunCatching { Money(it) }.getOrNull() } ?: Money.ZERO
 
         PaymentStatusResult(
             transactionId = transactionId,
@@ -83,7 +84,7 @@ class PayFastPaymentProvider(
         accountNo: String,
         branchCode: String,
         reference: String
-    ): Result<String> = runCatching {
+    ): Result<String> = safeRunCatching {
         // PayFast API implementation for Payouts would go here
         "PAYFAST-OUT-${UUID.randomUUID().toString().take(6).uppercase()}"
     }

@@ -10,6 +10,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.encodeToJsonElement
 import javax.inject.Inject
 import com.sanibonani.save.domain.usecase.financialResult
+import com.sanibonani.save.domain.utils.safeRunCatching
 
 /**
  * Orchestrates Admin loan decisions (Approval/Rejection).
@@ -43,7 +44,7 @@ class ProcessLoanDecisionUseCase @Inject constructor(
             }
 
             // 3. Re-validate Eligibility
-            val termMonths = runCatching {
+            val termMonths = safeRunCatching {
                 val start = java.time.LocalDate.parse(loan.startDate ?: java.time.LocalDate.now().toString())
                 val end = java.time.LocalDate.parse(loan.endDate ?: start.plusMonths(3).toString())
                 java.time.temporal.ChronoUnit.MONTHS.between(start, end).toInt().coerceAtLeast(1)

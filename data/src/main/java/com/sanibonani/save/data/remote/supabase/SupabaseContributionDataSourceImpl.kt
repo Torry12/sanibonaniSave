@@ -1,24 +1,22 @@
 package com.sanibonani.save.data.remote.supabase
 
 import com.sanibonani.save.data.datasource.RemoteContributionDataSource
-import com.sanibonani.save.domain.logging.AppLogger
 import com.sanibonani.save.domain.model.*
-import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.postgrest.postgrest
-import io.github.jan.supabase.postgrest.query.Columns
 import io.github.jan.supabase.postgrest.rpc
 import kotlinx.serialization.json.*
 import javax.inject.Inject
 import javax.inject.Singleton
 
 import com.sanibonani.save.domain.repository.system.DataConnectionProtocol
+import com.sanibonani.save.domain.utils.safeRunCatching
 
 @Singleton
 class SupabaseContributionDataSourceImpl @Inject constructor(
     protocol: DataConnectionProtocol
 ) : BaseSupabaseDataSource(protocol), RemoteContributionDataSource {
 
-    override suspend fun recordContribution(contribution: Contribution): Result<Unit> = runCatching {
+    override suspend fun recordContribution(contribution: Contribution): Result<Unit> = safeRunCatching {
         val rpcParams = buildJsonObject {
             put("p_member_id", contribution.memberId)
             put("p_group_id", contribution.groupId)
@@ -32,7 +30,7 @@ class SupabaseContributionDataSourceImpl @Inject constructor(
         client.postgrest.rpc("record_contribution_v2", rpcParams)
     }
 
-    override suspend fun getMemberContributions(memberId: String, groupId: String): Result<List<Contribution>> = runCatching {
+    override suspend fun getMemberContributions(memberId: String, groupId: String): Result<List<Contribution>> = safeRunCatching {
         client.postgrest["contributions"].select {
             filter {
                 eq("member_id", memberId)
@@ -41,11 +39,11 @@ class SupabaseContributionDataSourceImpl @Inject constructor(
         }.decodeList<Contribution>()
     }
 
-    override suspend fun getGroupContributions(groupId: String): Result<List<Contribution>> = runCatching {
+    override suspend fun getGroupContributions(groupId: String): Result<List<Contribution>> = safeRunCatching {
         client.postgrest["contributions"].select { filter { eq("group_id", groupId) } }.decodeList<Contribution>()
     }
 
-    override suspend fun recordPayment(payment: Payment): Result<String> = runCatching {
+    override suspend fun recordPayment(payment: Payment): Result<String> = safeRunCatching {
         val created = client.postgrest["payments"].upsert(payment) {
             onConflict = "id"
             select()
@@ -53,7 +51,7 @@ class SupabaseContributionDataSourceImpl @Inject constructor(
         created.id!!
     }
 
-    override suspend fun getPayments(groupId: String): Result<List<Payment>> = runCatching {
+    override suspend fun getPayments(groupId: String): Result<List<Payment>> = safeRunCatching {
         client.postgrest["payments"].select { filter { eq("group_id", groupId) } }.decodeList<Payment>()
     }
 
@@ -66,7 +64,7 @@ class SupabaseContributionDataSourceImpl @Inject constructor(
         method: PaymentMethod,
         paymentType: PaymentType,
         destination: PaymentDestination
-    ): Result<Money> = runCatching {
+    ): Result<Money> = safeRunCatching {
         val rpcParams = buildJsonObject {
             put("p_group_id", groupId)
             put("p_member_id", memberId)

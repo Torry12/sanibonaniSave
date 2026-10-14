@@ -12,6 +12,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import javax.inject.Inject
 import javax.inject.Singleton
+import com.sanibonani.save.domain.utils.safeRunCatching
 
 @Singleton
 class SupabaseAuditDataSourceImpl @Inject constructor(
@@ -20,55 +21,37 @@ class SupabaseAuditDataSourceImpl @Inject constructor(
 
     private val tag = "SupabaseAudit"
 
-    override suspend fun generateMemberAudit(memberId: String): Result<AuditResult<MemberAuditReport>> = runCatching {
-        try {
-            val response = client.postgrest.rpc(
-                function = "generate_member_audit_report_v1",
-                parameters = buildJsonObject { put("p_member_id", memberId) }
-            )
-            val rawJson = response.data.toString()
-            AppLogger.d(tag, "Member Audit Raw JSON: $rawJson")
-            val data = response.decodeAs<MemberAuditReport>()
-            AuditResult(data = data, rawJson = rawJson)
-        } catch (e: Exception) {
-            AppLogger.e(tag, "Member Audit Failed: ${e.message}", e)
-            throw e
-        }
+    override suspend fun generateMemberAudit(memberId: String): Result<AuditResult<MemberAuditReport>> = safeRunCatching("$tag.member") {
+        val response = client.postgrest.rpc(
+            function = "generate_member_audit_report_v1",
+            parameters = buildJsonObject { put("p_member_id", memberId) }
+        )
+        val rawJson = response.data.toString()
+        AppLogger.d(tag, "Member Audit Raw JSON: $rawJson")
+        AuditResult(data = response.decodeAs<MemberAuditReport>(), rawJson = rawJson)
     }
 
-    override suspend fun generateGroupAudit(groupId: String): Result<AuditResult<GroupAuditReport>> = runCatching {
-        try {
-            val response = client.postgrest.rpc(
-                function = "generate_group_audit_report_v1",
-                parameters = buildJsonObject { put("p_group_id", groupId) }
-            )
-            val rawJson = response.data.toString()
-            AppLogger.d(tag, "Group Audit Raw JSON: $rawJson")
-            val data = response.decodeAs<GroupAuditReport>()
-            AuditResult(data = data, rawJson = rawJson)
-        } catch (e: Exception) {
-            AppLogger.e(tag, "Group Audit Failed: ${e.message}", e)
-            throw e
-        }
+    override suspend fun generateGroupAudit(groupId: String): Result<AuditResult<GroupAuditReport>> = safeRunCatching("$tag.group") {
+        val response = client.postgrest.rpc(
+            function = "generate_group_audit_report_v1",
+            parameters = buildJsonObject { put("p_group_id", groupId) }
+        )
+        val rawJson = response.data.toString()
+        AppLogger.d(tag, "Group Audit Raw JSON: $rawJson")
+        AuditResult(data = response.decodeAs<GroupAuditReport>(), rawJson = rawJson)
     }
 
-    override suspend fun generatePlatformAudit(): Result<AuditResult<PlatformAuditReport>> = runCatching {
-        try {
-            val response = client.postgrest.rpc(
-                function = "generate_platform_audit_report_v1",
-                parameters = buildJsonObject {}
-            )
-            val rawJson = response.data.toString()
-            AppLogger.d(tag, "Platform Audit Raw JSON: $rawJson")
-            val data = response.decodeAs<PlatformAuditReport>()
-            AuditResult(data = data, rawJson = rawJson)
-        } catch (e: Exception) {
-            AppLogger.e(tag, "Platform Audit Failed: ${e.message}", e)
-            throw e
-        }
+    override suspend fun generatePlatformAudit(): Result<AuditResult<PlatformAuditReport>> = safeRunCatching("$tag.platform") {
+        val response = client.postgrest.rpc(
+            function = "generate_platform_audit_report_v1",
+            parameters = buildJsonObject {}
+        )
+        val rawJson = response.data.toString()
+        AppLogger.d(tag, "Platform Audit Raw JSON: $rawJson")
+        AuditResult(data = response.decodeAs<PlatformAuditReport>(), rawJson = rawJson)
     }
 
-    override suspend fun getLatestPlatformAuditReport(): Result<PlatformAuditReport?> = runCatching {
+    override suspend fun getLatestPlatformAuditReport(): Result<PlatformAuditReport?> = safeRunCatching {
         client.postgrest["platform_audit_reports"].select {
             order("generated_at", order = Order.DESCENDING)
             limit(1)
@@ -76,7 +59,7 @@ class SupabaseAuditDataSourceImpl @Inject constructor(
     }
 
 
-    override suspend fun auditAndFixGroupBalance(groupId: String, fix: Boolean): Result<GroupAuditResult> = runCatching {
+    override suspend fun auditAndFixGroupBalance(groupId: String, fix: Boolean): Result<GroupAuditResult> = safeRunCatching {
         client.postgrest.rpc(
             function = "audit_and_fix_group_balance_v1",
             parameters = buildJsonObject {
@@ -86,14 +69,14 @@ class SupabaseAuditDataSourceImpl @Inject constructor(
         ).decodeAs<GroupAuditResult>()
     }
 
-    override suspend fun getAuditLogs(limit: Int): Result<List<AuditLog>> = runCatching {
+    override suspend fun getAuditLogs(limit: Int): Result<List<AuditLog>> = safeRunCatching {
         client.postgrest["audit_logs"].select {
             order("created_at", order = Order.DESCENDING)
             limit(limit.toLong())
         }.decodeList<AuditLog>()
     }
 
-    override suspend fun getAuditLogsForMember(memberId: String, limit: Int): Result<List<AuditLog>> = runCatching {
+    override suspend fun getAuditLogsForMember(memberId: String, limit: Int): Result<List<AuditLog>> = safeRunCatching {
         client.postgrest["audit_logs"].select {
             filter { eq("target_member_id", memberId) }
             order("created_at", order = Order.DESCENDING)
@@ -101,7 +84,7 @@ class SupabaseAuditDataSourceImpl @Inject constructor(
         }.decodeList<AuditLog>()
     }
 
-    override suspend fun getAuditLogsForGroup(groupId: String, limit: Int): Result<List<AuditLog>> = runCatching {
+    override suspend fun getAuditLogsForGroup(groupId: String, limit: Int): Result<List<AuditLog>> = safeRunCatching {
         client.postgrest["audit_logs"].select {
             filter { eq("target_group_id", groupId) }
             order("created_at", order = Order.DESCENDING)
@@ -109,7 +92,7 @@ class SupabaseAuditDataSourceImpl @Inject constructor(
         }.decodeList<AuditLog>()
     }
 
-    override suspend fun insertAuditLog(log: AuditLog): Result<Unit> = runCatching {
+    override suspend fun insertAuditLog(log: AuditLog): Result<Unit> = safeRunCatching {
         client.postgrest["audit_logs"].insert(log)
         Unit
     }
