@@ -47,7 +47,7 @@ class UserRoleServiceImpl @Inject constructor(
 
         // 🛡️ SECURITY ENFORCEMENT: Under no conditions can any user who is not platform admin ever log in as platform admin!
         if (resolved == UserRole.PLATFORM_ADMIN && !isAuthorizedPlatformAdmin) {
-            AppLogger.w("UserRoleService", "SECURITY ALERT: Unauthorized attempt to assume platform admin role by $sessionEmail. Reverting to MEMBER.")
+            AppLogger.w("UserRoleService", "SECURITY ALERT: Unauthorized attempt to assume platform admin role by ${AppLogger.maskedEmail(sessionEmail.orEmpty())}. Reverting to MEMBER.")
             return UserRole.MEMBER
         }
 

@@ -84,6 +84,15 @@ object AppLogger {
         d(tag, "$message: $masked")
     }
 
+    /**
+     * Masked form of a phone number for log messages. Log lines and breadcrumbs are retained
+     * for remote debugging, so recipient identifiers must never be written verbatim.
+     */
+    fun maskedPhone(phone: String): String = maskPhone(phone)
+
+    /** Masked form of an email address for log messages; keeps the domain for triage. */
+    fun maskedEmail(email: String): String = maskEmail(email)
+
     private fun maskEmail(email: String): String {
         val parts = email.split("@")
         if (parts.size != 2) return "***"

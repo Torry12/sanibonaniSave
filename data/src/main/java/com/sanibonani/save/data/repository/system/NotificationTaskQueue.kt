@@ -36,12 +36,16 @@ class NotificationTaskQueue @Inject constructor(
     private fun startConsumer() {
         scope.launch {
             for (task in taskChannel) {
+                val recipient = AppLogger.maskedPhone(task.recipientPhone)
                 try {
                     whatsAppChannel.deliver(task.recipientPhone, task.message)
+                        .onFailure { AppLogger.e(tag, "Failed to deliver queued notification to $recipient", it) }
                     // Throttle to avoid rate limiting or stack congestion
                     delay(100)
+                } catch (e: CancellationException) {
+                    throw e
                 } catch (e: Exception) {
-                    AppLogger.e(tag, "Failed to deliver queued notification to ${task.recipientPhone}", e)
+                    AppLogger.e(tag, "Failed to deliver queued notification to $recipient", e)
                 }
             }
         }

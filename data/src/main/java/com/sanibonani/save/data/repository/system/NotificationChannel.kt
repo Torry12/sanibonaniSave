@@ -51,7 +51,7 @@ class WhatsAppChannel @Inject constructor(
 
         val templateError = templateResult.exceptionOrNull()
         if (templateError != null && isTemplateDeliveryFailure(templateError)) {
-            AppLogger.w("WhatsAppChannel", "Template delivery failed for $recipientPhone. Retrying as plain text.")
+            AppLogger.w("WhatsAppChannel", "Template delivery failed for ${AppLogger.maskedPhone(recipientPhone)}. Retrying as plain text.")
             edgeFunctionGateway.invoke("send-whatsapp", textPayload).getOrThrow()
         } else {
             throw templateError ?: Exception("Unknown WhatsApp error")
