@@ -136,10 +136,11 @@ class MemberRepositoryImpl @Inject constructor(
 
     override suspend fun updateMemberStatus(memberId: String, status: MemberStatus): Result<Unit> = safeRunCatching {
         remoteMemberSource.updateMemberStatus(memberId, status).getOrThrow()
-        localMemberSource.getMemberById(memberId)?.let {
-            localMemberSource.saveMember(it.copy(status = status))
+        val updated = localMemberSource.getMemberById(memberId)?.copy(status = status)
+        if (updated != null) {
+            localMemberSource.saveMember(updated)
+            EventBus.emit(com.sanibonani.save.domain.event.MemberStatusChangedEvent(updated))
         }
-        EventBus.emit(com.sanibonani.save.domain.event.MemberStatusChangedEvent(localMemberSource.getMemberById(memberId)!!))
     }
 
     override suspend fun updateMemberBankingDetails(memberId: String, bankName: String, accountNo: String, branchCode: String): Result<Unit> = safeRunCatching {

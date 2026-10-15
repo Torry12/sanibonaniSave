@@ -43,7 +43,8 @@ class MemberFinanceViewModel @Inject constructor(
             val platformSettings = platformRepo.getPlatformSettings().getOrNull()
             val globalInterestRate = platformSettings?.loanInterestRate?.toDouble() ?: 20.0
             val globalProcessingFee = platformSettings?.loanProcessingFee ?: Money(15.0)
-            val effectiveInterestRate = if ((group.loanInterestRate ?: 0.0) > 0.0) group.loanInterestRate!! else globalInterestRate
+            val groupInterestRate = group.loanInterestRate
+            val effectiveInterestRate = if (groupInterestRate != null && groupInterestRate > 0.0) groupInterestRate else globalInterestRate
 
             val scheduleRes = calculateSchedule(
                 CalculateLoanRepaymentScheduleUseCase.Params(

@@ -151,8 +151,10 @@ fun AdminDashboardScreen(
                             addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
                         }
                         context.startActivity(intent)
+                    } catch (e: kotlinx.coroutines.CancellationException) {
+                        throw e
                     } catch (e: Exception) {
-                        Toast.makeText(context, "Could not open link: ${e.message}", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, "Could not open this link on your device.", Toast.LENGTH_SHORT).show()
                     }
                 }
                 else -> Unit

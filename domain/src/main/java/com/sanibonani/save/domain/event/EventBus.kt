@@ -2,6 +2,7 @@ package com.sanibonani.save.domain.event
 
 import com.sanibonani.save.domain.logging.AppLogger
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -33,6 +34,8 @@ object EventBus {
                 scope.launch {
                     try {
                         handler.handle(event)
+                    } catch (e: CancellationException) {
+                        throw e
                     } catch (e: Exception) {
                         AppLogger.e(TAG, "Error in handler ${handler::class.simpleName}", e)
                     }

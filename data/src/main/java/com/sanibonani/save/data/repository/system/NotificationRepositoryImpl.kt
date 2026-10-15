@@ -77,6 +77,8 @@ class NotificationRepositoryImpl @Inject constructor(
             if (serverNotification != null) {
                 db.notificationDao().upsertNotifications(listOf(serverNotification.toEntity()))
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             val userMsg = e.toUserMessage()
             AppLogger.e("NotificationRepo", "Postgrest notification insert failed: $userMsg", e)

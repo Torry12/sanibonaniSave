@@ -216,7 +216,9 @@ fun LedgerListSection(
                                     headlineContent = { Text(entry.description) },
                                     supportingContent = { Text("${formatDate(entry.createdAt)} • ${formatZAR(entry.amount)}") },
                                     modifier = Modifier.clickable {
-                                        vm?.reconcileManual(tx.id!!, entry.id!!)
+                                        val txId = tx.id
+                                        val entryId = entry.id
+                                        if (txId != null && entryId != null) vm?.reconcileManual(txId, entryId)
                                         selectedBankTx = null
                                     }
                                 )
@@ -241,7 +243,8 @@ fun LedgerListSection(
             },
             confirmButton = {
                 Button(onClick = {
-                    vm?.ignoreBankTransaction(tx.id!!, ignoreReason)
+                    val txId = tx.id
+                    if (txId != null) vm?.ignoreBankTransaction(txId, ignoreReason)
                     showIgnoreDialog = null
                     ignoreReason = ""
                 }) { Text("Ignore") }

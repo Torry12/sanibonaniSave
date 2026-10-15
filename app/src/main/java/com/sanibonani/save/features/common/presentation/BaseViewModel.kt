@@ -54,7 +54,7 @@ abstract class BaseViewModel<S>(protected val initialState: S) : ViewModel() {
                 block()
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
-                handleError(e, errorPrefix?.let { "$it: ${e.message}" })
+                handleError(e, errorPrefix?.let { "$it: ${e.toUserMessage()}" })
             }
         }
         jobRegistry[key] = job
@@ -272,7 +272,7 @@ abstract class BaseViewModel<S>(protected val initialState: S) : ViewModel() {
             block()
         } catch (e: Exception) {
             if (e is kotlinx.coroutines.CancellationException) throw e
-            handleError(e, errorPrefix?.let { "$it: ${e.message}" })
+            handleError(e, errorPrefix?.let { "$it: ${e.toUserMessage()}" })
         }
     }
 

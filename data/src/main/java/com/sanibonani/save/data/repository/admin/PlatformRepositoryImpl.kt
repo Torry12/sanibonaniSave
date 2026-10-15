@@ -237,6 +237,8 @@ class PlatformRepositoryImpl @Inject constructor(
     override suspend fun getPlatformSettings(): Result<PlatformConfig> = retryWithExponentialBackoff {
         val settings = try {
             supabase.postgrest["platform_settings"].select().decodeList<PlatformSetting>()
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
             val userMsg = e.logAndGetMessage(tag)
             AppLogger.w(tag, "Failed to fetch platform_settings: $userMsg")

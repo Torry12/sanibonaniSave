@@ -88,6 +88,8 @@ class ProbationCompletionWorker @AssistedInject constructor(
             AppLogger.i("ProbationWorker", "Probation completion check completed. Promoted $promotedCount members.")
             Result.success()
 
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e // A stopped worker must not be re-enqueued as a retry
         } catch (e: Exception) {
             val userMsg = e.logAndGetMessage("ProbationWorker")
             AppLogger.e("ProbationWorker", "Error during probation completion check: $userMsg", e)

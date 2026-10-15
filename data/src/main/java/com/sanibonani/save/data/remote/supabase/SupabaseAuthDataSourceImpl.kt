@@ -84,17 +84,13 @@ class SupabaseAuthDataSourceImpl @Inject constructor(
             response?.id ?: client.auth.currentUserOrNull()?.id ?: throw IllegalStateException("Signup succeeded but user ID is missing.")
         } catch (e: Exception) {
             if (e is CancellationException) throw e
-             val msg = e.message.orEmpty()
+            val msg = e.message.orEmpty()
             if (msg.contains("already registered", ignoreCase = true) || msg.contains("400")) {
-                try {
-                    client.auth.signInWith(Email) {
-                        this.email = normalizedEmail
-                        this.password = password
-                    }
-                    client.auth.currentUserOrNull()?.id ?: throw IllegalStateException("Sign-in succeeded but user ID is missing.")
-                } catch (signInError: Exception) {
-                     throw signInError
+                client.auth.signInWith(Email) {
+                    this.email = normalizedEmail
+                    this.password = password
                 }
+                client.auth.currentUserOrNull()?.id ?: throw IllegalStateException("Sign-in succeeded but user ID is missing.")
             } else throw e
         }
     }

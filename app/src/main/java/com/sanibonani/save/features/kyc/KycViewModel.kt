@@ -24,9 +24,10 @@ class KycViewModel @Inject constructor(
 
     fun onSelfieCaptured(uri: Uri, memberId: String) {
         updateState { it.copy(selfieUri = uri) }
-        val s = uiState.value
+        val idPath = uiState.value.idUri?.path ?: return
+        val selfiePath = uri.path ?: return
         launchJob("process_kyc") {
-            kycService.processKycAi(memberId, File(s.idUri?.path!!), File(uri.path!!)).onSuccess {
+            kycService.processKycAi(memberId, File(idPath), File(selfiePath)).onSuccess {
                 updateState { it.copy(step = KycStep.SUCCESS) }
             }
         }

@@ -72,6 +72,8 @@ class SanibonaniFirebaseService : FirebaseMessagingService() {
                 AppLogger.i("FCMService", "FCM token synced to Supabase for user $userId")
                 // Also clear the local backup since it's now synced
                 clearLocalToken()
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
                 val userMsg = e.logAndGetMessage("FCMService")
                 AppLogger.w(

@@ -314,15 +314,3 @@ fun DisbursementsTab(
         }
     }
 }
-
-@Composable
-private fun EmptyStateSmall(message: String) {
-    Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
-        Text(
-            text = message,
-            color = MaterialTheme.colorScheme.onSurface,
-            style = MaterialTheme.typography.bodySmall,
-            textAlign = androidx.compose.ui.text.style.TextAlign.Center
-        )
-    }
-}

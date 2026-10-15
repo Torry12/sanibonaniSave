@@ -21,6 +21,7 @@ import com.sanibonani.save.domain.utils.PaymentCalculation
 import com.sanibonani.save.domain.utils.OperationKeys
 import javax.inject.Inject
 import com.sanibonani.save.domain.utils.safeRunCatching
+import com.sanibonani.save.domain.utils.toUserMessage
 
 /**
  * Orchestrates all fund inflows (contributions, fees, joining fees).
@@ -97,10 +98,12 @@ class ProcessContributionUseCase @Inject constructor(
             // 2. Process
             confirm(txId, method, type, amount, groupId, member, group, calculation).fold(
                 onSuccess = { ContributionOutcome.Success(txId) },
-                onFailure = { ContributionOutcome.Failure(it.message ?: "Processing failed", it) }
+                onFailure = { ContributionOutcome.Failure(it.toUserMessage(), it) }
             )
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e // Never report a cancelled contribution as a business failure
         } catch (e: Exception) {
-            ContributionOutcome.Failure(e.message ?: "An unexpected error occurred", e)
+            ContributionOutcome.Failure(e.toUserMessage(), e)
         }
     }
 

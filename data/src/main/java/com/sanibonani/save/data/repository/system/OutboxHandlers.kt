@@ -13,6 +13,10 @@ import kotlinx.serialization.json.Json
 import javax.inject.Inject
 import com.sanibonani.save.domain.utils.safeRunCatching
 
+// Failures here stop the whole outbox queue, so name the missing key instead of throwing a bare NPE.
+private fun Map<String, String?>.requireValue(key: String): String =
+    this[key] ?: error("Outbox payload is missing '$key'")
+
 class ContributionOutboxHandler @Inject constructor(
     private val repository: ContributionRepository,
     private val json: Json
@@ -51,10 +55,10 @@ class DisbursementOutboxHandler @Inject constructor(
     override suspend fun handle(operation: PendingOperation): Result<Unit> = safeRunCatching {
         val data = json.decodeFromString<Map<String, String?>>(operation.payload)
         repository.recordDisbursement(
-            groupId = data["groupId"]!!,
-            amount = Money(data["amount"]!!),
-            description = data["description"]!!,
-            category = data["category"]!!,
+            groupId = data.requireValue("groupId"),
+            amount = Money(data.requireValue("amount")),
+            description = data.requireValue("description"),
+            category = data.requireValue("category"),
             transactionId = data["transactionId"]
         ).getOrThrow()
         Unit
@@ -68,8 +72,8 @@ class BalanceAdjustmentOutboxHandler @Inject constructor(
     override suspend fun handle(operation: PendingOperation): Result<Unit> = safeRunCatching {
         val data = json.decodeFromString<Map<String, String>>(operation.payload)
         repository.incrementGroupBalance(
-            groupId = data["groupId"]!!,
-            amount = Money(data["amount"]!!)
+            groupId = data.requireValue("groupId"),
+            amount = Money(data.requireValue("amount"))
         ).getOrThrow()
         Unit
     }

@@ -5,6 +5,7 @@ import com.sanibonani.save.domain.model.*
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.postgrest.rpc
+import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import javax.inject.Inject
@@ -75,7 +76,8 @@ class SupabaseLoanDataSourceImpl @Inject constructor(
         val response = client.postgrest.rpc("record_loan_repayment_v1", rpcParams)
         try {
             response.decodeAs<RecordRepaymentResult>()
-        } catch (_: Exception) {
+        } catch (_: SerializationException) {
+            // Only a shape mismatch may re-decode; a cancellation must never issue a second repayment RPC.
             response.decodeList<RecordRepaymentResult>().first()
         }
     }

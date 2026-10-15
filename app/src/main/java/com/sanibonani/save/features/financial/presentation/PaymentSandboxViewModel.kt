@@ -1,6 +1,7 @@
 package com.sanibonani.save.features.financial.presentation
 
 import com.sanibonani.save.domain.utils.safeRunCatching
+import com.sanibonani.save.domain.utils.toUserMessage
 import com.sanibonani.save.data.remote.gateway.SimulationGateway
 import com.sanibonani.save.domain.model.*
 import com.sanibonani.save.domain.repository.group.GroupRepository
@@ -70,7 +71,7 @@ class PaymentSandboxViewModel @Inject constructor(
             simulationGateway.bank.simulateSinglePayment(gid, money, reference).onSuccess {
                 updateState { it.copy(isSimulating = false, successMessage = "Bank transfer simulated") }
             }.onFailure { e ->
-                updateState { it.copy(isSimulating = false, error = e.message ?: "Simulation failed") }
+                updateState { it.copy(isSimulating = false, error = e.toUserMessage()) }
             }
         }
     }
@@ -92,7 +93,7 @@ class PaymentSandboxViewModel @Inject constructor(
                     updateState { it.copy(isSimulating = false, successMessage = "Successfully simulated monthly collections (${txIds.size} transactions)") }
                 }
                 .onFailure { e ->
-                    updateState { it.copy(isSimulating = false, error = e.message ?: "Monthly collection simulation failed") }
+                    updateState { it.copy(isSimulating = false, error = e.toUserMessage()) }
                 }
         }
     }
@@ -119,7 +120,7 @@ class PaymentSandboxViewModel @Inject constructor(
             }.onSuccess { total ->
                 updateState { it.copy(isSimulating = false, successMessage = "Deep history simulated for $months months ($total total transactions)") }
             }.onFailure { e ->
-                updateState { it.copy(isSimulating = false, error = e.message ?: "Deep historical simulation failed") }
+                updateState { it.copy(isSimulating = false, error = e.toUserMessage()) }
             }
         }
     }

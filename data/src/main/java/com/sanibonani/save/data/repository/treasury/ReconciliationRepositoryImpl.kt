@@ -44,6 +44,8 @@ class ReconciliationRepositoryImpl @Inject constructor(
             val record = remoteSource.performReconciliation(groupId).getOrThrow()
             localSource.saveReconciliations(listOf(record))
             record
+        } catch (e: CancellationException) {
+            throw e // A cancelled sync must never be recorded as a local reconciliation
         } catch (e: Exception) {
             val localRecord = performLocalReconciliation(groupId)
             localSource.saveReconciliations(listOf(localRecord))

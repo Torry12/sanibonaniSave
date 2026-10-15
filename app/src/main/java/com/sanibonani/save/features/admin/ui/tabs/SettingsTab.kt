@@ -145,8 +145,11 @@ fun SettingsTab(
                     val isSelected = state.settings.financialProviderId == provider.id
                     Card(
                         onClick = {
-                            vm.updateSetting("financial_provider_id", provider.id!!)
-                            vm.initiateBankLinking(provider.id)
+                            val providerId = provider.id
+                            if (providerId != null) {
+                                vm.updateSetting("financial_provider_id", providerId)
+                                vm.initiateBankLinking(providerId)
+                            }
                         },
                         colors = CardDefaults.cardColors(
                             containerColor = if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.1f) else MaterialTheme.colorScheme.surface

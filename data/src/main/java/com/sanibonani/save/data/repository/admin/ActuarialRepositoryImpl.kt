@@ -8,6 +8,7 @@ import com.sanibonani.save.domain.repository.equity.GroupFinancialRepository
 import com.sanibonani.save.domain.repository.group.GroupRepository
 import com.sanibonani.save.domain.repository.member.MemberRepository
 import com.sanibonani.save.domain.usecase.actuarial.GroupTypeActuarialEngine
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
@@ -33,6 +34,8 @@ class ActuarialRepositoryImpl @Inject constructor(
                 val group = groupRepo.getGroupById(groupId).getOrElse { return@withContext Result.failure(it) }
                 val members = memberRepo.get().getGroupMembers(groupId).first().getOrElse { return@withContext Result.failure(it) }
                 withContext(Dispatchers.Default) { calculateMetrics(group, members) }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 Result.failure(e)
             }

@@ -97,7 +97,7 @@ fun PayoutTab(state: AdminFinancialUiState, vm: AdminFinancialViewModel) {
                         members = state.members,
                         isProcessing = state.processingIds.contains(payout.id),
                         onClick = { vm.selectPayout(payout) },
-                        onApprove = { vm.approveAndEscalatePayoutRequest(payout.id!!) }
+                        onApprove = { payout.id?.let { vm.approveAndEscalatePayoutRequest(it) } }
                     )
                 }
             }

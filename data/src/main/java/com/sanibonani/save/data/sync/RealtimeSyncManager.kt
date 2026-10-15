@@ -44,7 +44,8 @@ class RealtimeSyncManager @Inject constructor(
 
     @Synchronized
     fun start() {
-        if (managedScope != null && managedScope!!.isActive) {
+        val running = managedScope
+        if (running != null && running.isActive) {
             AppLogger.d(tag, "RealtimeSyncManager already running")
             return
         }
@@ -156,6 +157,8 @@ class RealtimeSyncManager @Inject constructor(
             try {
                 channel.subscribe()
                 AppLogger.d(tag, "Successfully subscribed to multiplexed realtime channel")
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 AppLogger.e(tag, "Multiplexed realtime subscription failed: ${e.message}")
             }
@@ -252,7 +255,8 @@ class BatchProcessor<T>(
         synchronized(queue) {
             queue.add(item)
         }
-        if (batchJob == null || !batchJob!!.isActive) {
+        val pending = batchJob
+        if (pending == null || !pending.isActive) {
             batchJob = scope.launch {
                 delay(debounceMillis)
                 val toProcess = synchronized(queue) {

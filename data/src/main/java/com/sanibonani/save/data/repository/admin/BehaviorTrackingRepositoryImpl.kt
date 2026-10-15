@@ -145,11 +145,11 @@ class BehaviorTrackingRepositoryImpl @Inject constructor(
         val contributionsResult = memberRepository.getMemberContributions(memberId, track.groupId).first()
         val contributions = contributionsResult.getOrDefault(emptyList())
 
-        val totalAmount = contributions.filter { it.status == ContributionStatus.PAID || it.status == ContributionStatus.PARTIAL }
-            .fold(Money.ZERO) { acc, c -> acc + c.amount }
+        val paid = contributions.filter { it.status == ContributionStatus.PAID || it.status == ContributionStatus.PARTIAL }
+        val totalAmount = paid.fold(Money.ZERO) { acc, c -> acc + c.amount }
 
-        val onTime = contributions.count { (it.status == ContributionStatus.PAID || it.status == ContributionStatus.PARTIAL) && it.paidAt != null && it.paidAt!! <= it.dueDate }
-        val late = contributions.count { (it.status == ContributionStatus.PAID || it.status == ContributionStatus.PARTIAL) && it.paidAt != null && it.paidAt!! > it.dueDate }
+        val onTime = paid.count { c -> val paidAt = c.paidAt; paidAt != null && paidAt <= c.dueDate }
+        val late = paid.count { c -> val paidAt = c.paidAt; paidAt != null && paidAt > c.dueDate }
         val missed = contributions.count { it.status == ContributionStatus.OVERDUE }
 
         return track.copy(

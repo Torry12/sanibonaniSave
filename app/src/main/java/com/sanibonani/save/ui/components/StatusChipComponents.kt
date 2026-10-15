@@ -9,7 +9,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.sanibonani.save.domain.model.AdminFeeState
 import com.sanibonani.save.domain.model.MemberStatus
 import com.sanibonani.save.ui.theme.*
 
@@ -36,38 +35,24 @@ fun StatusChip(status: MemberStatus, label: String? = null) {
 }
 
 @Composable
-fun PaymentChip(paid: Boolean) {
-    val (bg, fg, label) = if (paid)
-        Triple(SuccessBg, SuccessGreen, "Paid")
-    else
-        Triple(WarningBg, WarningAmber, "Due")
-    Surface(color = bg, shape = RoundedCornerShape(20.dp)) {
-        Text(
-            text      = label,
-            modifier  = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-            style     = MaterialTheme.typography.labelSmall,
-            color     = fg,
-            fontWeight = FontWeight.Bold
-        )
+fun StatusChip(status: String) {
+    val upperStatus = status.uppercase()
+    val color = when {
+        upperStatus == "PAID" || upperStatus == "COMPLETED" || upperStatus == "APPROVED" || upperStatus == "ACTIVE" -> SuccessGreen
+        upperStatus == "PENDING" || upperStatus.contains("REVIEW") || upperStatus == "ESCALATED" || upperStatus == "GROUP_APPROVED" || upperStatus == "PROBATION" -> WarningAmber
+        upperStatus == "FAILED" || upperStatus == "REJECTED" || upperStatus == "CANCELLED" || upperStatus == "OVERDUE" || upperStatus == "SUSPENDED" -> ErrorRed
+        else -> MaterialTheme.colorScheme.onSurfaceVariant
     }
-}
 
-@Composable
-fun AdminFeeChip(state: AdminFeeState) {
-    val (bg, fg, label) = when (state) {
-        AdminFeeState.PAID               -> Triple(SuccessBg, SuccessGreen,  "Fee Paid ✓")
-        AdminFeeState.DUE                -> Triple(WarningBg, WarningAmber,  "Fee Due")
-        AdminFeeState.OVERDUE            -> Triple(ErrorBg,   ErrorRed,      "⚠️ Overdue")
-        AdminFeeState.WARNING            -> Triple(ErrorBg,   ErrorRed,      "⚠️ Warning")
-        AdminFeeState.SUSPENDED          -> Triple(ErrorBg,   ErrorRed,      "🔴 Suspended")
-        AdminFeeState.PENDING_ACTIVATION -> Triple(InfoBg,    InfoBlue,      "Pending Activation")
-    }
-    Surface(color = bg, shape = RoundedCornerShape(20.dp)) {
+    Surface(
+        color = color.copy(alpha = 0.1f),
+        shape = RoundedCornerShape(20.dp)
+    ) {
         Text(
-            text      = label,
-            modifier  = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-            style     = MaterialTheme.typography.labelSmall,
-            color     = fg,
+            text = status.replace("_", " "),
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+            color = color,
+            style = MaterialTheme.typography.labelSmall,
             fontWeight = FontWeight.Bold
         )
     }

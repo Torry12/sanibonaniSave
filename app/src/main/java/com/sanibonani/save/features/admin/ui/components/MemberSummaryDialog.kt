@@ -17,6 +17,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.sanibonani.save.domain.model.*
 import com.sanibonani.save.ui.components.InitialsAvatar
+import com.sanibonani.save.ui.components.StatusChip
 import com.sanibonani.save.ui.theme.*
 import com.sanibonani.save.ui.utils.formatZAR
 
@@ -177,27 +178,5 @@ private fun LoanHistoryItem(loan: Loan) {
                 }
             )
         }
-    }
-}
-
-@Composable
-private fun StatusChip(status: MemberStatus) {
-    Surface(
-        color = when(status) {
-            MemberStatus.ACTIVE -> SuccessGreen.copy(0.1f)
-            else -> WarningAmber.copy(0.1f)
-        },
-        shape = RoundedCornerShape(12.dp)
-    ) {
-        Text(
-            status.name,
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-            style = MaterialTheme.typography.labelSmall,
-            fontWeight = FontWeight.Bold,
-            color = when(status) {
-                MemberStatus.ACTIVE -> SuccessGreen
-                else -> WarningAmber
-            }
-        )
     }
 }

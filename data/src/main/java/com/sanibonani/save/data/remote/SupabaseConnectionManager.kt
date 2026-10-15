@@ -17,6 +17,7 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 import javax.inject.Singleton
 import com.sanibonani.save.domain.utils.safeRunCatching
+import com.sanibonani.save.domain.utils.toUserMessage
 
 /**
  * Consolidated manager for Supabase and Room connections.
@@ -106,8 +107,10 @@ class SupabaseConnectionManager @Inject constructor(
             _localStatus.value = ConnectionStatus.Connected
 
             AppLogger.i(tag, "✅ Connections rebuilt.")
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
-            val msg = if (useOnline) "Server unreachable. Please check your internet." else (e.message ?: "Connection failed")
+            val msg = if (useOnline) "Server unreachable. Please check your internet." else e.toUserMessage()
             _remoteStatus.value = ConnectionStatus.Error(msg, e)
             _localStatus.value = ConnectionStatus.Error(msg, e)
             AppLogger.e(tag, "❌ Connection rebuild failed", e)

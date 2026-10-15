@@ -45,22 +45,3 @@ fun ActionButton(
         )
     }
 }
-
-@Composable
-fun OutlinedSanibonaniButton(
-    text: String,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-    enabled: Boolean = true
-) {
-    OutlinedButton(
-        onClick = onClick,
-        modifier = modifier.fillMaxWidth().height(56.dp),
-        enabled = enabled,
-        shape = RoundedCornerShape(14.dp),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary),
-        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.primary)
-    ) {
-        Text(text, fontWeight = FontWeight.Bold)
-    }
-}
