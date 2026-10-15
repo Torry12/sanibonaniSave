@@ -1,11 +1,8 @@
 package com.sanibonani.save.domain.model
 
-import android.os.Parcelable
-import kotlinx.parcelize.Parcelize
 import kotlinx.serialization.*
 
 @Serializable
-@Parcelize
 data class AppNotification(
     val id: String? = null,
     @SerialName("group_id") val groupId: String? = null,
@@ -14,7 +11,7 @@ data class AppNotification(
     val channel: NotifChannel = NotifChannel.PUSH,
     @SerialName("trigger_event") val triggerEvent: NotifEvent = NotifEvent.CUSTOM,
     @SerialName("created_at") val createdAt: String? = null
-) : Parcelable
+)
 
 @Serializable
 enum class NotifChannel {

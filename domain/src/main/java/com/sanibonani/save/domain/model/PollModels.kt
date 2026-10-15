@@ -2,8 +2,6 @@
 
 package com.sanibonani.save.domain.model
 
-import android.os.Parcelable
-import kotlinx.parcelize.Parcelize
 import kotlinx.serialization.*
 
 @Serializable
@@ -32,7 +30,6 @@ enum class EffectStatus {
 }
 
 @Serializable
-@Parcelize
 data class GroupPoll(
     @EncodeDefault(EncodeDefault.Mode.NEVER)
     val id: String? = null,
@@ -49,10 +46,9 @@ data class GroupPoll(
     @SerialName("ends_at") val endsAt: String? = null,
     @EncodeDefault(EncodeDefault.Mode.NEVER) @SerialName("created_at") val createdAt: String? = null,
     @EncodeDefault(EncodeDefault.Mode.NEVER) @SerialName("updated_at") val updatedAt: String? = null
-) : Parcelable
+)
 
 @Serializable
-@Parcelize
 data class GroupPollOption(
     @EncodeDefault(EncodeDefault.Mode.NEVER)
     val id: String? = null,
@@ -60,10 +56,9 @@ data class GroupPollOption(
     val label: String = "",
     val position: Int = 1,
     @EncodeDefault(EncodeDefault.Mode.NEVER) @SerialName("created_at") val createdAt: String? = null
-) : Parcelable
+)
 
 @Serializable
-@Parcelize
 data class GroupPollVote(
     @EncodeDefault(EncodeDefault.Mode.NEVER)
     val id: String? = null,
@@ -73,12 +68,11 @@ data class GroupPollVote(
     @SerialName("group_id") val groupId: String = "",
     @EncodeDefault(EncodeDefault.Mode.NEVER) @SerialName("created_at") val createdAt: String? = null,
     @EncodeDefault(EncodeDefault.Mode.NEVER) @SerialName("updated_at") val updatedAt: String? = null
-) : Parcelable
+)
 
 @Serializable
-@Parcelize
 data class GroupPollWithOptions(
     val poll: GroupPoll,
     val options: List<GroupPollOption> = emptyList(),
     @SerialName("my_vote_option_id") val myVoteOptionId: String? = null
-) : Parcelable
+)

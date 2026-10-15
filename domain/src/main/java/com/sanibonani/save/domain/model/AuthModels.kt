@@ -1,7 +1,5 @@
 package com.sanibonani.save.domain.model
 
-import android.os.Parcelable
-import kotlinx.parcelize.Parcelize
 
 enum class RecoveryMethod {
     EMAIL,
@@ -9,22 +7,20 @@ enum class RecoveryMethod {
 }
 
 /** A single enrolled MFA factor (e.g. an authenticator-app TOTP secret). */
-@Parcelize
 data class MfaFactor(
     val id: String,
     val friendlyName: String,
     val type: String,
     val status: String
-) : Parcelable
+)
 
 /** Result of enrolling a new TOTP factor, carrying the QR seeding data. */
-@Parcelize
 data class TotpEnrollment(
     val id: String,
     val qrCode: String,
     val secret: String,
     val uri: String
-) : Parcelable
+)
 
 /**
  * Domain-owned view of an authenticated Supabase session.

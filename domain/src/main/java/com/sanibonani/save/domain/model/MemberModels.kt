@@ -2,15 +2,12 @@
 
 package com.sanibonani.save.domain.model
 
-import android.os.Parcelable
-import kotlinx.parcelize.Parcelize
 import kotlinx.serialization.*
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  MEMBER
 // ─────────────────────────────────────────────────────────────────────────────
 @Serializable
-@Parcelize
 data class Member(
     @EncodeDefault(EncodeDefault.Mode.NEVER)
     val id: String? = null,
@@ -108,13 +105,12 @@ data class Member(
     @Transient val beneficiaries: List<Beneficiary> = emptyList(),
     @Transient val documents: List<MemberDocument> = emptyList(),
     @Transient val claims: List<BeneficiaryPayoutClaim> = emptyList()
-) : Parcelable
+)
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  MEMBER DOCUMENT
 // ─────────────────────────────────────────────────────────────────────────────
 @Serializable
-@Parcelize
 data class MemberDocument(
     @EncodeDefault(EncodeDefault.Mode.NEVER)
     val id: String? = null,
@@ -128,13 +124,12 @@ data class MemberDocument(
     @SerialName("created_at")     val createdAt: String? = null,
     @EncodeDefault(EncodeDefault.Mode.NEVER)
     @SerialName("updated_at")     val updatedAt: String? = null
-) : Parcelable
+)
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  BENEFICIARY
 // ─────────────────────────────────────────────────────────────────────────────
 @Serializable
-@Parcelize
 data class Beneficiary(
     @SerialName("group_id")       val groupId: String = "",
     @SerialName("member_id")      val memberId: String = "",
@@ -150,7 +145,7 @@ data class Beneficiary(
     @SerialName("document_status") val documentStatus: DocumentStatus = DocumentStatus.PENDING,
     @EncodeDefault(EncodeDefault.Mode.NEVER)
     @SerialName("created_at")     val createdAt: String? = null
-) : Parcelable
+)
 
 @Serializable
 enum class MemberStatus(val displayName: String) {

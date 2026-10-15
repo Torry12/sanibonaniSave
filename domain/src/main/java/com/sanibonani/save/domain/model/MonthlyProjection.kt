@@ -1,14 +1,11 @@
 package com.sanibonani.save.domain.model
 
-import android.os.Parcelable
-import kotlinx.parcelize.Parcelize
 import kotlinx.serialization.*
 
 /**
  * Projected financial snapshot for a single future month.
  */
 @Serializable
-@Parcelize
 data class FutureMonthProjection(
     @SerialName("month") val month: Int = 0,
     @SerialName("label") val label: String = "",
@@ -17,4 +14,4 @@ data class FutureMonthProjection(
     @SerialName("outflow") val outflow: Money = Money.ZERO,
     @SerialName("net_flow")   val netFlow: Money = Money.ZERO,
     @SerialName("risk_flag")  val riskFlag: Boolean = false
-) : Parcelable
+)

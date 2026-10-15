@@ -150,15 +150,17 @@ val MIGRATION_X_Y = object : Migration(X, Y) {
 ## Domain Model Pattern
 ```kotlin
 @Serializable
-@Parcelize
 data class NewModel(
     @EncodeDefault(EncodeDefault.Mode.NEVER)
     val id: String? = null,
     @SerialName("group_id") val groupId: String = "",
     @SerialName("created_at") val createdAt: String? = null,
     // ... other fields
-) : Parcelable
+)
 ```
+
+`:domain` models carry no `android.*` — no `Parcelable`, no `@Parcelize`.
+Navigation passes ids, not model objects; `DomainModuleBoundaryTest` enforces this.
 
 ## Common Import Block
 ```kotlin

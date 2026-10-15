@@ -14,9 +14,6 @@ import kotlinx.serialization.encoding.Decoder
 import kotlinx.serialization.encoding.Encoder
 import kotlinx.serialization.json.*
 
-import android.os.Parcelable
-import kotlinx.parcelize.Parcelize
-import kotlinx.parcelize.RawValue
 
 /**
  * Robust domain model for handling currency (South African Rand).
@@ -27,8 +24,7 @@ import kotlinx.parcelize.RawValue
  * and free from floating-point drift, which is essential for accurate ledger reconstruction.
  */
 @Serializable(with = MoneySerializer::class)
-@Parcelize
-data class Money(val amount: @RawValue BigDecimal) : Comparable<Money>, Parcelable {
+data class Money(val amount: BigDecimal) : Comparable<Money> {
 
     constructor(amount: Double) : this(BigDecimal.valueOf(amount).setScale(2, RoundingMode.HALF_EVEN))
     constructor(amount: Int)    : this(BigDecimal.valueOf(amount.toLong()).setScale(2, RoundingMode.HALF_EVEN))

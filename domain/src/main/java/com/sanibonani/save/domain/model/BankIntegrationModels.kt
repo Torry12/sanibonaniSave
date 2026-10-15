@@ -1,14 +1,11 @@
 package com.sanibonani.save.domain.model
 
-import android.os.Parcelable
-import kotlinx.parcelize.Parcelize
 import kotlinx.serialization.*
 
 /**
  * Represents a physical bank transaction recorded in the group's bank account.
  */
 @Serializable
-@Parcelize
 data class BankTransaction(
     @EncodeDefault(EncodeDefault.Mode.NEVER)
     val id: String? = null,
@@ -20,11 +17,10 @@ data class BankTransaction(
     val status: BankTransactionStatus = BankTransactionStatus.UNRECONCILED,
     @SerialName("reconciled_with") val reconciledWith: String? = null,
     @SerialName("created_at") val createdAt: String? = null
-) : Parcelable
+)
 
 @Serializable
-@Parcelize
-enum class BankTransactionStatus : Parcelable {
+enum class BankTransactionStatus {
     @SerialName("unreconciled") UNRECONCILED,
     @SerialName("matched") RECONCILED, // DB uses 'matched'
     @SerialName("ignored") IGNORED,
@@ -35,7 +31,6 @@ enum class BankTransactionStatus : Parcelable {
  * Tracks the connection status between a group and their physical bank account.
  */
 @Serializable
-@Parcelize
 data class BankConnection(
     val id: String,
     @SerialName("group_id") val groupId: String,
@@ -47,11 +42,10 @@ data class BankConnection(
     @SerialName("expires_at") val expiresAt: String? = null,
     @EncodeDefault(EncodeDefault.Mode.NEVER)
     val metadata: Map<String, String> = emptyMap()
-) : Parcelable
+)
 
 @Serializable
-@Parcelize
-enum class BankConnectionStatus : Parcelable {
+enum class BankConnectionStatus {
     @SerialName("connected") CONNECTED,
     @SerialName("pending") PENDING,
     @SerialName("expired") EXPIRED,

@@ -1,8 +1,6 @@
 @file:OptIn(ExperimentalSerializationApi::class)
 package com.sanibonani.save.domain.model
 
-import android.os.Parcelable
-import kotlinx.parcelize.Parcelize
 import kotlinx.serialization.*
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -46,7 +44,6 @@ enum class BehaviorStatus {
  * Indexed by member ID number for efficient lookups
  */
 @Serializable
-@Parcelize
 data class MemberBehaviorTrack(
     @EncodeDefault(EncodeDefault.Mode.NEVER)
     val id: String? = null,
@@ -120,13 +117,12 @@ data class MemberBehaviorTrack(
     @SerialName("created_at") val createdAt: String? = null,
     @EncodeDefault(EncodeDefault.Mode.NEVER)
     @SerialName("updated_at") val updatedAt: String? = null
-) : Parcelable
+)
 
 /**
  * Detailed fraud detection event for audit trail
  */
 @Serializable
-@Parcelize
 data class FraudDetectionEvent(
     @EncodeDefault(EncodeDefault.Mode.NEVER)
     val id: String? = null,
@@ -143,13 +139,12 @@ data class FraudDetectionEvent(
     @SerialName("created_at") val createdAt: String? = null,
     @EncodeDefault(EncodeDefault.Mode.NEVER)
     @SerialName("updated_at") val updatedAt: String? = null
-) : Parcelable
+)
 
 /**
  * Behavior analytics summary for dashboard/reporting
  */
 @Serializable
-@Parcelize
 data class BehaviorAnalyticsSummary(
     @SerialName("group_id") val groupId: String = "",
     @SerialName("total_members_tracked") val totalMembersTracked: Int = 0,
@@ -166,5 +161,4 @@ data class BehaviorAnalyticsSummary(
     @SerialName("loan_default_rate") val loanDefaultRate: Double = 0.0, // Percentage
     @EncodeDefault(EncodeDefault.Mode.NEVER)
     @SerialName("calculated_at") val calculatedAt: String? = null
-) : Parcelable
-
+)

@@ -2,15 +2,12 @@
 
 package com.sanibonani.save.domain.model
 
-import android.os.Parcelable
-import kotlinx.parcelize.Parcelize
 import kotlinx.serialization.*
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  CONTRIBUTION
 // ─────────────────────────────────────────────────────────────────────────────
 @Serializable
-@Parcelize
 data class Contribution(
     @EncodeDefault(EncodeDefault.Mode.NEVER)
     val id: String? = null,
@@ -29,7 +26,7 @@ data class Contribution(
     @SerialName("late_fees_applied")    val lateFeesApplied: Boolean = false,
     @SerialName("late_fee_amount")      val lateFeeAmount: Money = Money.ZERO,
     @SerialName("principal_amount")     val principalAmount: Money = Money.ZERO
-) : Parcelable
+)
 
 @Serializable
 enum class ContributionStatus(val displayName: String) {

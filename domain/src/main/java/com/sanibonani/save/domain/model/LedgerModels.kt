@@ -1,8 +1,6 @@
 @file:OptIn(ExperimentalSerializationApi::class)
 package com.sanibonani.save.domain.model
 
-import android.os.Parcelable
-import kotlinx.parcelize.Parcelize
 import kotlinx.serialization.*
 import kotlinx.serialization.descriptors.*
 import kotlinx.serialization.encoding.*
@@ -11,7 +9,6 @@ import java.time.Instant
 import java.time.OffsetDateTime
 
 @Serializable
-@Parcelize
 data class LedgerEntry(
     val id: String? = null,
     @SerialName("group_id") val groupId: String = "",
@@ -23,10 +20,9 @@ data class LedgerEntry(
     val category: String = "",
     @SerialName("is_platform") val isPlatform: Boolean = false,
     @SerialName("created_at") val createdAt: String? = null
-) : Parcelable
+)
 
 @Serializable
-@Parcelize
 data class Transaction(
     @EncodeDefault(EncodeDefault.Mode.NEVER)
     val id: String? = null,
@@ -38,11 +34,10 @@ data class Transaction(
     @SerialName("status") val status: TransactionStatus = TransactionStatus.PENDING,
     @SerialName("created_at") val createdAt: Long = Instant.now().toEpochMilli(),
     @SerialName("description") val description: String? = null
-) : Parcelable
+)
 
 @Serializable
-@Parcelize
-enum class TransactionType : Parcelable {
+enum class TransactionType {
     @SerialName("contribution") CONTRIBUTION,
     @SerialName("payout") PAYOUT,
     @SerialName("fee") FEE,
@@ -50,8 +45,7 @@ enum class TransactionType : Parcelable {
 }
 
 @Serializable
-@Parcelize
-enum class TransactionStatus : Parcelable {
+enum class TransactionStatus {
     @SerialName("pending") PENDING,
     @SerialName("completed") COMPLETED,
     @SerialName("failed") FAILED,
@@ -59,7 +53,6 @@ enum class TransactionStatus : Parcelable {
 }
 
 @Serializable
-@Parcelize
 data class SettlementRecord(
     @EncodeDefault(EncodeDefault.Mode.NEVER)
     val id: String? = null,
@@ -68,7 +61,7 @@ data class SettlementRecord(
     val status: SettlementStatus = SettlementStatus.PENDING,
     @SerialName("settled_at") val settledAt: Long? = null,
     @SerialName("fee_deducted") val feeDeducted: Money = Money.ZERO
-) : Parcelable
+)
 
 object FlexibleEpochSerializer : KSerializer<Long> {
     override val descriptor: SerialDescriptor = PrimitiveSerialDescriptor("FlexibleEpochSerializer", PrimitiveKind.LONG)
@@ -104,7 +97,6 @@ object FlexibleEpochSerializer : KSerializer<Long> {
 }
 
 @Serializable
-@Parcelize
 data class ReconciliationRecord(
     @EncodeDefault(EncodeDefault.Mode.NEVER)
     val id: String? = null,
@@ -120,7 +112,7 @@ data class ReconciliationRecord(
     val notes: String? = null,
     @SerialName("performed_by") val performedBy: String? = null,
     @SerialName("created_at") val createdAt: String? = null
-) : Parcelable
+)
 
 @Serializable
 enum class SettlementStatus {
@@ -138,7 +130,6 @@ enum class ReconciliationStatus {
 }
 
 @Serializable
-@Parcelize
 data class ConsolidationReport(
     @SerialName("group_id") val groupId: String,
     @SerialName("entries_reconstructed") val entriesCreated: Int = 0,
@@ -146,5 +137,4 @@ data class ConsolidationReport(
     @SerialName("final_balance") val finalBalance: Money = Money.ZERO,
     @SerialName("reconciliation_report") val reconciliationRecord: ReconciliationRecord? = null,
     val errors: List<String> = emptyList()
-) : Parcelable
-
+)

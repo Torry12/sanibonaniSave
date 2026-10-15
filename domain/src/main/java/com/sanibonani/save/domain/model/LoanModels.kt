@@ -2,8 +2,6 @@
 
 package com.sanibonani.save.domain.model
 
-import android.os.Parcelable
-import kotlinx.parcelize.Parcelize
 import kotlinx.serialization.*
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -16,7 +14,6 @@ enum class AmortizationType {
 }
 
 @Serializable
-@Parcelize
 data class LoanRepaymentScheduleEntry(
     val installmentNumber: Int,
     val dueDate: String,
@@ -24,10 +21,9 @@ data class LoanRepaymentScheduleEntry(
     val interest: Money,
     val totalInstallment: Money,
     val remainingBalance: Money
-) : Parcelable
+)
 
 @Serializable
-@Parcelize
 data class Loan(
     @EncodeDefault(EncodeDefault.Mode.NEVER)
     val id: String? = null,
@@ -54,7 +50,7 @@ data class Loan(
     @Transient val repaymentSchedule: List<LoanRepaymentScheduleEntry> = emptyList(),
     @EncodeDefault(EncodeDefault.Mode.NEVER)
     @SerialName("created_at")     val createdAt: String? = null
-) : Parcelable {
+) {
     val balanceRemaining: Money get() = (totalToRepay - totalRepaid).let { if (it.isNegative) Money.ZERO else it }
     val progress: Float get() = if (totalToRepay.isPositive) (totalRepaid.ratio(totalToRepay)).toFloat() else 0f
 }
@@ -73,7 +69,6 @@ enum class LoanStatus(val displayName: String) {
 }
 
 @Serializable
-@Parcelize
 data class LoanRepayment(
     @EncodeDefault(EncodeDefault.Mode.NEVER)
     val id: String? = null,
@@ -86,7 +81,7 @@ data class LoanRepayment(
     @SerialName("transaction_id") val transactionId: String? = null,
     @EncodeDefault(EncodeDefault.Mode.NEVER)
     @SerialName("created_at")     val createdAt: String? = null
-) : Parcelable
+)
 
 @Serializable
 data class RecordRepaymentResult(

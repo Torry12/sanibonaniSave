@@ -1,11 +1,8 @@
 package com.sanibonani.save.domain.model
 
-import android.os.Parcelable
-import kotlinx.parcelize.Parcelize
 import kotlinx.serialization.*
 
 @Serializable
-@Parcelize
 data class ActuarialSettings(
     // Burial / Protection Risk Factors
     val mortalityRatePerThousand: Double = 8.2,
@@ -38,10 +35,9 @@ data class ActuarialSettings(
 
     // Community Savings / General Risk Factors
     val growthConservatismFactor: Double = 1.03
-) : Parcelable
+)
 
 @Serializable
-@Parcelize
 data class ViabilityPlan(
     val initialContribution: Money = Money.ZERO,
     val suggestedMonthlyContribution: Money = Money.ZERO,
@@ -76,4 +72,4 @@ data class ViabilityPlan(
     val growthConservatismFactor: Double = 1.0,
     val appliedActuarialSettings: ActuarialSettings = ActuarialSettings(),
     val calculationBreakdowns: List<ActuarialFormulaBreakdown> = emptyList()
-) : Parcelable
+)

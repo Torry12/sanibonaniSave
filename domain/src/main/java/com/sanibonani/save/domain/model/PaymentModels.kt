@@ -2,15 +2,12 @@
 
 package com.sanibonani.save.domain.model
 
-import android.os.Parcelable
-import kotlinx.parcelize.Parcelize
 import kotlinx.serialization.*
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  PAYMENT
 // ─────────────────────────────────────────────────────────────────────────────
 @Serializable
-@Parcelize
 data class Payment(
     @EncodeDefault(EncodeDefault.Mode.NEVER)
     val id: String? = null,
@@ -24,7 +21,7 @@ data class Payment(
     @SerialName("processed_at")   val processedAt: String? = null,
     @EncodeDefault(EncodeDefault.Mode.NEVER)
     @SerialName("created_at")     val createdAt: String? = null
-) : Parcelable
+)
 
 @Serializable
 enum class PaymentType(val displayName: String) {
@@ -71,12 +68,10 @@ enum class PaymentDestination {
 //  PAYMENT ALLOCATION
 // ─────────────────────────────────────────────────────────────────────────────
 @Serializable
-@Parcelize
 data class PaymentAllocation(
     val type: String, // 'member_fee', 'late_fee', 'loan_repayment', 'contribution', 'joining_fee'
     val amount: Money,
     @SerialName("due_date")  val dueDate: String,
     val description: String,
     @SerialName("loan_id")   val loanId: String? = null
-) : Parcelable
-
+)

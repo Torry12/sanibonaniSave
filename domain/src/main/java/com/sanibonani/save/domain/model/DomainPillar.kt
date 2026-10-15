@@ -1,7 +1,5 @@
 package com.sanibonani.save.domain.model
 
-import android.os.Parcelable
-import kotlinx.parcelize.Parcelize
 import kotlinx.serialization.Serializable
 
 /**
@@ -9,8 +7,7 @@ import kotlinx.serialization.Serializable
  * Used for targeted cache invalidation and UI organization.
  */
 @Serializable
-@Parcelize
-enum class DomainPillar : Parcelable {
+enum class DomainPillar {
     TREASURY,
     EQUITY,
     CREDIT,

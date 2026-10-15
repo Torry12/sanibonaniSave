@@ -1,7 +1,5 @@
 package com.sanibonani.save.domain.model
 
-import android.os.Parcelable
-import kotlinx.parcelize.Parcelize
 import kotlinx.serialization.*
 
 /**
@@ -9,7 +7,6 @@ import kotlinx.serialization.*
  * that SanibonaniSave can interact with through a unified interface.
  */
 @Serializable
-@Parcelize
 data class FinancialProvider(
     val id: String,
     val name: String,
@@ -19,7 +16,7 @@ data class FinancialProvider(
     val isActive: Boolean = true,
     @EncodeDefault(EncodeDefault.Mode.NEVER)
     val metadata: Map<String, String> = emptyMap()
-) : Parcelable
+)
 
 @Serializable
 enum class FinancialProviderType {

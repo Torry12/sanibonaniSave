@@ -1,12 +1,9 @@
 package com.sanibonani.save.domain.model
 
-import android.os.Parcelable
-import kotlinx.parcelize.Parcelize
 import kotlinx.serialization.*
 
 
 @Serializable
-@Parcelize
 data class IndustryBenchmark(
     @SerialName("benchmark_type")              val benchmarkType: String = "",
     @SerialName("industry_avg_contribution")   val industryAvgContribution: Money = Money.ZERO,
@@ -14,20 +11,18 @@ data class IndustryBenchmark(
     @SerialName("industry_payment_rate_pct")   val industryPaymentRatePct: Double = 0.0,
     @SerialName("group_vs_benchmark_pct")      val groupVsBenchmarkPct: Double = 0.0,
     @SerialName("benchmark_notes")             val benchmarkNotes: String = ""
-) : Parcelable
+)
 
 @Serializable
-@Parcelize
 data class ActuarialFormulaBreakdown(
     @SerialName("title") val title: String = "",
     @SerialName("formula") val formula: String = "",
     @SerialName("result_text") val resultText: String = "",
     @SerialName("explanation") val explanation: String = "",
     @SerialName("status") val status: String = "OK"
-) : Parcelable
+)
 
 @Serializable
-@Parcelize
 data class GroupFinancialInsight(
     @SerialName("group_id")          val groupId: String = "",
     @SerialName("group_type")        val groupType: GroupType = GroupType.OTHER,
@@ -66,10 +61,9 @@ data class GroupFinancialInsight(
     @SerialName("total_projected_fund")        val totalProjectedFund: Money = Money.ZERO,
     @SerialName("projected_payout_per_member") val projectedPayoutPerMember: Money = Money.ZERO,
     @SerialName("pot_milestone_pct")           val potMilestonePct: Double = 0.0
-) : Parcelable
+)
 
 @Serializable
-@Parcelize
 data class ActuarialMetrics(
     @SerialName("pure_premium")                 val purePremium: Money = Money.ZERO,
     @SerialName("gross_premium")                val grossPremium: Money = Money.ZERO,
@@ -87,10 +81,9 @@ data class ActuarialMetrics(
     @SerialName("risk_level")                   val riskLevel: RiskLevel = RiskLevel.MODERATE,
     @SerialName("warnings")                     val warnings: List<String> = emptyList(),
     @SerialName("key_metrics")                  val keyMetrics: List<ActuarialFormulaBreakdown> = emptyList()
-) : Parcelable
+)
 
 @Serializable
-@Parcelize
 data class BurialSocietyActuarialMetrics(
     @SerialName("expected_annual_claims_count") val expectedAnnualClaimsCount: Double = 0.0,
     @SerialName("pure_premium")                 val purePremium: Money = Money.ZERO,
@@ -114,10 +107,9 @@ data class BurialSocietyActuarialMetrics(
     @SerialName("user_friendly_summary")        val userFriendlySummary: String = "",
     @SerialName("calculation_breakdowns")       val calculationBreakdowns: List<ActuarialFormulaBreakdown> = emptyList(),
     @SerialName("warnings")                     val warnings: List<String> = emptyList()
-) : Parcelable
+)
 
 @Serializable
-@Parcelize
 data class RoscaActuarialMetrics(
     @SerialName("monthly_pot") val monthlyPot: Money = Money.ZERO,
     @SerialName("cycle_length") val cycleLength: Int = 0,
@@ -131,10 +123,9 @@ data class RoscaActuarialMetrics(
     @SerialName("current_payout_member") val currentPayoutMember: String = "",
     @SerialName("next_payout_member") val nextPayoutMember: String = "",
     @SerialName("warnings")           val warnings: List<String> = emptyList()
-) : Parcelable
+)
 
 @Serializable
-@Parcelize
 data class StokvelActuarialMetrics(
     @SerialName("total_projected_fund") val totalProjectedFund: Money = Money.ZERO,
     @SerialName("projected_payout_per_member") val projectedPayoutPerMember: Money = Money.ZERO,
@@ -146,10 +137,9 @@ data class StokvelActuarialMetrics(
     @SerialName("months_to_target") val monthsToTarget: Int = 0,
     @SerialName("annual_contribution_target") val annualContributionTarget: Money = Money.ZERO,
     @SerialName("warnings")                   val warnings: List<String> = emptyList()
-) : Parcelable
+)
 
 @Serializable
-@Parcelize
 data class EmergencyFundMetrics(
     @SerialName("coverage_months") val coverageMonths: Double = 0.0,
     @SerialName("target_coverage_months") val targetCoverageMonths: Double = 0.0,
@@ -158,12 +148,11 @@ data class EmergencyFundMetrics(
     @SerialName("is_meeting_target") val isMeetingTarget: Boolean = false,
     @SerialName("months_to_target") val monthsToTarget: Int = 0,
     @SerialName("warnings")         val warnings: List<String> = emptyList()
-) : Parcelable
+)
 
 
 
 @Serializable
-@Parcelize
 data class CommunitySavingsMetrics(
     @SerialName("savings_per_member") val savingsPerMember: Money = Money.ZERO,
     @SerialName("annual_dividend_projection") val annualDividendProjection: Money = Money.ZERO,
@@ -171,10 +160,9 @@ data class CommunitySavingsMetrics(
     @SerialName("goal_progress_pct") val goalProgressPct: Double = 0.0,
     @SerialName("projected_goal_reach_description") val projectedGoalReachDescription: String = "",
     @SerialName("warnings")                         val warnings: List<String> = emptyList()
-) : Parcelable
+)
 
 @Serializable
-@Parcelize
 data class InvestmentClubMetrics(
     @SerialName("net_asset_value") val netAssetValue: Money = Money.ZERO,
     @SerialName("nav_per_unit") val navPerUnit: Money = Money.ZERO,
@@ -187,4 +175,4 @@ data class InvestmentClubMetrics(
     @SerialName("requires_return_pct") val requiresReturnPct: Double = 0.0,
     @SerialName("is_on_track_for_goal") val isOnTrackForGoal: Boolean = false,
     @SerialName("warnings")             val warnings: List<String> = emptyList()
-) : Parcelable
+)

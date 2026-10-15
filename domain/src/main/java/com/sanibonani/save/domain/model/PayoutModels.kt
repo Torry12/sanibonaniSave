@@ -1,8 +1,5 @@
 package com.sanibonani.save.domain.model
 
-import android.os.Parcelable
-import kotlinx.parcelize.Parcelize
-import kotlinx.parcelize.RawValue
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
@@ -11,7 +8,6 @@ import kotlinx.serialization.Serializable
  * This is triggered manually by an Admin after validating group balances.
  */
 @Serializable
-@Parcelize
 data class PayoutRequest(
     val id: String? = null,
     @SerialName("group_id")    val groupId: String,
@@ -22,14 +18,14 @@ data class PayoutRequest(
     @SerialName("branch_code") val branchCode: String,
     val status: PayoutStatus = PayoutStatus.PENDING,
     val type: PayoutType = PayoutType.STANDARD,
-    val metadata: @RawValue kotlinx.serialization.json.JsonObject? = null,
+    val metadata: kotlinx.serialization.json.JsonObject? = null,
     @SerialName("processed_by") val processedBy: String? = null,
     @SerialName("processed_at") val processedAt: String? = null,
     @SerialName("payout_reference") val payoutReference: String? = null,
     @SerialName("supporting_document_url") val supportingDocumentUrl: String? = null,
     @SerialName("supporting_document_status") val supportingDocumentStatus: DocumentStatus = DocumentStatus.PENDING,
     @SerialName("created_at")   val createdAt: String? = null
-) : Parcelable
+)
 
 @Serializable
 enum class PayoutStatus {
@@ -51,5 +47,3 @@ enum class PayoutType {
     @SerialName("claim") CLAIM,
     @SerialName("rotation") ROTATION
 }
-
-

@@ -14,11 +14,6 @@ import java.io.File
  * `android.*` references from creeping in. These tests scan domain sources for
  * both `import` statements and fully-qualified usages, and fail the build when
  * they appear, rather than letting the rule erode silently.
- *
- * Note on `android.os.Parcelable`: domain models implement `Parcelable` so they
- * can cross Compose navigation boundaries. That coupling is a consequence of
- * `:domain` being an Android library today and is tolerated; eliminating it
- * requires converting `:domain` to a JVM module and is tracked separately.
  */
 class DomainModuleBoundaryTest {
 
@@ -43,14 +38,13 @@ class DomainModuleBoundaryTest {
     }
 
     @Test
-    fun `domain sources do not reference Android framework classes other than Parcelable`() {
+    fun `domain sources do not reference Android framework classes`() {
         val offenders = ktFiles().filter { file ->
-            sanitizedLines(file).any { line -> line.containsAndroidReferenceNotParcelable() }
+            sanitizedLines(file).any { line -> line.containsAndroidReference() }
         }
         assertTrue(
             buildMessage(
-                "Android framework references are only allowed in :data and :app " +
-                    "(android.os.Parcelable is tolerated for Compose navigation)",
+                "Android framework references are only allowed in :data and :app",
                 offenders
             ),
             offenders.isEmpty()
@@ -70,10 +64,8 @@ class DomainModuleBoundaryTest {
         return withoutRawStrings.lineSequence()
     }
 
-    private fun String.containsAndroidReferenceNotParcelable(): Boolean =
-        ANDROID_REFERENCE.findAll(this).any { match ->
-            match.value.removePrefix("android.") != "os.Parcelable"
-        }
+    private fun String.containsAndroidReference(): Boolean =
+        ANDROID_REFERENCE.containsMatchIn(this)
 
     private fun buildMessage(header: String, offenders: List<File>): String =
         buildString {

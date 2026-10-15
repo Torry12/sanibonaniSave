@@ -2,8 +2,6 @@
 
 package com.sanibonani.save.domain.model
 
-import android.os.Parcelable
-import kotlinx.parcelize.Parcelize
 import kotlinx.serialization.*
 import kotlinx.serialization.descriptors.PrimitiveKind
 import kotlinx.serialization.descriptors.PrimitiveSerialDescriptor
@@ -47,7 +45,6 @@ enum class RoscaRotationMethod {
 //  GROUP
 // ─────────────────────────────────────────────────────────────────────────────
 @Serializable
-@Parcelize
 data class Group(
     @EncodeDefault(EncodeDefault.Mode.NEVER)
     val id: String? = null,
@@ -115,7 +112,7 @@ data class Group(
 
     // Transient data (not stored in 'groups' table)
     @Transient val members: List<Member>? = null
-) : Parcelable {
+) {
     /**
      * Monthly platform fee for the group's current size.
      *
@@ -204,13 +201,12 @@ enum class GroupType(
 }
 
 @Serializable
-@Parcelize
 data class HybridPotAllocation(
     val personalSavingsPct: Double = 60.0,
     val lendingPoolPct: Double = 20.0,
     val socialFundPct: Double = 10.0,
     val investmentPct: Double = 10.0
-) : Parcelable {
+) {
     val isValidAllocation: Boolean
         get() = Math.abs((personalSavingsPct + lendingPoolPct + socialFundPct + investmentPct) - 100.0) < 0.01
 
@@ -229,13 +225,12 @@ data class HybridPotAllocation(
 }
 
 @Serializable
-@Parcelize
 data class HybridPotSplit(
     val personalSavings: Money,
     val lendingPool: Money,
     val socialFund: Money,
     val investment: Money
-) : Parcelable {
+) {
     fun toFormulaBreakdowns(allocation: HybridPotAllocation = HybridPotAllocation()): List<ActuarialFormulaBreakdown> {
         return listOf(
             ActuarialFormulaBreakdown(

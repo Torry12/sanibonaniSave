@@ -2,8 +2,6 @@
 
 package com.sanibonani.save.domain.model
 
-import android.os.Parcelable
-import kotlinx.parcelize.Parcelize
 import kotlinx.serialization.*
 
 /**
@@ -16,10 +14,9 @@ import kotlinx.serialization.*
  */
 
 @Serializable
-@Parcelize
 data class UserProfile(
     val id: String,
     @SerialName("full_name") val fullName: String?,
     val email: String?,
     val role: String
-) : Parcelable
+)

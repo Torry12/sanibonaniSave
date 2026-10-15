@@ -1,12 +1,9 @@
 package com.sanibonani.save.domain.model
 
-import android.os.Parcelable
-import kotlinx.parcelize.Parcelize
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 @Serializable
-@Parcelize
 data class PlatformFee(
     val id: String? = null,
     @SerialName("group_id") val groupId: String,
@@ -19,4 +16,4 @@ data class PlatformFee(
     @SerialName("month_reference") val monthReference: String? = null,
     @SerialName("transaction_id") val transactionId: String? = null,
     @SerialName("created_at") val createdAt: String? = null
-) : Parcelable
+)

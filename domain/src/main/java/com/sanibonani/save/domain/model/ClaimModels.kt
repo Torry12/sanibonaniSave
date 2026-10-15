@@ -2,8 +2,6 @@
 
 package com.sanibonani.save.domain.model
 
-import android.os.Parcelable
-import kotlinx.parcelize.Parcelize
 import kotlinx.serialization.*
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -21,7 +19,6 @@ enum class BeneficiaryClaimStatus(val displayName: String) {
 }
 
 @Serializable
-@Parcelize
 data class BeneficiaryPayoutClaim(
     @EncodeDefault(EncodeDefault.Mode.NEVER)
     val id: String? = null,
@@ -52,4 +49,4 @@ data class BeneficiaryPayoutClaim(
     @SerialName("rejection_reason")  val rejectionReason: String? = null,
     @EncodeDefault(EncodeDefault.Mode.NEVER)
     @SerialName("created_at")        val createdAt: String? = null
-) : Parcelable
+)
