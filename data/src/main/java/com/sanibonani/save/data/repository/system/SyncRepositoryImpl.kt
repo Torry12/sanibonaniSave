@@ -275,30 +275,56 @@ class SyncRepositoryImpl @Inject constructor(
     }
 
     override suspend fun processOutbox(): Result<Unit> = safeRunCatching {
-        val pending = db.pendingOperationDao().getAll()
-        if (pending.isEmpty()) return@safeRunCatching
+        val queued = db.pendingOperationDao().getAll()
+        if (queued.isEmpty()) return@safeRunCatching
 
-        AppLogger.i(tag, "📦 Processing outbox queue: ${pending.size} operations")
+        val parked = queued.count { OutboxPolicy.isParked(it.retryCount) }
+        if (parked > 0) {
+            AppLogger.w(
+                tag,
+                "⚠️ $parked outbox operation(s) are parked after ${OutboxPolicy.MAX_PERMANENT_ATTEMPTS} " +
+                    "rejected attempts. They stay on the device for investigation but no longer block the queue."
+            )
+        }
 
-        // Use a list-based queue processing with fail-fast logic for sequential integrity
-        for (op in pending) {
-            try {
-                AppLogger.d(tag, "Attempting to process ${op.type} for group ${op.groupId}")
-                val handler = handlers[op.type.lowercase()]
-                    ?: throw IllegalArgumentException("No handler for operation type: ${op.type}")
+        AppLogger.i(tag, "📦 Processing outbox queue: ${queued.size} operations ($parked parked)")
 
-                handler.handle(op.toModel()).getOrThrow()
+        // Ordering only binds operations that touch the same ledger, so each group drains as its own
+        // lane. A rejected operation halts its lane (preserving sequence) instead of wedging every
+        // other member's queued money movement behind it.
+        val lanes = queued.filterNot { OutboxPolicy.isParked(it.retryCount) }.groupBy { it.groupId }
 
-                // If successful, remove from queue
-                db.pendingOperationDao().delete(op)
-            } catch (e: Exception) {
-                if (e is CancellationException) throw e
-                AppLogger.e(tag, "Outbox item failed: ${op.id}. Stopping queue processing to preserve order.", e)
-                db.pendingOperationDao().upsert(op.copy(
-                    retryCount = op.retryCount + 1,
-                    lastError = e.message
-                ))
-                break
+        for ((groupId, lane) in lanes) {
+            for (op in lane) {
+                try {
+                    AppLogger.d(tag, "Attempting to process ${op.type} for group ${op.groupId}")
+                    val handler = handlers[op.type.lowercase()]
+                        ?: throw IllegalArgumentException("No handler for operation type: ${op.type}")
+
+                    handler.handle(op.toModel()).getOrThrow()
+
+                    // If successful, remove from queue
+                    db.pendingOperationDao().delete(op)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    val permanent = OutboxPolicy.isPermanentFailure(e)
+                    val reason = e.toUserMessage()
+                    // A transient failure must not consume an attempt: an outage that outlasts the
+                    // ceiling would otherwise dead-letter money that was never rejected.
+                    val attempts = if (permanent) op.retryCount + 1 else op.retryCount
+                    db.pendingOperationDao().upsert(op.copy(retryCount = attempts, lastError = reason))
+
+                    when {
+                        !permanent ->
+                            AppLogger.w(tag, "Outbox item ${op.id} is transiently blocked; halting lane ${groupId ?: "platform"}.", e)
+                        OutboxPolicy.isParked(attempts) ->
+                            AppLogger.e(tag, "OUTBOX DEAD-LETTER: ${op.type} ${op.id} parked after $attempts rejected attempts. $reason", e)
+                        else ->
+                            AppLogger.w(tag, "Outbox item ${op.type} ${op.id} rejected (attempt $attempts/${OutboxPolicy.MAX_PERMANENT_ATTEMPTS}); halting lane ${groupId ?: "platform"}.", e)
+                    }
+                    break
+                }
             }
         }
     }
