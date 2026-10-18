@@ -6,10 +6,10 @@ BEGIN;
 -- =====================================================================
 -- Integrated source: MASTER_SEED_DATA.sql
 -- =====================================================================
--- â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
--- SanibonaniSave â€” MASTER SEED DATA (Consolidated)
+-- ─────────────────────────────────────────────────────────────────────────────
+-- SanibonaniSave — MASTER SEED DATA (Consolidated)
 -- Version: 3.0 (Money-Precise, Ledger-Safe Demo Environment - October 2026)
--- â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+-- ─────────────────────────────────────────────────────────────────────────────
 
 DO $$
 DECLARE
@@ -118,7 +118,7 @@ BEGIN
         WHERE id = v_member_id;
         v_admin_member_id := v_member_id;
 
-        -- ðŸ›¡ï¸ Admin Financials - use record_contribution_v2 with Money-precise amounts
+        -- 🛡️ Admin Financials - use record_contribution_v2 with Money-precise amounts
         PERFORM public.record_contribution_v2(
             p_member_id => v_member_id,
             p_group_id => v_group_id,
@@ -158,7 +158,7 @@ BEGIN
             VALUES (v_member_id, v_group_id, v_now - interval '12 months', v_now)
             ON CONFLICT (member_id) DO NOTHING;
 
-            -- ðŸ›¡ï¸ Record Joining Fee (Principal) - using Money format
+            -- 🛡️ Record Joining Fee (Principal) - using Money format
             PERFORM public.record_contribution_v2(
                 p_member_id => v_member_id,
                 p_group_id => v_group_id,
@@ -184,7 +184,7 @@ BEGIN
                 );
             END LOOP;
 
-            -- ðŸ“ˆ Profit Injection (Investment Club only)
+            -- 📈 Profit Injection (Investment Club only)
             IF v_type = 'investment_club' AND m = 1 THEN
                 PERFORM public.increment_group_balance(
                     v_group_id, 
@@ -196,10 +196,10 @@ BEGIN
                 );
             END IF;
 
-            -- ðŸ›¡ï¸ Section 29: Audit Reports
+            -- 🛡️ Section 29: Audit Reports
             -- These are dynamic, no need to seed table, but we ensure enough data exists.
 
-            -- ðŸ‘µ Beneficiary Seeding (Burial Society only)
+            -- 👵 Beneficiary Seeding (Burial Society only)
             IF v_type = 'burial_society' THEN
                 INSERT INTO public.beneficiaries (group_id, member_id, full_name, is_over_65, relationship)
                 VALUES (v_group_id, v_member_id, 'Relative of ' || v_full_name, (m = 2), 'Parent');
@@ -298,10 +298,10 @@ END $$;
 -- =====================================================================
 -- Integrated source: 11_SEED_TEST_DATA_10_GROUPS_100_MEMBERS.sql
 -- =====================================================================
--- â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
--- SanibonaniSave â€” TEST DATA SEED (10 Groups / 100 Members)
+-- ─────────────────────────────────────────────────────────────────────────────
+-- SanibonaniSave — TEST DATA SEED (10 Groups / 100 Members)
 -- Version: 6.0 (Money-Precise, Hybrid Co-op Inclusive - August 2026)
--- â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+-- ─────────────────────────────────────────────────────────────────────────────
 
 DO $$
 DECLARE
@@ -502,10 +502,10 @@ END $$;
 -- =====================================================================
 -- Integrated source: 15_SEED_LIVE_PAYOUT_REQUESTS.sql
 -- =====================================================================
--- â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
--- SanibonaniSave â€” LIVE PAYOUT REQUESTS SEED FOR EXISTING DATA
+-- ─────────────────────────────────────────────────────────────────────────────
+-- SanibonaniSave — LIVE PAYOUT REQUESTS SEED FOR EXISTING DATA
 -- Version: 1.0 (August 2026)
--- â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+-- ─────────────────────────────────────────────────────────────────────────────
 
 DO $$
 DECLARE
@@ -548,14 +548,13 @@ BEGIN
     RAISE NOTICE 'Live Payout Requests Seeding Complete.';
 END $$;
 
-
 -- =====================================================================
 -- Integrated source: 16_SEED_50_PAYMENT_REQUESTS_AND_APPROVALS.sql
 -- =====================================================================
--- â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
--- SanibonaniSave â€” 50 PAYOUT REQUESTS & APPROVAL CONDITIONS SEED
+-- ─────────────────────────────────────────────────────────────────────────────
+-- SanibonaniSave — 50 PAYOUT REQUESTS & APPROVAL CONDITIONS SEED
 -- Version: 1.0 (August 2026)
--- â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+-- ─────────────────────────────────────────────────────────────────────────────
 
 DO $$
 DECLARE
@@ -614,14 +613,13 @@ BEGIN
     RAISE NOTICE 'Seeded 50 Payout Requests with Verified Approval Conditions.';
 END $$;
 
-
 -- =====================================================================
 -- Integrated source: 17_SEED_PLATFORM_FINANCIAL_ESCALATIONS.sql
 -- =====================================================================
--- â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
--- SanibonaniSave â€” PLATFORM FINANCIAL ESCALATIONS & PENDING REQUESTS SEED
+-- ─────────────────────────────────────────────────────────────────────────────
+-- SanibonaniSave — PLATFORM FINANCIAL ESCALATIONS & PENDING REQUESTS SEED
 -- Version: 1.0 (August 2026)
--- â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+-- ─────────────────────────────────────────────────────────────────────────────
 
 DO $$
 DECLARE
@@ -704,14 +702,13 @@ BEGIN
     END LOOP;
 END $$;
 
-
 -- =====================================================================
 -- Integrated source: 19_SEED_BURIAL_CLAIM_ESCALATIONS.sql
 -- =====================================================================
--- â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
--- SanibonaniSave â€” BURIAL SOCIETY CLAIM ESCALATIONS SEED
+-- ─────────────────────────────────────────────────────────────────────────────
+-- SanibonaniSave — BURIAL SOCIETY CLAIM ESCALATIONS SEED
 -- Version: 2.0 (August 2026)
--- â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+-- ─────────────────────────────────────────────────────────────────────────────
 
 DO $$
 DECLARE
@@ -761,14 +758,13 @@ BEGIN
     END LOOP;
 END $$;
 
-
 -- =====================================================================
 -- Integrated source: 31_REAL_LIFE_INTEGRITY_SEEDS.sql
 -- =====================================================================
--- â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
--- SanibonaniSave â€” REAL-LIFE INTEGRITY SEEDS (Extreme Testing Scenarios)
+-- ─────────────────────────────────────────────────────────────────────────────
+-- SanibonaniSave — REAL-LIFE INTEGRITY SEEDS (Extreme Testing Scenarios)
 -- Version: 2.0 (Money-Precise, Audit & Forensic Hardening - August 2026)
--- â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+-- ─────────────────────────────────────────────────────────────────────────────
 
 DO $$
 DECLARE
@@ -782,7 +778,7 @@ DECLARE
     v_qa_password TEXT := 'Pass123!';
 
 BEGIN
-    RAISE NOTICE 'ðŸ”¥ Injecting Real-Life Integrity Scenarios (Money-Precise)...';
+    RAISE NOTICE '🔥 Injecting Real-Life Integrity Scenarios (Money-Precise)...';
 
     -- Identify Target Groups
     SELECT id INTO v_stokvel_id FROM public.groups WHERE name = 'LIGHT-Stokvel' LIMIT 1;
@@ -847,7 +843,7 @@ BEGIN
     VALUES (v_member_id, v_emergency_id, v_now - interval '1 year', v_now)
     ON CONFLICT (member_id) DO NOTHING;
 
-    -- ðŸ›¡ï¸ Boost Group Liquidity (Institutional injection to satisfy 50% withdrawal rule)
+    -- 🛡️ Boost Group Liquidity (Institutional injection to satisfy 50% withdrawal rule)
     IF NOT EXISTS (
         SELECT 1 FROM public.group_ledger
         WHERE group_id = v_emergency_id
@@ -909,16 +905,16 @@ BEGIN
     PERFORM public.recalculate_all_group_financials_v3(v_burial_id);
     PERFORM public.recalculate_all_group_financials_v3(v_emergency_id);
 
-    RAISE NOTICE 'ðŸ Integrity Scenarios Injected. Forensic Audit now has active leads.';
+    RAISE NOTICE '🏁 Integrity Scenarios Injected. Forensic Audit now has active leads.';
 END $$;
 
 -- =====================================================================
 -- Integrated source: 20_SEED_12_MONTHS_TRANSACTIONS.sql
 -- =====================================================================
--- â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
--- SanibonaniSave â€” 12-MONTH TRANSACTION & LEDGER SEED DATA (Support & Sim Flows)
+-- ─────────────────────────────────────────────────────────────────────────────
+-- SanibonaniSave — 12-MONTH TRANSACTION & LEDGER SEED DATA (Support & Sim Flows)
 -- Version: 2.2 (October 2026)
--- â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+-- ─────────────────────────────────────────────────────────────────────────────
 
 DO $$
 DECLARE
@@ -1020,14 +1016,13 @@ BEGIN
     RAISE NOTICE '12-month transaction and ledger seeding complete.';
 END $$;
 
-
 -- =====================================================================
 -- Integrated source: 21_SEED_VALID_BURIAL_CLAIMS.sql
 -- =====================================================================
--- â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
--- SanibonaniSave â€” VALID BURIAL SOCIETY CLAIMS SEED
+-- ─────────────────────────────────────────────────────────────────────────────
+-- SanibonaniSave — VALID BURIAL SOCIETY CLAIMS SEED
 -- Version: 1.0 (October 2026)
--- â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+-- ─────────────────────────────────────────────────────────────────────────────
 
 DO $$
 DECLARE

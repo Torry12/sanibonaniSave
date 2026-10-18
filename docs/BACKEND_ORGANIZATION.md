@@ -1,50 +1,46 @@
-# 🗄️ Backend Organization Guide — SanibonaniSave
+# Backend organization
 
-This document details the canonical structure and execution order for the Supabase PostgreSQL backend.
+This guide describes the Supabase SQL sources and the generated deployment artifacts used by the project.
 
----
+## SQL sources
 
-## 🚀 Canonical V4 Rebuild (Current Source of Truth)
+The active sources live directly under `supabase/`:
 
-The authoritative backend scripts are located in `supabase/v4_canonical/`. This set of scripts is designed to rebuild the platform from scratch with hardened business logic and synchronized schema.
+1. `01_DATABASE_SCHEMA.sql` defines tables, extensions, constraints, and indexes.
+2. `02_FUNCTIONS_AND_TRIGGERS.sql` defines database functions and triggers.
+3. `18_DEPLOY_PROCESS_COMPLEX_PAYMENT_V4.sql` defines the complex payment RPC.
+4. `03_SECURITY_AND_RLS.sql` defines row-level security and grants.
+5. `04_PLATFORM_ADMIN_SETUP.sql` provisions platform administration.
+6. `05_PERFORMANCE_VIEWS.sql` defines reporting views.
+7. `30_STORAGE_RLS.sql` provisions storage buckets and policies.
+8. `online/01_ONLINE_SPECIFIC_SETUP.sql` contains production-only overrides.
 
-### Execution Order (Mandatory)
-Run via `psql -f SUPABASE_COMPLETE_RESET_AND_REBUILD.sql` or individually:
+`00_REBUILD_ALL.sql` and `online/00_REBUILD_ONLINE.sql` show the execution order. Both start with `07_RESET_DATABASE.sql`, which is destructive. The local rebuild also runs development seeds; the online rebuild does not.
 
-1.  **`00_RESET.sql`**: Destructive reset. Destroys all tables in the `public` schema.
-2.  **`01_SCHEMA.sql`**: Table definitions, extensions (UUID, pgcrypto, pg_trgm), and core indexes.
-3.  **`02_FUNCTIONS.sql`**: Business logic, Triggers, and RPCs. Includes auto-aligning schema blocks for Ledger compatibility.
-4.  **`03_SECURITY.sql`**: RLS Policies and Permissions. Bulletproof existence checks for all tables.
-5.  **`04_ADMIN_SETUP.sql`**: Platform Administrator bootstrapping (`torrymsimango@gmail.com`).
-6.  **`05_VIEWS.sql`**: Performance views for analytics and landing screens.
-7.  **`06_SEED_DATA.sql`**: (Optional) 10 groups and 100 members with realistic contribution history and loan data.
+## Generated artifacts
 
----
+Edit the source modules, then regenerate their copies:
 
-## 🛠️ Deployment Scripts
+- `migrations/00000000000000_GROUND_ZERO.sql` is the consolidated baseline migration.
+- `CONSOLIDATED_SCHEMA_FOR_DASHBOARD.sql` is the one-paste dashboard schema, including online overrides.
+- `online/000_CONSOLIDATED_ONLINE_SYNC.sql` is the one-paste online full-rebuild script. It has a guard against accidental data deletion.
+- `SEED_ALL_DATA.sql` is the integrated local development seed.
 
--   **`supabase/apply_v4.ps1`**: PowerShell helper for one-click V4 deployment (requires Supabase CLI).
--   **`supabase/v4_canonical/SUPABASE_COMPLETE_RESET_AND_REBUILD.sql`**: The master SQL driver for manual `psql` execution.
+From the repository root, regenerate in this order:
 
----
+```powershell
+.\supabase\scripts\generate_ground_zero.ps1
+.\supabase\scripts\generate_consolidated_schema.ps1
+.\supabase\scripts\generate_online_sync.ps1
+.\supabase\scripts\generate_integrated_seed.ps1
+```
 
-## 📁 Directory Purpose
+For an existing online database, use a reviewed additive migration such as `online/SYNC_DELTA_20261014.sql`; do not run either full rebuild against an existing tier. Its section G.0 is a manual RPC fingerprint gate: inspect that report first, skip G.1 when all fingerprints match, and stop for review if any function body differs. Back up the database and inspect the SQL before applying it.
 
-| Directory | Purpose |
-| :--- | :--- |
-| `v4_canonical/` | **Authoritative production-ready scripts.** |
-| `base/` | Legacy baseline schema (reference only). |
-| `migrations/` | Past migration history for environmental tracking. |
-| `archived_sql/` | Deprecated experimental scripts and older seed variations. |
-| `seeds/` | Specialized test data scenarios. |
-| `functions/` | Supabase Edge Functions (WhatsApp gateway, etc.). |
-| `maintenance/` | Diagnostic and cleanup scripts. |
+## Consistency rules
 
----
-
-## ✅ Consistency Checklist
-
--   [ ] **Type Safety**: `transaction_id` in ledgers must be `TEXT` (not `UUID`) to support gateway references.
--   [ ] **Constraint Handling**: Member counts must use `GREATEST(0, current_members - 1)` in triggers.
--   [ ] **Real-time Analytics**: Views must aggregate directly from source tables for dashboard accuracy.
--   [ ] **Idempotence**: All creation scripts should use `CREATE OR REPLACE` or `IF NOT EXISTS` where applicable, though V4 rebuild enforces a clean slate.
+- Keep PostgreSQL structures aligned with the Room entities and migrations in `:data`.
+- Keep ledger transaction identifiers as `TEXT` where external payment references may be non-UUID values.
+- Preserve cent-accurate numeric types for financial amounts.
+- Maintain server-side invariants through idempotent RPCs and triggers.
+- Keep RLS policies and storage policies synchronized with the schema and application access patterns.

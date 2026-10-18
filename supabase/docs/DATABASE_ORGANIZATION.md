@@ -1,42 +1,39 @@
-# 🗄️ SanibonaniSave — SQL Organization Guide
+# Supabase database organization
 
-This document explains the organization of the SQL infrastructure for the SanibonaniSave platform as of June 2026 (Canonical Release).
+## Source modules
 
----
+The authoritative SQL modules are in the `supabase/` directory, not in a separate `v4_canonical/` tree:
 
-## 🚀 The Canonical Source of Truth: `v4_canonical/`
+- `01_DATABASE_SCHEMA.sql` — tables, extensions, constraints, and indexes
+- `02_FUNCTIONS_AND_TRIGGERS.sql` — functions and triggers
+- `18_DEPLOY_PROCESS_COMPLEX_PAYMENT_V4.sql` — complex payment RPC
+- `03_SECURITY_AND_RLS.sql` — row-level security and grants
+- `04_PLATFORM_ADMIN_SETUP.sql` — platform administrator setup
+- `05_PERFORMANCE_VIEWS.sql` — analytics and reporting views
+- `30_STORAGE_RLS.sql` — storage buckets and policies
+- `online/01_ONLINE_SPECIFIC_SETUP.sql` — production-only overrides
 
-The authoritative backend scripts are located in `supabase/v4_canonical/`. This set of scripts is designed to rebuild the platform from a clean slate with hardened logic and synchronized schema.
+The rebuild drivers `00_REBUILD_ALL.sql` and `online/00_REBUILD_ONLINE.sql` define the execution order. Each includes `07_RESET_DATABASE.sql`; these are full rebuilds and can delete existing data. Only the local driver includes development seeds.
 
-### Master Driver
-- **`SUPABASE_COMPLETE_RESET_AND_REBUILD.sql`**: Orchestrates the entire deployment in the correct order.
+## Generated SQL
 
-### Script Breakdown
-1.  **`00_RESET.sql`**: Destroys all existing tables in the `public` schema.
-2.  **`01_SCHEMA.sql`**: The primary data structure definition (Tables, Extensions, Indexes).
-3.  **`02_FUNCTIONS.sql`**: Business logic triggers, atomicity helpers, and RPCs.
-4.  **`03_SECURITY.sql`**: Row-Level Security (RLS) policies and user permission grants.
-5.  **`04_ADMIN_SETUP.sql`**: Provisions the primary platform administrator.
-6.  **`05_VIEWS.sql`**: High-performance dashboard projections.
-7.  **`06_SEED_DATA.sql`**: Comprehensive test data (10 Groups, 100 Members).
+After changing a source module, run these scripts from the repository root:
 
----
+```powershell
+.\supabase\scripts\generate_ground_zero.ps1
+.\supabase\scripts\generate_consolidated_schema.ps1
+.\supabase\scripts\generate_online_sync.ps1
+.\supabase\scripts\generate_integrated_seed.ps1
+```
 
-## 🛠️ Folder Hierarchy
+They update the ground-zero migration baseline, dashboard bundle, online full-rebuild bundle, and integrated local seed respectively. Do not hand-edit those generated copies.
 
-| Folder | Status | Purpose |
-| :--- | :--- | :--- |
-| `v4_canonical/` | **ACTIVE** | **Current authoritative production-ready logic.** |
-| `functions/` | **ACTIVE** | Supabase Edge Functions (WhatsApp gateway, etc.). |
-| `migrations/` | **ACTIVE** | Supabase CLI version tracking. |
-| `archived_sql/` | **LEGACY** | Retired scripts from previous iterations (v1-v3), including old base schema and experimental seeds. |
-| `maintenance/` | **UTILITY** | Diagnostic queries and one-off maintenance scripts. |
+For an existing cloud database, review an additive migration such as `online/SYNC_DELTA_20261014.sql`. Do not use a full-rebuild script to synchronize an existing tier. Its section G.0 is a manual RPC fingerprint gate: inspect that report first, skip G.1 when all fingerprints match, and stop for review if any function body differs. Take a backup before applying database changes.
 
----
+## Integrity requirements
 
-## ✅ Consistency Standards
-
-1.  **Ledger Type Safety**: All `transaction_id` columns in `group_ledger` and `platform_ledger` are enforced as `TEXT` to accommodate alphanumeric gateway references.
-2.  **Trigger Resilience**: Triggers (like member count updates) include defensive logic (`GREATEST(0, ...)`) to prevent negative underflows during deletions.
-3.  **Schema Alignment**: The `02_FUNCTIONS.sql` script includes a mandatory "Auto-Alignment" block to ensure column types are compatible before function creation.
-4.  **Bulletproof Security**: Policies in `03_SECURITY.sql` use existence checks to prevent "relation does not exist" errors during partial deployments.
+- Store financial amounts in exact PostgreSQL numeric types and keep them aligned with the Kotlin `Money` model.
+- Use `TEXT` for external ledger transaction references that may not be UUIDs.
+- Use idempotency keys and atomic RPCs for ledger-affecting writes.
+- Keep member counts and derived financial totals maintained by server-side triggers.
+- Keep RLS, storage policies, and RPC return shapes aligned with application models.
