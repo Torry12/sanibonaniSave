@@ -66,8 +66,8 @@ class CreateGroupAdminOnboardingTest {
         type = GroupType.STOKVEL,
         province = "Gauteng",
         city = "Soweto",
-        joiningFee = Money(200.0),
-        monthlyContribution = Money(500.0),
+        joiningFee = Money("200.0"),
+        monthlyContribution = Money("500.0"),
         probationMonths = 3
     )
 

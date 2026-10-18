@@ -54,9 +54,9 @@ class ProcessContributionUseCaseTest {
         // Given
         val group = Group(id = "g1", probationMonths = 3)
         val member = Member(id = "m1", groupId = "g1", status = MemberStatus.PENDING_PAYMENT)
-        val amount = Money(150.0)
+        val amount = Money("150.0")
 
-        coEvery { contributionRepository.processComplexPayment(any(), any(), any(), any(), any(), any(), any(), any()) } returns Result.success(Money(150.0))
+        coEvery { contributionRepository.processComplexPayment(any(), any(), any(), any(), any(), any(), any(), any()) } returns Result.success(Money("150.0"))
         coEvery { memberRepository.updateMemberStatus(any(), any()) } returns Result.success(Unit)
 
         // When
@@ -78,9 +78,9 @@ class ProcessContributionUseCaseTest {
     fun `invoke should activate group on platform fee if not paid`() = runBlocking {
         // Given
         val group = Group(id = "g1", registrationPaid = false)
-        val amount = Money(700.0)
+        val amount = Money("700.0")
 
-        coEvery { contributionRepository.processComplexPayment(any(), any(), any(), any(), any(), any(), any(), any()) } returns Result.success(Money(700.0))
+        coEvery { contributionRepository.processComplexPayment(any(), any(), any(), any(), any(), any(), any(), any()) } returns Result.success(Money("700.0"))
         coEvery { activateGroupUseCase(any(), any()) } returns Result.success(Unit)
 
         // When

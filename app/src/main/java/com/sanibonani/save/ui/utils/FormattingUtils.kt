@@ -8,7 +8,7 @@ import java.time.format.DateTimeFormatter
 import java.time.LocalDateTime
 import java.time.format.DateTimeParseException
 
-private val zarFormatter = NumberFormat.getCurrencyInstance(Locale("en", "ZA")).apply {
+private val zarFormatter = NumberFormat.getCurrencyInstance(Locale.forLanguageTag("en-ZA")).apply {
     minimumFractionDigits = 2
     maximumFractionDigits = 2
 }

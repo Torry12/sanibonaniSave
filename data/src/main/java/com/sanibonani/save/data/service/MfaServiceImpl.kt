@@ -18,10 +18,16 @@ class MfaServiceImpl @Inject constructor(
     private val connectionProtocol: DataConnectionProtocol
 ) : MfaService {
 
-    private val client: SupabaseClient get() = connectionProtocol.getRemoteClient(SupabaseClient::class.java)!!
+    private fun remoteClient(): SupabaseClient? =
+        connectionProtocol.getRemoteClient(SupabaseClient::class.java)
 
+    private val client: SupabaseClient
+        get() = remoteClient() ?: error("The app is not connected to the server yet.")
+
+    // An absent client or session can never satisfy the AAL2 gate.
     override val isMfaVerified: Boolean
-        get() = client.auth.currentSessionOrNull()?.user?.appMetadata?.get("aal")?.jsonPrimitive?.contentOrNull == "aal2"
+        get() = remoteClient()?.auth?.currentSessionOrNull()?.user?.appMetadata
+            ?.get("aal")?.jsonPrimitive?.contentOrNull == "aal2"
 
     override suspend fun enrollTotp(friendlyName: String): Result<TotpEnrollment> = safeRunCatching {
         val response = client.auth.mfa.enroll(FactorType.TOTP, friendlyName)

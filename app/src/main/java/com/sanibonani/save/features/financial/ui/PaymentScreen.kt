@@ -26,7 +26,7 @@ import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.*
-import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import com.sanibonani.save.domain.config.PlatformFees
 import com.sanibonani.save.domain.model.*
 import com.sanibonani.save.domain.utils.parseMoneyAmountOrNull

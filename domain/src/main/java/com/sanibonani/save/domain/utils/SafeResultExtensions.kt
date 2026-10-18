@@ -44,6 +44,13 @@ inline fun <T> safeRunCatching(
 }
 
 /**
+ * A row that comes back from the server without its identifier is a contract violation,
+ * not a device fault. Fails with a message the user can act on instead of crashing on null.
+ */
+fun String?.requirePersistedId(entity: String): String =
+    this ?: error("The $entity could not be saved: the server returned it without an identifier. Please try again.")
+
+/**
  * Convert Throwable to user-friendly error message
  */
 fun Throwable.toUserMessage(): String {
@@ -190,7 +197,7 @@ fun Throwable.toUserMessage(): String {
         is IllegalArgumentException -> msg.ifBlank { "Invalid input" }
         is NoSuchElementException -> "Data not found"
         is SecurityException -> "Permission denied"
-        is java.net.SocketTimeoutException -> "Connection timeout: ${this.message}"
+        is java.net.SocketTimeoutException -> labelWithDetail("Connection timeout", msg)
         is java.net.ConnectException -> {
             if (msg.contains("127.0.0.1") || msg.contains("localhost")) {
                 val port = msg.substringAfter(":", "").substringBefore(" ").trim().filter { it.isDigit() }.ifBlank { "45421" }
@@ -199,9 +206,9 @@ fun Throwable.toUserMessage(): String {
             if (msg.contains("10.0.2.2")) {
                 return "Connection failed: 10.0.2.2 only works inside an Android Emulator. If using a physical device, turn OFF 'Force Emulator Bridge' and use 'adb reverse' or LAN IP."
             }
-            "Network connect error: ${this.message}"
+            labelWithDetail("Network connect error", msg)
         }
-        is java.net.UnknownHostException -> "Unknown host: ${this.message}"
+        is java.net.UnknownHostException -> labelWithDetail("Unknown host", msg)
         is java.io.IOException -> {
             if (msg.contains("127.0.0.1") || msg.contains("localhost")) {
                 return "Connection failed: If you are using a physical device, run 'adb reverse tcp:45421 tcp:45421' on your PC. If on an emulator, ensure the Supabase URL is set to 10.0.2.2."
@@ -209,12 +216,20 @@ fun Throwable.toUserMessage(): String {
             if (msg.contains("10.0.2.2")) {
                 return "Connection failed: 10.0.2.2 only works inside an Android Emulator. If you are using a physical device, turn OFF 'Force Emulator Bridge' and use 'adb reverse'."
             }
-            "IO Error: ${this.message}"
+            labelWithDetail("IO error", msg)
         }
         is IllegalStateException -> msg.ifBlank { "Invalid operation" }
-        else -> msg.ifBlank { "An error occurred: ${this.message}" }
+        else -> msg.ifBlank { "An error occurred. Please try again." }
     }
 }
+
+/**
+ * Exception messages are nullable, so interpolating one straight into a sentence renders the
+ * literal word `null` (or a dangling colon) on the screen. An absent detail means the label
+ * alone is the message.
+ */
+private fun labelWithDetail(label: String, detail: String): String =
+    if (detail.isBlank()) label else "$label: $detail"
 
 /**
  * Standardized way to get error message from a Throwable

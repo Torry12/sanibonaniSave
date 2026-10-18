@@ -2,6 +2,8 @@ package com.sanibonani.save.ui.components
 
 
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Chat
+import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.*
 
 /**
@@ -19,10 +21,10 @@ fun adminDashboardNavigationItems(
     NavigationItem("Overview", Icons.Default.Dashboard, "0", "Operations") { onSelectTab(0) },
     NavigationItem("Members", Icons.Default.Group, "1", "Operations") { onSelectTab(1) },
     NavigationItem("Alerts", Icons.Default.Notifications, "2", "Operations") { onSelectTab(2) },
-    NavigationItem("Messaging", Icons.Default.Chat, "3", "Operations") { onSelectTab(3) },
+    NavigationItem("Messaging", Icons.AutoMirrored.Filled.Chat, "3", "Operations") { onSelectTab(3) },
     NavigationItem("Payouts", Icons.Default.Payments, "7", "Finance") { onSelectTab(7) },
     NavigationItem("Loans", Icons.Default.AccountBalance, "8", "Finance") { onSelectTab(8) },
-    NavigationItem("Ledger", Icons.Default.List, "10", "Finance") { onSelectTab(10) },
+    NavigationItem("Ledger", Icons.AutoMirrored.Filled.List, "10", "Finance") { onSelectTab(10) },
     NavigationItem("Viability", Icons.Default.Insights, "4", "Finance") { onSelectTab(4) },
     NavigationItem("Audit", Icons.Default.Assessment, "11", "Oversight") { onSelectTab(11) },
     NavigationItem("Insights", Icons.Default.Analytics, "9", "Oversight") { onSelectTab(9) },
@@ -43,6 +45,6 @@ fun memberDashboardNavigationItems(
     NavigationItem("Beneficiaries", Icons.Default.People, "5", "Personal") { onSelectTab(5) },
     NavigationItem("Documents", Icons.Default.Description, "7", "Personal") { onSelectTab(7) },
     NavigationItem("Profile", Icons.Default.Settings, "10", "Personal") { onSelectTab(10) },
-    NavigationItem("Messages", Icons.Default.Chat, "8", "Messaging") { onSelectTab(8) },
+    NavigationItem("Messages", Icons.AutoMirrored.Filled.Chat, "8", "Messaging") { onSelectTab(8) },
     NavigationItem("Notifications", Icons.Default.Notifications, "9", "Messaging") { onSelectTab(9) }
 )

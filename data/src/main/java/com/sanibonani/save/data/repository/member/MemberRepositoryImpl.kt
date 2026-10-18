@@ -77,7 +77,7 @@ class MemberRepositoryImpl @Inject constructor(
     override fun observeMemberById(id: String): Flow<Result<Member?>> = observeAndSyncItem(
         dbFlow = localMemberSource.observeMemberById(id),
         mapper = { it },
-        toEntity = { it!! },
+        toEntity = { it },
         networkFetch = { remoteMemberSource.getMemberById(id).getOrThrow() },
         cacheSync = { localMemberSource.saveMember(it) }
     )
@@ -97,7 +97,7 @@ class MemberRepositoryImpl @Inject constructor(
     override fun observeMemberByUserId(userId: String, groupId: String): Flow<Result<Member?>> = observeAndSyncItem(
         dbFlow = localMemberSource.observeMemberByUserId(userId, groupId),
         mapper = { it },
-        toEntity = { it!! },
+        toEntity = { it },
         networkFetch = { remoteMemberSource.getMemberByUserId(userId, groupId).getOrThrow() },
         cacheSync = { localMemberSource.saveMember(it) }
     )

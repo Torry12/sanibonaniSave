@@ -66,13 +66,14 @@ class MemberProfileViewModel @Inject constructor(
     }
 
     fun updateBankingDetails(bank: String, account: String, branch: String) {
-        val member = uiState.value.member ?: return
+        val memberId = uiState.value.member?.let { it.id.serverIdOrReport("member") } ?: return
         launchJob("update_banking") {
             updateState { it.copy(isLoading = true) }
-            memberRepo.updateMemberBankingDetails(member.id!!, bank, account, branch).onSuccess {
+            memberRepo.updateMemberBankingDetails(memberId, bank, account, branch).onSuccess {
                 updateState { s -> s.copy(isLoading = false) }
                 sendEvent(UIEvent.ShowMessage("Banking details updated"))
-                memberContextCacheService.warmUpForUser(supabaseRepo.currentUserId!!)
+                // The session can end before this callback runs; the warm-up is best-effort.
+                supabaseRepo.currentUserId?.let { memberContextCacheService.warmUpForUser(it) }
             }.onFailure {
                 updateState { s -> s.copy(isLoading = false) }
                 handleError(it)
@@ -81,10 +82,10 @@ class MemberProfileViewModel @Inject constructor(
     }
 
     fun uploadDocument(index: Int, data: ByteArray, name: String, mime: String) {
-        val member = uiState.value.member ?: return
+        val memberId = uiState.value.member?.let { it.id.serverIdOrReport("member") } ?: return
         launchJob("upload_doc_$index") {
             updateState { it.copy(isUploading = true) }
-            memberRepo.uploadMemberDocument(member.id!!, index, data, name, mime).onSuccess { url ->
+            memberRepo.uploadMemberDocument(memberId, index, data, name, mime).onSuccess { url ->
                 val updatedMember = when (index) {
                     0 -> uiState.value.member?.copy(profilePhotoUrl = url)
                     1 -> uiState.value.member?.copy(document1Url = url, document1Type = mime)
@@ -110,11 +111,11 @@ class MemberProfileViewModel @Inject constructor(
     }
 
     fun uploadRelationalDocument(label: String, data: ByteArray, fileName: String, mime: String) {
-        val member = uiState.value.member ?: return
+        val memberId = uiState.value.member?.let { it.id.serverIdOrReport("member") } ?: return
         val groupId = uiState.value.selectedGroupId ?: return
         launchJob("upload_relational_doc_$label") {
             updateState { it.copy(isUploading = true) }
-            documentRepo.uploadAndAddMemberDocument(member.id!!, groupId, label, data, fileName, mime).onSuccess {
+            documentRepo.uploadAndAddMemberDocument(memberId, groupId, label, data, fileName, mime).onSuccess {
                 updateState { it.copy(isUploading = false) }
                 sendEvent(UIEvent.ShowMessage("'$label' uploaded successfully"))
             }.onFailure {

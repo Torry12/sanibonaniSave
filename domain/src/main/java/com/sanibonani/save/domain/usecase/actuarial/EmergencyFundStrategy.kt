@@ -18,9 +18,9 @@ class EmergencyFundStrategy : BaseActuarialStrategy() {
             membersCount = n,
             balance = group.balance,
             mortalityRatePct = ActuarialConstants.SA_WORKING_AGE_MORT_PER_1000 / 10.0,
-            avgClaim = Money(n * 2000.0) / n.toDouble(),
+            avgClaim = Money("2000"),
             safetyLoadingPct = ActuarialConstants.BURIAL_SAFETY_LOADING_PCT,
-            adminCostPerMemberMonthly = Money(ActuarialConstants.ADMIN_COST_PER_MEMBER_MONTHLY),
+            adminCostPerMemberMonthly = ActuarialConstants.ADMIN_COST_PER_MEMBER_MONTHLY,
             annualDiscountRatePct = ActuarialConstants.SA_RISK_FREE_RATE_PCT,
             currentPremiumMonthly = group.monthlyContribution,
             claimsPaid = Money.ZERO,
@@ -146,8 +146,8 @@ class EmergencyFundStrategy : BaseActuarialStrategy() {
     override fun getIndustryBenchmark(group: Group, memberCount: Int, balance: Money): IndustryBenchmark {
         return IndustryBenchmark(
             benchmarkType = "Emergency Fund (Liquidity Standard)",
-            industryAvgContribution = Money(250.0),
-            industryAvgBalance = Money(15000.0),
+            industryAvgContribution = Money("250.0"),
+            industryAvgBalance = Money("15000.0"),
             industryPaymentRatePct = 90.0,
             benchmarkNotes = "Aims for 6 months of average household expenses coverage."
         )

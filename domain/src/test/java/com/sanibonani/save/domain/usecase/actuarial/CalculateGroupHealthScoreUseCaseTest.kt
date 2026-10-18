@@ -31,14 +31,14 @@ class CalculateGroupHealthScoreUseCaseTest {
         val group = Group(
             id = "g1",
             name = "Test Group",
-            balance = Money(100.0),
+            balance = Money("100.0"),
             adminUserId = "admin1",
             registrationPaid = true
         )
         val contributions = listOf(
-            Contribution(id = "c1", memberId = "m1", groupId = "g1", amount = Money(1000.0), dueDate = "2026-04-01"),
-            Contribution(id = "c2", memberId = "m1", groupId = "g1", amount = Money(1000.0), dueDate = "2026-03-01"),
-            Contribution(id = "c3", memberId = "m2", groupId = "g1", amount = Money(1000.0), dueDate = "2026-04-01")
+            Contribution(id = "c1", memberId = "m1", groupId = "g1", amount = Money("1000.0"), dueDate = "2026-04-01"),
+            Contribution(id = "c2", memberId = "m1", groupId = "g1", amount = Money("1000.0"), dueDate = "2026-03-01"),
+            Contribution(id = "c3", memberId = "m2", groupId = "g1", amount = Money("1000.0"), dueDate = "2026-04-01")
         )
         val members = listOf(
             Member(id = "m1", groupId = "g1", status = MemberStatus.ACTIVE),
@@ -61,7 +61,7 @@ class CalculateGroupHealthScoreUseCaseTest {
         val group = Group(
             id = "g1",
             name = "Healthy Group",
-            balance = Money(12000.0),
+            balance = Money("12000.0"),
             adminUserId = "admin1",
             registrationPaid = true
         )
@@ -70,7 +70,7 @@ class CalculateGroupHealthScoreUseCaseTest {
                 id = "c$month",
                 memberId = "m1",
                 groupId = "g1",
-                amount = Money(1000.0),
+                amount = Money("1000.0"),
                 dueDate = "2026-${month.toString().padStart(2, '0')}-01"
             )
         }
@@ -93,7 +93,7 @@ class CalculateGroupHealthScoreUseCaseTest {
         val group = Group(
             id = "g1",
             name = "Moderate Group",
-            balance = Money(5000.0),
+            balance = Money("5000.0"),
             adminUserId = "admin1",
             registrationPaid = true
         )
@@ -102,7 +102,7 @@ class CalculateGroupHealthScoreUseCaseTest {
                 id = "c$month",
                 memberId = "m1",
                 groupId = "g1",
-                amount = Money(1000.0),
+                amount = Money("1000.0"),
                 dueDate = "2026-${month.toString().padStart(2, '0')}-01"
             )
         }

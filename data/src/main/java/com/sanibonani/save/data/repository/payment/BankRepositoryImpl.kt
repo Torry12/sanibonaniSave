@@ -123,7 +123,7 @@ class BankRepositoryImpl @Inject constructor(
                     linkedAt = it.linkedAt,
                     expiresAt = it.expiresAt
                 )
-            }!!
+            }
         },
         networkFetch = {
             supabase.postgrest["bank_connections"].select(columns = Columns.raw("*")) {

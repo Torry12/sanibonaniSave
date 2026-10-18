@@ -15,7 +15,7 @@ class BurialSocietyStrategy : BaseActuarialStrategy() {
         stats: ActuarialGroupStats,
     ): ActuarialMetrics {
         val n = stats.activeMemberCount
-        val benefit = if (group.burialClaimAmount.isPositive) group.burialClaimAmount else if (group.goalAmount.isPositive) group.goalAmount else Money(ActuarialConstants.SA_AVG_FUNERAL_COST)
+        val benefit = if (group.burialClaimAmount.isPositive) group.burialClaimAmount else if (group.goalAmount.isPositive) group.goalAmount else ActuarialConstants.SA_AVG_FUNERAL_COST
         val defaultAnnualClaim = benefit * (n * (ActuarialConstants.SA_WORKING_AGE_MORT_PER_1000 / 1000.0))
 
         val core = engine.computeActuarialScalars(
@@ -24,7 +24,7 @@ class BurialSocietyStrategy : BaseActuarialStrategy() {
             mortalityRatePct = ActuarialConstants.SA_WORKING_AGE_MORT_PER_1000 / 10.0,
             avgClaim = if (n > 0) benefit else Money.ZERO,
             safetyLoadingPct = ActuarialConstants.BURIAL_SAFETY_LOADING_PCT,
-            adminCostPerMemberMonthly = Money(ActuarialConstants.ADMIN_COST_PER_MEMBER_MONTHLY),
+            adminCostPerMemberMonthly = ActuarialConstants.ADMIN_COST_PER_MEMBER_MONTHLY,
             annualDiscountRatePct = ActuarialConstants.SA_RISK_FREE_RATE_PCT,
             currentPremiumMonthly = group.monthlyContribution,
             claimsPaid = Money.ZERO,
@@ -49,7 +49,7 @@ class BurialSocietyStrategy : BaseActuarialStrategy() {
             ),
             ActuarialFormulaBreakdown(
                 title = "Expected Claims (Ann)",
-                resultText = if (detailed.projectedClaimsNextYear.isPositive) detailed.projectedClaimsNextYear.format() else (Money(ActuarialConstants.DEFAULT_ANNUAL_EXPECTED_CLAIM_PER_MEMBER) * stats.activeMemberCount).format() + " (Est)",
+                resultText = if (detailed.projectedClaimsNextYear.isPositive) detailed.projectedClaimsNextYear.format() else (ActuarialConstants.DEFAULT_ANNUAL_EXPECTED_CLAIM_PER_MEMBER * stats.activeMemberCount).format() + " (Est)",
                 status = "OK"
             )
         )
@@ -120,8 +120,8 @@ class BurialSocietyStrategy : BaseActuarialStrategy() {
     override fun getIndustryBenchmark(group: Group, memberCount: Int, balance: Money): IndustryBenchmark {
         return IndustryBenchmark(
             benchmarkType = "Burial Society (ASISA / FSB Standard)",
-            industryAvgContribution = Money(350.0),
-            industryAvgBalance = Money(45000.0),
+            industryAvgContribution = Money("350.0"),
+            industryAvgBalance = Money("45000.0"),
             industryPaymentRatePct = 88.0,
             benchmarkNotes = "Standard SA burial society supporting R30,000 funeral benefit with 130% solvency target."
         )
@@ -148,7 +148,7 @@ class BurialSocietyStrategy : BaseActuarialStrategy() {
         val n = activeMembers.size.coerceAtLeast(1)
         val mortalityRatePerThousand = ActuarialConstants.SA_WORKING_AGE_MORT_PER_1000
         val mortalityRate = mortalityRatePerThousand / 1000.0
-        val benefit = if (group.goalAmount.isPositive) group.goalAmount else Money(ActuarialConstants.SA_AVG_FUNERAL_COST)
+        val benefit = if (group.goalAmount.isPositive) group.goalAmount else ActuarialConstants.SA_AVG_FUNERAL_COST
 
         // 1. Expected Annual Claims
         val expectedAnnualClaimsCount = n * mortalityRate
@@ -159,7 +159,7 @@ class BurialSocietyStrategy : BaseActuarialStrategy() {
 
         // 3. Safety Loading & Admin Fees
         val safetyLoadedPremiumMonthly = purePremiumMonthly * (1.0 + ActuarialConstants.BURIAL_SAFETY_LOADING_PCT / 100.0)
-        val adminFeeMonthly = Money(ActuarialConstants.ADMIN_COST_PER_MEMBER_MONTHLY)
+        val adminFeeMonthly = ActuarialConstants.ADMIN_COST_PER_MEMBER_MONTHLY
         val grossPremiumMonthly = safetyLoadedPremiumMonthly + adminFeeMonthly
 
         // 4. Actuarial Present Value (APV) & FSB Solvency Ratio
@@ -177,7 +177,7 @@ class BurialSocietyStrategy : BaseActuarialStrategy() {
         // 6. Capital Adequacy & Benefit Adequacy
         val minimumCapital = expectedAnnualClaimsValue * ActuarialConstants.CAPITAL_ADEQUACY_THRESHOLD
         val capAdequacy = if (expectedAnnualClaimsValue.isPositive) (group.balance.ratio(expectedAnnualClaimsValue)) * 100.0 else 100.0
-        val benefitAdequacy = benefit.ratio(Money(ActuarialConstants.SA_AVG_FUNERAL_COST)) * 100.0
+        val benefitAdequacy = benefit.ratio(ActuarialConstants.SA_AVG_FUNERAL_COST) * 100.0
 
         // 7. Max Immediate Claim Payout Load
         val maxSimultaneousClaimsCovered = if (benefit.isPositive) group.balance.ratio(benefit).toInt() else 0

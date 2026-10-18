@@ -16,8 +16,8 @@ class RegistrationSimulationTest {
                 id = "sim_g_$index",
                 name = "Simulated ${type.displayName} Group",
                 type = type,
-                monthlyContribution = Money(500.0),
-                joiningFee = Money(150.0),
+                monthlyContribution = Money("500.0"),
+                joiningFee = Money("150.0"),
                 maxMembers = 50,
                 currentMembers = 1,
                 province = "Gauteng",
@@ -40,7 +40,7 @@ class RegistrationSimulationTest {
             id = "sim_g_stokvel",
             name = "Soweto Stokvel",
             type = GroupType.STOKVEL,
-            monthlyContribution = Money(500.0)
+            monthlyContribution = Money("500.0")
         )
 
         val members = (1..10).map { i ->

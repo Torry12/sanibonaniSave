@@ -15,8 +15,8 @@ class BurialClaimContingencySimulationTest {
         val group = Group(
             id = "g_burial_1",
             type = GroupType.BURIAL_SOCIETY,
-            balance = Money(50000.0),
-            monthlyContribution = Money(250.0)
+            balance = Money("50000.0"),
+            monthlyContribution = Money("250.0")
         )
 
         val memberJoinedDate = LocalDate.now().minusMonths(12).toString() + "T00:00:00Z"
@@ -46,8 +46,8 @@ class BurialClaimContingencySimulationTest {
         val depletedGroup = Group(
             id = "g_burial_depleted",
             type = GroupType.BURIAL_SOCIETY,
-            balance = Money(500.0), // Low reserve state
-            monthlyContribution = Money(250.0)
+            balance = Money("500.0"), // Low reserve state
+            monthlyContribution = Money("250.0")
         )
 
         val member = Member(
@@ -56,7 +56,7 @@ class BurialClaimContingencySimulationTest {
             joinedAt = LocalDate.now().minusMonths(12).toString() + "T00:00:00Z"
         )
 
-        val claimAmount = Money(10000.0) // Exceeds available group balance
+        val claimAmount = Money("10000.0") // Exceeds available group balance
         val isLiquidEnough = depletedGroup.balance >= claimAmount
         assertFalse("Group liquidity should be insufficient for large claim", isLiquidEnough)
     }

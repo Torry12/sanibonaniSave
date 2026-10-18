@@ -45,7 +45,7 @@ class RequestPayoutUseCaseTest {
 
         val result = requestPayoutUseCase(
             groupId = "group-1",
-            requestedAmount = Money(1500.0),
+            requestedAmount = Money("1500.0"),
             bankNameOverride = "FNB",
             accountNoOverride = "1234567890",
             branchCodeOverride = "250655"
@@ -62,7 +62,7 @@ class RequestPayoutUseCaseTest {
 
         val result = requestPayoutUseCase(
             groupId = "group-1",
-            requestedAmount = Money(0.0),
+            requestedAmount = Money("0.0"),
             bankNameOverride = "FNB",
             accountNoOverride = "1234567890",
             branchCodeOverride = "250655"
@@ -80,7 +80,7 @@ class RequestPayoutUseCaseTest {
 
         val result = requestPayoutUseCase(
             groupId = "group-1",
-            requestedAmount = Money(100.0),
+            requestedAmount = Money("100.0"),
             bankNameOverride = "FNB",
             accountNoOverride = "12345",
             branchCodeOverride = "250655"

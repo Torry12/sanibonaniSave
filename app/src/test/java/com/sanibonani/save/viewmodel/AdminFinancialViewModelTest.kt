@@ -160,7 +160,7 @@ class AdminFinancialViewModelTest {
         val groupId = "group-1"
         adminContextCacheService.selectGroup(groupId)
 
-        coEvery { requestPayoutUseCase(groupId = groupId, memberId = null, requestedAmount = Money(1500.0)) } returns Result.success("payout-1")
+        coEvery { requestPayoutUseCase(groupId = groupId, memberId = null, requestedAmount = Money("1500.0")) } returns Result.success("payout-1")
 
         val vm = createViewModel()
 
@@ -169,7 +169,7 @@ class AdminFinancialViewModelTest {
 
         advanceUntilIdle()
 
-        coVerify(exactly = 1) { requestPayoutUseCase(groupId = groupId, memberId = null, requestedAmount = Money(1500.0)) }
+        coVerify(exactly = 1) { requestPayoutUseCase(groupId = groupId, memberId = null, requestedAmount = Money("1500.0")) }
         assertEquals(true, vm.state.value.payoutRequestSuccess)
     }
 

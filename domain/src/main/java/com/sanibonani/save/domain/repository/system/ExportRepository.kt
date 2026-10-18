@@ -2,6 +2,7 @@ package com.sanibonani.save.domain.repository.system
 
 import com.sanibonani.save.domain.model.Contribution
 import com.sanibonani.save.domain.model.Group
+import com.sanibonani.save.domain.model.LedgerEntry
 import com.sanibonani.save.domain.model.Loan
 import com.sanibonani.save.domain.model.Member
 import com.sanibonani.save.domain.model.Payment
@@ -24,7 +25,7 @@ interface ExportRepository {
         group: Group,
         member: Member,
         contributions: List<Contribution>
-    ): Result<File> = Result.failure(UnsupportedOperationException("PDF export not implemented"))
+    ): Result<File>
 
     /**
      * Generates a PDF loan agreement locally.
@@ -33,7 +34,7 @@ interface ExportRepository {
         loan: Loan,
         member: Member,
         group: Group
-    ): Result<File> = Result.failure(UnsupportedOperationException("Loan agreement export not implemented"))
+    ): Result<File>
 
     /**
      * Generates a PDF group constitution locally.
@@ -45,8 +46,8 @@ interface ExportRepository {
     /**
      * Professional Ledger Exports
      */
-    suspend fun exportLedgerToCsv(group: Group, entries: List<com.sanibonani.save.domain.model.LedgerEntry>): Result<File>
-    suspend fun exportLedgerToPdf(group: Group, entries: List<com.sanibonani.save.domain.model.LedgerEntry>): Result<File>
+    suspend fun exportLedgerToCsv(group: Group, entries: List<LedgerEntry>): Result<File>
+    suspend fun exportLedgerToPdf(group: Group, entries: List<LedgerEntry>): Result<File>
 
     /**
      * Generates a PDF membership certificate/contract locally.
@@ -54,5 +55,5 @@ interface ExportRepository {
     suspend fun exportMembershipContract(
         member: Member,
         group: Group
-    ): Result<File> = Result.failure(UnsupportedOperationException("Membership contract export not implemented"))
+    ): Result<File>
 }

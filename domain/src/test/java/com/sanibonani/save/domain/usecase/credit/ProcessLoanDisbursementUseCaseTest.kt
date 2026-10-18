@@ -29,14 +29,14 @@ class ProcessLoanDisbursementUseCaseTest {
             auditLogRepository
         )
         every { supabaseRepository.isMfaVerified } returns true
-        coEvery { financialRepository.getVerifiedBalance(any()) } returns Result.success(Money(50000.0))
+        coEvery { financialRepository.getVerifiedBalance(any()) } returns Result.success(Money("50000.0"))
     }
 
     @Test
     fun `invoke should disburse loan and log event`() = runBlocking {
         // Given
         val loanId = "l1"
-        val loan = Loan(id = loanId, memberId = "m1", groupId = "g1", amount = Money(500.0))
+        val loan = Loan(id = loanId, memberId = "m1", groupId = "g1", amount = Money("500.0"))
 
         coEvery { loanRepository.getLoanById(loanId) } returns Result.success(loan)
         coEvery { loanRepository.disburseLoan(any(), any(), any()) } returns Result.success(Unit)

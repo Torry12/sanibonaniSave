@@ -123,7 +123,7 @@ class MultiGroupTest {
         every { supabaseRepo.sessionFlow } returns sessionFlow
         every { supabaseRepo.currentUserId } returns "user-123"
 
-        every { feeService.getRegistrationFee() } returns Money(700.0)
+        every { feeService.getRegistrationFee() } returns Money("700.0")
 
         // Provide results for managed groups flow to avoid Loading state
         val mockGroups = listOf(

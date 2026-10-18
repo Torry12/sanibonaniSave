@@ -67,9 +67,9 @@ class AppLiveSimulationTest {
             id = groupId,
             name = "Sim-Circle ${System.currentTimeMillis().toString().takeLast(4)}",
             type = GroupType.STOKVEL,
-            joiningFee = Money(150.0),
-            monthlyContribution = Money(500.0),
-            lateFee = Money(50.0),
+            joiningFee = Money("150.0"),
+            monthlyContribution = Money("500.0"),
+            lateFee = Money("50.0"),
             adminUserId = adminUserId,
             registrationPaid = true
         )
@@ -103,7 +103,7 @@ class AppLiveSimulationTest {
                 txId = "month1_${m.id}",
                 method = PaymentMethod.BANK,
                 type = PaymentType.CONTRIBUTION,
-                amount = Money(500.0),
+                amount = Money("500.0"),
                 groupId = groupId,
                 member = m,
                 calculation = PaymentCalculation.EMPTY
@@ -117,7 +117,7 @@ class AppLiveSimulationTest {
                     txId = "month2_${m.id}",
                     method = PaymentMethod.BANK,
                     type = PaymentType.CONTRIBUTION,
-                    amount = Money(500.0),
+                    amount = Money("500.0"),
                     groupId = groupId,
                     member = m,
                     calculation = PaymentCalculation.EMPTY
@@ -130,10 +130,10 @@ class AppLiveSimulationTest {
         val loan = Loan(
             memberId = borrower.id!!,
             groupId = groupId,
-            amount = Money(2000.0),
+            amount = Money("2000.0"),
             interestRate = 10.0,
-            totalToRepay = Money(2200.0),
-            monthlyRepayment = Money(1100.0),
+            totalToRepay = Money("2200.0"),
+            monthlyRepayment = Money("1100.0"),
             status = LoanStatus.ACTIVE,
             purpose = "Education"
         )

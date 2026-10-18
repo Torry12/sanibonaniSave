@@ -74,7 +74,7 @@ class GroupRegistrationEventRegressionTest {
         mockkStatic(Looper::class)
         every { Looper.getMainLooper() } returns mockk(relaxed = true)
 
-        every { feeService.getRegistrationFee() } returns Money(700.0)
+        every { feeService.getRegistrationFee() } returns Money("700.0")
 
         viewModel = GroupRegistrationViewModel(
             createGroupUseCase,

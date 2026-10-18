@@ -17,7 +17,7 @@ class ComplianceServiceImpl @Inject constructor() : ComplianceService {
     }
 
     override fun validatePayoutExposure(amount: Money): Result<Unit> {
-        val maxExposure = Money(100000.00)
+        val maxExposure = Money("100000.00")
         if (amount > maxExposure) {
             return Result.failure(Exception("Payout exceeds maximum allowed exposure limit."))
         }
@@ -28,7 +28,7 @@ class ComplianceServiceImpl @Inject constructor() : ComplianceService {
         // High Integrity: Enforce max contribution limits (e.g. R50k single contribution)
         val maxSingleContributionCents = 5000000L
         if (transaction.type == TransactionType.CONTRIBUTION && transaction.amount > maxSingleContributionCents) {
-            return Result.failure(Exception("COMPLIANCE_ERROR: Single contribution exceeds regulatory limit (${Money(50000.0).format()})."))
+            return Result.failure(Exception("COMPLIANCE_ERROR: Single contribution exceeds regulatory limit (${Money("50000.0").format()})."))
         }
         return Result.success(Unit)
     }

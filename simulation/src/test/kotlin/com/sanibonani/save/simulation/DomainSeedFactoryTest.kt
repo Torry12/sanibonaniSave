@@ -14,15 +14,15 @@ class DomainSeedFactoryTest {
             name = "Soweto Unity Stokvel",
             type = GroupType.STOKVEL,
             adminUserId = "admin-101",
-            monthlyContribution = 500.0,
-            joiningFee = 150.0
+            monthlyContribution = Money("500.0"),
+            joiningFee = Money("150.0")
         )
 
         assertEquals("Soweto Unity Stokvel", group.name)
         assertEquals(GroupType.STOKVEL, group.type)
         assertEquals("admin-101", group.adminUserId)
-        assertEquals(Money(500.0), group.monthlyContribution)
-        assertEquals(Money(150.0), group.joiningFee)
+        assertEquals(Money("500.0"), group.monthlyContribution)
+        assertEquals(Money("150.0"), group.joiningFee)
         assertTrue(group.isPublic)
     }
 
@@ -42,16 +42,16 @@ class DomainSeedFactoryTest {
         val contributions = DomainSeedFactory.createTestContributions(
             memberId = member.id!!,
             groupId = "group-101",
-            monthlyAmount = Money(500.0),
+            monthlyAmount = Money("500.0"),
             months = 12
         )
 
         // 1 joining fee + 12 monthly contributions
         assertEquals(13, contributions.size)
         assertEquals("joining_fee", contributions.first().type)
-        assertEquals(Money(150.0), contributions.first().amount)
+        assertEquals(Money("150.0"), contributions.first().amount)
         assertEquals("contribution", contributions.last().type)
-        assertEquals(Money(500.0), contributions.last().amount)
+        assertEquals(Money("500.0"), contributions.last().amount)
     }
 
     @Test
@@ -59,23 +59,23 @@ class DomainSeedFactoryTest {
         val loan = DomainSeedFactory.createTestLoan(
             groupId = "group-101",
             memberId = "member-101",
-            amount = 2000.0,
+            amount = Money("2000.0"),
             interestRate = 15.0
         )
 
         assertEquals("group-101", loan.groupId)
         assertEquals("member-101", loan.memberId)
-        assertEquals(Money(2000.0), loan.amount)
-        assertEquals(Money(2300.0), loan.totalToRepay)
+        assertEquals(Money("2000.0"), loan.amount)
+        assertEquals(Money("2300.0"), loan.totalToRepay)
 
         val payout = DomainSeedFactory.createTestPayoutRequest(
             groupId = "group-101",
             memberId = "member-101",
-            amount = 1500.0
+            amount = Money("1500.0")
         )
 
         assertEquals("group-101", payout.groupId)
-        assertEquals(Money(1500.0), payout.amount)
+        assertEquals(Money("1500.0"), payout.amount)
         assertEquals("First National Bank", payout.bankName)
     }
 }

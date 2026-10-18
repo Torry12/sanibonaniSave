@@ -11,6 +11,7 @@ import kotlinx.serialization.json.put
 import javax.inject.Inject
 import javax.inject.Singleton
 import com.sanibonani.save.domain.utils.safeRunCatching
+import com.sanibonani.save.domain.utils.requirePersistedId
 
 @Singleton
 class SupabaseLoanDataSourceImpl @Inject constructor(
@@ -21,7 +22,7 @@ class SupabaseLoanDataSourceImpl @Inject constructor(
     private val REPAYMENT_COLUMNS = "id,loan_id,member_id,group_id,amount,paid_at,payment_method,transaction_id,created_at"
 
     override suspend fun requestLoan(loan: Loan): Result<String> = safeRunCatching {
-        client.postgrest["loans"].upsert(loan) { onConflict = "id"; select() }.decodeSingle<Loan>().id!!
+        client.postgrest["loans"].upsert(loan) { onConflict = "id"; select() }.decodeSingle<Loan>().id.requirePersistedId("loan")
     }
 
     override suspend fun getLoanById(id: String): Result<Loan> = safeRunCatching {

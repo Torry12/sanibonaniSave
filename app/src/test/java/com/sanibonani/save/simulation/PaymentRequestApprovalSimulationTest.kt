@@ -35,7 +35,7 @@ class PaymentRequestApprovalSimulationTest {
             id = "g_sim_50",
             name = "Soweto Multi-Type Group",
             type = GroupType.STOKVEL,
-            balance = Money(100000.0),
+            balance = Money("100000.0"),
             isPlatformSuspended = false
         )
 
@@ -56,7 +56,7 @@ class PaymentRequestApprovalSimulationTest {
                 id = "payout_$idx",
                 groupId = group.id!!,
                 memberId = activeMember.id,
-                amount = Money(1000.0 + idx * 25.0),
+                amount = Money("1000") + Money("25") * idx,
                 type = type,
                 status = PayoutStatus.PENDING,
                 supportingDocumentStatus = DocumentStatus.VERIFIED,

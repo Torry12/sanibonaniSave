@@ -26,18 +26,27 @@ class LocalDatabaseProvider @Inject constructor(
 
     fun createDatabase(useOnline: Boolean): SanibonaniDatabase {
         val dbName = if (useOnline) "sanibonani_online.db" else "sanibonani_local.db"
-        val db = Room.databaseBuilder(
+        val isDebuggable = (context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
+
+        val builder = Room.databaseBuilder(
             context,
             SanibonaniDatabase::class.java,
             dbName
         )
             .addMigrations(*ALL_MIGRATIONS)
-            .fallbackToDestructiveMigration()
-            .build()
+
+        // Destructive fallback drops every table when a schema version arrives without a
+        // matching migration. ALL_MIGRATIONS is contiguous (1..current), so release builds
+        // never need it — and if it is ever reached there, it would wipe unsynced ledger rows.
+        // Debug builds keep it as a convenience for local schema experiments.
+        if (isDebuggable) {
+            builder.fallbackToDestructiveMigration(dropAllTables = true)
+        }
+
+        val db = builder.build()
 
         // Offline-first demo: prepopulate the local cache (only) in debuggable builds so a
         // fresh offline install is not blank. Idempotent and non-fatal inside DemoDataSeeder.
-        val isDebuggable = (context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
         if (!useOnline && isDebuggable) {
             seedScope.launch { DemoDataSeeder.seedIfEmpty(db) }
         }

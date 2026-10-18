@@ -26,18 +26,31 @@ import kotlinx.serialization.json.*
 @Serializable(with = MoneySerializer::class)
 data class Money(val amount: BigDecimal) : Comparable<Money> {
 
+    /**
+     * Permanently blocked entry point: binary floating point cannot hold rand exactly, so a
+     * financial amount must never be built from a [Double]. Use the [String] form for literals,
+     * the [Int] form for whole rand, or [Companion.fromDouble] at the edge where a third-party
+     * payload really does arrive as a number.
+     */
+    @Deprecated(
+        "Financial values must not come from Double: use Money(\"150.00\"), or Money.fromDouble for provider payloads.",
+        replaceWith = ReplaceWith("Money(amount.toString())"),
+        level = DeprecationLevel.ERROR
+    )
     constructor(amount: Double) : this(BigDecimal.valueOf(amount).setScale(2, RoundingMode.HALF_EVEN))
     constructor(amount: Int)    : this(BigDecimal.valueOf(amount.toLong()).setScale(2, RoundingMode.HALF_EVEN))
     constructor(amount: String) : this(BigDecimal(amount).setScale(2, RoundingMode.HALF_EVEN))
 
     companion object {
         val ZERO = Money(BigDecimal.ZERO.setScale(2, RoundingMode.HALF_EVEN))
-        private val zarFormatter = NumberFormat.getCurrencyInstance(Locale("en", "ZA")).apply {
+        private val zarFormatter = NumberFormat.getCurrencyInstance(Locale.forLanguageTag("en-ZA")).apply {
             minimumFractionDigits = 2
             maximumFractionDigits = 2
         }
 
-        fun fromDouble(value: Double?): Money = value?.let { Money(it) } ?: ZERO
+        // Interop door for provider payloads that still arrive as floating point numbers.
+        fun fromDouble(value: Double?): Money =
+            value?.let { Money(BigDecimal.valueOf(it).setScale(2, RoundingMode.HALF_EVEN)) } ?: ZERO
     }
 
     operator fun plus(other: Money): Money = Money(this.amount.add(other.amount).setScale(2, RoundingMode.HALF_EVEN))
@@ -83,6 +96,13 @@ data class Money(val amount: BigDecimal) : Comparable<Money> {
 
     override operator fun compareTo(other: Money): Int = this.amount.compareTo(other.amount)
 
+    /**
+     * A data class otherwise renders as `Money(amount=250.00)`, which leaks into any string
+     * interpolation of a monetary column (CSV exports, notifications, logs). Financial output
+     * must be plain numeric text; use [format] for a user-facing R-denominated string.
+     */
+    override fun toString(): String = amount.toPlainString()
+
     val isZero: Boolean get() = amount.signum() == 0
     val isPositive: Boolean get() = amount.signum() > 0
     val isNegative: Boolean get() = amount.signum() < 0
@@ -124,16 +144,14 @@ object MoneySerializer : KSerializer<Money> {
                         "MoneySerializer",
                         "Monetary field is not numeric; treated as R0.00. raw='${element.content}'"
                     )
-                    
-Money.ZERO
+                    Money.ZERO
                 }
             } else {
                 AppLogger.w(
                     "MoneySerializer",
                     "Monetary field is not a primitive; treated as R0.00. kind=${element::class.simpleName}"
                 )
-                
-Money.ZERO
+                Money.ZERO
             }
         } else {
             try {
@@ -143,8 +161,7 @@ Money.ZERO
                     "MoneySerializer",
                     "Discarding unparseable monetary amount; treated as R0.00. "
                 )
-                
-Money.ZERO
+                Money.ZERO
             }
         }
     }

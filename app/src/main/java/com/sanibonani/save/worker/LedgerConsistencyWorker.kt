@@ -46,7 +46,7 @@ class LedgerConsistencyWorker @AssistedInject constructor(
                     )
 
                     // Trigger an automatic repair if the discrepancy is significant
-                    if (record.discrepancy.abs() > Money(1.0)) {
+                    if (record.discrepancy.abs() > Money("1.0")) {
                         platformRepo.repairGroupData(groupId)
 
                         platformRepo.logAuditEvent(AuditLog(

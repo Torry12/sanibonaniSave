@@ -42,7 +42,7 @@ fun BankingDetailsFields(
                 readOnly = true,
                 label = { Text("Bank Name *") },
                 trailingIcon = { if (!isReadOnly) ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
-                modifier = Modifier.fillMaxWidth().menuAnchor(type = MenuAnchorType.PrimaryNotEditable),
+                modifier = Modifier.fillMaxWidth().menuAnchor(type = ExposedDropdownMenuAnchorType.PrimaryNotEditable),
                 isError = bankError != null,
                 supportingText = bankError?.let { { Text(it) } },
                 shape = RoundedCornerShape(12.dp),

@@ -20,8 +20,8 @@ class GroupPlatformFeesBindingTest {
     @Before
     fun resetFees() {
         com.sanibonani.save.domain.config.PlatformFees.update(
-            monthlyPerMember = com.sanibonani.save.domain.model.Money(10.0),
-            registrationFee = com.sanibonani.save.domain.model.Money(700.0)
+            monthlyPerMember = com.sanibonani.save.domain.model.Money("10.0"),
+            registrationFee = com.sanibonani.save.domain.model.Money("700.0")
         )
     }
 
@@ -39,8 +39,8 @@ class GroupPlatformFeesBindingTest {
         assertEquals(Money("700.00"), group(5).registrationFee)
 
         com.sanibonani.save.domain.config.PlatformFees.update(
-            monthlyPerMember = Money(25.0),
-            registrationFee = Money(1200.0)
+            monthlyPerMember = Money("25.0"),
+            registrationFee = Money("1200.0")
         )
 
         // Before the fix this still returned the hardcoded R700 default.
@@ -52,8 +52,8 @@ class GroupPlatformFeesBindingTest {
         assertEquals(Money("50.00"), group(5).platformFeeAmount)
 
         com.sanibonani.save.domain.config.PlatformFees.update(
-            monthlyPerMember = Money(25.0),
-            registrationFee = Money(700.0)
+            monthlyPerMember = Money("25.0"),
+            registrationFee = Money("700.0")
         )
 
         assertEquals(Money("125.00"), group(5).platformFeeAmount)

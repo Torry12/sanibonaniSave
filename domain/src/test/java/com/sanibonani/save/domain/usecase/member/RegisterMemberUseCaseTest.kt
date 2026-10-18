@@ -35,7 +35,7 @@ class RegisterMemberUseCaseTest {
         // Given
         val groupId = "group-123"
         val member = Member(groupId = groupId, idNumber = "9001015000081")
-        val group = Group(id = groupId, joiningFee = Money(100.0), registrationPaid = true, maxMembers = 50, currentMembers = 10, probationMonths = 0)
+        val group = Group(id = groupId, joiningFee = Money("100.0"), registrationPaid = true, maxMembers = 50, currentMembers = 10, probationMonths = 0)
 
         coEvery { groupRepository.getGroupById(groupId) } returns Result.success(group)
         coEvery { memberRepository.getMemberByUserId(any(), any()) } returns Result.failure(Exception("Not found"))
@@ -54,7 +54,7 @@ class RegisterMemberUseCaseTest {
         // Given
         val groupId = "group-123"
         val member = Member(groupId = groupId, idNumber = "9001015000081")
-        val group = Group(id = groupId, joiningFee = Money(0.0), registrationPaid = true, maxMembers = 50, currentMembers = 10, probationMonths = 0)
+        val group = Group(id = groupId, joiningFee = Money("0.0"), registrationPaid = true, maxMembers = 50, currentMembers = 10, probationMonths = 0)
 
         coEvery { groupRepository.getGroupById(groupId) } returns Result.success(group)
         coEvery { memberRepository.getMemberByUserId(any(), any()) } returns Result.failure(Exception("Not found"))
@@ -73,7 +73,7 @@ class RegisterMemberUseCaseTest {
         // Given
         val groupId = "group-123"
         val member = Member(groupId = groupId, idNumber = "9001015000081")
-        val group = Group(id = groupId, joiningFee = Money(0.0), registrationPaid = true, maxMembers = 50, currentMembers = 10, probationMonths = 3)
+        val group = Group(id = groupId, joiningFee = Money("0.0"), registrationPaid = true, maxMembers = 50, currentMembers = 10, probationMonths = 3)
 
         coEvery { groupRepository.getGroupById(groupId) } returns Result.success(group)
         coEvery { memberRepository.getMemberByUserId(any(), any()) } returns Result.failure(Exception("Not found"))

@@ -430,4 +430,4 @@ fun PayoutSummaryItem(claim: BeneficiaryPayoutClaim? = null, payout: PayoutReque
         Text(formatZAR(amount), fontWeight = FontWeight.Black, style = MaterialTheme.typography.bodyMedium)
     }
 }
-
+

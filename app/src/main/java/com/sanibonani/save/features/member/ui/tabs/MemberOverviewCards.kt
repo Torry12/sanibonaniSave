@@ -12,7 +12,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AdminPanelSettings
-import androidx.compose.material.icons.filled.ArrowForward
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.VerifiedUser
@@ -412,7 +412,7 @@ fun PendingPayoutsCard(pendingClaims: List<BeneficiaryPayoutClaim>, pendingPayou
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text("View Disbursement Hub", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = Navy)
-                Icon(Icons.Default.ArrowForward, null, tint = Navy, modifier = Modifier.size(14.dp))
+                Icon(Icons.AutoMirrored.Filled.ArrowForward, null, tint = Navy, modifier = Modifier.size(14.dp))
             }
         }
     }

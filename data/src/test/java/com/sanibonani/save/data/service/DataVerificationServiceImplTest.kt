@@ -26,7 +26,7 @@ class DataVerificationServiceImplTest {
         val member = Member(
             id = "m1",
             fullName = "Settlement Target",
-            totalPaid = Money(3000.0),
+            totalPaid = Money("3000.0"),
             status = MemberStatus.ACTIVE
         )
         val group = Group(id = "g1", probationMonths = 3)
@@ -35,13 +35,13 @@ class DataVerificationServiceImplTest {
         val contributions = listOf(
             Contribution(
                 id = "c1",
-                amount = Money(5000.0),
+                amount = Money("5000.0"),
                 type = "contribution",
                 status = ContributionStatus.PAID
             ),
             Contribution(
                 id = "c2",
-                amount = Money(-2000.0),
+                amount = Money("-2000.0"),
                 type = "loan_settlement_extraction",
                 status = ContributionStatus.PAID
             )
@@ -60,14 +60,14 @@ class DataVerificationServiceImplTest {
         // Given: A member with R4,000 total paid but R5,000 in transactions
         val member = Member(
             id = "m1",
-            totalPaid = Money(4000.0),
+            totalPaid = Money("4000.0"),
             status = MemberStatus.ACTIVE
         )
         val group = Group(id = "g1", probationMonths = 3)
         val contributions = listOf(
             Contribution(
                 id = "c1",
-                amount = Money(5000.0),
+                amount = Money("5000.0"),
                 type = "contribution",
                 status = ContributionStatus.PAID
             )

@@ -56,7 +56,7 @@ object MoneyFormatter {
 
     /**
      * Formats amount with specified currency symbol.
-     * Example: formatWithCurrency(Money(1234.56), "$") returns "$1,234.56"
+     * Example: formatWithCurrency(Money("1234.56"), "$") returns "$1,234.56"
      */
     @Suppress("UNUSED")  // Public API for future use
     fun formatWithCurrency(amount: Money, currencySymbol: String = "R"): String =

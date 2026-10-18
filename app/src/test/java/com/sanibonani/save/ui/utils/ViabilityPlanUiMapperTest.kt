@@ -8,9 +8,9 @@ import org.junit.Test
 class ViabilityPlanUiMapperTest {
 
     private fun createDefaultPlan(
-        initialContribution: Double = 1000.0,
-        suggestedMonthlyContribution: Double = 300.0,
-        projectedValue: Double = 12000.0,
+        initialContribution: Money = Money("1000"),
+        suggestedMonthlyContribution: Money = Money("300"),
+        projectedValue: Money = Money("12000"),
         isViable: Boolean = true,
         activeMemberRatio: Double = 1.0,
         defaultRiskFactor: Double = 1.0,
@@ -20,9 +20,9 @@ class ViabilityPlanUiMapperTest {
         mortalityBufferFactor: Double = 1.0,
         reserveAdequacyFactor: Double = 1.0
     ) = ViabilityPlan(
-        initialContribution = Money(initialContribution),
-        suggestedMonthlyContribution = Money(suggestedMonthlyContribution),
-        projectedValue = Money(projectedValue),
+        initialContribution = initialContribution,
+        suggestedMonthlyContribution = suggestedMonthlyContribution,
+        projectedValue = projectedValue,
         isViable = isViable,
         goalAmount = Money.ZERO,
         periodMonths = 12,

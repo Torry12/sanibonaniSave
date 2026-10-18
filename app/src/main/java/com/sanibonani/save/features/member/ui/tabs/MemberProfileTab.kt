@@ -176,7 +176,6 @@ fun MemberProfileTab(
                         is SyncStatus.Progress -> syncStatus.message
                         is SyncStatus.Error -> "Sync failed: ${syncStatus.message}"
                         is SyncStatus.Completed -> "Sync complete"
-                        else -> ""
                     }
                     Text(
                         text = statusText,

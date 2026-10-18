@@ -186,6 +186,19 @@ abstract class BaseViewModel<S>(protected val initialState: S) : ViewModel() {
     }
 
     /**
+     * Resolves an id that only exists once the row has reached the server. Reports the problem to
+     * the UI and returns null so callers can early-return instead of crashing on a null id.
+     */
+    protected fun String?.serverIdOrReport(entity: String): String? {
+        if (this != null) return this
+        handleError(
+            IllegalStateException("No server id for $entity"),
+            "This $entity is not saved on the server yet. Please sync and try again."
+        )
+        return null
+    }
+
+    /**
      * Standardized Domain Pillar Refresh
      * Emits a global event to trigger background re-validation of a specific domain's data.
      */
@@ -210,7 +223,16 @@ abstract class BaseViewModel<S>(protected val initialState: S) : ViewModel() {
         block: suspend () -> Result<T>
     ): Job = viewModelScope.launch {
         updateState { state -> update(state, AsyncResult.Loading) }
-        block().fold(
+        // Without this the throwing (rather than Result-returning) block leaves the section stuck
+        // in AsyncResult.Loading, because the terminal state is only written inside fold.
+        val outcome = try {
+            block()
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Result.failure<T>(e)
+        }
+        outcome.fold(
             onSuccess = { data -> updateState { state -> update(state, AsyncResult.Success(data)) } },
             onFailure = { error ->
                 if (error is kotlinx.coroutines.CancellationException) throw error
@@ -254,10 +276,24 @@ abstract class BaseViewModel<S>(protected val initialState: S) : ViewModel() {
         onSuccess: (T) -> Unit
     ): Job {
         onLoading?.invoke(true)
-        return onEach { result ->
-            onLoading?.invoke(false)
-            result.fold(onSuccess, onError)
-        }.launchIn(viewModelScope)
+        // Collected directly instead of through onEach/catch/launchIn: `catch` is a channel-based
+        // flow operator, and wrapping a `flowOn(...)` source in one adds a producer whose
+        // downstream continuation can outlive the collection. The finally block gives the same
+        // guarantee — a flow that fails or completes without emitting still clears the flag.
+        return viewModelScope.launch {
+            try {
+                collect { result ->
+                    onLoading?.invoke(false)
+                    result.fold(onSuccess, onError)
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                onError(e)
+            } finally {
+                onLoading?.invoke(false)
+            }
+        }
     }
 
     /**
@@ -286,13 +322,19 @@ abstract class BaseViewModel<S>(protected val initialState: S) : ViewModel() {
         block: suspend () -> Result<T>
     ): Job = viewModelScope.launch {
         onLoading?.invoke(true)
-        block().fold(
-            onSuccess = {
-                onLoading?.invoke(false)
-                onSuccess(it)
-            },
+        // A block that throws instead of returning a Result would otherwise strand the loading
+        // flag on and tear the whole ViewModel scope down with it.
+        val outcome = try {
+            block()
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Result.failure<T>(e)
+        }
+        onLoading?.invoke(false)
+        outcome.fold(
+            onSuccess = onSuccess,
             onFailure = {
-                onLoading?.invoke(false)
                 if (it is kotlinx.coroutines.CancellationException) throw it
                 onError(it)
             }

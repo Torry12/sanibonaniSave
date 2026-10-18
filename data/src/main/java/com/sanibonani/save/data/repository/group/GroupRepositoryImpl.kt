@@ -51,7 +51,7 @@ class GroupRepositoryImpl @Inject constructor(
     override fun observeGroup(groupId: String): Flow<Result<Group?>> = observeAndSyncItem(
         dbFlow = localGroupSource.observeGroupById(groupId),
         mapper = { it },
-        toEntity = { it!! },
+        toEntity = { it },
         networkFetch = { remoteGroupSource.getGroupById(groupId).getOrThrow() },
         cacheSync = { localGroupSource.saveGroup(it) }
     )

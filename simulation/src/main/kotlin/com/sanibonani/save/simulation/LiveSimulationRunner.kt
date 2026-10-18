@@ -110,10 +110,10 @@ class LiveSimulationRunner(
         val timestamp = System.currentTimeMillis().toString().takeLast(4)
 
         // 2. Run 12-Month Simulation for EACH Group Type
-        val stokvelGroupId = perform12MonthSimulationForGroupType(client, adminUserId, "stokvel", "Sim-Stokvel-$timestamp", Money(500.0))
-        val burialGroupId = perform12MonthSimulationForGroupType(client, adminUserId, "burial_society", "Sim-Burial-$timestamp", Money(200.0))
-        val investmentGroupId = perform12MonthSimulationForGroupType(client, adminUserId, "investment_club", "Sim-Investment-$timestamp", Money(1000.0))
-        val roscaGroupId = perform12MonthSimulationForGroupType(client, adminUserId, "rosca", "Sim-ROSCA-$timestamp", Money(400.0))
+        val stokvelGroupId = perform12MonthSimulationForGroupType(client, adminUserId, "stokvel", "Sim-Stokvel-$timestamp", Money("500.0"))
+        val burialGroupId = perform12MonthSimulationForGroupType(client, adminUserId, "burial_society", "Sim-Burial-$timestamp", Money("200.0"))
+        val investmentGroupId = perform12MonthSimulationForGroupType(client, adminUserId, "investment_club", "Sim-Investment-$timestamp", Money("1000.0"))
+        val roscaGroupId = perform12MonthSimulationForGroupType(client, adminUserId, "rosca", "Sim-ROSCA-$timestamp", Money("400.0"))
 
         println("SIM_TRACE: 12-MONTH MULTI-GROUP DEEP SIMULATION COMPLETED SUCCESSFULLY FOR ALL GROUPS!")
         return stokvelGroupId
@@ -124,7 +124,7 @@ class LiveSimulationRunner(
         adminUserId: String,
         groupType: String,
         groupName: String,
-        monthlyContributionAmount: Money = Money(500.0)
+        monthlyContributionAmount: Money = Money("500.0")
     ): String {
         println("SIM_TRACE: ==================================================")
         println("SIM_TRACE: Starting 12-Month Simulation for Group Type: $groupType ($groupName)")
@@ -138,7 +138,7 @@ class LiveSimulationRunner(
             name = groupName,
             type = typeEnum,
             adminUserId = adminUserId,
-            monthlyContribution = monthlyContributionAmount.toDouble()
+            monthlyContribution = monthlyContributionAmount
         )
 
         // 1. Create Group
@@ -197,7 +197,7 @@ class LiveSimulationRunner(
                 client.postgrest.rpc("record_contribution_v2", buildJsonObject {
                     put("p_member_id", memberId)
                     put("p_group_id", groupId)
-                    put("p_amount", Money(150.0).amount.toPlainString())
+                    put("p_amount", Money("150.0").amount.toPlainString())
                     put("p_due_date", joinedDate.toString())
                     put("p_paid_at", joinedStr)
                     put("p_status", "paid")
@@ -244,7 +244,7 @@ class LiveSimulationRunner(
                 val paymentAmount = when (index) {
                     in 0..5 -> monthlyContributionAmount // On-time full payment
                     in 6..7 -> if (monthOffset % 2 == 0) monthlyContributionAmount / 2.0 else monthlyContributionAmount * 1.5 // Partial & catch-up
-                    8 -> monthlyContributionAmount + Money(50.0) // Late payment with fee
+                    8 -> monthlyContributionAmount + Money("50.0") // Late payment with fee
                     else -> if (monthOffset in 6..8) Money.ZERO else monthlyContributionAmount // Distressed/missed
                 }
 
@@ -268,29 +268,29 @@ class LiveSimulationRunner(
                 "burial_society" -> {
                     if (monthOffset == 3) {
                         // Funeral claim submission and payout in month -4
-                        simulateSuccessfulBurialClaimPayout(client, groupId, members[3], adminUserId, Money(10000.0))
+                        simulateSuccessfulBurialClaimPayout(client, groupId, members[3], adminUserId, Money("10000.0"))
                     }
                 }
                 "investment_club" -> {
                     if (monthOffset == 1) {
                         // Disinvestment payout in month -2
-                        executeAndCompletePayout(client, groupId, members[4], adminUserId, Money(5000.0), "disinvestment", "SIM-INV-DISB-101")
+                        executeAndCompletePayout(client, groupId, members[4], adminUserId, Money("5000.0"), "disinvestment", "SIM-INV-DISB-101")
                     }
                 }
                 "rosca" -> {
                     if (monthOffset in listOf(9, 6, 3, 0)) {
                         // Pot rotation payout every 3 months
-                        executeAndCompletePayout(client, groupId, members[monthOffset / 3], adminUserId, Money(4000.0), "rotation", "SIM-ROT-POT-${monthOffset}")
+                        executeAndCompletePayout(client, groupId, members[monthOffset / 3], adminUserId, Money("4000.0"), "rotation", "SIM-ROT-POT-${monthOffset}")
                     }
                 }
                 "stokvel" -> {
                     if (monthOffset == 6) {
                         // Emergency withdrawal payout
-                        executeAndCompletePayout(client, groupId, members[2], adminUserId, Money(2000.0), "emergency", "SIM-EMG-101")
+                        executeAndCompletePayout(client, groupId, members[2], adminUserId, Money("2000.0"), "emergency", "SIM-EMG-101")
                     }
                     if (monthOffset == 0) {
                         // Annual share distribution
-                        executeAndCompletePayout(client, groupId, members[1], adminUserId, Money(6000.0), "annual", "SIM-ANN-202")
+                        executeAndCompletePayout(client, groupId, members[1], adminUserId, Money("6000.0"), "annual", "SIM-ANN-202")
                     }
                 }
             }
@@ -345,7 +345,7 @@ class LiveSimulationRunner(
 
         // Pattern 2: Duplicate transactions
         println("SIM_TRACE: Simulating duplicate transactions for member $memberId")
-        val amount = Money(100.0)
+        val amount = Money("100.0")
         val date = LocalDate.now().toString()
         repeat(3) {
             client.postgrest.rpc("record_contribution_v2", buildJsonObject {
@@ -499,7 +499,7 @@ class LiveSimulationRunner(
         groupId: String,
         memberId: String,
         adminUserId: String,
-        claimAmount: Money = Money(15000.0)
+        claimAmount: Money = Money("15000.0")
     ): String {
         val claimId = UUID.randomUUID().toString()
         val beneficiaryId = UUID.randomUUID().toString()
@@ -636,7 +636,7 @@ class LiveSimulationRunner(
         println("SIM_TRACE: Injecting R50,000 initial liquidity")
         client.postgrest.rpc("increment_group_balance", buildJsonObject {
             put("p_group_id", groupId)
-            put("p_amount", Money(50000.0).amount.toPlainString())
+            put("p_amount", Money("50000.0").amount.toPlainString())
         })
 
         // 4. Register Members
@@ -658,41 +658,41 @@ class LiveSimulationRunner(
 
         // 5a. Type 1: STANDARD Payout (R2,000)
         println("SIM_TRACE: --- Payout Type 1/6: STANDARD (R2,000) ---")
-        executeAndCompletePayout(client, groupId, members[0], adminUserId, Money(2000.0), "standard", "SIM-REF-STD-101")
+        executeAndCompletePayout(client, groupId, members[0], adminUserId, Money("2000.0"), "standard", "SIM-REF-STD-101")
 
         // 5b. Type 2: ANNUAL Distribution Payout (R5,000)
         println("SIM_TRACE: --- Payout Type 2/6: ANNUAL Distribution (R5,000) ---")
-        executeAndCompletePayout(client, groupId, members[1], adminUserId, Money(5000.0), "annual", "SIM-REF-ANN-202")
+        executeAndCompletePayout(client, groupId, members[1], adminUserId, Money("5000.0"), "annual", "SIM-REF-ANN-202")
 
         // 5c. Type 3: EMERGENCY Withdrawal Payout (R1,500)
         println("SIM_TRACE: --- Payout Type 3/6: EMERGENCY (R1,500) ---")
-        executeAndCompletePayout(client, groupId, members[2], adminUserId, Money(1500.0), "emergency", "SIM-REF-EMG-303")
+        executeAndCompletePayout(client, groupId, members[2], adminUserId, Money("1500.0"), "emergency", "SIM-REF-EMG-303")
 
         // 5d. Type 4: DISINVESTMENT Liquidation Payout (R3,000)
         println("SIM_TRACE: --- Payout Type 4/6: DISINVESTMENT (R3,000) ---")
-        executeAndCompletePayout(client, groupId, members[3], adminUserId, Money(3000.0), "disinvestment", "SIM-REF-INV-404")
+        executeAndCompletePayout(client, groupId, members[3], adminUserId, Money("3000.0"), "disinvestment", "SIM-REF-INV-404")
 
         // 5e. Type 5: CLAIM Funeral Benefit Payout (R4,000)
         println("SIM_TRACE: --- Payout Type 5/6: CLAIM Funeral Benefit (R4,000) ---")
         val claimantId = members[4]
-        simulateSuccessfulBurialClaimPayout(client, groupId, claimantId, adminUserId, Money(4000.0))
+        simulateSuccessfulBurialClaimPayout(client, groupId, claimantId, adminUserId, Money("4000.0"))
 
         // 5f. Type 6: ROTATION ROSCA Pot Payout (R7,000)
         println("SIM_TRACE: --- Payout Type 6/6: ROTATION ROSCA Pot (R7,000) ---")
         val roscaBorrowerId = members[0]
-        executeAndCompletePayout(client, groupId, roscaBorrowerId, adminUserId, Money(7000.0), "rotation", "SIM-REF-ROT-606")
+        executeAndCompletePayout(client, groupId, roscaBorrowerId, adminUserId, Money("7000.0"), "rotation", "SIM-REF-ROT-606")
 
         // 6. Successful Loan Payout & Full Repayment Flow (R3,000 Loan Disbursed, R3,300 Total Repaid with Interest)
         println("SIM_TRACE: --- Starting Successful Loan Payout & Repayment Flow (R3,000) ---")
         val borrowerId = members[1]
-        val simLoanId = simulateSuccessfulLoanPayout(client, groupId, borrowerId, adminUserId, Money(3000.0), interestRatePct = 10.0)
+        val simLoanId = simulateSuccessfulLoanPayout(client, groupId, borrowerId, adminUserId, Money("3000.0"), interestRatePct = 10.0)
 
         println("SIM_TRACE: Member repaying first installment (R1,100)")
         client.postgrest.rpc("record_loan_repayment_v1", buildJsonObject {
             put("p_loan_id", simLoanId)
             put("p_member_id", borrowerId)
             put("p_group_id", groupId)
-            put("p_amount", Money(1100.0).amount.toPlainString())
+            put("p_amount", Money("1100.0").amount.toPlainString())
             put("p_payment_method", "bank")
         })
 
@@ -701,7 +701,7 @@ class LiveSimulationRunner(
             put("p_loan_id", simLoanId)
             put("p_member_id", borrowerId)
             put("p_group_id", groupId)
-            put("p_amount", Money(2200.0).amount.toPlainString())
+            put("p_amount", Money("2200.0").amount.toPlainString())
             put("p_payment_method", "bank")
         })
 

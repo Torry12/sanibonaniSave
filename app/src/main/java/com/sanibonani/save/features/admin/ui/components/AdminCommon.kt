@@ -39,7 +39,6 @@ fun AdminFeeBanner(group: Group, status: AdminFeeState, daysOverdue: Int, onActi
         AdminFeeState.OVERDUE -> "Group suspended due to non-payment ($daysOverdue days late)."
         AdminFeeState.SUSPENDED -> "Account restricted. Please settle outstanding fees."
         AdminFeeState.PENDING_ACTIVATION -> "Group activation required."
-        else -> ""
     }
 
     // High-contrast text color for light backgrounds in both light and dark mode

@@ -125,7 +125,7 @@ object AppModule {
     fun providePolicyRouter(): PolicyRouter {
         return InMemoryPolicyRouter(
             rules = listOf(
-                LargeAmountDualApprovalRule(threshold = Money(5000.0)),
+                LargeAmountDualApprovalRule(threshold = Money("5000.0")),
                 SuspendedGroupBlockRule()
             )
         )

@@ -53,7 +53,7 @@ class ProcessDisbursementUseCase @Inject constructor(
         // MAKER-CHECKER DUAL CONTROL ENFORCEMENT
         // In a live environment, one admin cannot single-handedly request and complete a high-value payout.
         if (status == PayoutStatus.COMPLETED) {
-            val isHighValue = payout.amount >= Money(5000.0)
+            val isHighValue = payout.amount >= Money("5000.0")
             if (isHighValue && payout.processedBy == adminId) {
                 // If the same admin who approved/processed earlier is now trying to complete, block it.
                 // Note: In real life, `payout.processedBy` would track the initiator.

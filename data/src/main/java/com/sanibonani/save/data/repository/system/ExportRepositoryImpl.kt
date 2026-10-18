@@ -12,6 +12,7 @@ import java.io.FileWriter
 import java.text.SimpleDateFormat
 import java.util.*
 import javax.inject.Inject
+import com.sanibonani.save.domain.utils.CsvWriter
 import com.sanibonani.save.domain.utils.safeRunCatching
 
 class ExportRepositoryImpl @Inject constructor(
@@ -23,23 +24,24 @@ class ExportRepositoryImpl @Inject constructor(
         val sanitizedGroupName = group.name.replace(Regex("[^a-zA-Z0-9_-]"), "_")
         val fileName = "Statement_${sanitizedGroupName}_${System.currentTimeMillis()}.csv"
 
-        val storageDir = context.getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS)
-            ?: context.filesDir.let { File(it, "documents").apply { if (!exists()) mkdirs() } }
-
-        val file = File(storageDir, fileName)
+        val file = File(getDocumentsDir(), fileName)
         val memberMap = members.associateBy { it.id }
 
         FileWriter(file).use { writer ->
-            writer.append("Date,Member,Type,Amount,Method,Status,TransactionID\n")
+            writer.append(CsvWriter.headerRow("Date", "Member", "Type", "Amount", "Method", "Status", "TransactionID"))
+            writer.append(CsvWriter.LINE_SEPARATOR)
             payments.sortedByDescending { it.createdAt }.forEach { p ->
                 val memberName = memberMap[p.memberId]?.fullName ?: "Unknown"
-                writer.append("${p.createdAt?.take(10)},")
-                writer.append("\"$memberName\",")
-                writer.append("${p.paymentType.name},")
-                writer.append("${p.amount},")
-                writer.append("${p.paymentMethod.name},")
-                writer.append("${p.status.name},")
-                writer.append("${p.transactionId ?: "N/A"}\n")
+                writer.append(CsvWriter.row(
+                    p.createdAt?.take(10),
+                    memberName,
+                    p.paymentType.name,
+                    p.amount,
+                    p.paymentMethod.name,
+                    p.status.name,
+                    p.transactionId ?: "N/A"
+                ))
+                writer.append(CsvWriter.LINE_SEPARATOR)
             }
         }
         file
@@ -94,18 +96,19 @@ class ExportRepositoryImpl @Inject constructor(
         val sanitizedMemberName = member.fullName.replace(Regex("[^a-zA-Z0-9_-]"), "_")
         val fileName = "Contributions_${sanitizedMemberName}_${System.currentTimeMillis()}.csv"
 
-        val storageDir = context.getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS)
-            ?: context.filesDir.let { File(it, "documents").apply { if (!exists()) mkdirs() } }
-
-        val file = File(storageDir, fileName)
+        val file = File(getDocumentsDir(), fileName)
 
         FileWriter(file).use { writer ->
-            writer.append("Due Date,Paid Date,Amount,Status\n")
+            writer.append(CsvWriter.headerRow("Due Date", "Paid Date", "Amount", "Status"))
+            writer.append(CsvWriter.LINE_SEPARATOR)
             contributions.sortedByDescending { it.dueDate }.forEach { c ->
-                writer.append("${c.dueDate},")
-                writer.append("${c.paidAt?.take(10) ?: "N/A"},")
-                writer.append("${c.amount},")
-                writer.append("${c.status.name}\n")
+                writer.append(CsvWriter.row(
+                    c.dueDate,
+                    c.paidAt?.take(10) ?: "N/A",
+                    c.amount,
+                    c.status.name
+                ))
+                writer.append(CsvWriter.LINE_SEPARATOR)
             }
         }
         file
@@ -270,18 +273,20 @@ class ExportRepositoryImpl @Inject constructor(
     override suspend fun exportLedgerToCsv(group: Group, entries: List<LedgerEntry>): Result<File> = safeRunCatching {
         val sanitizedGroupName = group.name.replace(Regex("[^a-zA-Z0-9_-]"), "_")
         val fileName = "Ledger_${sanitizedGroupName}_${System.currentTimeMillis()}.csv"
-        val storageDir = context.getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS)
-            ?: context.filesDir.let { File(it, "documents").apply { if (!exists()) mkdirs() } }
-        val file = File(storageDir, fileName)
+        val file = File(getDocumentsDir(), fileName)
 
         FileWriter(file).use { writer ->
-            writer.append("Date,Description,Category,Amount,Balance After\n")
+            writer.append(CsvWriter.headerRow("Date", "Description", "Category", "Amount", "Balance After"))
+            writer.append(CsvWriter.LINE_SEPARATOR)
             entries.sortedByDescending { it.createdAt }.forEach { e ->
-                writer.append("${e.createdAt?.take(16)?.replace("T", " ")},")
-                writer.append("\"${e.description}\",")
-                writer.append("${e.category},")
-                writer.append("${e.amount},")
-                writer.append("${e.balanceAfter}\n")
+                writer.append(CsvWriter.row(
+                    e.createdAt?.take(16)?.replace("T", " "),
+                    e.description,
+                    e.category,
+                    e.amount,
+                    e.balanceAfter
+                ))
+                writer.append(CsvWriter.LINE_SEPARATOR)
             }
         }
         file

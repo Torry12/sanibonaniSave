@@ -397,7 +397,7 @@ object TestAppModule {
     fun providePolicyRouter(): com.sanibonani.save.domain.architecture.policy.PolicyRouter {
         return com.sanibonani.save.domain.architecture.policy.InMemoryPolicyRouter(
             rules = listOf(
-                com.sanibonani.save.domain.architecture.policy.LargeAmountDualApprovalRule(threshold = Money(5000.0)),
+                com.sanibonani.save.domain.architecture.policy.LargeAmountDualApprovalRule(threshold = Money("5000.0")),
                 com.sanibonani.save.domain.architecture.policy.SuspendedGroupBlockRule()
             )
         )

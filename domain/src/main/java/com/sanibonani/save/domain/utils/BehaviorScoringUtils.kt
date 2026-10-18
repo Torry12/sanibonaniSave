@@ -255,12 +255,12 @@ object BehaviorScoringUtils {
         newTransaction: Map<String, Any>,
         timeWindowMinutes: Int = 60
     ): Boolean {
-        val newAmount = (newTransaction["amount"] as? Number)?.toDouble()?.let { Money(it) } ?: return false
+        val newAmount = (newTransaction["amount"] as? Number)?.let { Money.fromDouble(it.toDouble()) } ?: return false
         val newTime = newTransaction["timestamp"] as? Long ?: return false
         val newMemberId = newTransaction["member_id"] as? String ?: return false
 
         return transactions.any { tx ->
-            val txAmount = (tx["amount"] as? Number)?.toDouble()?.let { Money(it) } ?: return@any false
+            val txAmount = (tx["amount"] as? Number)?.let { Money.fromDouble(it.toDouble()) } ?: return@any false
             val txTime = tx["timestamp"] as? Long ?: return@any false
             val txMemberId = tx["member_id"] as? String ?: return@any false
 
@@ -307,7 +307,7 @@ object BehaviorScoringUtils {
 
         if (memberContributions.size < 5) return false
 
-        val amounts = memberContributions.mapNotNull { (it["amount"] as? Number)?.toDouble()?.let { Money(it) } }
+        val amounts = memberContributions.mapNotNull { (it["amount"] as? Number)?.let { value -> Money.fromDouble(value.toDouble()) } }
         if (amounts.size < 5) return false
 
         val recentAmount = amounts.first()

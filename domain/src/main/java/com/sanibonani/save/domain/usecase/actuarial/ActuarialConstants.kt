@@ -1,7 +1,13 @@
 package com.sanibonani.save.domain.usecase.actuarial
+
+import com.sanibonani.save.domain.model.Money
+
 /**
  * Centralized actuarial constants and industry standards for South African savings groups.
  * Provides a single source of truth for macro-economic data and regulatory requirements.
+ *
+ * Rand amounts are [Money], never `Double`: the same rule the ledger follows applies here.
+ * Rates, percentages and weights stay `Double` because they are not money.
  */
 object ActuarialConstants {
 
@@ -13,12 +19,12 @@ object ActuarialConstants {
 
     // ── Burial Society Standards (FSB & ASISA) ─────────────────────────────────
     const val SA_WORKING_AGE_MORT_PER_1000 = 8.2
-    const val SA_AVG_FUNERAL_COST = 30000.0
-    const val DEFAULT_ANNUAL_EXPECTED_CLAIM_PER_MEMBER = 246.0 // Standard risk cost baseline (R30,000 * 0.0082)
-    const val DEFAULT_ANNUAL_EXPECTED_CLAIM_GROUP_BASELINE = 30000.0 // Default claim coverage baseline for full group claim
+    val SA_AVG_FUNERAL_COST = Money("30000")
+    val DEFAULT_ANNUAL_EXPECTED_CLAIM_PER_MEMBER = Money("246") // Standard risk cost baseline (R30,000 * 0.0082)
+    val DEFAULT_ANNUAL_EXPECTED_CLAIM_GROUP_BASELINE = Money("30000") // Default claim coverage baseline for full group claim
     const val BURIAL_MIN_SOLVENCY_RATIO = 1.30   // 130% target for stability
     const val BURIAL_SAFETY_LOADING_PCT = 35.0   // Loading above pure premium
-    const val ADMIN_COST_PER_MEMBER_MONTHLY = 25.0
+    val ADMIN_COST_PER_MEMBER_MONTHLY = Money("25")
     const val CAPITAL_ADEQUACY_THRESHOLD = 0.15  // 15% of annual expected claims
 
     // ── General Savings & Liquidity ────────────────────────────────────────────

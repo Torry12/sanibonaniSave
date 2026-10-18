@@ -89,7 +89,7 @@ class PaymentViewModelTest {
 
     private fun mockPaymentContext(groupId: String = "g1") {
         val member = Member(id = "m1", groupId = groupId, joinedAt = "2020-01-01T00:00:00Z", status = MemberStatus.ACTIVE)
-        val group = Group(id = groupId, monthlyContribution = Money(200.0), paymentDueDay = 1, allowPartialPayment = true)
+        val group = Group(id = groupId, monthlyContribution = Money("200.0"), paymentDueDay = 1, allowPartialPayment = true)
 
         every { memberRepo.observeMemberByUserId(any(), any()) } returns flowOf(Result.success(member))
         coEvery { groupRepo.getGroupById(any()) } returns Result.success(group)
@@ -109,7 +109,7 @@ class PaymentViewModelTest {
     fun `loadPaymentContext - success updates state`() = runTest {
         val groupId = "g1"
         val member = Member(id = "m1", groupId = groupId, status = MemberStatus.ACTIVE)
-        val group = Group(id = groupId, monthlyContribution = Money(200.0))
+        val group = Group(id = groupId, monthlyContribution = Money("200.0"))
 
         every { memberRepo.observeMemberByUserId("user_123", groupId) } returns flowOf(Result.success(member))
         coEvery { groupRepo.getGroupById(groupId) } returns Result.success(group)
@@ -130,7 +130,7 @@ class PaymentViewModelTest {
         // Initial setup
         val groupId = "g1"
         val member = Member(id = "m1", groupId = groupId, joinedAt = "2020-01-01T00:00:00Z", status = MemberStatus.ACTIVE)
-        val group = Group(id = groupId, monthlyContribution = Money(200.0), paymentDueDay = 1)
+        val group = Group(id = groupId, monthlyContribution = Money("200.0"), paymentDueDay = 1)
 
         every { memberRepo.observeMemberByUserId("user_123", groupId) } returns flowOf(Result.success(member))
         coEvery { groupRepo.getGroupById(groupId) } returns Result.success(group)
@@ -154,7 +154,7 @@ class PaymentViewModelTest {
     @Test
     fun `processPayment - success updates state to success`() = runTest {
         val groupId = "g1"
-        val amount = 1000.0
+        val amount = Money("1000")
         val txId = "tx_123"
 
         mockPaymentContext(groupId)
@@ -172,7 +172,7 @@ class PaymentViewModelTest {
 
         viewModel.processPayment(
             type = "contribution",
-            amount = Money(amount),
+            amount = amount,
             groupId = groupId,
             cardNumber = "4242424242424242",
             expiry = "12/28",
@@ -190,7 +190,7 @@ class PaymentViewModelTest {
 
     @Test
     fun `processPayment - failure updates error state`() = runTest {
-        val amount = 1000.0
+        val amount = Money("1000")
 
         mockPaymentContext("g1")
         advanceUntilIdle()
@@ -199,7 +199,7 @@ class PaymentViewModelTest {
 
         viewModel.processPayment(
             type = "contribution",
-            amount = Money(amount),
+            amount = amount,
             groupId = "g1",
             cardNumber = "4242424242424242",
             expiry = "12/28",

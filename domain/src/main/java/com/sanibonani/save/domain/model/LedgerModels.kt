@@ -1,6 +1,7 @@
 @file:OptIn(ExperimentalSerializationApi::class)
 package com.sanibonani.save.domain.model
 
+import com.sanibonani.save.domain.logging.AppLogger
 import kotlinx.serialization.*
 import kotlinx.serialization.descriptors.*
 import kotlinx.serialization.encoding.*
@@ -89,7 +90,13 @@ object FlexibleEpochSerializer : KSerializer<Long> {
         } catch (_: Exception) {
             try {
                 OffsetDateTime.parse(isoString).toInstant().toEpochMilli()
-            } catch (_: Exception) {
+            } catch (e: Exception) {
+                // Epoch 0 silently moves a ledger/reconciliation period to 1970, which sorts and
+                // filters wrongly instead of failing: make the unusable value visible.
+                AppLogger.w(
+                    "FlexibleEpochSerializer",
+                    "Timestamp is neither epoch millis nor ISO-8601; treated as epoch 0. raw='$isoString' (${e.javaClass.simpleName})"
+                )
                 0L
             }
         }

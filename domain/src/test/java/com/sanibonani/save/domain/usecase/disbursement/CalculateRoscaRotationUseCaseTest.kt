@@ -14,7 +14,7 @@ class CalculateRoscaRotationUseCaseTest {
             id = "g-1",
             name = "ROSCA One",
             type = GroupType.ROSCA,
-            monthlyContribution = Money(500.0),
+            monthlyContribution = Money("500.0"),
             createdAt = "2026-01-01T00:00:00Z"
         )
         val members = listOf(
@@ -26,7 +26,7 @@ class CalculateRoscaRotationUseCaseTest {
         val result = useCase(group, members).getOrThrow()
 
         assertEquals(2, result.cycleMonths)
-        assertEquals(Money(1000.0), result.totalPot)
+        assertEquals(Money("1000.0"), result.totalPot)
         assertEquals(2, result.items.size)
     }
 
@@ -37,7 +37,7 @@ class CalculateRoscaRotationUseCaseTest {
             name = "ROSCA Draw",
             type = GroupType.ROSCA,
             rotationMethod = RoscaRotationMethod.RANDOM_DRAW,
-            monthlyContribution = Money(200.0),
+            monthlyContribution = Money("200.0"),
             createdAt = "2026-01-01T00:00:00Z"
         )
         val members = (1..6).map {
@@ -59,7 +59,7 @@ class CalculateRoscaRotationUseCaseTest {
             type = GroupType.ROSCA,
             rotationMethod = RoscaRotationMethod.FIXED,
             description = "random draw this cycle",
-            monthlyContribution = Money(200.0),
+            monthlyContribution = Money("200.0"),
             createdAt = "2026-01-01T00:00:00Z"
         )
         val members = listOf(

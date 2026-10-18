@@ -27,7 +27,7 @@ class FinancialWorkflowIntegrityTest {
         processDisbursementUseCase = ProcessDisbursementUseCase(payoutRepository, securityService)
 
         every { supabaseRepository.isMfaVerified } returns true
-        coEvery { financialRepository.getVerifiedBalance(any()) } returns Result.success(Money(50000.0))
+        coEvery { financialRepository.getVerifiedBalance(any()) } returns Result.success(Money("50000.0"))
         coEvery { payoutRepository.getPendingPayouts() } returns Result.success(emptyList())
     }
 
@@ -36,7 +36,7 @@ class FinancialWorkflowIntegrityTest {
         // Given
         val payoutId = "p1"
         val groupId = "g1"
-        val amount = Money(1000.0)
+        val amount = Money("1000.0")
         val payout = PayoutRequest(
             id = payoutId,
             groupId = groupId,
@@ -48,7 +48,7 @@ class FinancialWorkflowIntegrityTest {
         )
 
         coEvery { payoutRepository.getPayoutById(payoutId) } returns Result.success(payout)
-        coEvery { financialRepository.getVerifiedBalance(groupId) } returns Result.success(Money(500.0)) // Less than amount
+        coEvery { financialRepository.getVerifiedBalance(groupId) } returns Result.success(Money("500.0")) // Less than amount
 
         // When
         val result = processDisbursementUseCase(payoutId, groupId, PayoutStatus.COMPLETED, "admin1")
@@ -62,7 +62,7 @@ class FinancialWorkflowIntegrityTest {
     fun `high value disbursement should fail if MFA not verified`() = runBlocking {
         // Given
         val payoutId = "p1"
-        val amount = Money(15000.0)
+        val amount = Money("15000.0")
         val payout = PayoutRequest(
             id = payoutId,
             groupId = "g1",

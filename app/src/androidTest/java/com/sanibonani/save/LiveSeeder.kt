@@ -67,8 +67,8 @@ class LiveSeeder {
         val group = Group(
             id = testGroupId,
             name = "Soweto Community Fund ${System.currentTimeMillis().toString().takeLast(4)}",
-            monthlyContribution = Money(250.0),
-            lateFee = Money(50.0),
+            monthlyContribution = Money("250.0"),
+            lateFee = Money("50.0"),
             paymentDueDay = 28,
             type = GroupType.BURIAL_SOCIETY,
             beneficiaryIncreasePct = 10.0,
@@ -109,14 +109,14 @@ class LiveSeeder {
                 val txDate = baseDate.plusMonths(monthIndex.toLong()).withDayOfMonth(28)
                 val dueDateStr = txDate.format(DateTimeFormatter.ISO_LOCAL_DATE)
                 val paidAtStr = "${dueDateStr}T12:00:00Z"
-                val amount = if (Random.nextDouble() > 0.1) 250.0 else 125.0
-                val status = if (amount >= 250.0) "paid" else "partial"
+                val amount = if (Random.nextDouble() > 0.1) Money("250") else Money("125")
+                val status = if (amount >= Money("250")) "paid" else "partial"
 
                 try {
                     supabaseClient.postgrest.rpc("record_contribution_v1", mapOf(
                         "p_member_id" to memberId,
                         "p_group_id" to testGroupId,
-                        "p_amount" to amount,
+                        "p_amount" to amount.toDouble(),
                         "p_due_date" to dueDateStr,
                         "p_paid_at" to paidAtStr,
                         "p_status" to status
@@ -126,7 +126,7 @@ class LiveSeeder {
                     val contribution = Contribution(
                         memberId = memberId,
                         groupId = testGroupId,
-                        amount = Money(amount),
+                        amount = amount,
                         status = if (status == "paid") ContributionStatus.PAID else ContributionStatus.PARTIAL,
                         paidAt = paidAtStr,
                         dueDate = dueDateStr,

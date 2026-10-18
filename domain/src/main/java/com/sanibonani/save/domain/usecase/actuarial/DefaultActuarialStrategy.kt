@@ -14,15 +14,15 @@ class DefaultActuarialStrategy : BaseActuarialStrategy() {
         stats: ActuarialGroupStats
     ): ActuarialMetrics {
         val n = stats.activeMemberCount
-        val defaultAnnualClaim = Money(ActuarialConstants.DEFAULT_ANNUAL_EXPECTED_CLAIM_PER_MEMBER) * n
+        val defaultAnnualClaim = ActuarialConstants.DEFAULT_ANNUAL_EXPECTED_CLAIM_PER_MEMBER * n
 
         val core = engine.computeActuarialScalars(
             membersCount = n,
             balance = group.balance,
             mortalityRatePct = ActuarialConstants.SA_WORKING_AGE_MORT_PER_1000 / 10.0,
-            avgClaim = Money(n * 1000.0) / n.toDouble(),
+            avgClaim = Money("1000"),
             safetyLoadingPct = ActuarialConstants.BURIAL_SAFETY_LOADING_PCT,
-            adminCostPerMemberMonthly = Money(ActuarialConstants.ADMIN_COST_PER_MEMBER_MONTHLY),
+            adminCostPerMemberMonthly = ActuarialConstants.ADMIN_COST_PER_MEMBER_MONTHLY,
             annualDiscountRatePct = ActuarialConstants.SA_RISK_FREE_RATE_PCT,
             currentPremiumMonthly = group.monthlyContribution,
             claimsPaid = Money.ZERO,
@@ -143,8 +143,8 @@ class DefaultActuarialStrategy : BaseActuarialStrategy() {
     override fun getIndustryBenchmark(group: Group, memberCount: Int, balance: Money): IndustryBenchmark {
         return IndustryBenchmark(
             benchmarkType = "Community Savings",
-            industryAvgContribution = Money(150.0),
-            industryAvgBalance = Money(8000.0),
+            industryAvgContribution = Money("150.0"),
+            industryAvgBalance = Money("8000.0"),
             industryPaymentRatePct = 85.0,
             groupVsBenchmarkPct = 0.0,
             benchmarkNotes = "Focus on meeting specific local goals."

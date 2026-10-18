@@ -28,7 +28,7 @@ class BankSimulationGatewayUnitTest {
     @Test
     fun `simulateIncomingTransfer caches locally and returns transaction id`() = runBlocking {
         val groupId = "group_1"
-        val amount = Money(500.0)
+        val amount = Money("500.0")
         val reference = "TEST-REF-99"
 
         coEvery { dao.upsert(any()) } returns Unit
@@ -44,8 +44,8 @@ class BankSimulationGatewayUnitTest {
     fun `simulateBatchTransfers caches locally and returns transaction ids`() = runBlocking {
         val groupId = "group_1"
         val txs = listOf(
-            SimulatedTransaction(Money(100.0), "REF-1", "Desc 1"),
-            SimulatedTransaction(Money(200.0), "REF-2", "Desc 2")
+            SimulatedTransaction(Money("100.0"), "REF-1", "Desc 1"),
+            SimulatedTransaction(Money("200.0"), "REF-2", "Desc 2")
         )
 
         coEvery { dao.upsert(any()) } returns Unit

@@ -37,12 +37,14 @@ class MemberFinanceViewModel @Inject constructor(
     fun requestLoan(amount: Money, purpose: String, period: Int) {
         val group = uiState.value.group ?: return
         val member = uiState.value.member ?: return
+        val groupId = group.id.serverIdOrReport("group") ?: return
+        val memberId = member.id.serverIdOrReport("member") ?: return
         launchJob("request_loan") {
             updateState { it.copy(isLoading = true) }
 
             val platformSettings = platformRepo.getPlatformSettings().getOrNull()
             val globalInterestRate = platformSettings?.loanInterestRate?.toDouble() ?: 20.0
-            val globalProcessingFee = platformSettings?.loanProcessingFee ?: Money(15.0)
+            val globalProcessingFee = platformSettings?.loanProcessingFee ?: Money("15.0")
             val groupInterestRate = group.loanInterestRate
             val effectiveInterestRate = if (groupInterestRate != null && groupInterestRate > 0.0) groupInterestRate else globalInterestRate
 
@@ -57,8 +59,8 @@ class MemberFinanceViewModel @Inject constructor(
             )
 
             val loan = Loan(
-                groupId = group.id!!,
-                memberId = member.id!!,
+                groupId = groupId,
+                memberId = memberId,
                 amount = amount,
                 interestRate = effectiveInterestRate,
                 totalToRepay = scheduleRes.totalToRepay,
@@ -82,11 +84,13 @@ class MemberFinanceViewModel @Inject constructor(
     fun requestWithdrawal(amount: Money, type: PayoutType) {
         val group = uiState.value.group ?: return
         val member = uiState.value.member ?: return
+        val groupId = group.id.serverIdOrReport("group") ?: return
+        val memberId = member.id.serverIdOrReport("member") ?: return
         launchJob("request_withdrawal") {
             updateState { it.copy(isLoading = true) }
             val request = PayoutRequest(
-                groupId = group.id!!,
-                memberId = member.id!!,
+                groupId = groupId,
+                memberId = memberId,
                 amount = amount,
                 type = type,
                 status = PayoutStatus.PENDING,

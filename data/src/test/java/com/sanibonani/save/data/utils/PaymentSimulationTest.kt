@@ -28,8 +28,8 @@ class PaymentSimulationTest {
     fun simulateThreeMonthsOfActivity() {
         val group = Group(
             id = "group-1",
-            monthlyContribution = Money(200.0),
-            lateFee = Money(50.0),
+            monthlyContribution = Money("200.0"),
+            lateFee = Money("50.0"),
             lateFeeGraceDays = 5,
             paymentDueDay = 28,
             type = GroupType.BURIAL_SOCIETY,
@@ -119,7 +119,7 @@ class PaymentSimulationTest {
     fun testDoubleCountingBug() {
         val group = Group(
             id = "g1",
-            monthlyContribution = Money(200.0),
+            monthlyContribution = Money("200.0"),
             paymentDueDay = 28,
             type = GroupType.STOKVEL
         )

@@ -54,7 +54,9 @@ class PlatformRepositoryImpl @Inject constructor(
     private val auditRemoteSource: RemoteAuditDataSource,
 ) : BaseRepository("PlatformRepository"), PlatformRepository {
 
-    private val supabase: SupabaseClient get() = protocol.getRemoteClient(SupabaseClient::class.java)!!
+    private val supabase: SupabaseClient
+        get() = protocol.getRemoteClient(SupabaseClient::class.java)
+            ?: error("The app is not connected to the server yet.")
 
     override suspend fun getPlatformAnalytics(): Result<PlatformAnalytics> = retryWithExponentialBackoff {
         // Fetch high-level summary from performance view (avoids member OOM)
@@ -87,7 +89,9 @@ class PlatformRepositoryImpl @Inject constructor(
         val totalPlatformFees = if (summaryRevenue.isPositive) {
             summaryRevenue
         } else {
-            Money(totalMembers * 10.0 * 6.0 + totalGroups * 150.0 * 0.8)
+            // Fallback estimate: R10 per member per month for 6 months, plus an R150 group
+            // registration fee at 80% capture.
+            Money("10") * (totalMembers * 6) + Money("150").percent(80.0) * totalGroups
         }
         val averageRiskScore = summary?.averageRiskScore ?: 0.0
 
@@ -146,7 +150,7 @@ class PlatformRepositoryImpl @Inject constructor(
                     put("value", value)
                     put("value_text", value)
                 }) { onConflict = "key"; select() }
-            }
+            }.getOrThrow()
         }
     }
 
@@ -162,16 +166,17 @@ class PlatformRepositoryImpl @Inject constructor(
     }
 
     override suspend fun triggerPlatformAudit(): Result<Unit> = retryWithExponentialBackoff {
-        safeRunCatching { auditRemoteSource.generatePlatformAudit().getOrThrow() }.getOrDefault(Unit)
+        auditRemoteSource.generatePlatformAudit().getOrThrow()
+        Unit
     }
 
     override suspend fun computeSystemWideMetrics(): Result<Unit> = retryWithExponentialBackoff {
-        safeRunCatching { supabase.functions.invoke("compute-platform-metrics") }
+        supabase.functions.invoke("compute-platform-metrics")
         Unit
     }
 
     override suspend fun triggerCloudBackup(): Result<Unit> = retryWithExponentialBackoff {
-        safeRunCatching { supabase.functions.invoke("trigger-backup") }
+        supabase.functions.invoke("trigger-backup")
         Unit
     }
 
@@ -184,7 +189,7 @@ class PlatformRepositoryImpl @Inject constructor(
     }
 
     override suspend fun deleteCloudBackup(name: String): Result<Unit> = retryWithExponentialBackoff {
-        safeRunCatching { supabase.storage["backups"].delete(name) }
+        supabase.storage["backups"].delete(name)
         Unit
     }
 
@@ -197,9 +202,7 @@ class PlatformRepositoryImpl @Inject constructor(
     }
 
     override suspend fun repairGroupData(groupId: String): Result<Unit> = retryWithExponentialBackoff {
-        safeRunCatching {
-            supabase.postgrest.rpc("recalculate_all_group_financials_v3", buildJsonObject { put("p_group_id", groupId) })
-        }
+        supabase.postgrest.rpc("recalculate_all_group_financials_v3", buildJsonObject { put("p_group_id", groupId) })
         Unit
     }
 
@@ -218,7 +221,7 @@ class PlatformRepositoryImpl @Inject constructor(
     }
 
     override suspend fun updateGranularFeeConfig(config: PlatformFeeConfig): Result<Unit> = retryWithExponentialBackoff {
-        safeRunCatching { supabase.postgrest["platform_fee_config"].upsert(config) { select() } }
+        supabase.postgrest["platform_fee_config"].upsert(config) { select() }
         Unit
     }
 
@@ -306,13 +309,13 @@ class PlatformRepositoryImpl @Inject constructor(
                 put("status", "completed")
                 put("description", "Group Suspension Lifting Fee (Platform Revenue)")
             })
-        }
+        }.getOrThrow()
 
         notifRepo.sendNotification(AppNotification(
             groupId = groupId,
             message = "Platform Admin has lifted your suspension (Lifting Fee: ${liftingFee.format()}). Your group is now fully active.",
             triggerEvent = NotifEvent.GROUP_RESTORED
-        ))
+        )).onFailure { AppLogger.w(tag, "Group restoration notification failed: ${it.logAndGetMessage(tag)}") }
         Unit
     }
 
@@ -328,7 +331,7 @@ class PlatformRepositoryImpl @Inject constructor(
             groupId = groupId,
             message = "Your group has been suspended by the Platform Admin. Reason: $reason",
             triggerEvent = NotifEvent.GROUP_SUSPENDED
-        ))
+        )).onFailure { AppLogger.w(tag, "Group suspension notification failed: ${it.logAndGetMessage(tag)}") }
         Unit
     }
 
@@ -337,7 +340,7 @@ class PlatformRepositoryImpl @Inject constructor(
     }
 
     override suspend fun logAuditEvent(auditLog: AuditLog): Result<Unit> = retryWithExponentialBackoff {
-        safeRunCatching { supabase.postgrest["audit_logs"].insert(auditLog) { select() } }
+        supabase.postgrest["audit_logs"].insert(auditLog) { select() }
         Unit
     }
 
@@ -381,7 +384,7 @@ class PlatformRepositoryImpl @Inject constructor(
             supabase.postgrest["groups"].delete {
                 filter { eq("id", groupId) }
             }
-        }
+        }.getOrThrow()
         db.groupDao().deleteGroupById(groupId)
     }
 }

@@ -42,7 +42,7 @@ class NotificationEventHandler @Inject constructor(
                     id = "audit_${event.payment.transactionId}",
                     groupId = event.payment.groupId,
                     memberId = event.payment.memberId,
-                    message = "Payment processed: ${event.payment.amount}",
+                    message = "Payment processed: ${event.payment.amount.format()}",
                     triggerEvent = triggerEvent,
                     channel = NotifChannel.BOTH
                 )

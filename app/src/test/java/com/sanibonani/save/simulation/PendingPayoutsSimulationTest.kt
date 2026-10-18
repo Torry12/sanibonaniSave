@@ -15,7 +15,7 @@ class PendingPayoutsSimulationTest {
             id = "g_pending_sim",
             name = "Pending Payout Simulation Group",
             type = GroupType.STOKVEL,
-            balance = Money(85000.0)
+            balance = Money("85000.0")
         )
 
         val member = Member(
@@ -32,7 +32,7 @@ class PendingPayoutsSimulationTest {
                 id = "payout_pending_$index",
                 groupId = group.id!!,
                 memberId = member.id,
-                amount = Money(2500.0 + index * 500.0),
+                amount = Money("2500") + Money("500") * index,
                 type = type,
                 status = PayoutStatus.PENDING,
                 bankName = member.bankName!!,
@@ -61,7 +61,7 @@ class PendingPayoutsSimulationTest {
                 processedAt = LocalDate.now().toString()
             )
             assertEquals(PayoutStatus.COMPLETED, completedPayout.status)
-            val netPayout = completedPayout.amount - Money(5.0)
+            val netPayout = completedPayout.amount - Money("5.0")
             assertTrue("Net payout after fee deduction should be positive", netPayout.isPositive)
         }
     }

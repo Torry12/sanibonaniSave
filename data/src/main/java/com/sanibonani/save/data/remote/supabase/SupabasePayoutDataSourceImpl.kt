@@ -7,7 +7,6 @@ import com.sanibonani.save.domain.logging.AppLogger
 import com.sanibonani.save.domain.repository.system.DataConnectionProtocol
 import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.postgrest.rpc
-import java.time.LocalDate
 import kotlinx.serialization.json.*
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -79,37 +78,10 @@ class SupabasePayoutDataSourceImpl @Inject constructor(
             fallbackAdminId = null,
             payoutReference = reference
         )
-        safeRunCatching("$tag.complete_payout_v2") {
-            client.postgrest.rpc("complete_payout_v2", rpcParams)
-        }.getOrElse { primaryError ->
-            AppLogger.w(tag, "complete_payout_v2 failed; initiating resilient fallback.")
-            val payoutRes = client.postgrest["payouts"].select { filter { eq("id", payoutId) } }.decodeSingleOrNull<JsonObject>()
-            val groupId = payoutRes?.get("group_id")?.jsonPrimitive?.content ?: throw primaryError
-            val amountStr = payoutRes["amount"]?.jsonPrimitive?.content ?: "0.00"
-            val memberId = payoutRes["member_id"]?.jsonPrimitive?.content
-
-            safeRunCatching("$tag.record_disbursement_v1") {
-                client.postgrest.rpc("record_disbursement_v1", buildJsonObject {
-                    put("p_group_id", groupId)
-                    put("p_amount", amountStr)
-                    put("p_description", "Payout Ref: ${reference ?: payoutId}")
-                    put("p_category", "payout")
-                    put("p_transaction_id", payoutId)
-                    memberId?.let { put("p_member_id", it) }
-                })
-            }.onFailure {
-                client.postgrest.rpc("increment_group_balance", buildJsonObject {
-                    put("p_group_id", groupId)
-                    put("p_amount", (-Money(amountStr)).amount.toPlainString())
-                })
-            }
-
-            client.postgrest["payouts"].update(buildJsonObject {
-                put("status", "completed")
-                put("processed_at", LocalDate.now().toString() + "T12:00:00Z")
-                reference?.let { put("payout_reference", it) }
-            }) { filter { eq("id", payoutId) } }
-        }
+        // A timeout can happen after the database committed. Never issue a second
+        // accounting path here: the RPC is atomic and owns both the state change
+        // and ledger movement. Surface the error so callers can reconcile by ID.
+        client.postgrest.rpc("complete_payout_v2", rpcParams)
     }
 
     override suspend fun updatePayoutDocumentStatus(payoutId: String, status: DocumentStatus): Result<Unit> = safeRunCatching {

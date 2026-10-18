@@ -69,11 +69,14 @@ abstract class BaseRepository(protected val tag: String) {
 
     /**
      * Variant of observeAndSync for a single item.
+     *
+     * toEntity may return null when the remote row does not exist: an absent item is not a
+     * failed sync, so nothing is cached and the local copy simply stays as it is.
      */
     protected fun <T, E> observeAndSyncItem(
         dbFlow: Flow<E?>,
         mapper: (E) -> T,
-        toEntity: (T) -> E,
+        toEntity: (T) -> E?,
         networkFetch: suspend () -> T,
         cacheSync: suspend (E) -> Unit
     ): Flow<Result<T?>> = channelFlow {
@@ -85,7 +88,7 @@ abstract class BaseRepository(protected val tag: String) {
 
         try {
             val remoteData = networkFetch()
-            cacheSync(toEntity(remoteData))
+            toEntity(remoteData)?.let { cacheSync(it) }
         } catch (e: Exception) {
             if (e is CancellationException) throw e
             AppLogger.e(tag, "Item sync failed: ${e.logAndGetMessage(tag)}")

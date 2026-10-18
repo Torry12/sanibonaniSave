@@ -27,7 +27,7 @@ class MemberTotalPaidSyncRule : VerificationRule<MemberVerificationContext> {
 
         val displayedTotalPaid = context.member.totalPaid
 
-        return if ((calculatedTotalPaid - displayedTotalPaid).abs() > Money(0.01)) {
+        return if ((calculatedTotalPaid - displayedTotalPaid).abs() > Money("0.01")) {
             listOf(VerificationIssue(
                 category = "Financial",
                 message = "Displayed 'Total Paid' (${displayedTotalPaid.format()}) does not match sum of transactions (${calculatedTotalPaid.format()}).",
@@ -80,7 +80,7 @@ class GroupBalanceSyncRule : VerificationRule<GroupVerificationContext> {
         val latestEntry = context.ledger.maxByOrNull { it.createdAt ?: "" } ?: context.ledger.firstOrNull()
         val ledgerBalance = latestEntry?.balanceAfter ?: Money.ZERO
 
-        return if ((displayedBalance - ledgerBalance).abs() > Money(0.01) && context.ledger.isNotEmpty()) {
+        return if ((displayedBalance - ledgerBalance).abs() > Money("0.01") && context.ledger.isNotEmpty()) {
             listOf(VerificationIssue(
                 category = "Financial",
                 message = "Group balance (${displayedBalance.format()}) is out of sync with the latest ledger entry (${ledgerBalance.format()}).",
@@ -144,7 +144,7 @@ class PlatformBalanceParityRule : VerificationRule<PlatformVerificationContext> 
         val calculatedTotalBalance = context.groups.fold(Money.ZERO) { acc, next -> acc + next.balance }
         val reportedTotalBalance = context.analytics.totalBalance
 
-        return if ((calculatedTotalBalance - reportedTotalBalance).abs() > Money(1.0)) {
+        return if ((calculatedTotalBalance - reportedTotalBalance).abs() > Money("1.0")) {
             listOf(VerificationIssue(
                 category = "Analytics",
                 message = "Global network balance (${reportedTotalBalance.format()}) differs from the sum of group balances (${calculatedTotalBalance.format()}).",

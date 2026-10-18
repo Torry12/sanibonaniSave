@@ -588,7 +588,7 @@ class DatabaseResetUtility {
             for (groupData in groupsData) {
                 try {
                     supabaseClient.postgrest["groups"].insert(groupData)
-                    val groupName = (groupData as? JsonObject)?.get("name")?.jsonPrimitive?.content ?: "Unknown"
+                    val groupName = groupData.get("name")?.jsonPrimitive?.content ?: "Unknown"
                     println("✓ Created group: $groupName")
                     groupsCreated++
                 } catch (e: Exception) {

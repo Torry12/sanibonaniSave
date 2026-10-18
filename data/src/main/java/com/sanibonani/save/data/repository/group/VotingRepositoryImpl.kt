@@ -19,6 +19,7 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import com.sanibonani.save.domain.utils.safeRunCatching
+import com.sanibonani.save.domain.utils.requirePersistedId
 
 class VotingRepositoryImpl @Inject constructor(
     private val connectionManager: com.sanibonani.save.data.remote.SupabaseConnectionManager,
@@ -78,7 +79,7 @@ class VotingRepositoryImpl @Inject constructor(
             endsAt = endsAt
         )
         val created = supabase.postgrest["group_polls"].insert(poll) { select() }.decodeSingle<GroupPoll>()
-        val id = created.id!!
+        val id = created.id.requirePersistedId("poll")
         val optionRows = options.mapIndexed { i, l -> GroupPollOption(pollId = id, label = l, position = i + 1) }
         supabase.postgrest["group_poll_options"].insert(optionRows)
 

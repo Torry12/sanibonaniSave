@@ -16,7 +16,7 @@ class HybridPotAllocationTest {
 
         assertTrue(allocation.isValidAllocation)
 
-        val total = Money(10000.0)
+        val total = Money("10000.0")
         val split = allocation.calculateSplit(total)
 
         assertEquals(6000.0, split.personalSavings.toDouble(), 0.01)

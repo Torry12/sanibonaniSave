@@ -9,7 +9,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.navigation.NavHostController
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavType
@@ -172,7 +172,7 @@ val globalSpinnerActive by globalLoadingViewModel.showSpinner.collectAsStateWith
                     groupId = groupId,
                     onNavigatePayment = { amount ->
                         val onboardingType = "joining_fee"
-                        val onboardingAmount = amount.toString()
+                        val onboardingAmount = amount.toPlainString()
                         navController.navigateSingleTop(Screen.Payment.build(onboardingType, onboardingAmount, groupId)) {
                             popUpTo(Screen.RegisterMember.route) { inclusive = true }
                         }

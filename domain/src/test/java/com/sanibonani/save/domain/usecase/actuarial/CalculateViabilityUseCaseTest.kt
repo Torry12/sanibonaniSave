@@ -21,19 +21,19 @@ class CalculateViabilityUseCaseTest {
     }
 
     private fun createTestPlan(goalAmount: Money, periodMonths: Int) = ViabilityPlan(
-        suggestedMonthlyContribution = Money(250.0),
-        initialContribution = Money(1000.0),
-        projectedValue = Money(50000.0),
+        suggestedMonthlyContribution = Money("250.0"),
+        initialContribution = Money("1000.0"),
+        projectedValue = Money("50000.0"),
         isViable = true,
         goalAmount = goalAmount,
         periodMonths = periodMonths,
         messages = emptyList(),
-        requiredMonthlyToMeetGoal = Money(2000.0),
-        shortfallAmount = Money(0.0),
+        requiredMonthlyToMeetGoal = Money("2000.0"),
+        shortfallAmount = Money("0.0"),
         breakEvenMonths = 12,
-        compoundedProjectedValue = Money(55000.0),
-        optimisticProjectedValue = Money(60000.0),
-        pessimisticProjectedValue = Money(45000.0),
+        compoundedProjectedValue = Money("55000.0"),
+        optimisticProjectedValue = Money("60000.0"),
+        pessimisticProjectedValue = Money("45000.0"),
         activeMemberRatio = 1.0,
         inflationAdjustmentFactor = 1.0,
         projectionRetentionFactor = 1.0,
@@ -58,7 +58,7 @@ class CalculateViabilityUseCaseTest {
     fun `invoke should return viability plan from repository`() = runBlocking {
         // Given
         val groupId = "group-123"
-        val goalAmount = Money(50000.0)
+        val goalAmount = Money("50000.0")
         val periodMonths = 24
         val expectedPlan = createTestPlan(goalAmount, periodMonths)
 
@@ -84,7 +84,7 @@ class CalculateViabilityUseCaseTest {
         } returns Result.failure(exception)
 
         // When
-        val result = calculateViabilityUseCase(groupId, Money(10000.0), 12)
+        val result = calculateViabilityUseCase(groupId, Money("10000.0"), 12)
 
         // Then
         assertTrue(result.isFailure)

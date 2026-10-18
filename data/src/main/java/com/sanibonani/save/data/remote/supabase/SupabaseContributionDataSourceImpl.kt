@@ -10,6 +10,7 @@ import javax.inject.Singleton
 
 import com.sanibonani.save.domain.repository.system.DataConnectionProtocol
 import com.sanibonani.save.domain.utils.safeRunCatching
+import com.sanibonani.save.domain.utils.requirePersistedId
 
 @Singleton
 class SupabaseContributionDataSourceImpl @Inject constructor(
@@ -48,7 +49,7 @@ class SupabaseContributionDataSourceImpl @Inject constructor(
             onConflict = "id"
             select()
         }.decodeSingle<Payment>()
-        created.id!!
+        created.id.requirePersistedId("payment")
     }
 
     override suspend fun getPayments(groupId: String): Result<List<Payment>> = safeRunCatching {
@@ -90,9 +91,11 @@ class SupabaseContributionDataSourceImpl @Inject constructor(
             else -> buildJsonObject {}
         }
 
+        val success = obj["success"]?.jsonPrimitive?.booleanOrNull
+        check(success != false) { "process_complex_payment_v4 reported failure: $obj" }
         val balStr = obj["new_balance"]?.jsonPrimitive?.content
             ?: obj["balance"]?.jsonPrimitive?.content
-            ?: "0.00"
+            ?: error("process_complex_payment_v4 returned no balance: $element")
         Money(balStr)
     }
 }

@@ -41,7 +41,7 @@ class AutomateGovernanceUseCaseTest {
     @Test
     fun `invoke processes all automated governance tasks`() = runTest {
         // Given
-        val group = Group(id = "g1", type = GroupType.BURIAL_SOCIETY, goalAmount = Money(20000.0))
+        val group = Group(id = "g1", type = GroupType.BURIAL_SOCIETY, goalAmount = Money("20000.0"))
         coEvery { platformRepo.getAllGroups() } returns Result.success(listOf(group))
         coEvery { executeRoscaPayoutUseCase(any()) } returns Result.success("payout-executed")
 

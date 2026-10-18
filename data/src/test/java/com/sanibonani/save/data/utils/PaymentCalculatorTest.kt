@@ -36,8 +36,8 @@ class PaymentCalculatorTest {
         id = "burial-1",
         name = "Test Burial Society",
         type = GroupType.BURIAL_SOCIETY,
-        monthlyContribution = Money(150.0),
-        lateFee = Money(50.0),
+        monthlyContribution = Money("150.0"),
+        lateFee = Money("50.0"),
         lateFeeGraceDays = 5,
         paymentDueDay = 28,
         beneficiaryIncreasePct = 10.0,
@@ -48,8 +48,8 @@ class PaymentCalculatorTest {
         id = "stokvel-1",
         name = "Test Stokvel",
         type = GroupType.STOKVEL,
-        monthlyContribution = Money(500.0),
-        lateFee = Money(25.0),
+        monthlyContribution = Money("500.0"),
+        lateFee = Money("25.0"),
         lateFeeGraceDays = 7,
         paymentDueDay = 15
     )
@@ -104,7 +104,7 @@ class PaymentCalculatorTest {
             id = "m1",
             groupId = burialGroup.id!!,
             beneficiaryOver65Count = 5,
-            monthlyContributionOverride = Money(100.0) // Admin set a lower rate
+            monthlyContributionOverride = Money("100.0") // Admin set a lower rate
         )
 
         val amount = paymentCalculator.calculateExpectedMemberGroupPart(burialGroup, member)
@@ -164,7 +164,7 @@ class PaymentCalculatorTest {
             Contribution(
                 memberId = "m1",
                 groupId = stokvelGroup.id!!,
-                amount = Money(200.0),
+                amount = Money("200.0"),
                 status = ContributionStatus.PARTIAL,
                 dueDate = "2024-01-15",
                 paidAt = "2024-01-10T00:00:00Z"
@@ -195,7 +195,7 @@ class PaymentCalculatorTest {
             Contribution(
                 memberId = "m1",
                 groupId = stokvelGroup.id!!,
-                amount = Money(750.0), // 500 due + 250 extra
+                amount = Money("750.0"), // 500 due + 250 extra
                 status = ContributionStatus.PAID,
                 dueDate = "2024-01-15",
                 paidAt = "2024-01-10T00:00:00Z"
@@ -224,7 +224,7 @@ class PaymentCalculatorTest {
             Contribution(
                 memberId = "m1",
                 groupId = stokvelGroup.id!!,
-                amount = Money(1000.0),
+                amount = Money("1000.0"),
                 status = ContributionStatus.PAID,
                 dueDate = "2024-01-15",
                 paidAt = "2024-01-05T00:00:00Z"
@@ -291,11 +291,11 @@ class PaymentCalculatorTest {
     @Test
     fun `realtime - payment clears shortfall`() {
         val (newShortfall, newOverpayment, _) = paymentCalculator.calculateRealtime(
-            inputAmount = Money(500.0),
-            currentShortfall = Money(500.0),
+            inputAmount = Money("500.0"),
+            currentShortfall = Money("500.0"),
             currentOverpayment = Money.ZERO,
             lateFee = Money.ZERO,
-            monthlyContribution = Money(500.0),
+            monthlyContribution = Money("500.0"),
             group = stokvelGroup,
             joinedDate = LocalDate.of(2024, 1, 1),
             totalPaidBefore = Money.ZERO
@@ -308,11 +308,11 @@ class PaymentCalculatorTest {
     @Test
     fun `realtime - payment with late fee deduction`() {
         val (newShortfall, newOverpayment, _) = paymentCalculator.calculateRealtime(
-            inputAmount = Money(550.0), // 500 contribution + 50 late fee
-            currentShortfall = Money(500.0),
+            inputAmount = Money("550.0"), // 500 contribution + 50 late fee
+            currentShortfall = Money("500.0"),
             currentOverpayment = Money.ZERO,
-            lateFee = Money(50.0),
-            monthlyContribution = Money(500.0),
+            lateFee = Money("50.0"),
+            monthlyContribution = Money("500.0"),
             group = stokvelGroup,
             joinedDate = LocalDate.of(2024, 1, 1),
             totalPaidBefore = Money.ZERO
@@ -326,11 +326,11 @@ class PaymentCalculatorTest {
     @Test
     fun `realtime - partial payment reduces shortfall`() {
         val (newShortfall, newOverpayment, _) = paymentCalculator.calculateRealtime(
-            inputAmount = Money(300.0),
-            currentShortfall = Money(500.0),
+            inputAmount = Money("300.0"),
+            currentShortfall = Money("500.0"),
             currentOverpayment = Money.ZERO,
             lateFee = Money.ZERO,
-            monthlyContribution = Money(500.0),
+            monthlyContribution = Money("500.0"),
             group = stokvelGroup,
             joinedDate = LocalDate.of(2024, 1, 1),
             totalPaidBefore = Money.ZERO
@@ -364,7 +364,7 @@ class PaymentCalculatorTest {
     fun `edge case - payment due day on 31st for short month`() {
         val endOfMonthGroup = Group(
             id = "eom-1",
-            monthlyContribution = Money(100.0),
+            monthlyContribution = Money("100.0"),
             paymentDueDay = 31, // Will adjust for Feb
             type = GroupType.STOKVEL
         )
@@ -397,9 +397,9 @@ class PaymentCalculatorTest {
 
         // Multiple partial payments totaling exactly the due amount
         val contributions = listOf(
-            Contribution(memberId = "m1", groupId = stokvelGroup.id!!, amount = Money(100.0), status = ContributionStatus.PARTIAL, dueDate = "2024-01-15"),
-            Contribution(memberId = "m1", groupId = stokvelGroup.id!!, amount = Money(150.0), status = ContributionStatus.PARTIAL, dueDate = "2024-01-15"),
-            Contribution(memberId = "m1", groupId = stokvelGroup.id!!, amount = Money(250.0), status = ContributionStatus.PAID, dueDate = "2024-01-15")
+            Contribution(memberId = "m1", groupId = stokvelGroup.id!!, amount = Money("100.0"), status = ContributionStatus.PARTIAL, dueDate = "2024-01-15"),
+            Contribution(memberId = "m1", groupId = stokvelGroup.id!!, amount = Money("150.0"), status = ContributionStatus.PARTIAL, dueDate = "2024-01-15"),
+            Contribution(memberId = "m1", groupId = stokvelGroup.id!!, amount = Money("250.0"), status = ContributionStatus.PAID, dueDate = "2024-01-15")
         )
 
         val status = paymentCalculator.calculateStatus(stokvelGroup, member, contributions, emptyList(), currentDate)
@@ -422,7 +422,7 @@ class PaymentCalculatorTest {
             Contribution(
                 memberId = "m1",
                 groupId = stokvelGroup.id!!,
-                amount = Money(200.0),
+                amount = Money("200.0"),
                 type = "joining_fee",
                 status = ContributionStatus.PAID,
                 dueDate = "2024-01-01"
@@ -430,7 +430,7 @@ class PaymentCalculatorTest {
             Contribution(
                 memberId = "m1",
                 groupId = stokvelGroup.id!!,
-                amount = Money(50.0),
+                amount = Money("50.0"),
                 type = "member_fee",
                 status = ContributionStatus.PAID,
                 dueDate = "2024-01-01"
@@ -438,7 +438,7 @@ class PaymentCalculatorTest {
             Contribution(
                 memberId = "m1",
                 groupId = stokvelGroup.id!!,
-                amount = Money(100.0),
+                amount = Money("100.0"),
                 type = "contribution",
                 status = ContributionStatus.PARTIAL,
                 dueDate = "2024-01-15"

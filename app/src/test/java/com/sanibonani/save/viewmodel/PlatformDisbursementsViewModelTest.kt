@@ -95,7 +95,7 @@ class PlatformDisbursementsViewModelTest {
         val payouts = listOf(PayoutRequest(
             id = "p1",
             groupId = "g1",
-            amount = Money(1000.0),
+            amount = Money("1000.0"),
             status = PayoutStatus.PENDING,
             bankName = "FNB",
             accountNo = "123456789",
@@ -114,7 +114,7 @@ class PlatformDisbursementsViewModelTest {
 
     @Test
     fun `approveLoanRequest updates loan status and logs audit`() = runTest {
-        val loan = Loan(id = "l1", memberId = "m1", groupId = "g1", amount = Money(500.0))
+        val loan = Loan(id = "l1", memberId = "m1", groupId = "g1", amount = Money("500.0"))
         coEvery {
             processLoanDecisionUseCase(any(), any(), any(), any())
         } returns Result.success(loan.copy(status = LoanStatus.APPROVED))

@@ -25,7 +25,7 @@ class BankBackendSimulationModuleTest {
     fun `simulateMonthOfActivity delegates to gateway successfully`() = runBlocking {
         val groupId = "group_1"
         val memberNames = listOf("Alice", "Bob", "Charlie", "David", "Eve")
-        val amount = Money(500.0)
+        val amount = Money("500.0")
 
         coEvery { gateway.simulateBatchTransfers(any(), any()) } returns Result.success(listOf("tx1", "tx2"))
 
@@ -38,7 +38,7 @@ class BankBackendSimulationModuleTest {
     @Test
     fun `simulateSinglePayment delegates to gateway successfully`() = runBlocking {
         val groupId = "group_1"
-        val amount = Money(250.0)
+        val amount = Money("250.0")
         val reference = "REF-XYZ"
 
         coEvery { gateway.simulateIncomingTransfer(any(), any(), any(), any()) } returns Result.success("tx_123")

@@ -27,8 +27,8 @@ class PaymentRequestSimulationTest {
         val group = Group(
             id = "g_pay_1",
             type = GroupType.STOKVEL,
-            monthlyContribution = Money(500.0),
-            joiningFee = Money(700.0)
+            monthlyContribution = Money("500.0"),
+            joiningFee = Money("700.0")
         )
         val member = Member(
             id = "m_pay_1",
@@ -39,7 +39,7 @@ class PaymentRequestSimulationTest {
         val contribution = Contribution(
             memberId = member.id!!,
             groupId = group.id!!,
-            amount = Money(500.0),
+            amount = Money("500.0"),
             status = ContributionStatus.PAID,
             paidAt = LocalDate.now().toString(),
             dueDate = LocalDate.now().toString()
@@ -55,7 +55,7 @@ class PaymentRequestSimulationTest {
         val group = Group(
             id = "g_pay_2",
             type = GroupType.ROSCA,
-            balance = Money(15000.0)
+            balance = Money("15000.0")
         )
         val member = Member(
             id = "m_pay_2",
@@ -65,7 +65,7 @@ class PaymentRequestSimulationTest {
         val payoutRequest = PayoutRequest(
             groupId = group.id!!,
             memberId = member.id!!,
-            amount = Money(3000.0),
+            amount = Money("3000.0"),
             type = PayoutType.STANDARD,
             status = PayoutStatus.PENDING,
             bankName = "FNB",
@@ -79,10 +79,10 @@ class PaymentRequestSimulationTest {
 
     @Test
     fun `simulate platform fee deduction on payout request`() {
-        val payoutAmount = Money(5000.0)
-        val platformFee = Money(5.0)
+        val payoutAmount = Money("5000.0")
+        val platformFee = Money("5.0")
         val netPayout = payoutAmount - platformFee
 
-        assertEquals(Money(4995.0), netPayout)
+        assertEquals(Money("4995.0"), netPayout)
     }
 }

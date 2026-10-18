@@ -24,10 +24,16 @@ class UserRoleServiceImpl @Inject constructor(
     private val connectionProtocol: DataConnectionProtocol
 ) : UserRoleService {
 
-    private val client: SupabaseClient get() = connectionProtocol.getRemoteClient(SupabaseClient::class.java)!!
+    private fun remoteClient(): SupabaseClient? =
+        connectionProtocol.getRemoteClient(SupabaseClient::class.java)
+
+    private val client: SupabaseClient
+        get() = remoteClient() ?: error("The app is not connected to the server yet.")
 
     override suspend fun getUserRole(): UserRole {
-        val user = client.auth.currentSessionOrNull()?.user ?: return UserRole.MEMBER
+        // With no provider client or no session there is nothing to authorise against, so the
+        // least-privilege role is the only safe answer; a crash here would block sign-in entirely.
+        val user = remoteClient()?.auth?.currentSessionOrNull()?.user ?: return UserRole.MEMBER
         val sessionEmail = user.email?.trim()?.lowercase()
 
         val isAuthorizedPlatformAdmin = PlatformAdminAuthPolicy.isPlatformAdminEmail(sessionEmail)

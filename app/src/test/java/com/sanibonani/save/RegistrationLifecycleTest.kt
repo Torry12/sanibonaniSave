@@ -54,7 +54,7 @@ class RegistrationLifecycleTest {
     fun setup() {
         Dispatchers.setMain(testDispatcher)
 
-        every { feeService.getRegistrationFee() } returns Money(700.0)
+        every { feeService.getRegistrationFee() } returns Money("700.0")
 
         viewModel = GroupRegistrationViewModel(
             createGroupUseCase,

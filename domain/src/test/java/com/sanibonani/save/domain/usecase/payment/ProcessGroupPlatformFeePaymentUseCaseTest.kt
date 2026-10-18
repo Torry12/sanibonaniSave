@@ -40,7 +40,7 @@ class ProcessGroupPlatformFeePaymentUseCaseTest {
         adminUserId = "user-1",
         province = "Gauteng",
         city = "Soweto",
-        balance = Money(10000.0)
+        balance = Money("10000.0")
     )
 
     private fun fees(vararg months: String) = months.map { month ->
@@ -48,7 +48,7 @@ class ProcessGroupPlatformFeePaymentUseCaseTest {
             id = "fee-$month",
             groupId = "group-1",
             feeType = "monthly",
-            amountDue = Money(100.0),
+            amountDue = Money("100.0"),
             amountPaid = Money.ZERO,
             monthReference = month
         )
@@ -112,7 +112,7 @@ class ProcessGroupPlatformFeePaymentUseCaseTest {
 
     @Test
     fun `payment is skipped when balance cannot cover the total due`() = runBlocking {
-        val poorGroup = group("group-1").copy(balance = Money(50.0))
+        val poorGroup = group("group-1").copy(balance = Money("50.0"))
         coEvery { groupRepository.getGroupById("group-1") } returns Result.success(poorGroup)
         coEvery { financialRepository.getOutstandingPlatformFees("group-1") } returns
             Result.success(fees("2026-09"))

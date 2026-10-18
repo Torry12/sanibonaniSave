@@ -28,11 +28,11 @@ class MemberBeneficiaryViewModel @Inject constructor(
     }
 
     fun addBeneficiary(name: String, idNumber: String, relationship: String, dateOfBirth: String, isImmediate: Boolean) {
-        val member = uiState.value.member ?: return
+        val memberId = uiState.value.member?.let { it.id.serverIdOrReport("member") } ?: return
         launchJob("add_beneficiary") {
             updateState { it.copy(isLoading = true) }
             val beneficiary = Beneficiary(
-                memberId = member.id!!,
+                memberId = memberId,
                 fullName = name,
                 idNumber = idNumber,
                 relationship = relationship
@@ -76,16 +76,16 @@ class MemberBeneficiaryViewModel @Inject constructor(
         return fileStorageService.uploadClaimDocument(claimId, data, extension)
     }
     fun uploadBeneficiaryDocument(beneficiaryId: String, data: ByteArray, fileName: String) {
-        val member = uiState.value.member ?: return
+        val memberId = uiState.value.member?.let { it.id.serverIdOrReport("member") } ?: return
         launchJob("upload_beneficiary_doc_$beneficiaryId") {
             updateState { it.copy(isLoading = true) }
             val extension = fileName.substringAfterLast(".", "pdf")
-            val result = fileStorageService.uploadBeneficiaryDocument(member.id!!, beneficiaryId, data, extension)
+            val result = fileStorageService.uploadBeneficiaryDocument(memberId, beneficiaryId, data, extension)
 
             result.onSuccess { url ->
                 // Fetch current beneficiary to update its URL
                 val currentBeneficiaries = uiState.value.beneficiaries.ifEmpty {
-                    beneficiaryRepo.observeBeneficiaries(member.id!!).first().getOrNull() ?: emptyList()
+                    beneficiaryRepo.observeBeneficiaries(memberId).first().getOrNull() ?: emptyList()
                 }
                 val b = currentBeneficiaries.find { it.id == beneficiaryId }
                 if (b != null) {

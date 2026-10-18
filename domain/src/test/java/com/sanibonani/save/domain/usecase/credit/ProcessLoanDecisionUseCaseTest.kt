@@ -33,7 +33,7 @@ class ProcessLoanDecisionUseCaseTest {
 
     @Test
     fun `successful approval notifies member and logs audit`() = runBlocking {
-        val loan = Loan(id = "l1", memberId = "m1", groupId = "g1", amount = Money(1000.0))
+        val loan = Loan(id = "l1", memberId = "m1", groupId = "g1", amount = Money("1000.0"))
         val member = Member(id = "m1")
         val group = Group(id = "g1")
 
@@ -54,7 +54,7 @@ class ProcessLoanDecisionUseCaseTest {
 
     @Test
     fun `rejection notifies member and logs audit`() = runBlocking {
-        val loan = Loan(id = "l1", memberId = "m1", groupId = "g1", amount = Money(1000.0))
+        val loan = Loan(id = "l1", memberId = "m1", groupId = "g1", amount = Money("1000.0"))
         val member = Member(id = "m1")
         val group = Group(id = "g1")
 
@@ -72,7 +72,7 @@ class ProcessLoanDecisionUseCaseTest {
 
     @Test
     fun `approval blocked by critical fraud risk`() = runBlocking {
-        val loan = Loan(id = "l1", memberId = "m1", groupId = "g1", amount = Money(1000.0))
+        val loan = Loan(id = "l1", memberId = "m1", groupId = "g1", amount = Money("1000.0"))
         val member = Member(id = "m1")
         val group = Group(id = "g1")
         val track = MemberBehaviorTrack(memberId = "m1", groupId = "g1", fraudRiskLevel = FraudRiskLevel.CRITICAL)
@@ -91,7 +91,7 @@ class ProcessLoanDecisionUseCaseTest {
 
     @Test
     fun `approval blocked by eligibility re-validation failure`() = runBlocking {
-        val loan = Loan(id = "l1", memberId = "m1", groupId = "g1", amount = Money(1000.0))
+        val loan = Loan(id = "l1", memberId = "m1", groupId = "g1", amount = Money("1000.0"))
         val member = Member(id = "m1")
         val group = Group(id = "g1")
 

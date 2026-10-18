@@ -201,7 +201,7 @@ class GroupTypeActuarialEngine @Inject constructor(
         val monthlyInflow = group.monthlyContribution * n * compliance
 
         val monthlyOutflow = when (group.type) {
-            GroupType.BURIAL_SOCIETY -> (if (group.goalAmount.isPositive) group.goalAmount else Money(ActuarialConstants.SA_AVG_FUNERAL_COST)) * (n * ActuarialConstants.SA_WORKING_AGE_MORT_PER_1000 / 1000.0 / 12.0) + monthlyInflow * 0.05
+            GroupType.BURIAL_SOCIETY -> (if (group.goalAmount.isPositive) group.goalAmount else ActuarialConstants.SA_AVG_FUNERAL_COST) * (n * ActuarialConstants.SA_WORKING_AGE_MORT_PER_1000 / 1000.0 / 12.0) + monthlyInflow * 0.05
             GroupType.ROSCA -> group.monthlyContribution * n
             GroupType.STOKVEL, GroupType.INVESTMENT_CLUB -> monthlyInflow * 0.02
             else -> monthlyInflow * 0.03

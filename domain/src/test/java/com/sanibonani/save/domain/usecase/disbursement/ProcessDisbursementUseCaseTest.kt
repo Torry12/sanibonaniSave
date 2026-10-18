@@ -27,7 +27,7 @@ class ProcessDisbursementUseCaseTest {
             securityService
         )
         every { supabaseRepository.isMfaVerified } returns true
-        coEvery { financialRepository.getVerifiedBalance(any()) } returns Result.success(Money(50000.0))
+        coEvery { financialRepository.getVerifiedBalance(any()) } returns Result.success(Money("50000.0"))
         coEvery { payoutRepository.getPendingPayouts() } returns Result.success(emptyList())
     }
 
@@ -38,7 +38,7 @@ class ProcessDisbursementUseCaseTest {
         val payout = PayoutRequest(
             id = payoutId,
             groupId = "g1",
-            amount = Money(100.0),
+            amount = Money("100.0"),
             bankName = "FNB",
             accountNo = "123",
             branchCode = "456",
@@ -63,7 +63,7 @@ class ProcessDisbursementUseCaseTest {
         val payout = PayoutRequest(
             id = payoutId,
             groupId = "g1",
-            amount = Money(15000.0),
+            amount = Money("15000.0"),
             bankName = "FNB",
             accountNo = "123",
             branchCode = "456",

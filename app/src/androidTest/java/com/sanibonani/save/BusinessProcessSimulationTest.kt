@@ -84,7 +84,7 @@ class BusinessProcessSimulationTest {
                 id = groupId,
                 name = "SIM-ROSCA-Cycle",
                 type = GroupType.ROSCA,
-                monthlyContribution = Money(1000.0),
+                monthlyContribution = Money("1000.0"),
                 periodMonths = 3,
                 rotationMethod = RoscaRotationMethod.FIXED,
                 adminUserId = TestAuthSessionController.mockedUserId,
@@ -108,7 +108,7 @@ class BusinessProcessSimulationTest {
                     Contribution(
                         memberId = m.id!!,
                         groupId = groupId,
-                        amount = Money(1000.0),
+                        amount = Money("1000.0"),
                         dueDate = "2026-07-01",
                         status = ContributionStatus.PAID,
                         transactionId = "rosca-${m.id}"
@@ -122,7 +122,7 @@ class BusinessProcessSimulationTest {
             val payout = PayoutRequest(
                 groupId = groupId,
                 memberId = members[0].id,
-                amount = Money(3000.0),
+                amount = Money("3000.0"),
                 status = PayoutStatus.GROUP_APPROVED,
                 type = PayoutType.STANDARD,
                 bankName = "Sim Bank",
@@ -147,10 +147,10 @@ class BusinessProcessSimulationTest {
                 id = groupId,
                 name = "SIM-Loan-Lifecycle",
                 type = GroupType.STOKVEL,
-                monthlyContribution = Money(500.0),
+                monthlyContribution = Money("500.0"),
                 adminUserId = TestAuthSessionController.mockedUserId,
                 registrationPaid = true,
-                balance = Money(10000.0)
+                balance = Money("10000.0")
             )
             groupRepo.createGroup(group).getOrThrow()
             testGroupIds.add(groupId)
@@ -164,10 +164,10 @@ class BusinessProcessSimulationTest {
             val loan = Loan(
                 memberId = member.id!!,
                 groupId = groupId,
-                amount = Money(3000.0),
+                amount = Money("3000.0"),
                 interestRate = 10.0,
-                totalToRepay = Money(3300.0),
-                monthlyRepayment = Money(1100.0),
+                totalToRepay = Money("3300.0"),
+                monthlyRepayment = Money("1100.0"),
                 status = LoanStatus.PENDING
             )
             val loanId = loanRepo.requestLoan(loan).getOrThrow()
@@ -177,11 +177,11 @@ class BusinessProcessSimulationTest {
             assertEquals(7000.0, getGroup(groupId).balance.toDouble(), 0.01)
 
             loanRepo.recordRepayment(LoanRepayment(
-                loanId = loanId, memberId = member.id!!, groupId = groupId, amount = Money(1100.0), paymentMethod = PaymentMethod.BANK
+                loanId = loanId, memberId = member.id!!, groupId = groupId, amount = Money("1100.0"), paymentMethod = PaymentMethod.BANK
             )).getOrThrow()
 
             loanRepo.recordRepayment(LoanRepayment(
-                loanId = loanId, memberId = member.id!!, groupId = groupId, amount = Money(2200.0), paymentMethod = PaymentMethod.BANK
+                loanId = loanId, memberId = member.id!!, groupId = groupId, amount = Money("2200.0"), paymentMethod = PaymentMethod.BANK
             )).getOrThrow()
 
             val finalLoan = loanRepo.getLoanById(loanId).getOrThrow()
@@ -198,7 +198,7 @@ class BusinessProcessSimulationTest {
                 id = groupId,
                 name = "SIM-Stokvel-Projection",
                 type = GroupType.STOKVEL,
-                monthlyContribution = Money(500.0),
+                monthlyContribution = Money("500.0"),
                 adminUserId = TestAuthSessionController.mockedUserId,
                 registrationPaid = true,
                 createdAt = java.time.LocalDate.now().minusMonths(6).toString()
@@ -218,7 +218,7 @@ class BusinessProcessSimulationTest {
                         Contribution(
                             memberId = m.id!!,
                             groupId = groupId,
-                            amount = Money(500.0),
+                            amount = Money("500.0"),
                             dueDate = "2026-0$i-01",
                             status = ContributionStatus.PAID,
                             transactionId = "stokvel-${m.id}-$i"
@@ -246,11 +246,11 @@ class BusinessProcessSimulationTest {
                 id = groupId,
                 name = "SIM-Burial-Compliance",
                 type = GroupType.BURIAL_SOCIETY,
-                monthlyContribution = Money(200.0),
+                monthlyContribution = Money("200.0"),
                 beneficiaryIncreasePct = 10.0,
                 adminUserId = TestAuthSessionController.mockedUserId,
                 registrationPaid = true,
-                balance = Money(50000.0)
+                balance = Money("50000.0")
             )
             groupRepo.createGroup(group).getOrThrow()
             testGroupIds.add(groupId)
@@ -277,7 +277,7 @@ class BusinessProcessSimulationTest {
                 memberId = m.id!!,
                 beneficiaryId = b.id!!,
                 beneficiaryName = b.fullName,
-                claimAmount = Money(15000.0),
+                claimAmount = Money("15000.0"),
                 causeOfDeath = "Accidental",
                 dateOfDeath = "2026-07-30",
                 status = BeneficiaryClaimStatus.APPROVED,
@@ -315,13 +315,13 @@ class BusinessProcessSimulationTest {
             val memberB = memberRepo.registerMember(Member(id = memberBId, groupId = groupId, fullName = "Investor B")).getOrThrow()
 
             contributionRepo.recordContribution(
-                Contribution(memberId = memberAId, groupId = groupId, amount = Money(10000.0), dueDate = "2026-07-01", status = ContributionStatus.PAID, transactionId = "investment-a-$memberAId")
+                Contribution(memberId = memberAId, groupId = groupId, amount = Money("10000.0"), dueDate = "2026-07-01", status = ContributionStatus.PAID, transactionId = "investment-a-$memberAId")
             ).getOrThrow()
             contributionRepo.recordContribution(
-                Contribution(memberId = memberBId, groupId = groupId, amount = Money(5000.0), dueDate = "2026-07-01", status = ContributionStatus.PAID, transactionId = "investment-b-$memberBId")
+                Contribution(memberId = memberBId, groupId = groupId, amount = Money("5000.0"), dueDate = "2026-07-01", status = ContributionStatus.PAID, transactionId = "investment-b-$memberBId")
             ).getOrThrow()
 
-            groupFinancialRepo.incrementGroupBalance(groupId, Money(3000.0), null).getOrThrow()
+            groupFinancialRepo.incrementGroupBalance(groupId, Money("3000.0"), null).getOrThrow()
 
             val updatedMembers = listOf(memberA, memberB).map { memberRepo.getMemberById(it.id!!).getOrThrow() }
             val insight = getGroupBusinessInsightsUseCase(getGroup(groupId), updatedMembers).getOrThrow()
@@ -340,14 +340,14 @@ class BusinessProcessSimulationTest {
                 type = GroupType.STOKVEL,
                 adminUserId = TestAuthSessionController.mockedUserId,
                 registrationPaid = true,
-                balance = Money(20000.0)
+                balance = Money("20000.0")
             )
             groupRepo.createGroup(group).getOrThrow()
             testGroupIds.add(groupId)
 
             val payoutId = payoutRepo.requestPayout(PayoutRequest(
                 groupId = groupId,
-                amount = Money(15000.0),
+                amount = Money("15000.0"),
                 status = PayoutStatus.PROCESSING,
                 bankName = "Sim", accountNo = "1", branchCode = "1"
             )).getOrThrow()
@@ -368,7 +368,7 @@ class BusinessProcessSimulationTest {
                 type = GroupType.EMERGENCY_FUND,
                 adminUserId = TestAuthSessionController.mockedUserId,
                 registrationPaid = true,
-                balance = Money(10000.0)
+                balance = Money("10000.0")
             )
             groupRepo.createGroup(group).getOrThrow()
             testGroupIds.add(groupId)
@@ -382,11 +382,11 @@ class BusinessProcessSimulationTest {
             ).getOrThrow()
 
             // 1. Success: Within 50% limit (R4000)
-            val result1 = processEmergencyWithdrawalUseCase(group, member, Money(4000.0), "Medical")
+            val result1 = processEmergencyWithdrawalUseCase(group, member, Money("4000.0"), "Medical")
             assertTrue(result1 is ProcessEmergencyWithdrawalUseCase.WithdrawalResult.Success)
 
             // 2. Failure: Exceeds 50% limit (R6000)
-            val result2 = processEmergencyWithdrawalUseCase(group, member, Money(6000.0), "Car Repair")
+            val result2 = processEmergencyWithdrawalUseCase(group, member, Money("6000.0"), "Car Repair")
             assertTrue(result2 is ProcessEmergencyWithdrawalUseCase.WithdrawalResult.Failure)
             assertTrue(
                 (result2 as ProcessEmergencyWithdrawalUseCase.WithdrawalResult.Failure).reason.contains(
@@ -473,7 +473,7 @@ class BusinessProcessSimulationTest {
                 model = com.sanibonani.save.domain.architecture.FinancialGroupModel.INVESTMENT_GROUP,
                 commandType = com.sanibonani.save.domain.architecture.policy.PolicyCommandType.PAYOUT_REQUEST,
                 actorId = TestAuthSessionController.mockedUserId!!,
-                amount = Money(6000.0) // Threshold is 5000 in TestAppModule
+                amount = Money("6000.0") // Threshold is 5000 in TestAppModule
             )
             val decision = governanceService.evaluateAction(command).getOrThrow()
             assertTrue(decision.allowed)
@@ -513,7 +513,7 @@ class BusinessProcessSimulationTest {
                 type = GroupType.COMMUNITY_SAVINGS,
                 adminUserId = TestAuthSessionController.mockedUserId,
                 registrationPaid = true,
-                balance = Money(5000.0)
+                balance = Money("5000.0")
             )
             groupRepo.createGroup(group).getOrThrow()
             testGroupIds.add(groupId)
@@ -523,7 +523,7 @@ class BusinessProcessSimulationTest {
             }
 
             // Calculate viability plan for R50,000 target over 12 months
-            val plan = actuarialRepo.calculateViabilityPlan(groupId, Money(50000.0), 12).getOrThrow()
+            val plan = actuarialRepo.calculateViabilityPlan(groupId, Money("50000.0"), 12).getOrThrow()
 
             // Initial balance R5000. 10 members. Goal R50,000.
             // Remaining: R45,000 / 12 = R3,750 per month total.

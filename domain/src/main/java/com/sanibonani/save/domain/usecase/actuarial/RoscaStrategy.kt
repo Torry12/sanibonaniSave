@@ -160,7 +160,7 @@ class RoscaStrategy : BaseActuarialStrategy() {
     override fun getIndustryBenchmark(group: Group, memberCount: Int, balance: Money): IndustryBenchmark {
         return IndustryBenchmark(
             benchmarkType = "ROSCA (Kholisano/Stokvel Standard)",
-            industryAvgContribution = Money(1000.0),
+            industryAvgContribution = Money("1000.0"),
             industryAvgBalance = Money.ZERO,
             industryPaymentRatePct = 96.0,
             benchmarkNotes = "Aims for 100% redistribution with zero retained balance."

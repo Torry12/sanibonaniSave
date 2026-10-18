@@ -15,8 +15,8 @@ object DomainSeedFactory {
         name: String = "Test Savings Group",
         type: GroupType = GroupType.STOKVEL,
         adminUserId: String,
-        monthlyContribution: Double = 500.0,
-        joiningFee: Double = 150.0
+        monthlyContribution: Money = Money("500"),
+        joiningFee: Money = Money("150")
     ): Group {
         return Group(
             id = id,
@@ -27,8 +27,8 @@ object DomainSeedFactory {
             city = "Johannesburg",
             township = "Soweto",
             description = "Test seed group for ${type.displayName} testing.",
-            joiningFee = Money(joiningFee),
-            monthlyContribution = Money(monthlyContribution),
+            joiningFee = joiningFee,
+            monthlyContribution = monthlyContribution,
             balance = Money.ZERO,
             registrationPaid = true,
             feeStatus = AdminFeeState.PAID,
@@ -75,7 +75,7 @@ object DomainSeedFactory {
                 id = "c-join-$memberId",
                 memberId = memberId,
                 groupId = groupId,
-                amount = Money(150.0),
+                amount = Money("150.0"),
                 status = ContributionStatus.PAID,
                 paidAt = baseDate.atStartOfDay().toString() + "Z",
                 dueDate = baseDate.toString(),
@@ -106,11 +106,11 @@ object DomainSeedFactory {
         id: String = UUID.randomUUID().toString(),
         groupId: String,
         memberId: String,
-        amount: Double = 2000.0,
+        amount: Money = Money("2000"),
         interestRate: Double = 15.0,
         status: LoanStatus = LoanStatus.ACTIVE
     ): Loan {
-        val principal = Money(amount)
+        val principal = amount
         val interest = principal * (interestRate / 100.0)
         val totalToRepay = principal + interest
         val startDate = LocalDate.now().minusMonths(3)
@@ -135,7 +135,7 @@ object DomainSeedFactory {
         id: String = UUID.randomUUID().toString(),
         groupId: String,
         memberId: String,
-        amount: Double = 1500.0,
+        amount: Money = Money("1500"),
         payoutType: PayoutType = PayoutType.STANDARD,
         status: PayoutStatus = PayoutStatus.PENDING
     ): PayoutRequest {
@@ -143,7 +143,7 @@ object DomainSeedFactory {
             id = id,
             groupId = groupId,
             memberId = memberId,
-            amount = Money(amount),
+            amount = amount,
             bankName = "First National Bank",
             accountNo = "62889900112",
             branchCode = "250655",

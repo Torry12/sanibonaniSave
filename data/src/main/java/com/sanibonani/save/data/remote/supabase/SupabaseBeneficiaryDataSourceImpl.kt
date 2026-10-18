@@ -7,6 +7,7 @@ import io.github.jan.supabase.postgrest.postgrest
 import javax.inject.Inject
 import javax.inject.Singleton
 import com.sanibonani.save.domain.utils.safeRunCatching
+import com.sanibonani.save.domain.utils.requirePersistedId
 
 @Singleton
 class SupabaseBeneficiaryDataSourceImpl @Inject constructor(
@@ -22,9 +23,10 @@ class SupabaseBeneficiaryDataSourceImpl @Inject constructor(
     }
 
     override suspend fun updateBeneficiary(beneficiary: Beneficiary): Result<Beneficiary> = safeRunCatching {
+        val id = beneficiary.id.requirePersistedId("beneficiary")
         client.postgrest["beneficiaries"].update(beneficiary) {
             filter {
-                eq("id", beneficiary.id!!)
+                eq("id", id)
                 eq("group_id", beneficiary.groupId)
                 eq("member_id", beneficiary.memberId)
             }

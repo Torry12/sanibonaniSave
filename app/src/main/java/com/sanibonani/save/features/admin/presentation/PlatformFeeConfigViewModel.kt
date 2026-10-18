@@ -160,13 +160,13 @@ class PlatformFeeConfigViewModel @Inject constructor(
 
     private fun createDefaultGranularFeeConfigs(): List<PlatformFeeConfig> {
         return listOf(
-            PlatformFeeConfig(groupType = GroupType.STOKVEL, roscaCycle = 0, registrationFee = Money(100.0), monthlyFee = Money(10.0), shortfallRecoveryFee = Money(5.0)),
-            PlatformFeeConfig(groupType = GroupType.BURIAL_SOCIETY, roscaCycle = 0, registrationFee = Money(50.0), monthlyFee = Money(10.0), shortfallRecoveryFee = Money(5.0)),
-            PlatformFeeConfig(groupType = GroupType.INVESTMENT_CLUB, roscaCycle = 0, registrationFee = Money(150.0), monthlyFee = Money(20.0), shortfallRecoveryFee = Money(10.0)),
-            PlatformFeeConfig(groupType = GroupType.ROSCA, roscaCycle = 3, registrationFee = Money(50.0), monthlyFee = Money(10.0), shortfallRecoveryFee = Money(5.0)),
-            PlatformFeeConfig(groupType = GroupType.ROSCA, roscaCycle = 6, registrationFee = Money(50.0), monthlyFee = Money(10.0), shortfallRecoveryFee = Money(5.0)),
-            PlatformFeeConfig(groupType = GroupType.ROSCA, roscaCycle = 12, registrationFee = Money(50.0), monthlyFee = Money(10.0), shortfallRecoveryFee = Money(5.0)),
-            PlatformFeeConfig(groupType = GroupType.EMERGENCY_FUND, roscaCycle = 0, registrationFee = Money(50.0), monthlyFee = Money(10.0), shortfallRecoveryFee = Money(5.0))
+            PlatformFeeConfig(groupType = GroupType.STOKVEL, roscaCycle = 0, registrationFee = Money("100.0"), monthlyFee = Money("10.0"), shortfallRecoveryFee = Money("5.0")),
+            PlatformFeeConfig(groupType = GroupType.BURIAL_SOCIETY, roscaCycle = 0, registrationFee = Money("50.0"), monthlyFee = Money("10.0"), shortfallRecoveryFee = Money("5.0")),
+            PlatformFeeConfig(groupType = GroupType.INVESTMENT_CLUB, roscaCycle = 0, registrationFee = Money("150.0"), monthlyFee = Money("20.0"), shortfallRecoveryFee = Money("10.0")),
+            PlatformFeeConfig(groupType = GroupType.ROSCA, roscaCycle = 3, registrationFee = Money("50.0"), monthlyFee = Money("10.0"), shortfallRecoveryFee = Money("5.0")),
+            PlatformFeeConfig(groupType = GroupType.ROSCA, roscaCycle = 6, registrationFee = Money("50.0"), monthlyFee = Money("10.0"), shortfallRecoveryFee = Money("5.0")),
+            PlatformFeeConfig(groupType = GroupType.ROSCA, roscaCycle = 12, registrationFee = Money("50.0"), monthlyFee = Money("10.0"), shortfallRecoveryFee = Money("5.0")),
+            PlatformFeeConfig(groupType = GroupType.EMERGENCY_FUND, roscaCycle = 0, registrationFee = Money("50.0"), monthlyFee = Money("10.0"), shortfallRecoveryFee = Money("5.0"))
         )
     }
 }

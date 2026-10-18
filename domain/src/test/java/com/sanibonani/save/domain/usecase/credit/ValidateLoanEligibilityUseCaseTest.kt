@@ -57,12 +57,12 @@ class ValidateLoanEligibilityUseCaseTest {
         // Joined 7 months before fixedNow
         val joinedDate = fixedNow.minusMonths(7).toString()
         val member = Member(id = "m1", status = MemberStatus.ACTIVE, joinedAt = "${joinedDate}T00:00:00Z")
-        val group = Group(id = "g1", type = GroupType.STOKVEL, monthlyContribution = Money(100.0), paymentDueDay = 1)
+        val group = Group(id = "g1", type = GroupType.STOKVEL, monthlyContribution = Money("100.0"), paymentDueDay = 1)
 
         val overdueContribution = Contribution(
             memberId = "m1",
             groupId = "g1",
-            amount = Money(100.0),
+            amount = Money("100.0"),
             status = ContributionStatus.OVERDUE,
             dueDate = fixedNow.minusDays(10).toString()
         )

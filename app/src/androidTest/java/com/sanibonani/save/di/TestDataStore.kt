@@ -50,5 +50,5 @@ object TestDataStore {
 
     fun buildMoney(amount: Money) = JsonPrimitive(amount.amount.toPlainString())
 
-    fun buildMoney(amount: Double) = JsonPrimitive(Money(amount).amount.toPlainString())
+    fun buildMoney(amount: Double) = JsonPrimitive(Money.fromDouble(amount).amount.toPlainString())
 }

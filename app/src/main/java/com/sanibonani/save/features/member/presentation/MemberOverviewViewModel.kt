@@ -103,7 +103,8 @@ class MemberOverviewViewModel @Inject constructor(
                         cacheLastSyncByGroup = s.cacheLastSyncByGroup + (pkg.group.id.orEmpty() to context.lastUpdatedMillis),
                     ) }
 
-                    startLiveObservation(pkg.member.id!!, pkg.group)
+                    val liveMemberId = pkg.member.id.serverIdOrReport("member") ?: return@observeGroupContext
+                    startLiveObservation(liveMemberId, pkg.group)
                 } else {
                     updateState { it.copy(memberContext = AsyncResult.Loading, isLoading = true) }
                 }
@@ -112,7 +113,7 @@ class MemberOverviewViewModel @Inject constructor(
     }
 
     private fun startLiveObservation(memberId: String, group: Group) {
-        val groupId = group.id!!
+        val groupId = group.id.serverIdOrReport("group") ?: return
         launchJob("live_observation") {
             // AI Performance optimization: Parallel warmup pattern
             coroutineScope {
@@ -211,7 +212,7 @@ class MemberOverviewViewModel @Inject constructor(
                     selectedGroupId = groupId,
                     isLoading = true
                 ) }
-                memberContextCacheService.warmUpForUser(supabaseRepo.currentUserId!!)
+                supabaseRepo.currentUserId?.let { memberContextCacheService.warmUpForUser(it) }
             } else {
                 updateState { it.clearGroupContext().copy(isImpersonating = false, targetMemberId = null, isLoading = false) }
             }
@@ -240,9 +241,10 @@ class MemberOverviewViewModel @Inject constructor(
         val s = uiState.value
         val msg = s.messageText
         if (msg.isBlank()) return
+        val groupId = s.selectedGroupId ?: return
         launchJob("sending_message") {
             updateState { it.copy(isSendingMessage = true) }
-            val n = AppNotification(groupId = s.selectedGroupId!!, memberId = s.member?.id, message = msg, triggerEvent = NotifEvent.MEMBER_MESSAGE)
+            val n = AppNotification(groupId = groupId, memberId = s.member?.id, message = msg, triggerEvent = NotifEvent.MEMBER_MESSAGE)
             notifRepo.sendNotification(n).onSuccess {
                 updateState { it.copy(isSendingMessage = false, messageSentSuccess = true, messageText = "") }
                 delay(2000.milliseconds)
@@ -310,9 +312,10 @@ class MemberOverviewViewModel @Inject constructor(
 
     fun downloadGroupStatement() {
         val group = uiState.value.group ?: return
+        val groupId = group.id.serverIdOrReport("group") ?: return
         launchSafeJob("download_group_ledger", "Failed to download group ledger") {
             updateState { it.copy(isExporting = true) }
-            ledgerRepo.getGroupLedger(group.id!!).onSuccess { entries ->
+            ledgerRepo.getGroupLedger(groupId).onSuccess { entries ->
                 exportRepo.exportLedgerToPdf(group, entries).onSuccess { file ->
                     updateState { it.copy(isExporting = false) }
                     sendEvent(UIEvent.OpenFile(file, "application/pdf", "Group Ledger"))
