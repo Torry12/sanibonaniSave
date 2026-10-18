@@ -84,3 +84,10 @@ caches/
 native/
 # wrapper/ is intentionally NOT excluded — gradle/wrapper/ must be committed
 kotlin-profile/
+
+# R8/ProGuard release mapping: 120 MB+ exceeds GitHub's 100 MB object limit.
+# Kept locally (and uploaded to the app store) instead of committed.
+app/release/mapping.txt
+
+# Android SDK analytics state created by local Gradle runs
+.android/
