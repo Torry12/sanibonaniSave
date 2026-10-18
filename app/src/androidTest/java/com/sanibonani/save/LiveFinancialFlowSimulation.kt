@@ -32,8 +32,8 @@ class LiveFinancialFlowSimulation {
     var hiltRule = HiltAndroidRule(this)
 
     // Using 127.0.0.1 for physical device with adb reverse
-    private val supabaseUrl = "http://127.0.0.1:45421"
-    private val serviceRoleKey = "sb_REDACTED_FROM_HISTORY"
+    private val supabaseUrl = BuildConfig.SUPABASE_URL_LOCAL
+    private val serviceRoleKey = BuildConfig.SUPABASE_SERVICE_ROLE_KEY
 
     private fun buildServiceClient() = createSupabaseClient(supabaseUrl, serviceRoleKey) {
         install(Auth)

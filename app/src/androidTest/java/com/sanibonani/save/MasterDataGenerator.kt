@@ -26,8 +26,8 @@ import java.time.format.DateTimeFormatter
 @RunWith(AndroidJUnit4::class)
 class MasterDataGenerator {
 
-    private val supabaseUrl = "http://127.0.0.1:45421"
-    private val serviceRoleKey = "sb_REDACTED_FROM_HISTORY"
+    private val supabaseUrl = BuildConfig.SUPABASE_URL_LOCAL
+    private val serviceRoleKey = BuildConfig.SUPABASE_SERVICE_ROLE_KEY
 
     private fun buildServiceClient() = createSupabaseClient(supabaseUrl, serviceRoleKey) {
         install(Auth)

@@ -65,6 +65,11 @@ build/
 # Local properties
 local.properties
 
+# Supabase CLI credentials (access token, DB password) — NEVER commit
+.env
+.env.*
+!.env.example
+
 # Logs
 *.log
 build_error.txt
