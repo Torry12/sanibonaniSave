@@ -7,7 +7,15 @@ DO $$
 DECLARE
     v_email text := 'torrymsimango@gmail.com';
     v_legacy_emails text[] := ARRAY['torryymsimango@gmail.com', 'torrymsimango@hotmail.com'];
-    v_password text := 'torry123M';
+    -- The admin credential is supplied out-of-band and is never committed. Set it in the
+    -- same transaction before running this script:
+    --     BEGIN;
+    --     SET LOCAL sanibonani.platform_admin_password = '<password>';
+    --     ... run this file ...
+    --     COMMIT;
+    -- Unset behaviour: an existing admin keeps its current password; an admin created here
+    -- gets no usable password until the rotate script in supabase/maintenance/ is run.
+    v_password text := nullif(btrim(current_setting('sanibonani.platform_admin_password', true)), '');
     v_full_name text := 'Torry Msimango';
     v_user_id uuid;
 BEGIN
@@ -27,13 +35,16 @@ BEGIN
             confirmation_token, recovery_token, email_change_token_new, email_change
         )
         VALUES (
-            v_user_id, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', v_email, extensions.crypt(v_password, extensions.gen_salt('bf', 10)), now(),
+            v_user_id, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', v_email,
+            CASE WHEN v_password IS NULL THEN NULL
+                 ELSE extensions.crypt(v_password, extensions.gen_salt('bf', 10)) END, now(),
             '{"provider":"email","providers":["email"],"role":"platform_admin"}', jsonb_build_object('full_name', v_full_name, 'role', 'platform_admin'),
             now(), now(), '', '', '', ''
         );
     ELSE
         UPDATE auth.users
-        SET encrypted_password = extensions.crypt(v_password, extensions.gen_salt('bf')),
+        SET encrypted_password = CASE WHEN v_password IS NULL THEN encrypted_password
+                                      ELSE extensions.crypt(v_password, extensions.gen_salt('bf')) END,
             email = v_email,
             email_confirmed_at = coalesce(email_confirmed_at, now()),
             raw_app_meta_data = coalesce(raw_app_meta_data, '{}'::jsonb) || '{"provider":"email","providers":["email"],"role":"platform_admin"}'::jsonb,
@@ -44,6 +55,10 @@ BEGIN
             recovery_token = COALESCE(recovery_token, ''),
             email_change = COALESCE(email_change, '')
         WHERE id = v_user_id;
+    END IF;
+
+    IF v_password IS NULL THEN
+        RAISE NOTICE 'sanibonani.platform_admin_password is not set: an existing admin keeps its current password, a newly created one has none. Run supabase/maintenance/ROTATE_PLATFORM_ADMIN_PASSWORD_20261018.sql to set it.';
     END IF;
 
     -- 2. Ensure Identity

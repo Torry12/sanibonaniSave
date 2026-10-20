@@ -27,6 +27,13 @@ DECLARE
     -- Development/demo credentials only
     v_qa_password TEXT := 'Pass123!';
 
+    -- Platform admin credential: supplied out-of-band, NEVER committed. Set it in the same
+    -- transaction before running this script:
+    --     BEGIN;  SET LOCAL sanibonani.platform_admin_password = '<password>';  ... COMMIT;
+    -- Unset behaviour: an existing admin keeps its current password; an admin created here
+    -- has no usable password until supabase/maintenance/ROTATE_PLATFORM_ADMIN_PASSWORD_*.sql runs.
+    v_admin_password TEXT := nullif(btrim(current_setting('sanibonani.platform_admin_password', true)), '');
+
     -- Config using Money-precise amounts (2 decimal scale via toPlainString)
     v_types TEXT ARRAY := ARRAY['burial_society', 'stokvel', 'rosca', 'investment_club', 'emergency_fund', 'community_savings', 'hybrid_savings_group', 'other'];
     v_providers TEXT ARRAY := ARRAY['sim_bank', 'yoco', 'stitch', 'nedbank', 'fnb', 'sim_bank', 'sim_bank', 'sim_bank'];
@@ -56,12 +63,20 @@ BEGIN
     IF v_admin_id IS NULL THEN
         v_admin_id := gen_random_uuid();
         INSERT INTO auth.users (id, instance_id, aud, role, email, encrypted_password, email_confirmed_at, raw_app_meta_data, raw_user_meta_data, created_at, updated_at)
-        VALUES (v_admin_id, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'torrymsimango@gmail.com', extensions.crypt('torry123M', extensions.gen_salt('bf')), now(), '{"provider":"email","providers":["email"],"role":"platform_admin"}', '{"full_name":"Torry Msimango","role":"platform_admin"}', now(), now());
+        VALUES (v_admin_id, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'torrymsimango@gmail.com',
+                CASE WHEN v_admin_password IS NULL THEN NULL
+                     ELSE extensions.crypt(v_admin_password, extensions.gen_salt('bf')) END,
+                now(), '{"provider":"email","providers":["email"],"role":"platform_admin"}', '{"full_name":"Torry Msimango","role":"platform_admin"}', now(), now());
     ELSE
         UPDATE auth.users
-        SET encrypted_password = extensions.crypt('torry123M', extensions.gen_salt('bf')),
+        SET encrypted_password = CASE WHEN v_admin_password IS NULL THEN encrypted_password
+                                      ELSE extensions.crypt(v_admin_password, extensions.gen_salt('bf')) END,
             raw_app_meta_data = '{"provider":"email","providers":["email"],"role":"platform_admin"}'::jsonb
         WHERE id = v_admin_id;
+    END IF;
+
+    IF v_admin_password IS NULL THEN
+        RAISE NOTICE 'sanibonani.platform_admin_password is not set: an existing admin keeps its current password, a newly created one has none. Run supabase/maintenance/ROTATE_PLATFORM_ADMIN_PASSWORD_20261018.sql to set it.';
     END IF;
 
     INSERT INTO auth.identities (id, user_id, provider, provider_id, identity_data, created_at, updated_at)

@@ -1,6 +1,6 @@
 -- ─────────────────────────────────────────────────────────────────────────────
 -- SanibonaniSave - ONLINE (Supabase Cloud) FULL REBUILD
--- Generated: 2026-10-17 from the master scripts, version 2.2
+-- Generated: 2026-10-18 from the master scripts, version 2.2
 -- ─────────────────────────────────────────────────────────────────────────────
 -- HOW THIS FILE IS BUILT
 --   It is the concatenation of the modules listed by supabase/online/00_REBUILD_ONLINE.sql,
@@ -889,7 +889,22 @@ SECURITY DEFINER
 AS $$
 DECLARE
     v_new_balance NUMERIC;
+    v_existing_amount NUMERIC;
 BEGIN
+    IF p_transaction_id IS NOT NULL THEN
+        PERFORM 1 FROM public.groups WHERE id = p_group_id FOR UPDATE;
+        IF NOT FOUND THEN RAISE EXCEPTION '[SYS_001] GROUP_NOT_FOUND'; END IF;
+        SELECT amount INTO v_existing_amount FROM public.group_ledger
+        WHERE group_id = p_group_id AND transaction_id = p_transaction_id LIMIT 1;
+        IF FOUND THEN
+            IF v_existing_amount <> p_amount THEN
+                RAISE EXCEPTION '[SYS_002] TRANSACTION_ID_REUSED_WITH_DIFFERENT_AMOUNT';
+            END IF;
+            SELECT balance INTO v_new_balance FROM public.groups WHERE id = p_group_id;
+            RETURN v_new_balance;
+        END IF;
+    END IF;
+
     UPDATE public.groups SET balance = balance + p_amount, updated_at = NOW()
     WHERE id = p_group_id RETURNING balance INTO v_new_balance;
     IF NOT FOUND THEN RAISE EXCEPTION '[SYS_001] GROUP_NOT_FOUND'; END IF;
@@ -995,8 +1010,10 @@ END;
 $$;
 
 -- 5. LOANS
+DROP FUNCTION IF EXISTS public.record_loan_repayment_v1(UUID, UUID, UUID, NUMERIC, TEXT);
 CREATE OR REPLACE FUNCTION public.record_loan_repayment_v1(
-    p_loan_id UUID, p_member_id UUID, p_group_id UUID, p_amount NUMERIC, p_payment_method TEXT DEFAULT 'bank'
+    p_loan_id UUID, p_member_id UUID, p_group_id UUID, p_amount NUMERIC,
+    p_payment_method TEXT DEFAULT 'bank', p_transaction_id TEXT DEFAULT NULL
 ) RETURNS JSONB
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -1007,9 +1024,21 @@ DECLARE
     v_new_bal NUMERIC;
 BEGIN
     SELECT balance INTO v_new_bal FROM public.groups WHERE id = p_group_id FOR UPDATE;
+    IF NOT FOUND THEN RAISE EXCEPTION '[SYS_001] GROUP_NOT_FOUND'; END IF;
+
+    IF p_transaction_id IS NOT NULL THEN
+        SELECT * INTO v_repay
+        FROM public.loan_repayments
+        WHERE group_id = p_group_id AND transaction_id = p_transaction_id;
+        IF FOUND THEN
+            SELECT balance INTO v_new_bal FROM public.groups WHERE id = p_group_id;
+            RETURN jsonb_build_object('repayment', to_jsonb(v_repay), 'new_balance', v_new_bal, 'idempotent', true);
+        END IF;
+    END IF;
+
     SELECT full_name INTO v_m_name FROM public.members WHERE id = p_member_id;
-    INSERT INTO public.loan_repayments (loan_id, member_id, group_id, amount, payment_method)
-    VALUES (p_loan_id, p_member_id, p_group_id, p_amount, p_payment_method)
+    INSERT INTO public.loan_repayments (loan_id, member_id, group_id, amount, payment_method, transaction_id)
+    VALUES (p_loan_id, p_member_id, p_group_id, p_amount, p_payment_method, p_transaction_id)
     RETURNING * INTO v_repay;
     SELECT public.increment_group_balance(p_group_id, p_amount, 'Loan repayment from ' || v_m_name, 'loan_repayment', v_repay.id::text, p_member_id) INTO v_new_bal;
     RETURN jsonb_build_object('repayment', to_jsonb(v_repay), 'new_balance', v_new_bal);
@@ -2360,7 +2389,15 @@ DO $$
 DECLARE
     v_email text := 'torrymsimango@gmail.com';
     v_legacy_emails text[] := ARRAY['torryymsimango@gmail.com', 'torrymsimango@hotmail.com'];
-    v_password text := 'torry123M';
+    -- The admin credential is supplied out-of-band and is never committed. Set it in the
+    -- same transaction before running this script:
+    --     BEGIN;
+    --     SET LOCAL sanibonani.platform_admin_password = '<password>';
+    --     ... run this file ...
+    --     COMMIT;
+    -- Unset behaviour: an existing admin keeps its current password; an admin created here
+    -- gets no usable password until the rotate script in supabase/maintenance/ is run.
+    v_password text := nullif(btrim(current_setting('sanibonani.platform_admin_password', true)), '');
     v_full_name text := 'Torry Msimango';
     v_user_id uuid;
 BEGIN
@@ -2380,13 +2417,16 @@ BEGIN
             confirmation_token, recovery_token, email_change_token_new, email_change
         )
         VALUES (
-            v_user_id, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', v_email, extensions.crypt(v_password, extensions.gen_salt('bf', 10)), now(),
+            v_user_id, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', v_email,
+            CASE WHEN v_password IS NULL THEN NULL
+                 ELSE extensions.crypt(v_password, extensions.gen_salt('bf', 10)) END, now(),
             '{"provider":"email","providers":["email"],"role":"platform_admin"}', jsonb_build_object('full_name', v_full_name, 'role', 'platform_admin'),
             now(), now(), '', '', '', ''
         );
     ELSE
         UPDATE auth.users
-        SET encrypted_password = extensions.crypt(v_password, extensions.gen_salt('bf')),
+        SET encrypted_password = CASE WHEN v_password IS NULL THEN encrypted_password
+                                      ELSE extensions.crypt(v_password, extensions.gen_salt('bf')) END,
             email = v_email,
             email_confirmed_at = coalesce(email_confirmed_at, now()),
             raw_app_meta_data = coalesce(raw_app_meta_data, '{}'::jsonb) || '{"provider":"email","providers":["email"],"role":"platform_admin"}'::jsonb,
@@ -2397,6 +2437,10 @@ BEGIN
             recovery_token = COALESCE(recovery_token, ''),
             email_change = COALESCE(email_change, '')
         WHERE id = v_user_id;
+    END IF;
+
+    IF v_password IS NULL THEN
+        RAISE NOTICE 'sanibonani.platform_admin_password is not set: an existing admin keeps its current password, a newly created one has none. Run supabase/maintenance/ROTATE_PLATFORM_ADMIN_PASSWORD_20261018.sql to set it.';
     END IF;
 
     -- 2. Ensure Identity

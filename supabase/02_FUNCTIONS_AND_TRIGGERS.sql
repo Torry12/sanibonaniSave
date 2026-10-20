@@ -73,7 +73,26 @@ SECURITY DEFINER
 AS $$
 DECLARE
     v_new_balance NUMERIC;
+    v_existing_amount NUMERIC;
 BEGIN
+    IF p_transaction_id IS NOT NULL THEN
+        PERFORM 1 FROM public.groups WHERE id = p_group_id FOR UPDATE;
+        IF NOT FOUND THEN RAISE EXCEPTION '[SYS_001] GROUP_NOT_FOUND'; END IF;
+
+        SELECT amount INTO v_existing_amount
+        FROM public.group_ledger
+        WHERE group_id = p_group_id AND transaction_id = p_transaction_id
+        LIMIT 1;
+
+        IF FOUND THEN
+            IF v_existing_amount <> p_amount THEN
+                RAISE EXCEPTION '[SYS_002] TRANSACTION_ID_REUSED_WITH_DIFFERENT_AMOUNT';
+            END IF;
+            SELECT balance INTO v_new_balance FROM public.groups WHERE id = p_group_id;
+            RETURN v_new_balance;
+        END IF;
+    END IF;
+
     UPDATE public.groups SET balance = balance + p_amount, updated_at = NOW()
     WHERE id = p_group_id RETURNING balance INTO v_new_balance;
     IF NOT FOUND THEN RAISE EXCEPTION '[SYS_001] GROUP_NOT_FOUND'; END IF;
@@ -179,8 +198,10 @@ END;
 $$;
 
 -- 5. LOANS
+DROP FUNCTION IF EXISTS public.record_loan_repayment_v1(UUID, UUID, UUID, NUMERIC, TEXT);
 CREATE OR REPLACE FUNCTION public.record_loan_repayment_v1(
-    p_loan_id UUID, p_member_id UUID, p_group_id UUID, p_amount NUMERIC, p_payment_method TEXT DEFAULT 'bank'
+    p_loan_id UUID, p_member_id UUID, p_group_id UUID, p_amount NUMERIC,
+    p_payment_method TEXT DEFAULT 'bank', p_transaction_id TEXT DEFAULT NULL
 ) RETURNS JSONB
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -191,9 +212,21 @@ DECLARE
     v_new_bal NUMERIC;
 BEGIN
     SELECT balance INTO v_new_bal FROM public.groups WHERE id = p_group_id FOR UPDATE;
+    IF NOT FOUND THEN RAISE EXCEPTION '[SYS_001] GROUP_NOT_FOUND'; END IF;
+
+    IF p_transaction_id IS NOT NULL THEN
+        SELECT * INTO v_repay
+        FROM public.loan_repayments
+        WHERE group_id = p_group_id AND transaction_id = p_transaction_id;
+        IF FOUND THEN
+            SELECT balance INTO v_new_bal FROM public.groups WHERE id = p_group_id;
+            RETURN jsonb_build_object('repayment', to_jsonb(v_repay), 'new_balance', v_new_bal, 'idempotent', true);
+        END IF;
+    END IF;
+
     SELECT full_name INTO v_m_name FROM public.members WHERE id = p_member_id;
-    INSERT INTO public.loan_repayments (loan_id, member_id, group_id, amount, payment_method)
-    VALUES (p_loan_id, p_member_id, p_group_id, p_amount, p_payment_method)
+    INSERT INTO public.loan_repayments (loan_id, member_id, group_id, amount, payment_method, transaction_id)
+    VALUES (p_loan_id, p_member_id, p_group_id, p_amount, p_payment_method, p_transaction_id)
     RETURNING * INTO v_repay;
     SELECT public.increment_group_balance(p_group_id, p_amount, 'Loan repayment from ' || v_m_name, 'loan_repayment', v_repay.id::text, p_member_id) INTO v_new_bal;
     RETURN jsonb_build_object('repayment', to_jsonb(v_repay), 'new_balance', v_new_bal);

@@ -37,7 +37,7 @@ This removes the test group-admin + seeded-member auth users and unlinks seeded 
 
 - Platform Admin
   - Email: `torrymsimango@gmail.com`
-  - Password: `torry123M`
+  - Password: see `PLATFORM_ADMIN_PASSWORD` in `local.properties` (not tracked)
 
 - Group Admin
   - Email: `test.groupadmin@example.com`

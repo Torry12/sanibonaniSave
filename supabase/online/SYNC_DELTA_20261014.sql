@@ -1,6 +1,16 @@
 -- =============================================================================
 -- SanibonaniSave - ONLINE (Supabase Cloud) SYNC DELTA
 -- Generated: 2026-10-14   Source: regenerated GROUND_ZERO v2.2 baseline
+-- Refreshed: 2026-10-18. Sections H and I are new: H grants the EXECUTE that A-G never
+--   issued, I fingerprints the app RPCs this delta does not define.
+-- Re-verified: 2026-10-20 against the masters as they stand now (they moved after the
+--   2026-10-18 pass above). All 24 function bodies embedded in A-G are verbatim in
+--   02_FUNCTIONS_AND_TRIGGERS.sql and in the regenerated GROUND_ZERO.sql under the same
+--   whitespace-insensitive compare, so nothing drifted and nothing is absent. The 14 RPC
+--   names the production app calls also reconcile with this delta's design: 4 are created by
+--   G.1, 7 are assumed-present and fingerprinted in I.1, and the remaining 3 are exactly the
+--   known implementation gap reported by I.2. No statement in this file needs to change
+--   because of the master edits; A..V below is still the current target state.
 -- =============================================================================
 -- PURPOSE
 --   Brings an existing Online tier up to the schema and financial logic that the Local
@@ -17,9 +27,21 @@
 -- NOT INCLUDED
 --   Seed data (SEED_*.sql) and the platform admin bootstrap. A running Online project
 --   must never be re-seeded from this script.
+--   The 2026-10-18 seed parameterisation (04_PLATFORM_ADMIN_SETUP.sql and
+--   MASTER_SEED_DATA.sql now take the admin password from the transaction-local setting
+--   sanibonani.platform_admin_password) is out of scope for the same reason: it changes
+--   only the admin bootstrap. Rotating that password is a separate, deliberate action -
+--   see supabase/maintenance/ROTATE_PLATFORM_ADMIN_PASSWORD_20261018.sql.
 --   Section G is conditional: read its G.0 report before deciding whether G.1 is needed.
 -- EXPECTED RESULT: 0 errors. An error means Online differs from what this delta assumed;
 --   run section V and compare against Local before retrying.
+-- ORDER OF WORK: the sections are already in safe application order, so pasting A -> V in one
+--   pass works. Before that, run the four read-only probes alone and honour them:
+--     G.0 and I.1 -> STOP if either reports rpc_hash_differs (a cloud-only hot fix would be
+--                    overwritten); skip G.1 entirely if G.0 reports rpc_missing=0.
+--     H.0        -> 0 rows means H.1 has nothing to do.
+--     I.2        -> 3 rows of definitions_in_db=0 is the known implementation gap, not an error.
+--   Writing sections: A..F, G.1, H.1. Everything else reports only.
 -- =============================================================================
 
 -- -----------------------------------------------------------------------------
@@ -863,6 +885,168 @@ BEGIN
     RETURN jsonb_build_object('status', 'success', 'months_simulated', p_months);
 END;
 $$;
+-- -----------------------------------------------------------------------------
+-- H. FUNCTION EXECUTE GRANTS for the objects this delta creates.
+--   Sections A-G CREATE OR REPLACE 24 functions but issue no GRANT, so a tier whose
+--   default privileges do not cover them accepts the DDL and then rejects the app at
+--   call time. The baseline grants these same three roles (GROUND_ZERO section 11 plus
+--   its ALTER DEFAULT PRIVILEGES block), so H restores the documented parity target
+--   rather than widening access. H.0 is read-only and reports the shortfall; H.1 grants
+--   by exact signature, so overloaded names are never ambiguous, and no-ops when H.0
+--   returned no rows.
+--   The audited list is the 24 functions this delta defines PLUS the seven RPCs section I
+--   fingerprints, so one audit covers every routine production Kotlin calls.
+-- -----------------------------------------------------------------------------
+
+-- H.0 shortfall audit (read-only). Expected: 0 rows.
+SELECT p.oid::regprocedure::text AS function_without_execute_grant,
+       string_agg(CASE WHEN NOT pg_catalog.has_function_privilege(rol.name, p.oid, 'EXECUTE')
+                        THEN rol.name END, ' ' ORDER BY rol.name) AS missing_for
+  FROM pg_proc p
+  JOIN pg_namespace n ON n.oid = p.pronamespace
+ CROSS JOIN (VALUES ('anon'), ('authenticated'), ('service_role')) AS rol(name)
+ WHERE n.nspname = 'public'
+   AND p.proname = ANY (ARRAY[
+        'approve_and_disburse_loan_v2',
+        'assert_mfa_for_disbursement_v1',
+        'complete_payout_v2',
+        'consolidate_group_ledger_v1',
+        'create_ledger_checkpoint_v1',
+        'fn_member_behavior_init',
+        'fn_member_financial_sync_on_change',
+        'fn_sync_group_member_count',
+        'fn_sync_single_loan_totals',
+        'fn_sync_single_member_financials',
+        'fn_trigger_sync_loan_repayment_total',
+        'fn_trigger_sync_member_financials',
+        'fn_trigger_sync_poll_status',
+        'fn_trigger_sync_poll_vote_count',
+        'fn_trigger_update_behavior_metrics',
+        'fn_trigger_voting_audit',
+        'handle_new_user',
+        'pay_platform_fee_v2',
+        'perform_group_reconciliation_v1',
+        'process_rosca_payout_v2',
+        'record_loan_settlement_extraction_v1',
+        'record_platform_revenue_v1',
+        'search_members_v1',
+        'simulate_bulk_activity_v2',
+        'process_complex_payment_v4',
+        'increment_group_balance',
+        'recalculate_all_group_financials_v3',
+        'reconcile_bank_transaction_v1',
+        'record_contribution_v2',
+        'record_loan_repayment_v1',
+        'record_platform_revenue_v2'
+   ])
+   AND NOT pg_catalog.has_function_privilege(rol.name, p.oid, 'EXECUTE')
+ GROUP BY p.oid
+ ORDER BY 1;
+
+-- H.1 targeted repair (idempotent; touches only functions a role genuinely cannot call).
+DO $$
+DECLARE
+    r         RECORD;
+    v_granted INT := 0;
+BEGIN
+    FOR r IN
+        SELECT p.oid
+          FROM pg_proc p
+          JOIN pg_namespace n ON n.oid = p.pronamespace
+         WHERE n.nspname = 'public'
+           AND p.proname = ANY (ARRAY[
+                 'approve_and_disburse_loan_v2',
+                 'assert_mfa_for_disbursement_v1',
+                 'complete_payout_v2',
+                 'consolidate_group_ledger_v1',
+                 'create_ledger_checkpoint_v1',
+                 'fn_member_behavior_init',
+                 'fn_member_financial_sync_on_change',
+                 'fn_sync_group_member_count',
+                 'fn_sync_single_loan_totals',
+                 'fn_sync_single_member_financials',
+                 'fn_trigger_sync_loan_repayment_total',
+                 'fn_trigger_sync_member_financials',
+                 'fn_trigger_sync_poll_status',
+                 'fn_trigger_sync_poll_vote_count',
+                 'fn_trigger_update_behavior_metrics',
+                 'fn_trigger_voting_audit',
+                 'handle_new_user',
+                 'pay_platform_fee_v2',
+                 'perform_group_reconciliation_v1',
+                 'process_rosca_payout_v2',
+                 'record_loan_settlement_extraction_v1',
+                 'record_platform_revenue_v1',
+                 'search_members_v1',
+                 'simulate_bulk_activity_v2',
+                 'process_complex_payment_v4',
+                 'increment_group_balance',
+                 'recalculate_all_group_financials_v3',
+                 'reconcile_bank_transaction_v1',
+                 'record_contribution_v2',
+                 'record_loan_repayment_v1',
+                 'record_platform_revenue_v2'
+           ])
+           AND (   NOT pg_catalog.has_function_privilege('anon',         p.oid, 'EXECUTE')
+                OR NOT pg_catalog.has_function_privilege('authenticated', p.oid, 'EXECUTE')
+                OR NOT pg_catalog.has_function_privilege('service_role',  p.oid, 'EXECUTE'))
+    LOOP
+        EXECUTE format('GRANT EXECUTE ON FUNCTION %s TO anon, authenticated, service_role', r.oid::regprocedure);
+        v_granted := v_granted + 1;
+        RAISE NOTICE '[SYNC_DELTA H.1] granted EXECUTE: %', r.oid::regprocedure;
+    END LOOP;
+    IF v_granted = 0 THEN
+        RAISE NOTICE '[SYNC_DELTA H.1] nothing to do - every function this delta creates is already executable by anon, authenticated and service_role';
+    END IF;
+END $$;
+
+-- -----------------------------------------------------------------------------
+-- I. APP RPC COVERAGE (read-only). These RPCs are called from production Kotlin but are
+--   NOT defined by this delta, so G.0 alone cannot prove the tier is callable.
+--   Fingerprints come from the master text using the same normalisation as G.0:
+--     process_complex_payment_v4       supabase/18_DEPLOY_PROCESS_COMPLEX_PAYMENT_V4.sql
+--     the other six                  supabase/02_FUNCTIONS_AND_TRIGGERS.sql
+--   rpc_missing > 0  -> run that master file; it is a single idempotent definition.
+--   rpc_hash_differs -> STOP and diff against the master first; the tier may hold a
+--     newer cloud hot fix and this delta would silently overwrite it.
+-- -----------------------------------------------------------------------------
+
+-- I.1 fingerprint of the RPCs this delta assumes the tier already has.
+WITH expected(name, hash) AS (VALUES
+  ('process_complex_payment_v4',        'd32e03083a3dfb663533a650b3fb2097'),
+  ('increment_group_balance',           '0e96e06f47613f191008e7df6ef47550'),
+  ('recalculate_all_group_financials_v3','686f8b4b424576d0a16f05625574b821'),
+  ('reconcile_bank_transaction_v1',     '4cc54a865a9c504b325a36c229b733bf'),
+  ('record_contribution_v2',            '90ef8d9ad34e7f6d8fb9b9be20de577f'),
+  ('record_loan_repayment_v1',          '7ba14d8b9cd1d5f7035e6b03b82c7952'),
+  ('record_platform_revenue_v2',        'e177966e5f75908a8db09a27ded35944')
+), actual AS (
+  SELECT e.name, e.hash AS want,
+         (SELECT md5(btrim(regexp_replace(replace(p.prosrc, E'', ''), E'[[:space:]]+', ' ', 'g')))
+            FROM pg_proc p JOIN pg_namespace s ON s.oid = p.pronamespace
+           WHERE s.nspname = 'public' AND p.proname = e.name) AS got
+    FROM expected e
+)
+-- One statement, three metrics.
+SELECT 'rpc_missing='   || count(*) FILTER (WHERE got IS NULL),
+       'rpc_hash_differs=' || coalesce(string_agg(name, ',' ORDER BY name)
+                            FILTER (WHERE got IS NOT NULL AND got <> want), 'none'),
+       'body_hash_matches=' || count(*) FILTER (WHERE got = want)
+  FROM actual;
+
+-- I.2 Called by production Kotlin, defined in NO master script and in no generated
+--   artifact. Expected: definitions_in_db = 0 for all three. That is a missing
+--   implementation, NOT a sync gap: the bodies belong in 02_FUNCTIONS_AND_TRIGGERS.sql
+--   and then in the baseline, never improvised inside a sync script.
+--   Any non-zero count means the cloud tier holds an object no master knows about, so
+--   port it into the masters before the next GROUND_ZERO rebuild.
+SELECT x.name,
+       (SELECT count(*)
+          FROM pg_proc p
+          JOIN pg_namespace n ON n.oid = p.pronamespace
+         WHERE n.nspname = 'public' AND p.proname = x.name) AS definitions_in_db
+  FROM (VALUES ('close_poll_v1'), ('pay_burial_claim_v1'), ('record_disbursement_v1')) AS x(name)
+ ORDER BY 1;
 -- -----------------------------------------------------------------------------
 -- V. VERIFY (read-only). Expected on a healthy tier:
 --   fee_v2_guard          = true
