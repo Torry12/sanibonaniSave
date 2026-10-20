@@ -16,7 +16,12 @@ interface RemoteGroupDataSource {
     suspend fun updateGroupSettings(groupId: String, settings: Map<String, Any>): Result<Unit>
     suspend fun activateGroup(groupId: String, txId: String?): Result<Unit>
     suspend fun updateFeeStatus(groupId: String, status: AdminFeeState): Result<Unit>
-    suspend fun incrementGroupBalance(groupId: String, amount: Money, memberId: String? = null): Result<Money>
+    suspend fun incrementGroupBalance(
+        groupId: String,
+        amount: Money,
+        memberId: String? = null,
+        transactionId: String? = null
+    ): Result<Money>
     suspend fun recordDisbursement(groupId: String, amount: Money, description: String, category: String, transactionId: String? = null, memberId: String? = null): Result<Money>
     suspend fun deleteGroup(groupId: String): Result<Unit>
 }

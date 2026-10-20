@@ -14,85 +14,25 @@ import java.util.*
 import javax.inject.Inject
 import com.sanibonani.save.domain.utils.CsvWriter
 import com.sanibonani.save.domain.utils.safeRunCatching
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 class ExportRepositoryImpl @Inject constructor(
     @ApplicationContext private val context: Context,
     private val supabaseRepo: SupabaseRepository
 ) : ExportRepository {
 
-    override suspend fun exportPaymentsToCsv(group: Group, payments: List<Payment>, members: List<Member>): Result<File> = safeRunCatching {
-        val sanitizedGroupName = group.name.replace(Regex("[^a-zA-Z0-9_-]"), "_")
-        val fileName = "Statement_${sanitizedGroupName}_${System.currentTimeMillis()}.csv"
-
-        val file = File(getDocumentsDir(), fileName)
-        val memberMap = members.associateBy { it.id }
-
-        FileWriter(file).use { writer ->
-            writer.append(CsvWriter.headerRow("Date", "Member", "Type", "Amount", "Method", "Status", "TransactionID"))
-            writer.append(CsvWriter.LINE_SEPARATOR)
-            payments.sortedByDescending { it.createdAt }.forEach { p ->
-                val memberName = memberMap[p.memberId]?.fullName ?: "Unknown"
-                writer.append(CsvWriter.row(
-                    p.createdAt?.take(10),
-                    memberName,
-                    p.paymentType.name,
-                    p.amount,
-                    p.paymentMethod.name,
-                    p.status.name,
-                    p.transactionId ?: "N/A"
-                ))
-                writer.append(CsvWriter.LINE_SEPARATOR)
-            }
-        }
-        file
-    }
-
-    override suspend fun exportPaymentsToPdf(
-        group: Group,
-        payments: List<Payment>,
-        members: List<Member>
-    ): Result<File> = safeRunCatching {
-        val sanitizedGroupName = group.name.replace(Regex("[^a-zA-Z0-9_-]"), "_")
-        val fileName = "Group_Statement_${sanitizedGroupName}_${System.currentTimeMillis()}.pdf"
-        val file = File(getDocumentsDir(), fileName)
-
-        val memberMap = members.associateBy { it.id }
-        val generatedAt = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date())
-
-        val generator = PdfGenerator()
-        generator.startNewPage()
-        generator.drawText("Group Payments Statement", isTitle = true, spacing = 30f)
-        generator.drawText("Group: ${group.name}", isBold = true)
-        generator.drawText("Generated: $generatedAt", spacing = 30f)
-
-        val offsets = listOf(40f, 112f, 298f, 380f, 450f, 526f)
-        generator.drawRow(listOf("Date", "Member", "Type", "Amount", "Method", "Status"), offsets, isHeader = true)
-        generator.drawLine()
-
-        if (payments.isEmpty()) {
-            generator.drawText("No payment records found.")
-        } else {
-            payments.sortedByDescending { it.createdAt }.forEach { p ->
-                val date = p.createdAt?.take(10) ?: "N/A"
-                val memberName = (memberMap[p.memberId]?.fullName ?: "Unknown").take(24)
-                val amount = p.amount.format()
-
-                generator.drawRow(
-                    listOf(date, memberName, p.paymentType.displayName, amount, p.paymentMethod.displayName, p.status.displayName),
-                    offsets
-                )
-            }
-        }
-
-        generator.save(file).getOrThrow()
-    }
+    // Statements write whole documents to storage: off the caller's dispatcher or a large export
+    // freezes the screen that asked for it.
+    private suspend fun <T> exporting(block: () -> T): Result<T> =
+        withContext(Dispatchers.IO) { safeRunCatching("ExportRepository", block) }
 
     private fun getDocumentsDir(): File {
         return context.getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS)
             ?: File(context.filesDir, "documents").apply { if (!exists()) mkdirs() }
     }
 
-    override suspend fun exportContributionsToCsv(group: Group, member: Member, contributions: List<Contribution>): Result<File> = safeRunCatching {
+    override suspend fun exportContributionsToCsv(group: Group, member: Member, contributions: List<Contribution>): Result<File> = exporting {
         val sanitizedMemberName = member.fullName.replace(Regex("[^a-zA-Z0-9_-]"), "_")
         val fileName = "Contributions_${sanitizedMemberName}_${System.currentTimeMillis()}.csv"
 
@@ -118,7 +58,7 @@ class ExportRepositoryImpl @Inject constructor(
         group: Group,
         member: Member,
         contributions: List<Contribution>
-    ): Result<File> = safeRunCatching {
+    ): Result<File> = exporting {
         val sanitizedMemberName = member.fullName.replace(Regex("[^a-zA-Z0-9_-]"), "_")
         val fileName = "Statement_${sanitizedMemberName}_${System.currentTimeMillis()}.pdf"
         val file = File(getDocumentsDir(), fileName)
@@ -155,7 +95,7 @@ class ExportRepositoryImpl @Inject constructor(
         loan: Loan,
         member: Member,
         group: Group
-    ): Result<File> = safeRunCatching {
+    ): Result<File> = exporting {
         val sanitizedMemberName = member.fullName.replace(Regex("[^a-zA-Z0-9_-]"), "_")
         val fileName = "Loan_Agreement_${sanitizedMemberName}_${System.currentTimeMillis()}.pdf"
         val file = File(getDocumentsDir(), fileName)
@@ -194,7 +134,7 @@ class ExportRepositoryImpl @Inject constructor(
         generator.save(file).getOrThrow()
     }
 
-    override suspend fun exportGroupConstitution(group: Group): Result<File> = safeRunCatching {
+    override suspend fun exportGroupConstitution(group: Group): Result<File> = exporting {
         val sanitizedGroupName = group.name.replace(Regex("[^a-zA-Z0-9_-]"), "_")
         val fileName = "Constitution_${sanitizedGroupName}_${System.currentTimeMillis()}.pdf"
         val file = File(getDocumentsDir(), fileName)
@@ -231,7 +171,7 @@ class ExportRepositoryImpl @Inject constructor(
     override suspend fun exportMembershipContract(
         member: Member,
         group: Group
-    ): Result<File> = safeRunCatching {
+    ): Result<File> = exporting {
         val sanitizedMemberName = member.fullName.replace(Regex("[^a-zA-Z0-9_-]"), "_")
         val fileName = "Membership_Contract_${sanitizedMemberName}_${System.currentTimeMillis()}.pdf"
         val file = File(getDocumentsDir(), fileName)
@@ -270,7 +210,7 @@ class ExportRepositoryImpl @Inject constructor(
         generator.save(file).getOrThrow()
     }
 
-    override suspend fun exportLedgerToCsv(group: Group, entries: List<LedgerEntry>): Result<File> = safeRunCatching {
+    override suspend fun exportLedgerToCsv(group: Group, entries: List<LedgerEntry>): Result<File> = exporting {
         val sanitizedGroupName = group.name.replace(Regex("[^a-zA-Z0-9_-]"), "_")
         val fileName = "Ledger_${sanitizedGroupName}_${System.currentTimeMillis()}.csv"
         val file = File(getDocumentsDir(), fileName)
@@ -292,7 +232,7 @@ class ExportRepositoryImpl @Inject constructor(
         file
     }
 
-    override suspend fun exportLedgerToPdf(group: Group, entries: List<LedgerEntry>): Result<File> = safeRunCatching {
+    override suspend fun exportLedgerToPdf(group: Group, entries: List<LedgerEntry>): Result<File> = exporting {
         val sanitizedGroupName = group.name.replace(Regex("[^a-zA-Z0-9_-]"), "_")
         val fileName = "Ledger_${sanitizedGroupName}_${System.currentTimeMillis()}.pdf"
         val file = File(getDocumentsDir(), fileName)

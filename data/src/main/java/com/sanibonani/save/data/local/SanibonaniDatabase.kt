@@ -64,34 +64,4 @@ abstract class SanibonaniDatabase : RoomDatabase() {
     abstract fun ledgerCheckpointDao(): LedgerCheckpointDao
     abstract fun groupVotingDao(): GroupVotingDao
     abstract fun pendingOperationDao(): PendingOperationDao
-
-    suspend fun clearAllData() {
-        userProfileDao().deleteProfile("") // Dummy clear
-        groupDao().clearAll()
-        memberDao().clearAll()
-        contributionDao().clearAll()
-        paymentDao().clearAll()
-        beneficiaryDao().clearAll()
-        notificationDao().clearAll()
-        payoutDao().clearAll()
-        memberDocumentDao().clearAll()
-        loanDao().clearAllLoans()
-        loanDao().clearAllRepayments()
-        groupHealthScoreDao().clearAll()
-        beneficiaryClaimDao().clearAll()
-        ledgerDao().clearAll()
-        ledgerDao().clearAllSettlements()
-        bankTransactionDao().clearAll()
-        bankTransactionDao().deleteConnectionByGroup("") // Dummy clear
-        auditLogDao().clearAll()
-        auditDao().clearAll()
-        memberBehaviorTrackDao().deleteAll()
-        fraudDetectionEventDao().deleteAll()
-        behaviorAnalyticsSummaryDao().deleteAll()
-        platformFeeConfigDao().clearAll()
-        financialProviderDao().clearAll()
-        ledgerCheckpointDao().clearAll()
-        groupVotingDao().clearAll()
-        pendingOperationDao().deleteById("") // Dummy
-    }
 }

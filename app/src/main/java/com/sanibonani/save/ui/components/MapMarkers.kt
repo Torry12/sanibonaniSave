@@ -212,11 +212,11 @@ fun createMarkerIcon(context: Context, emoji: String?, label: String? = null): D
             textSize = innerCircleRadius * 1.2f
             textAlign = Paint.Align.CENTER
         }
-        canvas.drawText(emoji ?: "ðŸ¤", centerX, topY + (emojiPaint.textSize / 3f), emojiPaint)
+        canvas.drawText(emoji ?: "🤝", centerX, topY + (emojiPaint.textSize / 3f), emojiPaint)
 
         BitmapDrawable(context.resources, bitmap)
     } catch (e: Throwable) {
-        // Safe fallback for low-memory devices â€” covers both OutOfMemoryError and
+        // Safe fallback for low-memory devices — covers both OutOfMemoryError and
         // any drawable/bitmap failure so a marker is always produced.
         ContextCompat.getDrawable(context, org.osmdroid.library.R.drawable.marker_default)
             ?: ColorDrawable(android.graphics.Color.TRANSPARENT)

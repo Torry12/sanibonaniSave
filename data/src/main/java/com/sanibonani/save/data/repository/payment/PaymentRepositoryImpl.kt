@@ -25,7 +25,7 @@ class PaymentRepositoryImpl @Inject constructor(
         payment_method, transaction_id, status, processed_at, created_at
     """.trimIndent().replace("\n", "")
 
-    override suspend fun recordPayment(payment: Payment): Result<String> = retryWithExponentialBackoff {
+    override suspend fun recordPayment(payment: Payment): Result<String> = authoritativeCall("recordPayment") {
         val paymentId = payment.id ?: OperationKeys.stableUuid(
             "payment_record",
             payment.transactionId ?: "",
@@ -40,7 +40,7 @@ class PaymentRepositoryImpl @Inject constructor(
             filter { eq("id", paymentId) }
         }.decodeSingleOrNull<Payment>()?.let { existing ->
             db.paymentDao().upsertPayment(existing.toEntity())
-            return@retryWithExponentialBackoff existing.id ?: paymentId
+            return@authoritativeCall existing.id ?: paymentId
         }
 
         val created = supabase.postgrest["payments"].upsert(payment.copy(id = paymentId)) {

@@ -82,6 +82,8 @@ android {
             resValue("string", "app_name", "SanibonaniSave [DEV]")
             buildConfigField("boolean", "RELEASE_BUILD", "false")
             buildConfigField("String", "SUPABASE_SERVICE_ROLE_KEY", getSafeProp(project, "SUPABASE_SERVICE_ROLE_KEY"))
+            // Consumed only by manual test/simulation tools; never read by app code.
+            buildConfigField("String", "PLATFORM_ADMIN_PASSWORD", getSafeProp(project, "PLATFORM_ADMIN_PASSWORD"))
         }
         release {
             isMinifyEnabled     = true
@@ -93,6 +95,7 @@ android {
             )
             buildConfigField("boolean", "RELEASE_BUILD", "true")
             buildConfigField("String", "SUPABASE_SERVICE_ROLE_KEY", "\"\"")
+            buildConfigField("String", "PLATFORM_ADMIN_PASSWORD", "\"\"")
             resValue("string", "app_name", "SanibonaniSave")
         }
     }

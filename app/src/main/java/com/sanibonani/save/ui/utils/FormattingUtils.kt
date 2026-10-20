@@ -17,7 +17,6 @@ fun formatZAR(amount: Double): String = zarFormatter.format(amount)
 fun formatZAR(amount: BigDecimal): String = zarFormatter.format(amount)
 fun formatZAR(amount: Money): String = amount.format()
 
-fun formatDecimal(value: Double): String = String.format(Locale.US, "%.2f", value)
 fun formatPct(value: Double): String = "${String.format(Locale.US, "%.1f", value)}%"
 
 fun formatZARShort(amount: Double): String {
@@ -32,7 +31,6 @@ fun formatZARShort(amount: Double): String {
 fun formatZARShort(amount: Money): String = amount.formatShort()
 
 private val fullDateFormatter = DateTimeFormatter.ofPattern("dd MMMM yyyy", Locale.ENGLISH)
-private val shortDateFormatter = DateTimeFormatter.ofPattern("dd MMM yyyy", Locale.ENGLISH)
 private val monthYearFormatter = DateTimeFormatter.ofPattern("MMMM yyyy", Locale.ENGLISH)
 
 /**
@@ -49,11 +47,6 @@ private fun parseIsoLocalDateTime(isoString: String): LocalDateTime? =
 fun formatDate(isoString: String?): String {
     if (isoString.isNullOrBlank()) return "N/A"
     return parseIsoLocalDateTime(isoString)?.format(fullDateFormatter) ?: isoString
-}
-
-fun formatShortDate(isoString: String?): String {
-    if (isoString.isNullOrBlank()) return "N/A"
-    return parseIsoLocalDateTime(isoString)?.format(shortDateFormatter) ?: isoString
 }
 
 fun formatMonthYear(isoString: String?): String {

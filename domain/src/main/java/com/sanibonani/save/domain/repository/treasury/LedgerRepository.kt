@@ -20,12 +20,6 @@ interface LedgerRepository {
     suspend fun consolidateGroupLedger(groupId: String): Result<ConsolidationReport>
 
     /**
-     * Creates a balance checkpoint at the current latest ledger entry.
-     * This bounds future recomputations and audits.
-     */
-    suspend fun createCheckpoint(groupId: String): Result<String>
-
-    /**
      * Observes the consolidated audit trail (Group + relevant Platform entries).
      */
     fun observeConsolidatedAuditTrail(groupId: String): Flow<Result<List<LedgerEntry>>>

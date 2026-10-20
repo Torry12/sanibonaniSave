@@ -99,5 +99,35 @@ class UpdateGroupSettingsUseCaseTest {
         assertEquals("12.50", updates["min_reserve_percentage"])
         assertTrue(updates.values.none { it is Double })
     }
+
+    @Test
+    fun `invoke rejects a mistyped monetary setting instead of storing the default`() = runTest {
+        // '5O0' is a letter O typed instead of a zero. Falling back to the default would post the
+        // group's monthly contribution as R0.00 while the admin believes it is R500.
+        val result = useCase("g7", GroupSettings(monthlyContribution = "5O0"))
+
+        assertTrue("A mistyped contribution must be rejected, not written as R0.00", result.isFailure)
+        io.mockk.coVerify(exactly = 0) { groupRepo.updateGroupSettings(any(), any<Map<String, Any>>()) }
+    }
+
+    @Test
+    fun `invoke rejects a mistyped whole-number setting instead of storing the default`() = runTest {
+        val result = useCase("g8", GroupSettings(maxMembers = "1O"))
+
+        assertTrue("A mistyped member cap must be rejected, not written as 10", result.isFailure)
+        io.mockk.coVerify(exactly = 0) { groupRepo.updateGroupSettings(any(), any<Map<String, Any>>()) }
+    }
+
+    @Test
+    fun `blank settings still fall back to their documented defaults`() = runTest {
+        val slot = slot<Map<String, Any>>()
+        coEvery { groupRepo.updateGroupSettings("g9", capture(slot)) } returns Result.success(Unit)
+
+        val result = useCase("g9", GroupSettings(monthlyContribution = "", maxMembers = ""))
+
+        assertTrue(result.isSuccess)
+        assertEquals("0.00", slot.captured["monthly_contribution"])
+        assertEquals(10, slot.captured["max_members"])
+    }
 }
 

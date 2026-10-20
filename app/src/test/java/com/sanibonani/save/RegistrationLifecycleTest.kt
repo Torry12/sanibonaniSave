@@ -85,7 +85,7 @@ class RegistrationLifecycleTest {
         viewModel.onEvent(GroupFormEvent.AdminPasswordChanged("password123"))
         viewModel.onEvent(GroupFormEvent.AdminFullNameChanged("Audit Admin"))
         viewModel.onEvent(GroupFormEvent.AdminPhoneChanged("0712345678"))
-        viewModel.onEvent(GroupFormEvent.AdminIdNumberChanged("9001015000081"))
+        viewModel.onEvent(GroupFormEvent.AdminIdNumberChanged("9001015000085"))
         viewModel.onEvent(GroupFormEvent.JoiningFeeChanged("50.0"))
         viewModel.onEvent(GroupFormEvent.TermsAcceptedToggled(true))
 
@@ -118,7 +118,7 @@ class RegistrationLifecycleTest {
                 adminPassword = "password123",
                 adminFullName = "Audit Admin",
                 adminPhone = "0712345678",
-                adminIdNumber = "9001015000081"
+                adminIdNumber = "9001015000085"
             )
         }
         coVerify(exactly = 1) { activateGroupUseCase(groupId, transactionId) }
@@ -137,7 +137,7 @@ class RegistrationLifecycleTest {
         val member = Member(
             groupId = "group_1",
             userId = "user_1",
-            idNumber = "9001015000081",
+            idNumber = "9001015000085",
             fullName = "Duplicate Member"
         )
 
@@ -188,5 +188,137 @@ class RegistrationLifecycleTest {
         assertFalse("Registration should NOT be successful if activation fails", finalState.success)
         assertNotNull("Error message should be present", finalState.error)
         assertEquals("Activation failed", finalState.error)
+    }
+
+    // ── Zero-fee onboarding (no payment is ever expected from the user) ──────
+
+    private fun zeroFeeViewModel(): GroupRegistrationViewModel {
+        every { feeService.getRegistrationFee() } returns Money.ZERO
+        // Tracked so tearDown's viewModelStore.clear() cancels this scope as well; an uncancelled
+        // viewModelScope resumes on Dispatchers.Main after the class ends and is reported as
+        // UncaughtExceptionsBeforeTest by whichever test class runs next.
+        return GroupRegistrationViewModel(
+            createGroupUseCase,
+            activateGroupUseCase,
+            feeService,
+            locationService,
+            supabaseRepo
+        ).also { viewModelStore.put("zero-fee-${System.identityHashCode(it)}", it) }
+    }
+
+    private fun fillFreeOnboardingForm(vm: GroupRegistrationViewModel) {
+        vm.onEvent(GroupFormEvent.NameChanged("Free Group"))
+        vm.onEvent(GroupFormEvent.AdminEmailChanged("free@test.com"))
+        vm.onEvent(GroupFormEvent.AdminPasswordChanged("password123"))
+        vm.onEvent(GroupFormEvent.AdminPhoneChanged("0712345678"))
+        vm.onEvent(GroupFormEvent.TermsAcceptedToggled(true))
+    }
+
+    @Test
+    fun `zero fee onboarding does not ask for payment when auto-activation fails`() = runTest {
+        val groupId = "group_free_fail"
+        coEvery {
+            createGroupUseCase(
+                group = any(),
+                adminEmail = any(),
+                adminPassword = any(),
+                adminFullName = any(),
+                adminPhone = any(),
+                adminIdNumber = any()
+            )
+        } returns Result.success(groupId)
+        coEvery { activateGroupUseCase(any(), any()) } returns Result.failure(Exception("Activation failed"))
+
+        val vm = zeroFeeViewModel()
+        fillFreeOnboardingForm(vm)
+        vm.submitGroup()
+
+        val state = vm.state.value
+        assertFalse("A group with no registration fee must not be sent to the payment screen", state.needsPayment)
+        assertFalse(state.success)
+        assertEquals(groupId, state.createdGroupId)
+        assertNotNull("The activation failure must be surfaced so the admin can retry", state.error)
+    }
+
+    @Test
+    fun `zero fee onboarding activates with a per-group marker`() = runTest {
+        val groupId = "group_free_ok"
+        coEvery {
+            createGroupUseCase(
+                group = any(),
+                adminEmail = any(),
+                adminPassword = any(),
+                adminFullName = any(),
+                adminPhone = any(),
+                adminIdNumber = any()
+            )
+        } returns Result.success(groupId)
+        coEvery { activateGroupUseCase(any(), any()) } returns Result.success(Unit)
+
+        val vm = zeroFeeViewModel()
+        fillFreeOnboardingForm(vm)
+        vm.submitGroup()
+
+        // One shared constant across every free activation leaves no way to tell which group
+        // was waived; the key must carry the group it belongs to.
+        coVerify(exactly = 1) {
+            activateGroupUseCase(groupId, match { it != null && it.contains(groupId) })
+        }
+        assertTrue(vm.state.value.success)
+    }
+
+    @Test
+    fun `post payment finalization reports a missing group instead of going silent`() = runTest {
+        // The admin has paid the registration fee. Activation then aborts because no group is
+        // pending, so the money is taken and the group stays inactive without a word.
+        viewModel.finalizeRegistrationAfterPayment("tx_without_group")
+
+        val state = viewModel.state.value
+        assertNotNull("A paid activation that cannot run must tell the user", state.error)
+        assertFalse(state.success)
+        coVerify(exactly = 0) { activateGroupUseCase(any(), any()) }
+    }
+
+    @Test
+    fun `resubmitting after the payment sheet was dismissed does not create a second group`() = runTest {
+        val groupId = "group_created_once"
+        coEvery {
+            createGroupUseCase(
+                group = any(),
+                adminEmail = any(),
+                adminPassword = any(),
+                adminFullName = any(),
+                adminPhone = any(),
+                adminIdNumber = any()
+            )
+        } returns Result.success(groupId)
+        coEvery { activateGroupUseCase(any(), any()) } returns Result.success(Unit)
+
+        viewModel.onEvent(GroupFormEvent.NameChanged("No Duplicate Group"))
+        viewModel.onEvent(GroupFormEvent.AdminEmailChanged("dismiss@test.com"))
+        viewModel.onEvent(GroupFormEvent.AdminPasswordChanged("password123"))
+        viewModel.onEvent(GroupFormEvent.AdminPhoneChanged("0712345678"))
+        viewModel.onEvent(GroupFormEvent.TermsAcceptedToggled(true))
+        viewModel.submitGroup()
+        assertTrue(viewModel.state.value.needsPayment)
+
+        // Backing out of the payment sheet keeps the group that was already created; pressing
+        // 'Pay Registration Fee' again used to run the whole creation again, registering a
+        // second group (and a second admin account) for the same submission.
+        viewModel.onEvent(GroupFormEvent.DismissPayment)
+        viewModel.submitGroup()
+
+        coVerify(exactly = 1) {
+            createGroupUseCase(
+                group = any(),
+                adminEmail = any(),
+                adminPassword = any(),
+                adminFullName = any(),
+                adminPhone = any(),
+                adminIdNumber = any()
+            )
+        }
+        assertEquals(groupId, viewModel.state.value.createdGroupId)
+        assertTrue("The retry must return to the payment step for the group that already exists", viewModel.state.value.needsPayment)
     }
 }

@@ -12,21 +12,16 @@ import java.io.File
  */
 data class MemberUiState(
     // Core Context (Refactored)
-    val memberContext: AsyncResult<MemberContextPackage> = AsyncResult.Uninitialized,
-
-    // Core member data
     val member: Member? = null,
     val group: Group? = null,
     val userRole: UserRole = UserRole.MEMBER,
     val selectedGroupId: String? = null,
-    val allMembers: List<Member> = emptyList(),
 
     // Financial data
     val contributions: List<Contribution> = emptyList(),
     val memberLedger: List<LedgerEntry> = emptyList(),
     val paymentCalculation: PaymentCalculation? = null,
     val monthlyContributionAmount: Money = Money.ZERO,
-    val selectedContribution: Contribution? = null,
 
     // Beneficiaries
     val beneficiaries: List<Beneficiary> = emptyList(),
@@ -36,19 +31,14 @@ data class MemberUiState(
 
     // Loans
     val loans: List<Loan> = emptyList(),
-    val loanRepayments: List<LoanRepayment> = emptyList(),
-    val isEligibleForLoan: Boolean = false,
-    val loanIneligibilityReason: String? = null,
 
     // Burial Society Claims
     val burialClaims: List<BeneficiaryPayoutClaim> = emptyList(),
     val payouts: List<PayoutRequest> = emptyList(),
     val isSubmittingClaim: Boolean = false,
-    val claimSubmitSuccess: Boolean = false,
 
     // Multi-group support
     val memberships: List<Member> = emptyList(),
-    val isRefreshing: Boolean = false,
 
     // Communication
     val notifications: List<AppNotification> = emptyList(),
@@ -87,7 +77,6 @@ data class MemberUiState(
     val isImpersonating: Boolean = false,
     val impersonatorId: String? = null,
     val targetMemberId: String? = null,
-    val impersonatorRole: UserRole? = null,
     val isImpersonationBannerDismissed: Boolean = false,
     val isExiting: Boolean = false,
 
@@ -96,7 +85,6 @@ data class MemberUiState(
 
     // Audit Report
     val memberAuditReport: AsyncResult<MemberAuditReport> = AsyncResult.Uninitialized,
-    val isLoadingAuditReport: Boolean = false,
 
     // Global Sync
     val syncStatus: SyncStatus = SyncStatus.Idle
@@ -110,15 +98,11 @@ data class MemberUiState(
         beneficiaries = emptyList(),
         documents = emptyList(),
         loans = emptyList(),
-        loanRepayments = emptyList(),
         notifications = emptyList(),
         messages = emptyList(),
-        memberContext = AsyncResult.Uninitialized,
         isLoading = true,
         error = null
     )
-
-    val isDataReady: Boolean get() = (member != null) && (group != null) && !isLoading
 
     val totalSavings: Money
         get() {
@@ -126,33 +110,6 @@ data class MemberUiState(
             val contribSum = contributions.filter { it.status == ContributionStatus.PAID }.fold(Money.ZERO) { acc, c -> acc + c.amount }
             if (contribSum.isPositive) return contribSum
             return memberLedger.filter { it.amount.isPositive }.fold(Money.ZERO) { acc, e -> acc + e.amount }
-        }
-
-    /**
-     * Returns true if the member is in good standing (ACTIVE status).
-     */
-    val isInGoodStanding: Boolean
-        get() = member?.status == MemberStatus.ACTIVE
-
-    /**
-     * Returns the number of payments that match the total contributed (PAID or PARTIAL).
-     */
-    val paymentsCount: Int
-        get() = contributions.count { it.status == ContributionStatus.PAID || it.status == ContributionStatus.PARTIAL }
-
-    /**
-     * Returns the next payment due date, or indicates if overdue.
-     */
-    val nextPaymentInfo: String
-        get() {
-            val calc = paymentCalculation
-            return if (calc == null || calc.nextDueDate == "N/A") {
-                "No payment due"
-            } else if (calc.isOverdue) {
-                "Overdue: ${calc.nextDueDate}"
-            } else {
-                "Next due: ${calc.nextDueDate}"
-            }
         }
 }
 

@@ -15,8 +15,7 @@ import javax.inject.Singleton
  */
 @Singleton
 class SupabaseManager @Inject constructor(
-    private val authDataSource: AuthDataSource,
-    private val db: com.sanibonani.save.data.local.SanibonaniDatabase
+    private val authDataSource: AuthDataSource
 ) : SupabaseRepository {
 
     override val currentSession: AuthSession? get() = authDataSource.currentSession
@@ -26,10 +25,6 @@ class SupabaseManager @Inject constructor(
     override val supabaseUrl: String get() = authDataSource.supabaseUrl
     override val isLoggedIn: Boolean get() = authDataSource.isLoggedIn
     override val isMfaVerified: Boolean get() = authDataSource.isMfaVerified
-
-    override suspend fun resetLocalCache() {
-        db.clearAllData()
-    }
 
     override suspend fun getMfaFactors(): Result<List<MfaFactor>> = authDataSource.getMfaFactors()
     override suspend fun verifyMfa(factorId: String, code: String, saveSession: Boolean): Result<Unit> = authDataSource.verifyMfa(factorId, code, saveSession)

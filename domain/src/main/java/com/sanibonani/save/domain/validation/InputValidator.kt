@@ -34,12 +34,22 @@ object InputValidator {
     }
 
     // ── SA ID Number Validation ────────────────────────────────────────────
+    /**
+     * The single SA ID rule for the whole platform: 13 digits, a real date of birth in the
+     * first six, and a correct Luhn check digit. Registration, group creation and KYC must
+     * all agree, otherwise a member can be persisted here and rejected further down the line.
+     */
     fun isValidSAIdNumber(idNumber: String): Boolean {
-        if (idNumber.length != MemberValidation.SA_ID_NUMBER_LENGTH) return false
-        if (!idNumber.matches(Regex(MemberValidation.SA_ID_REGEX))) return false
-        
+        val cleaned = idNumber.trim()
+        if (cleaned.length != MemberValidation.SA_ID_NUMBER_LENGTH) return false
+        if (!cleaned.matches(Regex(MemberValidation.SA_ID_REGEX))) return false
+
+        val month = cleaned.substring(2, 4).toIntOrNull() ?: return false
+        val day = cleaned.substring(4, 6).toIntOrNull() ?: return false
+        if (month !in 1..12 || day !in 1..31) return false
+
         // Verify Luhn checksum (13th digit)
-        return verifySAIdChecksum(idNumber)
+        return verifySAIdChecksum(cleaned)
     }
     
     private fun verifySAIdChecksum(idNumber: String): Boolean {
@@ -63,16 +73,25 @@ object InputValidator {
     }
     
     fun validateSAIdNumber(idNumber: String): ValidationResult {
+        val cleaned = idNumber.trim()
         return when {
-            idNumber.isBlank() -> ValidationResult.Error("ID number is required")
-            idNumber.length != MemberValidation.SA_ID_NUMBER_LENGTH -> 
+            cleaned.isBlank() -> ValidationResult.Error("ID number is required")
+            cleaned.length != MemberValidation.SA_ID_NUMBER_LENGTH -> 
                 ValidationResult.Error("SA ID must be exactly ${MemberValidation.SA_ID_NUMBER_LENGTH} digits")
-            !idNumber.matches(Regex(MemberValidation.SA_ID_REGEX)) -> 
+            !cleaned.matches(Regex(MemberValidation.SA_ID_REGEX)) -> 
                 ValidationResult.Error("SA ID must contain only digits")
-            !verifySAIdChecksum(idNumber) -> 
+            !isValidDateOfBirthSegment(cleaned) ->
+                ValidationResult.Error("SA ID must start with a valid date of birth (YYMMDD)")
+            !verifySAIdChecksum(cleaned) -> 
                 ValidationResult.Error("Invalid SA ID number (checksum verification failed)")
             else -> ValidationResult.Valid
         }
+    }
+
+    private fun isValidDateOfBirthSegment(idNumber: String): Boolean {
+        val month = idNumber.substring(2, 4).toIntOrNull() ?: return false
+        val day = idNumber.substring(4, 6).toIntOrNull() ?: return false
+        return month in 1..12 && day in 1..31
     }
 
     // ── Phone Number Validation ────────────────────────────────────────────
@@ -128,15 +147,17 @@ object InputValidator {
     }
 
     // ── Branch Code Validation ─────────────────────────────────────────────
+    // A blank branch code is not accepted anywhere payouts are addressed, so it must not
+    // validate here either.
     fun isValidBranchCode(branchCode: String): Boolean {
-        if (branchCode.isBlank()) return true  // Optional
+        if (branchCode.isBlank()) return false
         return branchCode.length == BankAccountValidation.BRANCH_CODE_LENGTH &&
                 branchCode.matches(Regex(BankAccountValidation.BRANCH_CODE_REGEX))
     }
     
     fun validateBranchCode(branchCode: String): ValidationResult {
         return when {
-            branchCode.isBlank() -> ValidationResult.Valid  // Optional field
+            branchCode.isBlank() -> ValidationResult.Error("Branch code is required")
             !branchCode.matches(Regex("^[0-9]+$")) -> 
                 ValidationResult.Error("Branch code must contain only digits")
             branchCode.length != BankAccountValidation.BRANCH_CODE_LENGTH -> 
@@ -163,6 +184,19 @@ object InputValidator {
             parsed == null -> ValidationResult.Error("$fieldName must be a valid currency amount")
             parsed <= java.math.BigDecimal.ZERO ->
                 ValidationResult.Error("$fieldName must be greater than 0")
+            else -> ValidationResult.Valid
+        }
+    }
+
+    /**
+     * The rule for published prices, where zero is a decision rather than a mistake: a platform fee
+     * can be waived, but a blank or mistyped field is not a waiver.
+     */
+    fun validateNonNegativeAmount(amount: String, fieldName: String = "Amount"): ValidationResult {
+        val parsed = amount.parseMoneyAmountOrNull()
+        return when {
+            amount.isBlank() -> ValidationResult.Error("$fieldName is required")
+            parsed == null -> ValidationResult.Error("$fieldName must be a valid currency amount")
             else -> ValidationResult.Valid
         }
     }

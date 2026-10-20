@@ -116,7 +116,7 @@ class PlatformDisbursementsViewModel @Inject constructor(
                 ) }
                 showMessage("Loan approved")
                 load()
-            }.onFailure { handleError(it) }
+            }.onFailure { handleActionFailure(it) }
             updateState { it.copy(isProcessingLoanRequest = false, processingIds = it.processingIds - loanId) }
         }
     }
@@ -138,7 +138,7 @@ class PlatformDisbursementsViewModel @Inject constructor(
                 ) }
                 showMessage("Loan rejected")
                 load()
-            }.onFailure { handleError(it) }
+            }.onFailure { handleActionFailure(it) }
             updateState { it.copy(isProcessingLoanRequest = false, processingIds = it.processingIds - loanId) }
         }
     }

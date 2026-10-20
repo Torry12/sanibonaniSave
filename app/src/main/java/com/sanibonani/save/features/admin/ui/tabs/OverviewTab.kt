@@ -54,7 +54,7 @@ fun OverviewTab(
         if (!state.isSystemOnline || state.isAirplaneMode) {
             OfflineBanner(
                 isOnline = false,
-                message = "âš ï¸ Offline: Data may be outdated."
+                message = "⚠️ Offline: Data may be outdated."
             )
             Spacer(Modifier.height(8.dp))
         }

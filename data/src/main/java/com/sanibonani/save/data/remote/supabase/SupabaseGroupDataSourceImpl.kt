@@ -168,11 +168,12 @@ class SupabaseGroupDataSourceImpl @Inject constructor(
         }
     }
 
-    override suspend fun incrementGroupBalance(groupId: String, amount: Money, memberId: String?): Result<Money> = safeRunCatching {
+    override suspend fun incrementGroupBalance(groupId: String, amount: Money, memberId: String?, transactionId: String?): Result<Money> = safeRunCatching {
         val rpcParams = buildJsonObject {
             put("p_group_id", groupId)
             put("p_amount", amount.amount.toPlainString())
             memberId?.let { put("p_member_id", it) }
+            transactionId?.let { put("p_transaction_id", it) }
         }
         client.postgrest.rpc("increment_group_balance", rpcParams).decodeAs<Money>()
     }

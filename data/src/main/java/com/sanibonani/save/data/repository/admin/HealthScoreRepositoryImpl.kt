@@ -13,7 +13,6 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.datetime.Instant
 import javax.inject.Inject
-import com.sanibonani.save.domain.utils.safeRunCatching
 
 class HealthScoreRepositoryImpl @Inject constructor(
     private val supabaseProvider: javax.inject.Provider<SupabaseClient>,
@@ -42,41 +41,11 @@ class HealthScoreRepositoryImpl @Inject constructor(
         }
     }
 
-    override suspend fun saveHealthScore(score: GroupHealthScore): Result<Unit> = safeRunCatching {
-        retryWithExponentialBackoff {
-            supabase.postgrest["group_health_scores"].upsert(score) {
-                onConflict = "group_id"
-            }
-            db.groupHealthScoreDao().upsert(score.toEntity())
+    override suspend fun saveHealthScore(score: GroupHealthScore): Result<Unit> = retryWithExponentialBackoff {
+        supabase.postgrest["group_health_scores"].upsert(score) {
+            onConflict = "group_id"
         }
-        Unit
-    }
-
-    override suspend fun getHealthScore(groupId: String): Result<GroupHealthScore> = safeRunCatching {
-        val local = db.groupHealthScoreDao().getByGroupId(groupId)
-        if (local != null && !isExpired(local.expiresAt)) {
-            return@safeRunCatching local.toModel()
-        }
-
-        val remote = supabase.postgrest["group_health_scores"].select {
-            filter { eq("group_id", groupId) }
-        }.decodeSingle<GroupHealthScore>()
-
-        db.groupHealthScoreDao().upsert(remote.toEntity())
-        remote
-    }.recoverCatching {
-        db.groupHealthScoreDao().getByGroupId(groupId)?.toModel()
-            ?: throw it
-    }
-
-    override suspend fun invalidateCache(groupId: String): Result<Unit> = safeRunCatching {
-        db.groupHealthScoreDao().deleteByGroupId(groupId)
-    }
-
-    private fun isExpired(expiresAt: String?): Boolean {
-        if (expiresAt.isNullOrBlank()) return true
-        val expiry = safeRunCatching { java.time.Instant.parse(expiresAt) }.getOrNull() ?: return true
-        return expiry.isBefore(java.time.Instant.now())
+        db.groupHealthScoreDao().upsert(score.toEntity())
     }
 }
 

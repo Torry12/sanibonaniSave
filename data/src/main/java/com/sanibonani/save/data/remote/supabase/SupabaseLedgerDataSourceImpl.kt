@@ -44,8 +44,4 @@ class SupabaseLedgerDataSourceImpl @Inject constructor(
     override suspend fun consolidateGroupLedger(groupId: String): Result<ConsolidationReport> = safeRunCatching {
         client.postgrest.rpc("recalculate_all_group_financials_v3", buildJsonObject { put("p_group_id", groupId) }).decodeAs<ConsolidationReport>()
     }
-
-    override suspend fun createCheckpoint(groupId: String): Result<String> = safeRunCatching {
-        client.postgrest.rpc("create_ledger_checkpoint_v1", buildJsonObject { put("p_group_id", groupId) }).decodeAs<String>()
-    }
 }

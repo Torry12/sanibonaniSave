@@ -11,7 +11,6 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.serialization.json.*
 import javax.inject.Inject
 import javax.inject.Singleton
-import com.sanibonani.save.domain.utils.safeRunCatching
 
 @Singleton
 class FinancialProviderRepositoryImpl @Inject constructor(
@@ -30,17 +29,12 @@ class FinancialProviderRepositoryImpl @Inject constructor(
         }
     )
 
-    override suspend fun executeOperation(request: FinancialOperationRequest): Result<FinancialOperationResult> = safeRunCatching {
-        val payload = json.encodeToJsonElement(FinancialOperationRequest.serializer(), request).jsonObject
-        val response = edgeGateway.invoke("financial-orchestrator", payload).getOrThrow()
+    override suspend fun executeOperation(request: FinancialOperationRequest): Result<FinancialOperationResult> =
+        authoritativeCall("executeOperation") {
+            val payload = json.encodeToJsonElement(FinancialOperationRequest.serializer(), request).jsonObject
+            val response = edgeGateway.invoke("financial-orchestrator", payload).getOrThrow()
 
-        json.decodeFromJsonElement(FinancialOperationResult.serializer(), response)
-    }
-
-    override suspend fun getProviderById(id: String): Result<FinancialProvider> = safeRunCatching {
-        supabase.postgrest["financial_providers"].select(columns = Columns.raw("*")) {
-            filter { eq("id", id) }
-        }.decodeSingle<FinancialProvider>()
-    }
+            json.decodeFromJsonElement(FinancialOperationResult.serializer(), response)
+        }
 }
 

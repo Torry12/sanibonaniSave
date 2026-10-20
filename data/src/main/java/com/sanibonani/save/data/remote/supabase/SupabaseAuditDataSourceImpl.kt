@@ -27,7 +27,7 @@ class SupabaseAuditDataSourceImpl @Inject constructor(
             parameters = buildJsonObject { put("p_member_id", memberId) }
         )
         val rawJson = response.data.toString()
-        AppLogger.d(tag, "Member Audit Raw JSON: $rawJson")
+        AppLogger.d(tag, "Member audit report received (${rawJson.length} chars)")
         AuditResult(data = response.decodeAs<MemberAuditReport>(), rawJson = rawJson)
     }
 
@@ -37,7 +37,7 @@ class SupabaseAuditDataSourceImpl @Inject constructor(
             parameters = buildJsonObject { put("p_group_id", groupId) }
         )
         val rawJson = response.data.toString()
-        AppLogger.d(tag, "Group Audit Raw JSON: $rawJson")
+        AppLogger.d(tag, "Group audit report received (${rawJson.length} chars)")
         AuditResult(data = response.decodeAs<GroupAuditReport>(), rawJson = rawJson)
     }
 
@@ -47,7 +47,7 @@ class SupabaseAuditDataSourceImpl @Inject constructor(
             parameters = buildJsonObject {}
         )
         val rawJson = response.data.toString()
-        AppLogger.d(tag, "Platform Audit Raw JSON: $rawJson")
+        AppLogger.d(tag, "Platform audit report received (${rawJson.length} chars)")
         AuditResult(data = response.decodeAs<PlatformAuditReport>(), rawJson = rawJson)
     }
 

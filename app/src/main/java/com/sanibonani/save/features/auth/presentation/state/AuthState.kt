@@ -19,6 +19,5 @@ data class AuthState(
     val isNewRegistration: Boolean = false,
     val isResettingPassword: Boolean = false,
     val biometricEnabled: Boolean = false,
-    val hasSavedCredentials: Boolean = false,
-    val activeSupabaseUrl: String = ""
+    val hasSavedCredentials: Boolean = false
 )

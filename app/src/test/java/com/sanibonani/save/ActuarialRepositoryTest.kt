@@ -33,7 +33,7 @@ class ActuarialRepositoryTest {
         actuarialEngine = GroupTypeActuarialEngine(paymentCalculator)
         val memberRepoProvider = mockk<Provider<MemberRepository>>()
         every { memberRepoProvider.get() } returns memberRepo
-        repo = ActuarialRepositoryImpl(groupRepo, financialRepo, memberRepoProvider, paymentCalculator, actuarialEngine)
+        repo = ActuarialRepositoryImpl(groupRepo, financialRepo, memberRepoProvider, actuarialEngine)
     }
 
     // ── Core scalar math ──────────────────────────────────────────────────

@@ -17,9 +17,4 @@ interface FinancialProviderRepository {
      * Executes a unified financial operation.
      */
     suspend fun executeOperation(request: FinancialOperationRequest): Result<FinancialOperationResult>
-
-    /**
-     * Helper to get a provider by its ID.
-     */
-    suspend fun getProviderById(id: String): Result<FinancialProvider>
 }

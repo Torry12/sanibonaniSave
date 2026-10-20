@@ -4,13 +4,7 @@ import android.content.ContentResolver
 import android.content.Context
 import android.net.Uri
 import android.provider.OpenableColumns
-import com.sanibonani.save.domain.model.Group
 import com.sanibonani.save.features.member.presentation.MemberProfileViewModel
-
-fun isBurialSocietyLike(group: Group?): Boolean {
-    val type = group?.type?.name?.lowercase() ?: ""
-    return type.contains("burial") || type.contains("funeral")
-}
 
 fun formatRelativeSyncTime(lastSyncMillis: Long?): String {
     if (lastSyncMillis == null || lastSyncMillis == 0L) return "Never synced"

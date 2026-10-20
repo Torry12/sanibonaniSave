@@ -43,20 +43,19 @@ class LedgerRepositoryImpl @Inject constructor(
 
     override suspend fun getPlatformLedger(): Result<List<LedgerEntry>> = remoteSource.getPlatformLedger()
 
-    override suspend fun logPlatformEvent(entry: LedgerEntry): Result<Unit> = retryWithExponentialBackoff {
+    override suspend fun logPlatformEvent(entry: LedgerEntry): Result<Unit> = authoritativeCall("logPlatformEvent") {
         remoteSource.logPlatformEvent(entry).getOrThrow()
     }
 
-    override suspend fun consolidateGroupLedger(groupId: String): Result<ConsolidationReport> = retryWithExponentialBackoff {
-        val report = remoteSource.consolidateGroupLedger(groupId).getOrThrow()
-        localSource.saveReconciliation(report)
-        localGroupSource.getGroupById(groupId)?.let { group ->
-            localGroupSource.saveGroup(group.copy(balance = report.finalBalance))
+    override suspend fun consolidateGroupLedger(groupId: String): Result<ConsolidationReport> =
+        authoritativeCall("consolidateGroupLedger") {
+            val report = remoteSource.consolidateGroupLedger(groupId).getOrThrow()
+            localSource.saveReconciliation(report)
+            localGroupSource.getGroupById(groupId)?.let { group ->
+                localGroupSource.saveGroup(group.copy(balance = report.finalBalance))
+            }
+            report
         }
-        report
-    }
-
-    override suspend fun createCheckpoint(groupId: String): Result<String> = remoteSource.createCheckpoint(groupId)
 
     override fun observeConsolidatedAuditTrail(groupId: String): Flow<Result<List<LedgerEntry>>> = observeAndSync(
         dbFlow = localSource.observeConsolidatedLedger(groupId),

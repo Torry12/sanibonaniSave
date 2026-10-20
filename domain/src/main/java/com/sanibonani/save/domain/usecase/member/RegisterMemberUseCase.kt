@@ -37,7 +37,7 @@ class RegisterMemberUseCase @Inject constructor(
                 require(ValidationUtils.isValidEmail(emailTrim)) { "Invalid email address format." }
             }
 
-            AppLogger.d(tag, "Starting registration for member ${member.fullName} in group ${member.groupId}")
+            AppLogger.d(tag, "Starting member registration for group ${member.groupId}")
 
             // 1. Resolve authenticated user ID
             val currentUserId = member.userId?.takeIf { it.isNotBlank() } ?: supabaseRepository?.currentUserId
@@ -62,10 +62,10 @@ class RegisterMemberUseCase @Inject constructor(
                 error("This group has reached its maximum capacity of ${group.maxMembers} members.")
             }
 
-            // 5. SA ID validation if provided (strict 13 numeric digits)
-            val idNum = member.idNumber
-            if (!idNum.isNullOrBlank() && (idNum.length != 13 || !idNum.all { c -> c.isDigit() })) {
-                error("Invalid South African ID Number format. Must be 13 digits.")
+            // 5. SA ID validation if provided, with the same rule KYC applies later.
+            val idNum = member.idNumber?.trim()
+            if (!idNum.isNullOrBlank() && !ValidationUtils.isValidSAIdNumber(idNum)) {
+                error("Invalid South African ID Number format. Must be 13 digits with a valid date of birth and checksum.")
             }
 
             // 6. Calculate initial status

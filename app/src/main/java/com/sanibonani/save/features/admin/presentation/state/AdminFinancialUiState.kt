@@ -12,12 +12,10 @@ data class AdminFinancialUiState(
     val isLoading: Boolean = false,
     val error: String? = null,
     val successMessage: String? = null,
-    val latestReconciliation: ReconciliationRecord? = null,
     val isReconciling: Boolean = false,
     val isConsolidating: Boolean = false,
     val isExporting: Boolean = false,
     val exportFile: File? = null,
-    val reconciliationHistory: List<ReconciliationRecord> = emptyList(),
     val group: Group? = null,
     val members: List<Member> = emptyList(),
     val selectedMemberId: String? = null,
@@ -33,11 +31,5 @@ data class AdminFinancialUiState(
 
     // Selections for details/verification
     val selectedClaim: BeneficiaryPayoutClaim? = null,
-    val selectedPayout: PayoutRequest? = null,
-
-    // Bank Integration
-    val bankConnection: BankConnection? = null,
-    val availableProviders: List<FinancialProvider> = emptyList(),
-    val isLinkingBank: Boolean = false,
-    val bankLinkingUrl: String? = null
+    val selectedPayout: PayoutRequest? = null
 )

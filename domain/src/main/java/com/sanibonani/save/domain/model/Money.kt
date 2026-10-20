@@ -87,9 +87,11 @@ data class Money(val amount: BigDecimal) : Comparable<Money> {
 
     fun formatShort(): String {
         val absAmount = amount.abs().toDouble()
+        // Locale.US keeps the decimal separator a dot on every device: a comma-decimal locale
+        // would otherwise render an amount as "R1,5M" while the full figure renders "R1.50".
         return when {
-            absAmount >= 1_000_000 -> "R${String.format("%.1fM", absAmount / 1_000_000)}"
-            absAmount >= 1_000 -> "R${String.format("%.1fK", absAmount / 1_000)}"
+            absAmount >= 1_000_000 -> "R${String.format(Locale.US, "%.1fM", absAmount / 1_000_000)}"
+            absAmount >= 1_000 -> "R${String.format(Locale.US, "%.1fK", absAmount / 1_000)}"
             else -> format()
         }
     }

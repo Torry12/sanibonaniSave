@@ -32,51 +32,6 @@ import androidx.compose.ui.window.Dialog
 
 
 @Composable
-fun BeneficiaryEditDialog(
-    beneficiary: Beneficiary,
-    isSaving: Boolean,
-    onDismiss: () -> Unit,
-    onSave: () -> Unit,
-    onUpdate: (Beneficiary) -> Unit
-) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.ui_edit_beneficiary)) },
-        text = {
-            Column(
-                modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                SanibonaniTextField(
-                    value = beneficiary.fullName,
-                    onValueChange = { text -> onUpdate(beneficiary.copy(fullName = text)) },
-                    label = stringResource(R.string.ui_full_name)
-                )
-                SanibonaniTextField(
-                    value = beneficiary.idNumber ?: "",
-                    onValueChange = { text -> onUpdate(beneficiary.copy(idNumber = text)) },
-                    label = stringResource(R.string.ui_id_number)
-                )
-                SanibonaniTextField(
-                    value = beneficiary.relationship ?: "",
-                    onValueChange = { text -> onUpdate(beneficiary.copy(relationship = text)) },
-                    label = stringResource(R.string.ui_relationship)
-                )
-            }
-        },
-        confirmButton = {
-            Button(onClick = onSave, enabled = !isSaving) {
-                if (isSaving) CircularProgressIndicator(modifier = Modifier.size(18.dp), color = MaterialTheme.colorScheme.onPrimary)
-                else Text(stringResource(R.string.ui_save))
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text(stringResource(R.string.ui_cancel)) }
-        }
-    )
-}
-
-@Composable
 fun ClaimDetailDialog(
     claim: BeneficiaryPayoutClaim,
     onDismiss: () -> Unit,

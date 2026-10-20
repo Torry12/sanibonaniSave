@@ -34,7 +34,6 @@ fun MemberTabContent(
                 member = state.member,
                 group = state.group,
                 userRole = state.userRole,
-                contributions = state.contributions,
                 calculation = state.paymentCalculation,
                 profileImageVersion = state.profileImageVersion,
                 onPay = onNavigatePayment,
@@ -47,7 +46,7 @@ fun MemberTabContent(
             1 -> MemberTransactionsTab(
                 ledger = state.memberLedger,
                 isExporting = state.isExporting,
-                onExportCsv = { overviewVm.downloadPdfStatement() },
+                onExportCsv = { overviewVm.downloadCsvStatement() },
                 onDownloadPdf = { overviewVm.downloadPdfStatement() },
                 onDownloadGroupPdf = { overviewVm.downloadGroupStatement() },
                 onItemClick = onEntryClick,

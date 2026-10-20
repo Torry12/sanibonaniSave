@@ -60,7 +60,12 @@ class ProbationCompletionWorker @AssistedInject constructor(
                     val group = groupRepo.getGroupById(member.groupId).getOrNull()
                     val contributionsResult = contributionRepo.observeMemberContributions(memberId, member.groupId).first()
                     val contributions = contributionsResult.getOrNull() ?: emptyList()
-                    val joiningFeeDue = group != null && group.joiningFee.isPositive && contributions.none { it.type == "registration_contribution" && it.status == ContributionStatus.PAID }
+                    // A joining fee is written with allocation type "joining_fee"; the legacy
+                    // spelling "registration_contribution" still exists in older rows.
+                    val joiningFeePaid = contributions.any {
+                        (it.type == "joining_fee" || it.type == "registration_contribution") && it.status == ContributionStatus.PAID
+                    }
+                    val joiningFeeDue = group != null && group.joiningFee.isPositive && !joiningFeePaid
 
                     if (joiningFeeDue) {
                         AppLogger.w("ProbationWorker", "Cannot promote member ${member.fullName}: joining fee of ${group?.joiningFee?.format()} is outstanding")

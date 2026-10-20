@@ -105,7 +105,7 @@ fun BackupTab(
         } else if (state.backups.isEmpty()) {
             item {
                 EmptyState(
-                    icon = "â˜ï¸",
+                    icon = "☁️",
                     title = "No Backups",
                     description = "Trigger a snapshot to create your first cloud backup.",
                     actionLabel = "Refresh",
@@ -207,7 +207,7 @@ fun BackupItem(
                 Text(backup.name, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
                 Spacer(Modifier.height(2.dp))
                 Text(
-                    "${formatSize(backup.size)} â€¢ ${backup.lastModified.take(19).replace("T", " ")}",
+                    "${formatSize(backup.size)} • ${backup.lastModified.take(19).replace("T", " ")}",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

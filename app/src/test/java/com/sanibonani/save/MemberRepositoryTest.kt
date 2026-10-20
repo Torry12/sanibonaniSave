@@ -34,12 +34,7 @@ class MemberRepositoryTest {
 
     private val remoteMemberSource = mockk<RemoteMemberDataSource>(relaxed = true)
     private val localMemberSource = mockk<LocalMemberDataSource>(relaxed = true)
-    private val remoteBeneficiarySource = mockk<RemoteBeneficiaryDataSource>(relaxed = true)
-    private val localBeneficiarySource = mockk<LocalBeneficiaryDataSource>(relaxed = true)
-    private val groupRepo = mockk<GroupRepository>(relaxed = true)
-    private val actuarialRepo = mockk<ActuarialRepository>(relaxed = true)
     private val fileStorageService = mockk<FileStorageService>(relaxed = true)
-    private val payloadFactory = mockk<DataPayloadFactory>(relaxed = true)
     private val pendingOpDao = mockk<PendingOperationDao>(relaxed = true)
     private val dbProvider = mockk<Provider<com.sanibonani.save.data.local.SanibonaniDatabase>>(relaxed = true)
     private val remoteContributionSource = mockk<RemoteContributionDataSource>(relaxed = true)
@@ -74,12 +69,7 @@ class MemberRepositoryTest {
         repository = MemberRepositoryImpl(
             remoteMemberSource,
             localMemberSource,
-            remoteBeneficiarySource,
-            localBeneficiarySource,
-            groupRepo,
-            { actuarialRepo },
             fileStorageService,
-            payloadFactory,
             json,
             pendingOpDao,
             dbProvider,

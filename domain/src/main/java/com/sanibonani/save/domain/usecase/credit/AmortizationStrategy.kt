@@ -34,22 +34,27 @@ class FlatAmortizationStrategy : AmortizationStrategy {
         val time = termMonths / 12.0
         val totalInterest = principal * (rate * time)
         val totalToRepay = principal + totalInterest
-        val monthlyInstallment = totalToRepay / termMonths
+        val principalPerMonth = principal / termMonths
+        val interestPerMonth = totalInterest / termMonths
 
         val schedule = (1..termMonths).map { i ->
-            val principalPerMonth = principal / termMonths
-            val interestPerMonth = totalInterest / termMonths
+            val isLast = i == termMonths
+            // Dividing the loan by the term drops a cent, so the last row carries the remainder and
+            // the rows add back up to exactly what was borrowed.
+            val principalRow = if (isLast) principal - principalPerMonth * (termMonths - 1) else principalPerMonth
+            val interestRow = if (isLast) totalInterest - interestPerMonth * (termMonths - 1) else interestPerMonth
             LoanRepaymentScheduleEntry(
                 installmentNumber = i,
                 dueDate = startDate.plusMonths(i.toLong()).toString(),
-                principal = principalPerMonth,
-                interest = interestPerMonth,
-                totalInstallment = monthlyInstallment,
-                remainingBalance = (principal - (principalPerMonth * i)).max(Money.ZERO)
+                principal = principalRow,
+                interest = interestRow,
+                totalInstallment = principalRow + interestRow,
+                remainingBalance = if (isLast) Money.ZERO
+                else (principal - principalPerMonth * i).max(Money.ZERO)
             )
         }
 
-        return AmortizationResult(totalToRepay, totalInterest, monthlyInstallment, schedule)
+        return AmortizationResult(totalToRepay, totalInterest, principalPerMonth + interestPerMonth, schedule)
     }
 }
 
@@ -71,7 +76,11 @@ class ReducingBalanceAmortizationStrategy : AmortizationStrategy {
 
         for (i in 1..termMonths) {
             val interestForMonth = remainingBalance * monthlyRate
-            val principalForMonth = monthlyInstallment - interestForMonth
+            val isLast = i == termMonths
+            // The fixed instalment is rounded, so it cannot land the balance on zero. The last row
+            // repays whatever is actually outstanding instead of leaving a phantom balance behind.
+            val principalForMonth = if (isLast) remainingBalance else monthlyInstallment - interestForMonth
+            val totalForMonth = principalForMonth + interestForMonth
             remainingBalance -= principalForMonth
             totalInterestAccumulated += interestForMonth
 
@@ -81,8 +90,8 @@ class ReducingBalanceAmortizationStrategy : AmortizationStrategy {
                     dueDate = startDate.plusMonths(i.toLong()).toString(),
                     principal = principalForMonth,
                     interest = interestForMonth,
-                    totalInstallment = monthlyInstallment,
-                    remainingBalance = remainingBalance.max(Money.ZERO)
+                    totalInstallment = totalForMonth,
+                    remainingBalance = if (isLast) Money.ZERO else remainingBalance.max(Money.ZERO)
                 )
             )
         }

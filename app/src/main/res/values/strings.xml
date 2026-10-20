@@ -114,9 +114,9 @@
     <string name="ui_viewing_as_administrator">Viewing as Administrator</string>
     <string name="ui_hydrating_support_data">Hydrating support data...</string>
     <string name="ui_refreshing_your_data">Refreshing your data...</string>
-    <string name="ui_support_mode_active_all_actions_are_logged">Support Mode Active â€” All actions are logged.</string>
-    <string name="ui_airplane_mode_active_syncing_is_paused">Airplane Mode Active â€” Syncing is paused.</string>
-    <string name="ui_offline_mode_using_cached_data">Offline Mode â€” Using cached data.</string>
+    <string name="ui_support_mode_active_all_actions_are_logged">Support Mode Active — All actions are logged.</string>
+    <string name="ui_airplane_mode_active_syncing_is_paused">Airplane Mode Active — Syncing is paused.</string>
+    <string name="ui_offline_mode_using_cached_data">Offline Mode — Using cached data.</string>
     <string name="ui_switch_group_label">Switch Group: %s</string>
     <string name="ui_could_not_load_membership">Could not load membership</string>
     <string name="ui_retry">Retry</string>
@@ -155,8 +155,8 @@
     <string name="ui_cancel_payment">Cancel Payment</string>
     <string name="ui_admin_view_support">Admin View (Support)</string>
     <string name="ui_admin_dashboard">Admin Dashboard</string>
-    <string name="ui_support_mode_active_access_is_logged">Support Mode Active â€” Access is logged.</string>
-    <string name="ui_airplane_mode_active_turn_off_to_sync">Airplane Mode Active â€” Turn off to sync data.</string>
+    <string name="ui_support_mode_active_access_is_logged">Support Mode Active — Access is logged.</string>
+    <string name="ui_airplane_mode_active_turn_off_to_sync">Airplane Mode Active — Turn off to sync data.</string>
     <string name="ui_switch_group">Switch Group</string>
     <string name="ui_balance">Balance</string>
     <string name="ui_members">Members</string>
@@ -253,7 +253,7 @@
     <string name="ui_welcome_back_signing_in">Welcome back! Signing you in...</string>
     <string name="ui_sanibonanisave_login">SanibonaniSave Login</string>
     <string name="ui_biometric_subtitle">Use your fingerprint, face, or device PIN to sign in</string>
-    <string name="ui_signing_you_in">Signing you inâ€¦</string>
+    <string name="ui_signing_you_in">Signing you in…</string>
     <string name="ui_welcome_back">Welcome Back</string>
     <string name="ui_securely_manage_your_groups_future">Securely manage your group\'s future.</string>
     <string name="ui_email_address">Email Address</string>
@@ -262,7 +262,7 @@
     <string name="ui_show_password">Show password</string>
     <string name="ui_remember_me">Remember Me</string>
     <string name="ui_biometric_quick_login">Biometric Quick Login</string>
-    <string name="ui_reconnect_try_again">âš¡ Reconnect &amp; Try Again</string>
+    <string name="ui_reconnect_try_again">⚡ Reconnect &amp; Try Again</string>
     <string name="ui_resend_verification_link">Resend Verification Link</string>
     <string name="ui_log_in">Log In</string>
     <string name="ui_sign_in_with_magic_link">Sign in with Magic Link</string>
@@ -285,8 +285,8 @@
     <string name="ui_search_groups">Search groups...</string>
     <string name="ui_province">Province</string>
     <string name="ui_clear_filters">Clear Filters</string>
-    <string name="ui_offline_airplane_mode">Airplane Mode Active â€” Data syncing is paused.</string>
-    <string name="ui_offline_cached_mode">Offline Mode â€” Using cached information.</string>
+    <string name="ui_offline_airplane_mode">Airplane Mode Active — Data syncing is paused.</string>
+    <string name="ui_offline_cached_mode">Offline Mode — Using cached information.</string>
     <string name="ui_trusted_by_communities">Trusted by communities across SA</string>
     <string name="ui_sanibonani_save">SanibonaniSave</string>
     <string name="ui_the_modern_digital_ledger_for_south_afri">The modern digital ledger for South African savings groups.</string>

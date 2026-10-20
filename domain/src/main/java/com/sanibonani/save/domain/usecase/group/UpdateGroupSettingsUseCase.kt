@@ -59,6 +59,39 @@ class UpdateGroupSettingsUseCase @Inject constructor(
         if (maxMembers < 1) {
             return Result.failure(IllegalArgumentException("Maximum members must be at least 1."))
         }
+        // A value the admin typed but the app cannot read must never fall back to its default:
+        // that posts a different contribution, claim ceiling or member cap than the one on screen.
+        // Blank means "use the documented default"; unreadable is an input error.
+        val decimalFields = listOf(
+            "Joining fee" to settings.joiningFee,
+            "Monthly contribution" to settings.monthlyContribution,
+            "Late fee" to settings.lateFee,
+            "Beneficiary increase percentage" to settings.beneficiaryIncreasePct,
+            "Burial claim amount" to settings.burialClaimAmount,
+            "Minimum reserve percentage" to settings.minReservePercentage,
+            "Goal amount" to settings.goalAmount,
+            "Loan interest rate" to settings.loanInterestRate,
+            "Loan maximum amount" to settings.loanMaxAmount
+        )
+        decimalFields.firstOrNull { (_, raw) -> raw.isNotBlank() && raw.toBigDecimalOrNull() == null }?.let { (field, _) ->
+            return Result.failure(IllegalArgumentException("$field must be a number."))
+        }
+
+        val wholeNumberFields = listOf(
+            "Late fee grace days" to settings.lateFeeGraceDays,
+            "Probation months" to settings.probationMonths,
+            "Payment due day" to settings.paymentDueDay,
+            "Maximum members" to settings.maxMembers,
+            "Auto suspend after" to settings.autoSuspendAfter,
+            "Maximum beneficiaries" to settings.maxBeneficiaries,
+            "Minimum members for claims" to settings.minMembersForClaims,
+            "Period months" to settings.periodMonths,
+            "Loan maximum months" to settings.loanMaxMonths
+        )
+        wholeNumberFields.firstOrNull { (_, raw) -> raw.isNotBlank() && raw.toIntOrNull() == null }?.let { (field, _) ->
+            return Result.failure(IllegalArgumentException("$field must be a whole number."))
+        }
+
         val updates = mutableMapOf<String, Any>(
             "joining_fee" to settings.joiningFee.toMoneyStringOr("0.00"),
             "monthly_contribution" to settings.monthlyContribution.toMoneyStringOr("0.00"),

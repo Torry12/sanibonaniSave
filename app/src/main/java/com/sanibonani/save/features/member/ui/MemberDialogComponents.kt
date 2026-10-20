@@ -336,7 +336,7 @@ private fun DocumentUploadRow(label: String, isUploaded: Boolean, isUploading: B
     ) {
         Column(Modifier.weight(1f)) {
             Text(label, style = MaterialTheme.typography.bodyMedium)
-            if (isUploaded) Text("Uploaded Ã¢Å“â€œ", style = MaterialTheme.typography.labelSmall, color = SuccessGreen)
+            if (isUploaded) Text("Uploaded ✓", style = MaterialTheme.typography.labelSmall, color = SuccessGreen)
         }
         if (isUploading) {
             CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
@@ -419,7 +419,7 @@ fun PayoutSummaryItem(claim: BeneficiaryPayoutClaim? = null, payout: PayoutReque
             modifier = Modifier.size(32.dp)
         ) {
             Box(contentAlignment = Alignment.Center) {
-                Text(if (isBurial) "Ã°Å¸â€¢Å Ã¯Â¸Â" else "Ã°Å¸â€™Â°", fontSize = 14.sp)
+                Text(if (isBurial) "🕊️" else "💰", fontSize = 14.sp)
             }
         }
         Spacer(Modifier.width(12.dp))

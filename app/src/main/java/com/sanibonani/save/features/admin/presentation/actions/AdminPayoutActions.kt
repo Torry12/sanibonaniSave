@@ -5,7 +5,9 @@ import com.sanibonani.save.domain.model.DocumentStatus
 import com.sanibonani.save.domain.model.Money
 import com.sanibonani.save.domain.model.MemberStatus
 import com.sanibonani.save.domain.model.PayoutStatus
+import com.sanibonani.save.domain.repository.auth.SupabaseRepository
 import com.sanibonani.save.domain.repository.disbursement.PayoutRepository
+import com.sanibonani.save.domain.usecase.disbursement.ProcessDisbursementUseCase
 import com.sanibonani.save.domain.usecase.disbursement.RequestPayoutUseCase
 import com.sanibonani.save.service.AdminGroupContextCacheService
 import javax.inject.Inject
@@ -17,6 +19,8 @@ import javax.inject.Inject
 class AdminPayoutActions @Inject constructor(
     private val requestPayoutUseCase: RequestPayoutUseCase,
     private val payoutRepo: PayoutRepository,
+    private val processDisbursementUseCase: ProcessDisbursementUseCase,
+    private val supabaseRepo: SupabaseRepository,
     private val adminContextCacheService: AdminGroupContextCacheService,
 ) {
 
@@ -69,40 +73,57 @@ class AdminPayoutActions @Inject constructor(
                 it.status == MemberStatus.ACTIVE || it.status == MemberStatus.PROBATION
             }
             var successCount = 0
+            var failedCount = 0
             for (m in members) {
-                m.id?.let { mId ->
-                    safeRunCatching {
-                        requestPayoutUseCase(groupId = groupId, memberId = mId).getOrThrow()
-                        successCount++
-                    }
+                val memberId = m.id
+                if (memberId == null) {
+                    failedCount++
+                    continue
                 }
+                val outcome = safeRunCatching {
+                    requestPayoutUseCase(groupId = groupId, memberId = memberId).getOrThrow()
+                }
+                if (outcome.isSuccess) successCount++ else failedCount++
             }
+            // A batch that silently drops members reads as a completed payout round, so the
+            // failure count is reported alongside the successes.
             host.updateActionState {
                 it.copy(
                     isRequestingPayout = false,
-                    payoutRequestSuccess = true,
-                    successMessage = "Annual Stokvel savings payouts requested for $successCount member(s)."
+                    payoutRequestSuccess = successCount > 0,
+                    successMessage = if (successCount > 0) {
+                        "Annual Stokvel savings payouts requested for $successCount member(s)."
+                    } else null,
+                    error = if (failedCount > 0) {
+                        "$failedCount member(s) could not be requested. Please review and retry."
+                    } else null
                 )
             }
         }
     }
 
     fun approveAndEscalatePayoutRequest(host: AdminFinancialActionHost, payoutId: String) {
+        val groupId = adminContextCacheService.selectedGroupId.value ?: return
         host.launchAction("approve_escalate_payout") {
             host.updateActionState { it.copy(isLoading = true, error = null, processingIds = it.processingIds + payoutId) }
-            payoutRepo.updatePayoutStatus(payoutId, PayoutStatus.GROUP_APPROVED).onSuccess {
+            // Through the disbursement use case so the transition, the liquidity check and the
+            // platform audit trail all see the escalation, exactly as on the platform screen.
+            processDisbursementUseCase(
+                payoutId = payoutId,
+                groupId = groupId,
+                status = PayoutStatus.GROUP_APPROVED,
+                adminId = supabaseRepo.currentUserId ?: ""
+            ).onSuccess { updated ->
                 host.updateActionState { s ->
                     s.copy(
-                        payouts = s.payouts.map {
-                            if (it.id == payoutId) it.copy(status = PayoutStatus.GROUP_APPROVED) else it
-                        },
+                        payouts = s.payouts.map { if (it.id == updated.id) updated else it },
                         isLoading = false,
                         successMessage = "Request escalated for platform approval"
                     )
                 }
             }.onFailure { e ->
                 host.updateActionState { it.copy(isLoading = false) }
-                host.reportError(e)
+                host.reportActionError(e)
             }
             host.updateActionState { it.copy(processingIds = it.processingIds - payoutId) }
         }

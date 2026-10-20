@@ -29,14 +29,13 @@ class BankRepositoryImpl @Inject constructor(
     private val supabase: SupabaseClient get() = supabaseProvider.get()
     private val db: SanibonaniDatabase get() = dbProvider.get()
 
-    override suspend fun importBankTransactions(transactions: List<BankTransaction>): Result<Unit> = safeRunCatching {
-        if (transactions.isEmpty()) return Result.success(Unit)
-        val payloads = transactions.map { payloadFactory.createBankTransactionPayload(it) }
-        safeRunCatching {
+    override suspend fun importBankTransactions(transactions: List<BankTransaction>): Result<Unit> =
+        authoritativeCall("importBankTransactions") {
+            if (transactions.isEmpty()) return@authoritativeCall
+            val payloads = transactions.map { payloadFactory.createBankTransactionPayload(it) }
             supabase.postgrest["bank_transactions"].insert(payloads)
+            db.bankTransactionDao().upsert(transactions.map { it.toEntity() })
         }
-        db.bankTransactionDao().upsert(transactions.map { it.toEntity() })
-    }
 
     override suspend fun importRawStatement(rawData: String, format: String, groupId: String): Result<Unit> = safeRunCatching {
         if (rawData.isBlank()) return Result.success(Unit)
@@ -62,23 +61,22 @@ class BankRepositoryImpl @Inject constructor(
         cacheSync = { list -> db.bankTransactionDao().upsert(list) }
     )
 
-    override suspend fun reconcileManual(bankTxId: String, ledgerId: String): Result<Unit> = safeRunCatching {
-        safeRunCatching {
+    override suspend fun reconcileManual(bankTxId: String, ledgerId: String): Result<Unit> =
+        authoritativeCall("reconcileManual") {
             supabase.postgrest.rpc("reconcile_bank_transaction_v1", buildJsonObject {
                 put("p_bank_tx_id", bankTxId)
                 put("p_ledger_id", ledgerId)
             })
+            // The local mirror only ever follows a server that accepted the reconciliation.
+            db.bankTransactionDao().updateReconciliationStatus(
+                id = bankTxId,
+                status = BankTransactionStatus.RECONCILED,
+                ledgerId = ledgerId
+            )
         }
-        // Immediate local Room DB update for instant reactivity & offline fallback
-        db.bankTransactionDao().updateReconciliationStatus(
-            id = bankTxId,
-            status = BankTransactionStatus.RECONCILED,
-            ledgerId = ledgerId
-        )
-    }
 
-    override suspend fun ignoreTransaction(bankTxId: String, reason: String): Result<Unit> = safeRunCatching {
-        safeRunCatching {
+    override suspend fun ignoreTransaction(bankTxId: String, reason: String): Result<Unit> =
+        authoritativeCall("ignoreTransaction") {
             val payload = buildJsonObject {
                 put("status", BankTransactionStatus.IGNORED.name.lowercase())
                 put("metadata", buildJsonObject { put("ignore_reason", reason) })
@@ -86,88 +84,60 @@ class BankRepositoryImpl @Inject constructor(
             supabase.postgrest["bank_transactions"].update(payload) {
                 filter { eq("id", bankTxId) }
             }
+            db.bankTransactionDao().updateReconciliationStatus(
+                id = bankTxId,
+                status = BankTransactionStatus.IGNORED,
+                ledgerId = null
+            )
         }
-        // Immediate local Room DB update for instant reactivity & offline fallback
-        db.bankTransactionDao().updateReconciliationStatus(
-            id = bankTxId,
-            status = BankTransactionStatus.IGNORED,
-            ledgerId = null
-        )
-    }
 
     override fun observeBankConnection(groupId: String): Flow<Result<BankConnection?>> = observeAndSyncItem(
         dbFlow = db.bankTransactionDao().observeConnection(groupId),
-        mapper = { entity ->
-            entity?.let {
-                BankConnection(
-                    id = it.id,
-                    groupId = it.groupId,
-                    providerId = it.providerId,
-                    status = it.status,
-                    accountName = it.accountName,
-                    accountNumberHidden = it.accountNumberHidden,
-                    linkedAt = it.linkedAt,
-                    expiresAt = it.expiresAt
-                )
-            }
-        },
-        toEntity = { model ->
-            model?.let {
-                BankConnectionEntity(
-                    id = it.id,
-                    groupId = it.groupId,
-                    providerId = it.providerId,
-                    status = it.status,
-                    accountName = it.accountName,
-                    accountNumberHidden = it.accountNumberHidden,
-                    linkedAt = it.linkedAt,
-                    expiresAt = it.expiresAt
-                )
-            }
-        },
+        mapper = { it.toBankConnectionModel() },
+        toEntity = { it?.toBankConnectionEntity() },
         networkFetch = {
             supabase.postgrest["bank_connections"].select(columns = Columns.raw("*")) {
                 filter { eq("group_id", groupId) }
             }.decodeSingleOrNull<BankConnection>()
         },
-        cacheSync = { model ->
-            model?.let {
-                val entity = BankConnectionEntity(
-                    id = it.id,
-                    groupId = it.groupId,
-                    providerId = it.providerId,
-                    status = it.status,
-                    accountName = it.accountName,
-                    accountNumberHidden = it.accountNumberHidden,
-                    linkedAt = it.linkedAt,
-                    expiresAt = it.expiresAt
-                )
-                db.bankTransactionDao().upsertConnection(entity)
-            }
-        }
+        cacheSync = { db.bankTransactionDao().upsertConnection(it) }
     )
 
-    override suspend fun saveBankConnection(connection: BankConnection): Result<Unit> = safeRunCatching {
-        supabase.postgrest["bank_connections"].upsert(connection) {
-            onConflict = "group_id"
+    override suspend fun saveBankConnection(connection: BankConnection): Result<Unit> =
+        authoritativeCall("saveBankConnection") {
+            supabase.postgrest["bank_connections"].upsert(connection) {
+                onConflict = "group_id"
+            }
+            db.bankTransactionDao().upsertConnection(connection.toBankConnectionEntity())
         }
-        val entity = BankConnectionEntity(
-            id = connection.id,
-            groupId = connection.groupId,
-            providerId = connection.providerId,
-            status = connection.status,
-            accountName = connection.accountName,
-            accountNumberHidden = connection.accountNumberHidden,
-            linkedAt = connection.linkedAt,
-            expiresAt = connection.expiresAt
-        )
-        db.bankTransactionDao().upsertConnection(entity)
-    }
 
-    override suspend fun deleteBankConnection(groupId: String): Result<Unit> = safeRunCatching {
-        supabase.postgrest["bank_connections"].delete {
-            filter { eq("group_id", groupId) }
+    override suspend fun deleteBankConnection(groupId: String): Result<Unit> =
+        authoritativeCall("deleteBankConnection") {
+            supabase.postgrest["bank_connections"].delete {
+                filter { eq("group_id", groupId) }
+            }
+            db.bankTransactionDao().deleteConnectionByGroup(groupId)
         }
-        db.bankTransactionDao().deleteConnectionByGroup(groupId)
-    }
 }
+
+private fun BankConnection.toBankConnectionEntity() = BankConnectionEntity(
+    id = id,
+    groupId = groupId,
+    providerId = providerId,
+    status = status,
+    accountName = accountName,
+    accountNumberHidden = accountNumberHidden,
+    linkedAt = linkedAt,
+    expiresAt = expiresAt
+)
+
+private fun BankConnectionEntity.toBankConnectionModel() = BankConnection(
+    id = id,
+    groupId = groupId,
+    providerId = providerId,
+    status = status,
+    accountName = accountName,
+    accountNumberHidden = accountNumberHidden,
+    linkedAt = linkedAt,
+    expiresAt = expiresAt
+)

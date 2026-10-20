@@ -1,21 +1,9 @@
 package com.sanibonani.save.domain.config
 
 /**
- * Central constants for the SanibonaniSave platform.
- * Eliminates magic numbers and provides single source of truth for fees, defaults, and limits.
+ * Central constants for the SanibonaniSave platform: identity/bank validation shapes
+ * and upload limits.
  */
-
-// ── Platform Fees ──────────────────────────────────────────────────────────
-// PlatformFees moved to com.sanibonani.save.domain.model.Models.kt to break circular dependency
-
-// ── Group Defaults ─────────────────────────────────────────────────────────
-object GroupDefaults {
-    const val PROBATION_MONTHS = 3
-    const val PAYMENT_DUE_DAY = 28
-    const val MAX_MEMBERS = 50
-    const val AUTO_SUSPEND_AFTER_DAYS = 2
-    const val LATE_FEE_GRACE_DAYS = 5
-}
 
 // ── Member Validation ──────────────────────────────────────────────────────
 object MemberValidation {
@@ -53,33 +41,6 @@ object BankAccountValidation {
     // Branch code is exactly 6 digits in SA
     const val BRANCH_CODE_LENGTH = 6
     const val BRANCH_CODE_REGEX = "^[0-9]{6}$"
-}
-
-// ── Notification Channels ──────────────────────────────────────────────────
-object NotificationDefaults {
-    const val DEFAULT_CHANNEL = "both"  // WhatsApp + Email by default
-}
-
-// ── Database ───────────────────────────────────────────────────────────────
-object DatabaseConfig {
-    const val DATABASE_NAME = "sanibonani.db"
-    const val SCHEMA_VERSION = 41
-    
-    // Stale cache threshold: 24 hours
-    const val STALE_CACHE_THRESHOLD_MS = 24 * 60 * 60 * 1000L
-}
-
-// ── API Pagination ────────────────────────────────────────────────────────
-object PaginationDefaults {
-    const val PAGE_SIZE = 100
-    const val INITIAL_LOAD_SIZE = 100
-}
-
-// ── Timeout (milliseconds) ────────────────────────────────────────────────
-object TimeoutDefaults {
-    const val SUPABASE_QUERY_TIMEOUT_MS = 10_000L      // 10 seconds
-    const val SIGN_IN_RETRY_DELAY_MS = 400L            // 400ms between retries
-    const val SIGN_IN_RETRY_ATTEMPTS = 3
 }
 
 // ── File Upload Limits ─────────────────────────────────────────────────────

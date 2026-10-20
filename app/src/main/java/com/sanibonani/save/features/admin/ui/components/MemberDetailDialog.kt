@@ -150,9 +150,9 @@ fun MemberDetailDialog(
                             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                                 Text(stringResource(R.string.ui_loan_eligibility), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
                                 val (color, text) = if (isEligibleForLoan) {
-                                    Navy to "âœ… QUALIFIED"
+                                    Navy to "✅ QUALIFIED"
                                 } else {
-                                    ErrorRed to "âŒ NOT QUALIFIED"
+                                    ErrorRed to "❌ NOT QUALIFIED"
                                 }
                                 Text(text, color = color, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodySmall)
                             }
@@ -241,7 +241,7 @@ fun MemberDetailDialog(
                                 Row(Modifier.padding(12.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                                     Column(modifier = Modifier.weight(1f)) {
                                         Text(b.fullName, fontWeight = FontWeight.Bold)
-                                        Text("${b.relationship} â€¢ ${b.idNumber ?: "N/A"}", style = MaterialTheme.typography.labelSmall)
+                                        Text("${b.relationship} • ${b.idNumber ?: "N/A"}", style = MaterialTheme.typography.labelSmall)
 
                                         if (b.documentUrl != null) {
                                             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {

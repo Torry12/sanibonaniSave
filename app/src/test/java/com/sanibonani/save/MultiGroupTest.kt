@@ -37,6 +37,7 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import com.sanibonani.save.domain.model.AuthSession
 import org.junit.Rule
 import androidx.arch.core.executor.testing.InstantTaskExecutorRule
+import androidx.lifecycle.ViewModelStore
 import kotlinx.coroutines.test.*
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -87,6 +88,18 @@ class MultiGroupTest {
     private val locationService = mockk<LocationService>(relaxed = true)
 
     private val testDispatcher = StandardTestDispatcher()
+
+    // These ViewModels are constructed directly, so nothing ever calls onCleared() and their
+    // viewModelScope coroutines outlive the test. They then resume on the shared Dispatchers.Main
+    // test wrapper after the class finished and surface as UncaughtExceptionsBeforeTest in the
+    // next test class. Parking them in a store makes tearDown cancel them.
+    private val viewModelStore = ViewModelStore()
+    private var trackedCount = 0
+
+    private fun <T : androidx.lifecycle.ViewModel> tracked(viewModel: T): T {
+        viewModelStore.put("vm-${trackedCount++}", viewModel)
+        return viewModel
+    }
 
     @Before
     fun setup() {
@@ -142,6 +155,7 @@ class MultiGroupTest {
 
     @After
     fun tearDown() {
+        viewModelStore.clear()
         Dispatchers.resetMain()
         unmockkConstructor(Handler::class)
         unmockkAll()
@@ -165,7 +179,6 @@ class MultiGroupTest {
         coEvery { groupRepo.getGroupById("group-2") } returns Result.success(group2)
 
         // Ensure all required flows emit at least one value for both groups
-        every { memberRepo.getGroupContributions(any()) } returns flowOf(Result.success(emptyList()))
         every { memberRepo.getGroupMembers(any()) } returns flowOf(Result.success(emptyList()))
         every { groupRepo.observeGroup("group-1") } returns flowOf(Result.success(group1))
         every { groupRepo.observeGroup("group-2") } returns flowOf(Result.success(group2))
@@ -185,28 +198,30 @@ class MultiGroupTest {
         val sessionFlow = MutableStateFlow<com.sanibonani.save.domain.model.AuthSession?>(mockk(relaxed = true))
         every { supabaseRepo.sessionFlow } returns sessionFlow
 
-        val adminViewModel = AdminOverviewViewModel(
-            adminContextCacheService,
-            getManagedGroupsUseCase,
-            auditRepo,
-            getGroupBusinessInsightsUseCase,
-            healthScoreRepo,
-            calculateViabilityUseCase,
-            applyViabilityPlanUseCase,
-            sendNotificationUseCase,
-            supabaseRepo,
-            memberRepo,
-            ledgerRepo,
-            exportRepo,
-            verificationService,
-            executeRoscaPayoutUseCase,
-            processPlatformFeePaymentUseCase,
-            platformRepo,
-            financialRepo,
-            devSettings,
-            syncManager,
-            feeService,
-            networkService
+        val adminViewModel = tracked(
+            AdminOverviewViewModel(
+                adminContextCacheService,
+                getManagedGroupsUseCase,
+                auditRepo,
+                getGroupBusinessInsightsUseCase,
+                healthScoreRepo,
+                calculateViabilityUseCase,
+                applyViabilityPlanUseCase,
+                sendNotificationUseCase,
+                supabaseRepo,
+                memberRepo,
+                ledgerRepo,
+                exportRepo,
+                verificationService,
+                executeRoscaPayoutUseCase,
+                processPlatformFeePaymentUseCase,
+                platformRepo,
+                financialRepo,
+                devSettings,
+                syncManager,
+                feeService,
+                networkService
+            )
         )
         adminViewModel.setActive(true)
 
@@ -250,12 +265,14 @@ class MultiGroupTest {
         } returns Result.success("new-group-id")
         coEvery { activateGroupUseCase(any(), any()) } returns Result.success(Unit)
 
-        val groupViewModel = GroupRegistrationViewModel(
-            createGroupUseCase,
-            activateGroupUseCase,
-            feeService,
-            locationService,
-            supabaseRepo
+        val groupViewModel = tracked(
+            GroupRegistrationViewModel(
+                createGroupUseCase,
+                activateGroupUseCase,
+                feeService,
+                locationService,
+                supabaseRepo
+            )
         )
 
         // Simulate a logged-in user filling the form
@@ -263,7 +280,7 @@ class MultiGroupTest {
         groupViewModel.onEvent(GroupFormEvent.AdminEmailChanged("existing@test.com"))
         groupViewModel.onEvent(GroupFormEvent.AdminPasswordChanged("password123"))
         groupViewModel.onEvent(GroupFormEvent.AdminFullNameChanged("Admin Name"))
-        groupViewModel.onEvent(GroupFormEvent.AdminIdNumberChanged("9001015000081"))
+        groupViewModel.onEvent(GroupFormEvent.AdminIdNumberChanged("9001015000085"))
         groupViewModel.onEvent(GroupFormEvent.AdminPhoneChanged("0712345678"))
         groupViewModel.onEvent(GroupFormEvent.TermsAcceptedToggled(true))
 

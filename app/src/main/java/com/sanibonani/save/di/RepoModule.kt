@@ -65,11 +65,11 @@ abstract class RepoModule {
 
     @Binds
     @Singleton
-    abstract fun bindBeneficiaryRepository(impl: MemberRepositoryImpl): BeneficiaryRepository
+    abstract fun bindBeneficiaryRepository(impl: BeneficiaryRepositoryImpl): BeneficiaryRepository
 
     @Binds
     @Singleton
-    abstract fun bindMemberDocumentRepository(impl: MemberRepositoryImpl): MemberDocumentRepository
+    abstract fun bindMemberDocumentRepository(impl: MemberDocumentRepositoryImpl): MemberDocumentRepository
 
     @Binds
     @Singleton

@@ -29,7 +29,7 @@ import org.junit.Test
  * ┌────────────────────────────────────┬──────────────────┬──────────────────┐
  * │ Account                            │ Email            │ Password         │
  * ├────────────────────────────────────┼──────────────────┼──────────────────┤
- * │ Platform Admin (torrymsimango)     │ torrymsimango@…  │ torry123M        │
+ * │ Platform Admin (torrymsimango)     │ torrymsimango@…  │ via BuildConfig  │
  * │ Group Admin 1                      │ admin1@test.com  │ password123      │
  * │ Group Admin 2                      │ admin2@test.com  │ password123      │
  * │ Member 1 – Active                  │ member1@test.com │ password123      │
@@ -42,11 +42,8 @@ import org.junit.Test
 class CredentialLoginTest {
 
     // ── Supabase configuration ──────────────────────────────────────────────
-    private val supabaseUrl = "https://prosbbknupoexgzjwrwr.supabase.co"
-    private val anonKey =
-        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9" +
-        ".eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InByb3NiYmtudXBvZXhnemp3cndyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM1NDE4MDUsImV4cCI6MjA4OTExNzgwNX0" +
-        ".CJs8oWt0Q3quK8FkyaldwyOg-sXiU25rFaBCh5Mi2tE"
+    private val supabaseUrl = BuildConfig.SUPABASE_URL
+    private val anonKey = BuildConfig.SUPABASE_ANON_KEY
 
     // ── All test credentials ────────────────────────────────────────────────
     private data class Credential(
@@ -57,7 +54,7 @@ class CredentialLoginTest {
     )
 
     private val allCredentials = listOf(
-        Credential("Platform Admin",      "torrymsimango@gmail.com", "torry123M",   "platform_admin"),
+        Credential("Platform Admin",      "torrymsimango@gmail.com", BuildConfig.PLATFORM_ADMIN_PASSWORD,   "platform_admin"),
         Credential("Group Admin 1",       "admin1@test.com",         "password123", "group_admin"),
         Credential("Group Admin 2",       "admin2@test.com",         "password123", "group_admin"),
         Credential("Member 1 – Active",   "member1@test.com",        "password123", "member"),

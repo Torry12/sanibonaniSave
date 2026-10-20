@@ -1,11 +1,6 @@
 package com.sanibonani.save.domain.model
 
 
-enum class RecoveryMethod {
-    EMAIL,
-    WHATSAPP
-}
-
 /** A single enrolled MFA factor (e.g. an authenticator-app TOTP secret). */
 data class MfaFactor(
     val id: String,

@@ -56,7 +56,7 @@ fun MemberDocumentsTab(
         SectionHeaderCard(
             title = "Personal Documents",
             subtitle = "Core KYC documents for your profile",
-            emoji = "ðŸ‘¤",
+            emoji = "👤",
             isExpanded = expandedPersonal,
             onClick = { expandedPersonal = !expandedPersonal }
         )
@@ -109,7 +109,7 @@ fun MemberDocumentsTab(
             SectionHeaderCard(
                 title = "Group Specific Documents",
                 subtitle = "Additional files required by ${group?.name ?: "your group"}",
-                emoji = "ðŸ“‚",
+                emoji = "📂",
                 isExpanded = expandedGroup,
                 onClick = { expandedGroup = !expandedGroup }
             )

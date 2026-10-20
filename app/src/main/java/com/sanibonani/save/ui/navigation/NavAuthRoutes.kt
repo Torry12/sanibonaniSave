@@ -73,7 +73,9 @@ fun NavGraphBuilder.authRoutes(
                     }
                 }
             },
-            onNavigateRegister = { navController.navigateSingleTop(Screen.NewUserOnboarding.build()) },
+            // "Register" must open account creation; NewUserOnboarding is the post-sign-up
+            // choice screen and the guard keeps it out of reach until a session exists.
+            onNavigateRegister = { navController.navigateSingleTop(Screen.Register.route) },
             onForgotPassword = { navController.navigateSingleTop(Screen.PasswordRecovery.route) }
         )
     }
@@ -106,9 +108,10 @@ fun NavGraphBuilder.authRoutes(
         arguments = listOf(navArgument("groupType") { type = NavType.StringType; nullable = true })
     ) { backStackEntry ->
         val groupTypeString = backStackEntry.arguments?.getString("groupType")
-        val groupType = groupTypeString?.let { GroupType.valueOf(it) }
+        // Deep links and restored back stacks can carry a name that is not (or no longer) an
+        // enum constant; valueOf() would crash the composable on every recomposition.
+        val groupType = GroupType.entries.firstOrNull { it.name == groupTypeString }
         NewUserOnboardingScreen(
-            userId = authState.userId ?: "",
             profileCache = userProfileCacheService,
             onRegisterGroup = { selectedType ->
                 navController.navigateSingleTop(Screen.RegisterGroup.build(selectedType?.name)) {

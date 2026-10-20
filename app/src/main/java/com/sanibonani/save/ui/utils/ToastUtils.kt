@@ -2,8 +2,6 @@ package com.sanibonani.save.ui.utils
 
 import android.content.Context
 import android.widget.Toast
-import androidx.compose.runtime.Composable
-import androidx.compose.ui.platform.LocalContext
 
 /**
  * Toast utility for consistent, non-blocking user feedback.
@@ -36,19 +34,6 @@ object ToastUtils {
 
     fun showProcessing(context: Context, message: String) {
         showShort(context, "⏳ $message")
-    }
-}
-
-/**
- * Composable helper to show toast from side effects
- */
-@Composable
-fun ShowToast(message: String?, duration: Int = Toast.LENGTH_SHORT) {
-    val context = LocalContext.current
-    androidx.compose.runtime.LaunchedEffect(message) {
-        message?.let {
-            Toast.makeText(context, it, duration).show()
-        }
     }
 }
 

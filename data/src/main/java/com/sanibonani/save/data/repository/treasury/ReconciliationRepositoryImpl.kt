@@ -78,26 +78,13 @@ class ReconciliationRepositoryImpl @Inject constructor(
         )
     }
 
-    override suspend fun resolveDiscrepancy(reconciliationId: String, notes: String): Result<Unit> = retryWithExponentialBackoff {
-        // A resolution is only real once the system of record accepts it. Previously a
-        // remote failure was swallowed and the local record was marked RESOLVED anyway,
-        // so an admin could close a financial discrepancy in the app while the ledger of
-        // record still showed it open. The local status is therefore left untouched and
-        // the failure is surfaced.
-        try {
+    override suspend fun resolveDiscrepancy(reconciliationId: String, notes: String): Result<Unit> =
+        authoritativeCall("resolveDiscrepancy") {
+            // A resolution is only real once the system of record accepts it. The local
+            // status stays untouched when the remote update fails.
             remoteSource.resolveDiscrepancy(reconciliationId, notes).getOrThrow()
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            AppLogger.e(
-                "ReconciliationRepository",
-                "Could not resolve discrepancy $reconciliationId on the server; local status left unchanged.",
-                e
-            )
-            throw e
+            localSource.updateReconciliationStatus(reconciliationId, ReconciliationStatus.RESOLVED, notes)
         }
-        localSource.updateReconciliationStatus(reconciliationId, ReconciliationStatus.RESOLVED, notes)
-    }
 
     override fun observeSettlements(): Flow<Result<List<SettlementRecord>>> = observeAndSync(
         dbFlow = localSource.observeSettlements(),
@@ -115,23 +102,23 @@ class ReconciliationRepositoryImpl @Inject constructor(
             ?: remoteSource.getSettlementByTransactionId(transactionId).getOrThrow()
     }
 
-    override suspend fun updateSettlement(record: SettlementRecord): Result<Unit> = retryWithExponentialBackoff {
-        try {
-            remoteSource.updateSettlement(record).getOrThrow()
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            // Keep the local write so the offline UI reflects the admin's action, but do
-            // not let the failure disappear: an unconfirmed settlement must be visible to
-            // the caller. Local state self-corrects on the next getSettlements() sync.
-            AppLogger.w(
-                "ReconciliationRepository",
-                "Settlement ${record.id} was not confirmed by the server; cached locally only.",
-                e
-            )
+    override suspend fun updateSettlement(record: SettlementRecord): Result<Unit> =
+        authoritativeCall("updateSettlement") {
+            try {
+                remoteSource.updateSettlement(record).getOrThrow()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // Keep the offline UI responsive, but surface that the server did not accept
+                // the settlement. The next verified sync will replace this local copy.
+                AppLogger.w(
+                    "ReconciliationRepository",
+                    "Settlement ${record.id} was not confirmed by the server; cached locally only.",
+                    e
+                )
+                localSource.saveSettlements(listOf(record))
+                throw e
+            }
             localSource.saveSettlements(listOf(record))
-            throw e
         }
-        localSource.saveSettlements(listOf(record))
-    }
 }

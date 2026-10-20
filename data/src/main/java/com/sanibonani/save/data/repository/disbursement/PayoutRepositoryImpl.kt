@@ -8,10 +8,6 @@ import com.sanibonani.save.domain.model.*
 import com.sanibonani.save.domain.logging.AppLogger
 import com.sanibonani.save.domain.repository.admin.AuditLogRepository
 import com.sanibonani.save.domain.repository.disbursement.PayoutRepository
-import com.sanibonani.save.domain.repository.group.GroupRepository
-import com.sanibonani.save.domain.repository.member.MemberRepository
-import com.sanibonani.save.domain.service.PayoutGuard
-import dagger.Lazy
 import kotlinx.coroutines.flow.Flow
 import kotlinx.serialization.json.*
 import javax.inject.Inject
@@ -20,49 +16,57 @@ import com.sanibonani.save.domain.utils.safeRunCatching
 class PayoutRepositoryImpl @Inject constructor(
     private val remoteSource: RemotePayoutDataSource,
     private val localSource: LocalPayoutDataSource,
-    private val groupRepo: Lazy<GroupRepository>,
-    private val memberRepo: Lazy<MemberRepository>,
-    private val payoutGuard: Lazy<PayoutGuard>,
     private val auditLogRepo: AuditLogRepository,
     private val json: Json,
     private val pendingOpDao: com.sanibonani.save.data.local.PendingOperationDao
 ) : BaseRepository("PayoutRepository"), PayoutRepository {
 
-    override suspend fun requestPayout(payout: PayoutRequest): Result<String> =
-        safeApiCall(
+    override suspend fun requestPayout(payout: PayoutRequest, idempotencyKey: String?): Result<String> {
+        val stablePayout = payout.copy(
+            id = payout.id ?: idempotencyKey ?: java.util.UUID.randomUUID().toString()
+        )
+        return safeApiCall(
             operationType = "payout",
-            groupId = payout.groupId,
-            payload = json.encodeToString(payout),
-            dao = pendingOpDao
+            groupId = stablePayout.groupId,
+            payload = json.encodeToString(stablePayout),
+            dao = pendingOpDao,
+            idempotencyKey = idempotencyKey
         ) {
-            val entityId = payout.memberId ?: payout.groupId
-            AppLogger.d(tag, "Requesting payout for entity: $entityId, amount: ${payout.amount.format()}")
+            val entityId = stablePayout.memberId ?: stablePayout.groupId
+            AppLogger.d(tag, "Requesting payout for entity: $entityId, amount: ${stablePayout.amount.format()}")
 
-            // 1. Check local outbox for duplicate "payout" operations
-            val outbox = pendingOpDao.getAll()
-            val isQueued = outbox.any { op ->
-                op.type == "payout" && op.payload.contains(entityId)
-            }
-            if (isQueued) {
-                throw DuplicatePayoutRequestException(entityId, isLocal = true)
+            if (idempotencyKey == null) {
+                val outbox = pendingOpDao.getAll()
+                val isQueued = outbox.any { op ->
+                    op.type == "payout" && safeRunCatching {
+                        json.decodeFromString<PayoutRequest>(op.payload).let { queued ->
+                            queued.groupId == stablePayout.groupId &&
+                                queued.memberId == stablePayout.memberId &&
+                                queued.amount == stablePayout.amount &&
+                                queued.type == stablePayout.type
+                        }
+                    }.getOrDefault(false)
+                }
+                if (isQueued) throw DuplicatePayoutRequestException(entityId, isLocal = true)
+
+                val pending = remoteSource.getPendingPayouts().getOrThrow()
+                val isDuplicate = pending.any {
+                    it.groupId == stablePayout.groupId &&
+                        it.memberId == stablePayout.memberId &&
+                        it.amount == stablePayout.amount &&
+                        it.type == stablePayout.type
+                }
+                if (isDuplicate) throw DuplicatePayoutRequestException(entityId, isLocal = false)
             }
 
-            // 2. Check remote pending payouts
-            val pending = remoteSource.getPendingPayouts().getOrThrow()
-            val isDuplicate = pending.any {
-                it.groupId == payout.groupId &&
-                it.memberId == payout.memberId &&
-                it.amount == payout.amount &&
-                it.type == payout.type
+            val saved = if (idempotencyKey != null) {
+                remoteSource.getPayoutById(stablePayout.id!!).getOrElse {
+                    remoteSource.requestPayout(stablePayout).getOrThrow()
+                }
+            } else {
+                remoteSource.requestPayout(stablePayout).getOrThrow()
             }
-            if (isDuplicate) {
-                throw DuplicatePayoutRequestException(entityId, isLocal = false)
-            }
-
-            val saved = remoteSource.requestPayout(payout).getOrThrow()
             localSource.savePayout(saved)
-
-
             auditLogRepo.logEvent(
                 AuditLog(
                     actorId = saved.memberId ?: saved.groupId,
@@ -74,6 +78,7 @@ class PayoutRepositoryImpl @Inject constructor(
             )
             saved.id ?: ""
         }
+    }
 
     override suspend fun getPendingPayouts(): Result<List<PayoutRequest>> = safeRunCatching {
         val remote = remoteSource.getPendingPayouts().getOrThrow()
@@ -93,17 +98,6 @@ class PayoutRepositoryImpl @Inject constructor(
         val remote = remoteSource.getPayoutById(payoutId).getOrThrow()
         localSource.savePayout(remote)
         remote
-    }
-
-    override suspend fun validatePayoutEligibility(
-        groupId: String,
-        memberId: String?,
-        amount: Money,
-        type: PayoutType
-    ): Result<Unit> = safeRunCatching {
-        val group = groupRepo.get().getGroupById(groupId).getOrThrow()
-        val member = memberId?.let { memberRepo.get().getMemberById(it).getOrThrow() }
-        payoutGuard.get().validateRequest(group, member, amount, type).getOrThrow()
     }
 
     override suspend fun updatePayoutStatus(
@@ -143,7 +137,11 @@ class PayoutRepositoryImpl @Inject constructor(
         )
     }
 
-    override suspend fun completePayoutAtomic(payoutId: String, adminId: String, payoutReference: String?): Result<Unit> = safeRunCatching {
+    override suspend fun completePayoutAtomic(
+        payoutId: String,
+        adminId: String,
+        payoutReference: String?
+    ): Result<Unit> = authoritativeCall("completePayoutAtomic") {
         remoteSource.completePayoutAtomic(payoutId, adminId, payoutReference).getOrThrow()
         val updated = remoteSource.getPayoutById(payoutId).getOrThrow()
         localSource.savePayout(updated)
@@ -163,7 +161,6 @@ class PayoutRepositoryImpl @Inject constructor(
             )
         )
 
-        groupRepo.get().getGroupById(updated.groupId)
         EventBus.emit(PaymentProcessedEvent(Payment(
             memberId = updated.processedBy ?: "",
             groupId = updated.groupId,
@@ -176,11 +173,12 @@ class PayoutRepositoryImpl @Inject constructor(
         )))
     }
 
-    override suspend fun verifyPayoutDocument(payoutId: String, status: DocumentStatus): Result<Unit> = safeRunCatching {
-        remoteSource.updatePayoutDocumentStatus(payoutId, status).getOrThrow()
-        val updated = remoteSource.getPayoutById(payoutId).getOrThrow()
-        localSource.savePayout(updated)
-    }
+    override suspend fun verifyPayoutDocument(payoutId: String, status: DocumentStatus): Result<Unit> =
+        authoritativeCall("verifyPayoutDocument") {
+            remoteSource.updatePayoutDocumentStatus(payoutId, status).getOrThrow()
+            val updated = remoteSource.getPayoutById(payoutId).getOrThrow()
+            localSource.savePayout(updated)
+        }
 
     override fun observePayouts(groupId: String): Flow<Result<List<PayoutRequest>>> = observeAndSync(
         dbFlow = localSource.observePayouts(groupId),
@@ -198,8 +196,23 @@ class PayoutRepositoryImpl @Inject constructor(
         cacheSync = { localSource.savePayouts(it) }
     )
 
-    override suspend fun processRoscaPayout(groupId: String, memberId: String, totalPot: Money, loanDeductions: JsonArray, payoutAmount: Money, payoutData: JsonObject): Result<String> =
-        remoteSource.processRoscaPayout(groupId, memberId, totalPot, loanDeductions, payoutAmount, payoutData)
+    override suspend fun processRoscaPayout(
+        groupId: String,
+        memberId: String,
+        totalPot: Money,
+        loanDeductions: JsonArray,
+        payoutAmount: Money,
+        payoutData: JsonObject
+    ): Result<String> = authoritativeCall("processRoscaPayout") {
+        remoteSource.processRoscaPayout(
+            groupId,
+            memberId,
+            totalPot,
+            loanDeductions,
+            payoutAmount,
+            payoutData
+        ).getOrThrow()
+    }
 
     companion object {
         fun buildCompletePayoutRpcParams(

@@ -1,5 +1,6 @@
 package com.sanibonani.save.domain.service
 
+import com.sanibonani.save.domain.model.MfaRequiredException
 import com.sanibonani.save.domain.model.Money
 import com.sanibonani.save.domain.repository.auth.SupabaseRepository
 import com.sanibonani.save.domain.repository.equity.GroupFinancialRepository
@@ -28,7 +29,7 @@ class FinancialSecurityService @Inject constructor(
     suspend fun assertMfaRequirement(amount: Money): Result<Unit> {
         if (amount >= MFA_THRESHOLD) {
             if (!supabaseRepository.isMfaVerified) {
-                return Result.failure(Exception("MFA_REQUIRED: High-value disbursement of ${amount.format()} requires AAL2 verification."))
+                return Result.failure(MfaRequiredException(amount))
             }
         }
         return Result.success(Unit)

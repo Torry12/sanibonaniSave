@@ -9,6 +9,7 @@ import com.sanibonani.save.domain.repository.auth.CredentialsRepository
 import com.sanibonani.save.domain.repository.auth.SupabaseRepository
 import com.sanibonani.save.domain.repository.auth.UserProfileRepository
 import com.sanibonani.save.domain.utils.UserRoleMapper
+import com.sanibonani.save.domain.utils.toUserMessage
 import com.sanibonani.save.domain.validation.ValidationUtils
 import com.sanibonani.save.service.AdminGroupContextCacheService
 import com.sanibonani.save.service.MemberGroupContextCacheService
@@ -70,19 +71,28 @@ class AuthViewModel @Inject constructor(
 
                     // Step 2: Resolve User Role
                     loadQueue.startStep("Security Permissions")
+                    // Fail closed on privilege: an unreadable role is the least privileged role,
+                    // never a guessed admin.
                     val role = safeRunCatching { supabaseRepo.getUserRole() }.getOrDefault(UserRole.MEMBER)
                     loadQueue.completeStep("Security Permissions")
 
                     // Step 3: Warm up domain context caches in parallel (Parallel Warmup Pattern)
+                    // A cold cache or an unreachable realtime socket does not make the session
+                    // invalid; failing here would strand the caller on the login screen.
                     loadQueue.startStep("Domain Context")
-                    coroutineScope {
-                        val memberWarmup = async { memberGroupContextCacheService.warmUpForUser(userId) }
-                        val adminWarmup = async { adminGroupContextCacheService.warmUpForUser(userId) }
-                        awaitAll(memberWarmup, adminWarmup)
+                    val warmup = safeRunCatching("AuthWarmup") {
+                        coroutineScope {
+                            val memberWarmup = async { memberGroupContextCacheService.warmUpForUser(userId) }
+                            val adminWarmup = async { adminGroupContextCacheService.warmUpForUser(userId) }
+                            awaitAll(memberWarmup, adminWarmup)
+                        }
+                        realtimeSyncManager.start()
                     }
-                    loadQueue.completeStep("Domain Context")
-
-                    realtimeSyncManager.start()
+                    if (warmup.isSuccess) {
+                        loadQueue.completeStep("Domain Context")
+                    } else {
+                        loadQueue.failStep("Domain Context", warmup.exceptionOrNull()?.toUserMessage().orEmpty())
+                    }
 
                     emit(AsyncResult.Success(AuthenticatedAccount(userId, role)))
                 }
@@ -93,16 +103,7 @@ class AuthViewModel @Inject constructor(
 
     init {
         loadSavedCredentials()
-        observeActiveUrl()
         syncLegacyStateWithAccountStatus()
-    }
-
-    private fun observeActiveUrl() {
-        launchJob("active_url_observation") {
-            connManager.currentClient.collect { client ->
-                updateState { it.copy(activeSupabaseUrl = client?.supabaseUrl ?: "") }
-            }
-        }
     }
 
     private fun loadSavedCredentials() {
@@ -158,7 +159,9 @@ class AuthViewModel @Inject constructor(
                 } else {
                     credentialsRepo.clearCredentials()
                 }
-                updateState { it.copy(isLoading = false, isLoggedIn = true) }
+                // isLoggedIn and userRole are published by [accountStatus] once the session has
+                // hydrated. Setting them here would route the login screen on a role that has
+                // not been resolved yet, sending admins to the member dashboard first.
             }.onFailure { e ->
                 updateState { it.copy(isLoading = false) }
                 handleError(e)

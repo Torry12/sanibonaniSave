@@ -197,21 +197,6 @@ class NotificationRepositoryImpl @Inject constructor(
         }
     }
 
-    override suspend fun notifyPlatformAdmin(message: String): Result<Unit> = safeRunCatching {
-        val platformAdmins = supabase.postgrest["profiles"].select {
-            filter { eq("role", "platform_admin") }
-        }.decodeList<UserProfile>()
-
-        platformAdmins.forEach { _ ->
-            supabase.postgrest["notifications"].insert(buildJsonObject {
-                put("message", message)
-                put("trigger_event", NotifEvent.CUSTOM.name.lowercase())
-                put("member_id", JsonNull)
-                put("group_id", "platform")
-            })
-        }
-    }
-
     override suspend fun sendDirectWhatsAppMessage(phone: String, message: String): Result<Unit> = safeRunCatching {
         require(phone.isNotBlank()) { "Please enter a WhatsApp number." }
         require(message.isNotBlank()) { "Please enter a message to send." }

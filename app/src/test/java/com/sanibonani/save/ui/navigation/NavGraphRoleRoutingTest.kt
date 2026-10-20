@@ -158,4 +158,61 @@ class NavGraphRoleRoutingTest {
             )
         )
     }
+
+    @Test
+    fun routeGuard_unauthenticatedOnRegister_noRedirect() {
+        assertNull(
+            RouteGuard.getRedirect(
+                isLoggedIn = false,
+                role = UserRole.MEMBER,
+                currentRoute = Screen.Register.route,
+                isNewRegistration = false,
+                isResettingPassword = false,
+                supportMode = false
+            )
+        )
+    }
+
+    @Test
+    fun routeGuard_unauthenticatedOnGroupWizard_redirectsToLanding() {
+        assertEquals(
+            Screen.Landing.route,
+            RouteGuard.getRedirect(
+                isLoggedIn = false,
+                role = UserRole.MEMBER,
+                currentRoute = Screen.RegisterGroup.build("STOKVEL"),
+                isNewRegistration = false,
+                isResettingPassword = false,
+                supportMode = false
+            )
+        )
+    }
+
+    @Test
+    fun routeGuard_platformAdminOnGroupWizard_noRedirect() {
+        assertNull(
+            RouteGuard.getRedirect(
+                isLoggedIn = true,
+                role = UserRole.PLATFORM_ADMIN,
+                currentRoute = Screen.RegisterGroup.build("STOKVEL"),
+                isNewRegistration = false,
+                isResettingPassword = false,
+                supportMode = false
+            )
+        )
+    }
+
+    @Test
+    fun routeGuard_groupAdminOnGroupWizard_noRedirect() {
+        assertNull(
+            RouteGuard.getRedirect(
+                isLoggedIn = true,
+                role = UserRole.GROUP_ADMIN,
+                currentRoute = Screen.RegisterGroup.route,
+                isNewRegistration = false,
+                isResettingPassword = false,
+                supportMode = false
+            )
+        )
+    }
 }

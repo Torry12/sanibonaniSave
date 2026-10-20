@@ -181,10 +181,10 @@ fun PaymentScreen(
                 PaymentGatewayForm(
                     amount      = if (state.currentInputAmount.isPositive) state.currentInputAmount else amount,
                     description = when (paymentType) {
-                        "registration" -> "Group Registration â€” SanibonaniSave"
+                        "registration" -> "Group Registration — SanibonaniSave"
                         "admin_fee"    -> {
                             val memberCount = if (PlatformFees.MONTHLY_PER_MEMBER.isPositive) (amount.ratio(PlatformFees.MONTHLY_PER_MEMBER)).toInt() else 0
-                            "Monthly Platform Fee â€” $memberCount members"
+                            "Monthly Platform Fee — $memberCount members"
                         }
                         "joining_fee"  -> "Member Joining Fee"
                         else           -> "Monthly Contribution"
@@ -223,7 +223,7 @@ fun PaymentScreen(
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
                 ) {
                     Row(Modifier.padding(14.dp), verticalAlignment = Alignment.Top) {
-                        Text("ðŸ”’", fontSize = 20.sp, modifier = Modifier.padding(end = 10.dp))
+                        Text("🔒", fontSize = 20.sp, modifier = Modifier.padding(end = 10.dp))
                         Column {
                             Text(stringResource(R.string.ui_secure_payment_gateway),
                                 style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)

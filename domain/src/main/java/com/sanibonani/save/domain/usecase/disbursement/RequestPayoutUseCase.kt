@@ -33,38 +33,48 @@ class RequestPayoutUseCase @Inject constructor(
             return@financialResult executeRoscaPayoutUseCase(groupId).getOrThrow()
         }
 
-        var bankName: String? = bankNameOverride
-        var accountNo: String? = accountNoOverride
-        var branchCode: String? = branchCodeOverride
-        var amountToPay = requestedAmount
-        var member: Member? = null
-
-        if (memberId != null) {
-            member = memberRepository.syncGroupMembers(groupId).getOrNull()?.find { it.id == memberId }
-                ?: throw Exception("Member not found.")
-
-            if (bankName.isNullOrBlank()) bankName = member.bankName
-            if (accountNo.isNullOrBlank()) accountNo = member.accountNo
-            if (branchCode.isNullOrBlank()) branchCode = member.branchCode
-
-            if (amountToPay == null || !amountToPay.isPositive) {
-                if (group.type == GroupType.STOKVEL) {
-                    val members = memberRepository.syncGroupMembers(groupId).getOrNull() ?: emptyList()
-                    amountToPay = calculateStokvelPayoutsUseCase(group, members, member)
-                } else if (group.type == GroupType.INVESTMENT_CLUB) {
-                    val valuation = calculateInvestmentClubValuationUseCase(group, listOf(member)).getOrNull()
-                    amountToPay = valuation?.memberValuations?.firstOrNull()?.marketValue ?: Money.ZERO
-                }
-            }
+        val (member, roster) = if (memberId == null) {
+            null to emptyList()
         } else {
-            if (bankName.isNullOrBlank()) bankName = group.bankName
-            if (accountNo.isNullOrBlank()) accountNo = group.accountNumber
-            if (branchCode.isNullOrBlank()) branchCode = group.branchCode
+            // One roster read serves both the bank details and the STOKVEL pool. Syncing twice in
+            // one request doubles the round-trips and lets the two reads disagree about who is in
+            // the group, so the amount could be calculated against a different roster than the
+            // member being paid.
+            val roster = memberRepository.syncGroupMembers(groupId).getOrNull() ?: emptyList()
+            val member = roster.find { it.id == memberId } ?: throw Exception("Member not found.")
+            member to roster
         }
 
-        if (amountToPay == null || !amountToPay.isPositive) {
-            throw Exception("Amount required.")
-        }
+        submitPayout(
+            groupId = groupId,
+            group = group,
+            member = member,
+            roster = roster,
+            requestedAmount = requestedAmount,
+            bankNameOverride = bankNameOverride,
+            accountNoOverride = accountNoOverride,
+            branchCodeOverride = branchCodeOverride
+        )
+    }
+
+    // Guards and submits one payout request from context the caller already holds, so the roster
+    // read once here is never re-fetched while the request is being valued.
+    private suspend fun submitPayout(
+        groupId: String,
+        group: Group,
+        member: Member?,
+        roster: List<Member>,
+        requestedAmount: Money?,
+        bankNameOverride: String?,
+        accountNoOverride: String?,
+        branchCodeOverride: String?
+    ): String {
+        val bankName = bankNameOverride.ifBlankOrNull { member?.bankName ?: group.bankName }
+        val accountNo = accountNoOverride.ifBlankOrNull { member?.accountNo ?: group.accountNumber }
+        val branchCode = branchCodeOverride.ifBlankOrNull { member?.branchCode ?: group.branchCode }
+        val amountToPay = resolveAmount(group, member, roster, requestedAmount)
+            ?.takeIf { it.isPositive }
+            ?: throw Exception("Amount required.")
 
         val payoutType = when (group.type) {
             GroupType.STOKVEL -> PayoutType.ANNUAL
@@ -86,7 +96,7 @@ class RequestPayoutUseCase @Inject constructor(
 
         val request = PayoutRequest(
             groupId = groupId,
-            memberId = memberId,
+            memberId = member?.id,
             amount = amountToPay,
             bankName = bankName.trim(),
             accountNo = accountNo.trim(),
@@ -95,8 +105,29 @@ class RequestPayoutUseCase @Inject constructor(
             type = payoutType,
             metadata = null
         )
-        payoutRepository.requestPayout(request).getOrThrow()
+        return payoutRepository.requestPayout(request).getOrThrow()
     }
+
+    private suspend fun resolveAmount(
+        group: Group,
+        member: Member?,
+        roster: List<Member>,
+        requestedAmount: Money?
+    ): Money? {
+        if (requestedAmount?.isPositive == true) return requestedAmount
+        return when {
+            member == null -> requestedAmount
+            group.type == GroupType.STOKVEL -> calculateStokvelPayoutsUseCase(group, roster, member)
+            group.type == GroupType.INVESTMENT_CLUB -> calculateInvestmentClubValuationUseCase(
+                group,
+                listOf(member)
+            ).getOrNull()?.memberValuations?.firstOrNull()?.marketValue ?: Money.ZERO
+            else -> requestedAmount
+        }
+    }
+
+    private inline fun String?.ifBlankOrNull(default: () -> String?): String? =
+        if (isNullOrBlank()) default() else this
 
     companion object {
         private val ACCOUNT_NO_REGEX = Regex("^\\d{7,13}$")

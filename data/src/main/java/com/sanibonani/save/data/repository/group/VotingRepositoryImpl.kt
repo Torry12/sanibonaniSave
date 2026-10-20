@@ -15,10 +15,8 @@ import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.postgrest.postgrest
 import javax.inject.Inject
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.flow
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
-import com.sanibonani.save.domain.utils.safeRunCatching
 import com.sanibonani.save.domain.utils.requirePersistedId
 
 class VotingRepositoryImpl @Inject constructor(
@@ -29,7 +27,7 @@ class VotingRepositoryImpl @Inject constructor(
     private val db: SanibonaniDatabase get() = connectionManager.getDatabase()
 
     override fun observePolls(groupId: String, memberId: String?): Flow<Result<List<GroupPollWithOptions>>> {
-        val dao = db?.groupVotingDao() ?: return flow { emit(Result.failure(Exception("Database unavailable"))) }
+        val dao = db.groupVotingDao()
         return observeAndSync(
             dbFlow = dao.observePollsWithDetails(groupId),
             mapper = { entity ->
@@ -68,7 +66,15 @@ class VotingRepositoryImpl @Inject constructor(
         )
     }
 
-    override suspend fun createPoll(groupId: String, createdByMemberId: String?, title: String, description: String?, options: List<String>, allowMultipleChoice: Boolean, endsAt: String?): Result<String> = safeRunCatching {
+    override suspend fun createPoll(
+        groupId: String,
+        createdByMemberId: String?,
+        title: String,
+        description: String?,
+        options: List<String>,
+        allowMultipleChoice: Boolean,
+        endsAt: String?
+    ): Result<String> = authoritativeCall("createPoll") {
         val poll = GroupPoll(
             groupId = groupId,
             createdByMemberId = createdByMemberId,
@@ -80,23 +86,28 @@ class VotingRepositoryImpl @Inject constructor(
         )
         val created = supabase.postgrest["group_polls"].insert(poll) { select() }.decodeSingle<GroupPoll>()
         val id = created.id.requirePersistedId("poll")
-        val optionRows = options.mapIndexed { i, l -> GroupPollOption(pollId = id, label = l, position = i + 1) }
+        val optionRows = options.mapIndexed { index, label ->
+            GroupPollOption(pollId = id, label = label, position = index + 1)
+        }
         supabase.postgrest["group_poll_options"].insert(optionRows)
 
-        db?.groupVotingDao()?.upsertPolls(listOf(created.toEntity()))
-        db?.groupVotingDao()?.upsertOptions(optionRows.map { it.toEntity() })
+        db.groupVotingDao().upsertPolls(listOf(created.toEntity()))
+        db.groupVotingDao().upsertOptions(optionRows.map { it.toEntity() })
         id
     }
 
-    override suspend fun castVote(groupId: String, pollId: String, optionId: String, memberId: String): Result<Unit> = safeRunCatching {
+    override suspend fun castVote(
+        groupId: String,
+        pollId: String,
+        optionId: String,
+        memberId: String
+    ): Result<Unit> = authoritativeCall("castVote") {
         val vote = GroupPollVote(groupId = groupId, pollId = pollId, optionId = optionId, memberId = memberId)
         supabase.postgrest["group_poll_votes"].upsert(vote) { onConflict = "poll_id,member_id" }
-        db?.groupVotingDao()?.upsertVotes(listOf(vote.toEntity()))
-        Unit
+        db.groupVotingDao().upsertVotes(listOf(vote.toEntity()))
     }
 
-    override suspend fun closePoll(pollId: String): Result<Unit> = safeRunCatching {
+    override suspend fun closePoll(pollId: String): Result<Unit> = authoritativeCall("closePoll") {
         supabase.postgrest.rpc("close_poll_v1", buildJsonObject { put("p_poll_id", pollId) })
-        Unit
     }
 }

@@ -12,7 +12,7 @@ import kotlinx.coroutines.flow.Flow
 interface BeneficiaryClaimRepository {
 
     /** Member: submit a new payout claim for a specific beneficiary. */
-    suspend fun submitClaim(claim: BeneficiaryPayoutClaim): Result<BeneficiaryPayoutClaim>
+    suspend fun submitClaim(claim: BeneficiaryPayoutClaim, idempotencyKey: String? = null): Result<BeneficiaryPayoutClaim>
 
     /** Member: observe all claims for a specific member in a group. */
     fun observeClaimsForMember(memberId: String, groupId: String): Flow<Result<List<BeneficiaryPayoutClaim>>>

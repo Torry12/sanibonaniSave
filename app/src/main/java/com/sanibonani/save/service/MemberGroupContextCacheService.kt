@@ -13,6 +13,7 @@ import com.sanibonani.save.domain.model.Loan
 import com.sanibonani.save.domain.model.LoanRepayment
 import com.sanibonani.save.domain.model.Member
 import com.sanibonani.save.domain.repository.credit.LoanRepository
+import com.sanibonani.save.domain.repository.equity.MemberContributionRepository
 import com.sanibonani.save.domain.repository.group.GroupRepository
 import com.sanibonani.save.domain.repository.member.BeneficiaryRepository
 import com.sanibonani.save.domain.repository.member.MemberRepository
@@ -23,6 +24,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -35,6 +38,7 @@ class MemberGroupContextCacheService @Inject constructor(
 	private val memberRepo: MemberRepository,
 	private val groupRepo: GroupRepository,
 	private val beneficiaryRepo: BeneficiaryRepository,
+	private val contributionRepo: MemberContributionRepository,
 	private val notificationRepo: NotificationRepository,
 	private val loanRepo: LoanRepository,
 	private val paymentCalculator: PaymentCalculator
@@ -88,11 +92,8 @@ class MemberGroupContextCacheService @Inject constructor(
 	suspend fun impersonateMember(memberId: String, groupId: String): Result<CachedGroupContext> =
 		safeRunCatching {
 			val member = memberRepo.getMemberById(memberId).getOrThrow()
-			val userId = member.userId
-			if (!userId.isNullOrBlank()) {
-				warmGroupContext(userId = userId, groupId = groupId, membership = member)
-			}
-			_contexts.value[groupId] ?: CachedGroupContext(member = member)
+			warmGroupContext(userId = member.userId.orEmpty(), groupId = groupId, membership = member)
+			_contexts.value[groupId] ?: error("Support context was not hydrated for group $groupId")
 		}
 
 	fun updateContext(
@@ -106,32 +107,45 @@ class MemberGroupContextCacheService @Inject constructor(
 	}
 
 	private suspend fun warmGroupContext(userId: String, groupId: String, membership: Member) {
-		val group = groupRepo.getGroupById(groupId).getOrNull()
-		val member = memberRepo.getMemberByUserId(userId, groupId).getOrNull() ?: membership
+		val (group, member) = coroutineScope {
+			val groupTask = async { groupRepo.getGroupById(groupId).getOrNull() }
+			val memberTask = async {
+				if (userId.isBlank()) membership
+				else memberRepo.getMemberByUserId(userId, groupId).getOrNull() ?: membership
+			}
+			groupTask.await() to memberTask.await()
+		}
 		val memberId = member.id
 
-		val contributions = if (!memberId.isNullOrBlank()) {
-			memberRepo.getMemberContributions(memberId, groupId).first().getOrElse { emptyList() }
-		} else {
-			emptyList()
+		val (contributions, beneficiaries, loans, notifications) = coroutineScope {
+			val contributionsTask = async {
+				memberId?.takeIf { it.isNotBlank() }?.let {
+					contributionRepo.getMemberContributions(it, groupId).first().getOrElse { emptyList() }
+				} ?: emptyList()
+			}
+			val beneficiariesTask = async {
+				memberId?.takeIf { it.isNotBlank() }?.let {
+					beneficiaryRepo.syncBeneficiaries(it).getOrElse { emptyList() }
+				} ?: emptyList()
+			}
+			val loansTask = async {
+				memberId?.takeIf { it.isNotBlank() }?.let {
+					loanRepo.getMemberLoans(it).first().getOrElse { emptyList() }
+				} ?: emptyList()
+			}
+			val notificationsTask = async {
+				safeRunCatching {
+					notificationRepo.syncNotifications(groupId)
+					notificationRepo.observeNotifications(groupId).first().getOrElse { emptyList() }
+				}.getOrElse { emptyList() }
+			}
+			HydratedMemberData(
+				contributions = contributionsTask.await(),
+				beneficiaries = beneficiariesTask.await(),
+				loans = loansTask.await(),
+				notifications = notificationsTask.await()
+			)
 		}
-
-		val beneficiaries = if (!memberId.isNullOrBlank()) {
-			beneficiaryRepo.syncBeneficiaries(memberId).getOrElse { emptyList() }
-		} else {
-			emptyList()
-		}
-
-		val loans = if (!memberId.isNullOrBlank()) {
-			loanRepo.getMemberLoans(memberId).first().getOrElse { emptyList() }
-		} else {
-			emptyList()
-		}
-
-		val notifications = safeRunCatching {
-			notificationRepo.syncNotifications(groupId)
-			notificationRepo.observeNotifications(groupId).first().getOrElse { emptyList() }
-		}.getOrElse { emptyList() }
 
 		val (messages, systemNotifs) = partitionMemberNotifications(
 			filterNotificationsForMember(notifications, memberId)
@@ -173,6 +187,13 @@ class MemberGroupContextCacheService @Inject constructor(
 		}
 	}
 }
+
+private data class HydratedMemberData(
+	val contributions: List<Contribution>,
+	val beneficiaries: List<Beneficiary>,
+	val loans: List<Loan>,
+	val notifications: List<AppNotification>
+)
 
 data class CachedGroupContext(
 	val member: Member? = null,

@@ -14,16 +14,5 @@ interface HealthScoreRepository {
      * Save health score to both local DB and remote.
      */
     suspend fun saveHealthScore(score: GroupHealthScore): Result<Unit>
-
-    /**
-     * Get cached or fresh health score.
-     * Returns cached if not expired, fetches fresh otherwise.
-     */
-    suspend fun getHealthScore(groupId: String): Result<GroupHealthScore>
-
-    /**
-     * Invalidate cache to force refresh.
-     */
-    suspend fun invalidateCache(groupId: String): Result<Unit>
 }
 

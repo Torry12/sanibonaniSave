@@ -15,7 +15,11 @@ interface GroupRepository {
         group: Group
     ): Result<String>
     /** Atomically updates group balance by adding the specified amount (can be negative). */
-    suspend fun incrementGroupBalance(groupId: String, amount: com.sanibonani.save.domain.model.Money): Result<com.sanibonani.save.domain.model.Money>
+    suspend fun incrementGroupBalance(
+        groupId: String,
+        amount: com.sanibonani.save.domain.model.Money,
+        transactionId: String? = null
+    ): Result<com.sanibonani.save.domain.model.Money>
 
     /**
      * Atomically records a disbursement (outflow).
@@ -35,6 +39,5 @@ interface GroupRepository {
     suspend fun uploadConstitution(groupId: String, fileBytes: ByteArray, fileName: String): Result<String>
     suspend fun deleteGroup(groupId: String): Result<Unit>
     suspend fun updateGroup(group: Group): Result<Unit>
-    suspend fun getCurrentUserEmail(): String?
     suspend fun getGroupsByAdmin(adminId: String): Result<List<Group>>
 }

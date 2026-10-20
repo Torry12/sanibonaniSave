@@ -5,9 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.sanibonani.save.domain.logging.AppLogger
 import com.sanibonani.save.domain.event.EventBus
 import com.sanibonani.save.domain.event.PillarRefreshRequestedEvent
-import com.sanibonani.save.domain.model.AsyncResult
 import com.sanibonani.save.domain.model.DomainPillar
-import com.sanibonani.save.domain.repository.system.SyncRepository
 import com.sanibonani.save.domain.utils.toUserMessage
 import com.sanibonani.save.domain.service.NetworkConnectivityService
 import kotlinx.coroutines.channels.Channel
@@ -29,13 +27,22 @@ abstract class BaseViewModel<S>(protected val initialState: S) : ViewModel() {
 
     private val jobRegistry = ConcurrentHashMap<String, Job>()
 
+    private fun registerJob(key: String, job: Job) {
+        job.invokeOnCompletion {
+            // A cancelled predecessor may finish after its replacement is registered.
+            jobRegistry.remove(key, job)
+        }
+        jobRegistry[key] = job
+        if (job.isCompleted) jobRegistry.remove(key, job)
+    }
+
     /**
      * Executes a job and cancels any previous job with the same key.
      */
     protected fun launchJob(key: String, block: suspend kotlinx.coroutines.CoroutineScope.() -> Unit): Job {
         cancelJob(key)
         val job = viewModelScope.launch(block = block)
-        jobRegistry[key] = job
+        registerJob(key, job)
         return job
     }
 
@@ -49,15 +56,15 @@ abstract class BaseViewModel<S>(protected val initialState: S) : ViewModel() {
         block: suspend kotlinx.coroutines.CoroutineScope.() -> Unit
     ): Job {
         cancelJob(key)
-        val job = viewModelScope.launch(dispatcher) {
+        val job = viewModelScope.launch(dispatcher, block = {
             try {
                 block()
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
                 handleError(e, errorPrefix?.let { "$it: ${e.toUserMessage()}" })
             }
-        }
-        jobRegistry[key] = job
+        })
+        registerJob(key, job)
         return job
     }
 
@@ -151,15 +158,6 @@ abstract class BaseViewModel<S>(protected val initialState: S) : ViewModel() {
     }
 
     /**
-     * Resets the UI state to its initial value and cancels all active jobs.
-     */
-    protected fun resetState() {
-        jobRegistry.values.forEach { it.cancel() }
-        jobRegistry.clear()
-        _uiState.value = initialState
-    }
-
-    /**
      * Sends a one-time event to the UI.
      */
     protected fun sendEvent(event: UIEvent) {
@@ -209,41 +207,7 @@ abstract class BaseViewModel<S>(protected val initialState: S) : ViewModel() {
     }
 
     /**
-     * Standardized Outbox Status Observation
-     */
-    protected fun observeOutboxStatus(syncRepo: SyncRepository): Flow<Int> {
-        return syncRepo.outboxCount
-    }
-
-    /**
-     * Executes a block and updates a specific AsyncResult field in the state.
-     */
-    protected fun <T> runAsync(
-        update: (S, AsyncResult<T>) -> S,
-        block: suspend () -> Result<T>
-    ): Job = viewModelScope.launch {
-        updateState { state -> update(state, AsyncResult.Loading) }
-        // Without this the throwing (rather than Result-returning) block leaves the section stuck
-        // in AsyncResult.Loading, because the terminal state is only written inside fold.
-        val outcome = try {
-            block()
-        } catch (e: kotlinx.coroutines.CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            Result.failure<T>(e)
-        }
-        outcome.fold(
-            onSuccess = { data -> updateState { state -> update(state, AsyncResult.Success(data)) } },
-            onFailure = { error ->
-                if (error is kotlinx.coroutines.CancellationException) throw error
-                val msg = error.toUserMessage()
-                updateState { state -> update(state, AsyncResult.Error(msg, error.javaClass.simpleName)) }
-            }
-        )
-    }
-
-    /**
-     * Executes a one-way synchronization from network to cache.
+     * Drives the global hysteresis spinner through [LoadingManager].
      */
     protected fun startLoading() {
         LoadingManager.start()
@@ -263,81 +227,5 @@ abstract class BaseViewModel<S>(protected val initialState: S) : ViewModel() {
         } finally {
             stopLoading()
         }
-    }
-
-    /**
-     * Collects a Result-based Flow and updates the state accordingly.
-     * Reduces boilerplate for simple observer patterns.
-     * Automatically handles isLoading if provided.
-     */
-    protected fun <T> Flow<Result<T>>.observeInto(
-        onLoading: ((Boolean) -> Unit)? = null,
-        onError: (Throwable) -> Unit = { handleError(it) },
-        onSuccess: (T) -> Unit
-    ): Job {
-        onLoading?.invoke(true)
-        // Collected directly instead of through onEach/catch/launchIn: `catch` is a channel-based
-        // flow operator, and wrapping a `flowOn(...)` source in one adds a producer whose
-        // downstream continuation can outlive the collection. The finally block gives the same
-        // guarantee — a flow that fails or completes without emitting still clears the flag.
-        return viewModelScope.launch {
-            try {
-                collect { result ->
-                    onLoading?.invoke(false)
-                    result.fold(onSuccess, onError)
-                }
-            } catch (e: kotlinx.coroutines.CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                onError(e)
-            } finally {
-                onLoading?.invoke(false)
-            }
-        }
-    }
-
-    /**
-     * Launch a coroutine with built-in error handling and logging.
-     */
-    protected fun launchSafe(
-        errorPrefix: String? = null,
-        dispatcher: kotlinx.coroutines.CoroutineDispatcher = kotlinx.coroutines.Dispatchers.Main,
-        block: suspend kotlinx.coroutines.CoroutineScope.() -> Unit
-    ) = viewModelScope.launch(dispatcher) {
-        try {
-            block()
-        } catch (e: Exception) {
-            if (e is kotlinx.coroutines.CancellationException) throw e
-            handleError(e, errorPrefix?.let { "$it: ${e.toUserMessage()}" })
-        }
-    }
-
-    /**
-     * Executes a Result-producing block with standardized loading and error handling.
-     */
-    protected fun <T> runSafe(
-        onLoading: ((Boolean) -> Unit)? = null,
-        onError: (Throwable) -> Unit = { handleError(it) },
-        onSuccess: (T) -> Unit = {},
-        block: suspend () -> Result<T>
-    ): Job = viewModelScope.launch {
-        onLoading?.invoke(true)
-        // A block that throws instead of returning a Result would otherwise strand the loading
-        // flag on and tear the whole ViewModel scope down with it.
-        val outcome = try {
-            block()
-        } catch (e: kotlinx.coroutines.CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            Result.failure<T>(e)
-        }
-        onLoading?.invoke(false)
-        outcome.fold(
-            onSuccess = onSuccess,
-            onFailure = {
-                if (it is kotlinx.coroutines.CancellationException) throw it
-                onError(it)
-            }
-        )
     }
 }

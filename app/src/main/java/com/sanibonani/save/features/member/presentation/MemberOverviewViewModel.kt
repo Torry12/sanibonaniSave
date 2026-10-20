@@ -70,7 +70,6 @@ class MemberOverviewViewModel @Inject constructor(
                 contextSource = memberContextCacheService.contexts,
             ) { context ->
                 if (context == null) {
-                    updateState { it.copy(memberContext = AsyncResult.Uninitialized) }
                     return@observeGroupContext
                 }
 
@@ -88,13 +87,11 @@ class MemberOverviewViewModel @Inject constructor(
                     )
 
                     updateState { s -> s.copy(
-                        memberContext = AsyncResult.Success(pkg),
                         member = pkg.member,
                         group = pkg.group,
                         contributions = pkg.contributions,
                         beneficiaries = pkg.beneficiaries,
                         loans = pkg.loans,
-                        loanRepayments = pkg.repayments,
                         paymentCalculation = pkg.calculation,
                         monthlyContributionAmount = paymentCalculator.calculateExpectedMemberGroupPart(pkg.group, pkg.member),
                         notifications = pkg.notifications,
@@ -106,7 +103,7 @@ class MemberOverviewViewModel @Inject constructor(
                     val liveMemberId = pkg.member.id.serverIdOrReport("member") ?: return@observeGroupContext
                     startLiveObservation(liveMemberId, pkg.group)
                 } else {
-                    updateState { it.copy(memberContext = AsyncResult.Loading, isLoading = true) }
+                    updateState { it.copy(isLoading = true) }
                 }
             }
         }
@@ -127,7 +124,7 @@ class MemberOverviewViewModel @Inject constructor(
                 }
 
                 val insights = insightsTask.await()
-                updateState { it.copy(businessInsight = insights, allMembers = members) }
+                updateState { it.copy(businessInsight = insights) }
             }
 
             coroutineScope {
@@ -162,7 +159,7 @@ class MemberOverviewViewModel @Inject constructor(
                             val insights = withContext(Dispatchers.Default) {
                                 getGroupBusinessInsightsUseCase(group, members)
                             }
-                            updateState { it.copy(businessInsight = insights, allMembers = members) }
+                            updateState { it.copy(businessInsight = insights) }
                         }
                     }
                 }
@@ -187,13 +184,12 @@ class MemberOverviewViewModel @Inject constructor(
     fun setPortalContext(memberId: String?, groupId: String?) {
         launchJob("portal_context_transition") {
             if (!memberId.isNullOrBlank() && !groupId.isNullOrBlank()) {
-                val role = supabaseRepo.getUserRole()
                 updateState { it.clearGroupContext().copy(
                     isImpersonating = true,
                     impersonatorId = supabaseRepo.currentUserId,
                     targetMemberId = memberId,
-                    impersonatorRole = role,
                     selectedGroupId = groupId,
+                    isExiting = false,
                     isLoading = true
                 ) }
                 memberContextCacheService.impersonateMember(memberId, groupId)
@@ -208,13 +204,21 @@ class MemberOverviewViewModel @Inject constructor(
             } else if (!groupId.isNullOrBlank()) {
                 updateState { it.clearGroupContext().copy(
                     isImpersonating = false,
+                    impersonatorId = null,
                     targetMemberId = null,
                     selectedGroupId = groupId,
+                    isExiting = false,
                     isLoading = true
                 ) }
                 supabaseRepo.currentUserId?.let { memberContextCacheService.warmUpForUser(it) }
             } else {
-                updateState { it.clearGroupContext().copy(isImpersonating = false, targetMemberId = null, isLoading = false) }
+                updateState { it.clearGroupContext().copy(
+                    isImpersonating = false,
+                    impersonatorId = null,
+                    targetMemberId = null,
+                    isExiting = false,
+                    isLoading = false
+                ) }
             }
         }
     }
@@ -224,8 +228,27 @@ class MemberOverviewViewModel @Inject constructor(
     fun switchGroup(groupId: String) = selectGroup(groupId)
 
     fun clearImpersonation(onComplete: () -> Unit = {}) {
-        setPortalContext(null, uiState.value.selectedGroupId)
+        val operatorId = supabaseRepo.currentUserId
+        cancelJob("portal_context_transition")
+        updateState {
+            it.clearGroupContext().copy(
+                isImpersonating = false,
+                impersonatorId = null,
+                targetMemberId = null,
+                isExiting = operatorId != null,
+                isLoading = false
+            )
+        }
         onComplete()
+
+        operatorId?.let { userId ->
+            launchJob("portal_context_warmup") {
+                memberContextCacheService.warmUpForUser(userId)
+                if (uiState.value.isExiting && !uiState.value.isImpersonating) {
+                    updateState { it.copy(isExiting = false) }
+                }
+            }
+        }
     }
 
     fun refreshData() {
@@ -258,13 +281,13 @@ class MemberOverviewViewModel @Inject constructor(
     fun loadMemberAuditReport() {
         val memberId = uiState.value.member?.id ?: return
         launchSafeJob("audit_report", "Failed to load audit report") {
-            updateState { it.copy(memberAuditReport = AsyncResult.Loading, isLoadingAuditReport = true) }
+            updateState { it.copy(memberAuditReport = AsyncResult.Loading) }
             auditRepo.triggerMemberAudit(memberId)
                 .onSuccess { report ->
-                    updateState { it.copy(memberAuditReport = AsyncResult.Success(report), isLoadingAuditReport = false) }
+                    updateState { it.copy(memberAuditReport = AsyncResult.Success(report)) }
                 }
                 .onFailure { e ->
-                    updateState { it.copy(memberAuditReport = AsyncResult.Error(e.toUserMessage(), e.javaClass.simpleName), isLoadingAuditReport = false) }
+                    updateState { it.copy(memberAuditReport = AsyncResult.Error(e.toUserMessage(), e.javaClass.simpleName)) }
                 }
         }
     }
@@ -303,6 +326,22 @@ class MemberOverviewViewModel @Inject constructor(
             exportRepo.exportLedgerToPdf(group, ledger).onSuccess { file ->
                 updateState { it.copy(isExporting = false) }
                 sendEvent(UIEvent.OpenFile(file, "application/pdf", "Statement"))
+            }.onFailure {
+                updateState { it.copy(isExporting = false) }
+                handleError(it)
+            }
+        }
+    }
+
+    fun downloadCsvStatement() {
+        val s = uiState.value
+        val group = s.group ?: return
+        val ledger = s.memberLedger
+        launchSafeJob("download_csv_statement", "Failed to export statement") {
+            updateState { it.copy(isExporting = true) }
+            exportRepo.exportLedgerToCsv(group, ledger).onSuccess { file ->
+                updateState { it.copy(isExporting = false) }
+                sendEvent(UIEvent.OpenFile(file, "text/csv", "Statement"))
             }.onFailure {
                 updateState { it.copy(isExporting = false) }
                 handleError(it)

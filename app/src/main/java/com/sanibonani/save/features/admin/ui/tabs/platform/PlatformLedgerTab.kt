@@ -121,7 +121,7 @@ fun PlatformLedgerTab(
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            // â”€â”€ Audit & Reconciliation â”€â”€
+            // ── Audit & Reconciliation ──
             item {
                 AccordionHeader(
                     title = stringResource(R.string.ui_group_fund_audits_reconciliation),
@@ -218,7 +218,7 @@ fun PlatformLedgerTab(
             if (state.platformLedger.isEmpty()) {
                 item {
                     EmptyState(
-                        icon = "ðŸ§¾",
+                        icon = "🧾",
                         title = stringResource(R.string.ui_no_transactions),
                         description = stringResource(R.string.ui_no_transactions_description),
                         actionLabel = stringResource(R.string.ui_refresh),

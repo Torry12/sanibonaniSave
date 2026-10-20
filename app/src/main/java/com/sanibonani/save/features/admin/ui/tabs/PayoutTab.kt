@@ -85,7 +85,7 @@ fun PayoutTab(state: AdminFinancialUiState, vm: AdminFinancialViewModel) {
             if (state.payouts.isEmpty()) {
                 item {
                     EmptyState(
-                        icon = "ðŸ’°",
+                        icon = "💰",
                         title = "No payouts found",
                         description = "Request a payout to distribute funds to group members."
                     )
@@ -112,7 +112,7 @@ fun PayoutTab(state: AdminFinancialUiState, vm: AdminFinancialViewModel) {
             if (state.burialClaims.isEmpty()) {
                 item {
                     EmptyState(
-                        icon = "ðŸ“‘",
+                        icon = "📑",
                         title = "No claims found",
                         description = "Burial society claims submitted by members will appear here."
                     )

@@ -40,8 +40,7 @@ data class LandingUiState(
     val userRole: UserRole = UserRole.MEMBER,
     val pendingGroup: Group? = null,
     val isSystemOnline: Boolean = true,
-    val isAirplaneMode: Boolean = false,
-    val activeSupabaseUrl: String = ""
+    val isAirplaneMode: Boolean = false
 )
 
 sealed interface LandingIntent {
@@ -64,7 +63,7 @@ class LandingViewModel @Inject constructor(
 
     init {
         observeNetwork()
-        observeActiveUrl()
+        observeDevSettingsChanges()
         observeSession()
         refreshData()
     }
@@ -92,13 +91,10 @@ class LandingViewModel @Inject constructor(
         }
     }
 
-    private fun observeActiveUrl() {
-        launchJob("observe_active_url") {
-            updateState { it.copy(activeSupabaseUrl = supabaseRepository.supabaseUrl) }
-
+    private fun observeDevSettingsChanges() {
+        launchJob("observe_dev_settings") {
             devSettings.settingsChanged.collect {
                 delay(500)
-                updateState { it.copy(activeSupabaseUrl = supabaseRepository.supabaseUrl) }
                 refreshData()
             }
         }
@@ -141,7 +137,7 @@ class LandingViewModel @Inject constructor(
                     val isLoggedIn = supabaseRepository.isLoggedIn
                     val userId = supabaseRepository.currentUserId
 
-                    AppLogger.d("LandingVM", "ðŸ”„ Refreshing landing data. LoggedIn=$isLoggedIn, UserID=${userId?.take(5)}")
+                    AppLogger.d("LandingVM", "🔄 Refreshing landing data. LoggedIn=$isLoggedIn, UserID=${userId?.take(5)}")
 
                     val results = withTimeoutOrNull(30_000) {
                         supervisorScope {

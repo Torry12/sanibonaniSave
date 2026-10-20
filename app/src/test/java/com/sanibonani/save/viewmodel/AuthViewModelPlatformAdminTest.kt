@@ -27,7 +27,7 @@ import com.google.firebase.crashlytics.FirebaseCrashlytics
 class AuthViewModelPlatformAdminTest {
 
     private companion object {
-        const val TEST_PLATFORM_ADMIN_PASSWORD = "torry123M"
+        const val TEST_PLATFORM_ADMIN_PASSWORD = "TestAdminPass1"
     }
 
     @get:Rule

@@ -3,13 +3,6 @@ package com.sanibonani.save.domain.model
 import kotlinx.serialization.Serializable
 
 @Serializable
-enum class SyncState {
-    SYNCED,
-    PENDING,
-    FAILED
-}
-
-@Serializable
 data class PendingOperation(
     val id: String,
     val type: String,

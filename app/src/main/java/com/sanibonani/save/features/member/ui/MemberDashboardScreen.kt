@@ -172,7 +172,7 @@ fun MemberDashboardScreen(
 
     val selectedRoute = overviewState.selectedTab.toString()
 
-    // â”€â”€ Privacy Lock Hardening â”€â”€
+    // ── Privacy Lock Hardening ──
     // If Support Mode is active, we MUST NOT show the dashboard until the specifically
     // targeted member's record is loaded. We check both member.id and member.userId against targetMemberId.
     val isPrivacyLocked = overviewState.isImpersonating && !overviewState.isExiting &&
@@ -211,7 +211,7 @@ fun MemberDashboardScreen(
                             isPortalSwitchable = !overviewState.isImpersonating,
                         )
 
-                        // âš¡ Non-blocking visual feedback for refreshes
+                        // ⚡ Non-blocking visual feedback for refreshes
                         SoftLoadingOverlay(
                             isLoading = overviewState.isLoading || isPrivacyLocked,
                             message = if (isPrivacyLocked) stringResource(R.string.ui_hydrating_support_data) else stringResource(R.string.ui_refreshing_your_data)
@@ -376,7 +376,7 @@ fun MemberDashboardScreen(
                 Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(padding)) {
                     if (overviewState.member == null && overviewState.error != null) {
                         Column(Modifier.fillMaxSize().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-                            Text("âš ï¸", fontSize = 48.sp)
+                            Text("⚠️", fontSize = 48.sp)
                             Text(stringResource(R.string.ui_could_not_load_membership), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                             Spacer(Modifier.height(8.dp))
                             InfoBox(overviewState.error ?: "Unknown error", type = InfoType.ERROR)

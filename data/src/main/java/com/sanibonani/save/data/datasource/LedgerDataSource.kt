@@ -11,7 +11,6 @@ interface RemoteLedgerDataSource {
     suspend fun getConsolidatedAuditTrail(groupId: String): Result<List<LedgerEntry>>
     suspend fun logPlatformEvent(entry: LedgerEntry): Result<Unit>
     suspend fun consolidateGroupLedger(groupId: String): Result<ConsolidationReport>
-    suspend fun createCheckpoint(groupId: String): Result<String>
 }
 
 interface LocalLedgerDataSource {

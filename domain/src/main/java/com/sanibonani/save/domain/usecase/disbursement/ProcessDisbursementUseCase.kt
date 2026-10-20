@@ -39,8 +39,10 @@ class ProcessDisbursementUseCase @Inject constructor(
 
         // 3. Security and Liquidity Check
         if (status in listOf(PayoutStatus.GROUP_APPROVED, PayoutStatus.PROCESSING, PayoutStatus.COMPLETED)) {
-            // Calculate effective liquidity by subtracting already committed payouts
-            val allPending = payoutRepository.getPendingPayouts().getOrNull() ?: emptyList()
+            // Calculate effective liquidity by subtracting already committed payouts. An
+            // unreadable queue is not an empty one: treating it as empty would let a payout
+            // pass the balance check while other approved payouts are still outstanding.
+            val allPending = payoutRepository.getPendingPayouts().getOrThrow()
             val committedAmount = allPending.filter {
                 it.groupId == groupId &&
                 it.id != payoutId &&

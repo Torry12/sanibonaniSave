@@ -55,7 +55,12 @@ class SupabaseAuthDataSourceImpl @Inject constructor(
 
     override val sessionStatus: Flow<AuthSessionStatus> = client.auth.sessionStatus.map { it.toAuthSessionStatus() }
     override val sessionFlow: Flow<AuthSession?> = client.auth.sessionStatus.map { status ->
-        (status as? SessionStatus.Authenticated)?.session?.toAuthSession()
+        // Only Authenticated carries a session in the status object. Initialising and
+        // refreshing are transient states that still hold a live session, so the SDK's
+        // current session is reused there; emitting null instead would log the user out
+        // for a moment and wipe the navigation back stack.
+        val session = if (status is SessionStatus.Authenticated) status.session else rawSession
+        session?.takeIf { it.accessToken.isNotBlank() }?.toAuthSession()
     }
 
     private fun UserSession.toAuthSession(): AuthSession = AuthSession(

@@ -162,7 +162,7 @@ class GroupViewModelTest {
         viewModel.onEvent(GroupFormEvent.AdminEmailChanged("admin@test.com"))
         viewModel.onEvent(GroupFormEvent.AdminPasswordChanged("password123"))
         viewModel.onEvent(GroupFormEvent.AdminFullNameChanged("Test Admin"))
-        viewModel.onEvent(GroupFormEvent.AdminIdNumberChanged("9001015000081"))
+        viewModel.onEvent(GroupFormEvent.AdminIdNumberChanged("9001015000085"))
         viewModel.onEvent(GroupFormEvent.AdminPhoneChanged("0712345678"))
         viewModel.onEvent(GroupFormEvent.TermsAcceptedToggled(true))
 

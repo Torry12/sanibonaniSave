@@ -9,7 +9,3 @@ interface RemoteFinancialDataSource {
     suspend fun payPlatformFee(groupId: String, amount: Money, feeType: String, txId: String?, fromGroupFund: Boolean): Result<Unit>
     suspend fun getOutstandingPlatformFees(groupId: String): Result<List<PlatformFee>>
 }
-
-interface LocalFinancialDataSource {
-    suspend fun clearAll()
-}

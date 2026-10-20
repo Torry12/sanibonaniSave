@@ -1,5 +1,7 @@
 package com.sanibonani.save
 
+import com.sanibonani.save.BuildConfig
+
 import io.github.jan.supabase.createSupabaseClient
 import io.github.jan.supabase.auth.Auth
 import io.github.jan.supabase.auth.admin.*
@@ -28,7 +30,7 @@ import org.junit.Test
  * 1. Clear all Supabase data (all tables)
  * 2. Create Platform Admin user with credentials:
  *    - Email: torrymsimango@gmail.com
- *    - Password: torry123M
+ *    - Password: BuildConfig.PLATFORM_ADMIN_PASSWORD (from local.properties)
  *    - Role: platform_admin
  *
  * NOTE: This is destructive and will DELETE ALL DATA in the remote database.
@@ -46,12 +48,12 @@ class DatabaseResetUtility {
             println("=".repeat(80))
 
             // ─── Configuration ──────────────────────────────────────────────────────
-            val supabaseUrl = "https://prosbbknupoexgzjwrwr.supabase.co"
-            val anonKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InByb3NiYmtudXBvZXhnemp3cndyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM1NDE4MDUsImV4cCI6MjA4OTExNzgwNX0.CJs8oWt0Q3quK8FkyaldwyOg-sXiU25rFaBCh5Mi2tE"
-            val serviceRoleKey = "eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InByb3NiYmtudXBvZXhnemp3cndyIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MzU0MTgwNSwiZXhwIjoyMDg5MTE3ODA1fQ.EDVweeVevFlnIo-9xfwc80zZ93KM3tY-GTmWsUmPCLA"
+            val supabaseUrl = BuildConfig.SUPABASE_URL
+            val anonKey = BuildConfig.SUPABASE_ANON_KEY
+            val serviceRoleKey = BuildConfig.SUPABASE_SERVICE_ROLE_KEY
 
             val adminEmail = "torrymsimango@gmail.com"
-            val adminPassword = "torry123M"
+            val adminPassword = BuildConfig.PLATFORM_ADMIN_PASSWORD
 
             // ─── Create Supabase clients ────────────────────────────────────────────
             println("\n[1/4] Initializing Supabase clients...")
@@ -204,8 +206,8 @@ class DatabaseResetUtility {
         try {
             println("\n[CLEARING REMOTE DATA ONLY]")
 
-            val supabaseUrl = "https://prosbbknupoexgzjwrwr.supabase.co"
-            val serviceRoleKey = "eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InByb3NiYmtudXBvZXhnemp3cndyIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MzU0MTgwNSwiZXhwIjoyMDg5MTE3ODA1fQ.EDVweeVevFlnIo-9xfwc80zZ93KM3tY-GTmWsUmPCLA"
+            val supabaseUrl = BuildConfig.SUPABASE_URL
+            val serviceRoleKey = BuildConfig.SUPABASE_SERVICE_ROLE_KEY
 
             val adminClient = createSupabaseClient(supabaseUrl, serviceRoleKey) {
                 install(Auth)
@@ -256,11 +258,11 @@ class DatabaseResetUtility {
         try {
             println("\n[CREATING ADMIN USER ONLY]")
 
-            val supabaseUrl = "https://prosbbknupoexgzjwrwr.supabase.co"
-            val serviceRoleKey = "eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InByb3NiYmtudXBvZXhnemp3cndyIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MzU0MTgwNSwiZXhwIjoyMDg5MTE3ODA1fQ.EDVweeVevFlnIo-9xfwc80zZ93KM3tY-GTmWsUmPCLA"
+            val supabaseUrl = BuildConfig.SUPABASE_URL
+            val serviceRoleKey = BuildConfig.SUPABASE_SERVICE_ROLE_KEY
 
             val adminEmail = "torrymsimango@gmail.com"
-            val adminPassword = "torry123M"
+            val adminPassword = BuildConfig.PLATFORM_ADMIN_PASSWORD
 
             val adminClient = createSupabaseClient(supabaseUrl, serviceRoleKey) {
                 install(Auth)
@@ -296,8 +298,8 @@ class DatabaseResetUtility {
             println("FIXING EXISTING GROUPS FOR DISCOVERY - UPDATING FLAGS")
             println(separator)
 
-            val supabaseUrl = "https://prosbbknupoexgzjwrwr.supabase.co"
-            val anonKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InByb3NiYmtudXBvZXhnemp3cndyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM1NDE4MDUsImV4cCI6MjA4OTExNzgwNX0.CJs8oWt0Q3quK8FkyaldwyOg-sXiU25rFaBCh5Mi2tE"
+            val supabaseUrl = BuildConfig.SUPABASE_URL
+            val anonKey = BuildConfig.SUPABASE_ANON_KEY
 
             val supabaseClient = createSupabaseClient(supabaseUrl, anonKey) {
                 install(Auth) {
@@ -390,12 +392,12 @@ class DatabaseResetUtility {
             println("SANIBONANI SAVE - DATABASE RESET WITH MOCK DATA & ADMIN CREATION")
             println(separator)
 
-            val supabaseUrl = "https://prosbbknupoexgzjwrwr.supabase.co"
-            val anonKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InByb3NiYmtudXBvZXhnemp3cndyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM1NDE4MDUsImV4cCI6MjA4OTExNzgwNX0.CJs8oWt0Q3quK8FkyaldwyOg-sXiU25rFaBCh5Mi2tE"
-            val serviceRoleKey = "eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InByb3NiYmtudXBvZXhnemp3cndyIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MzU0MTgwNSwiZXhwIjoyMDg5MTE3ODA1fQ.EDVweeVevFlnIo-9xfwc80zZ93KM3tY-GTmWsUmPCLA"
+            val supabaseUrl = BuildConfig.SUPABASE_URL
+            val anonKey = BuildConfig.SUPABASE_ANON_KEY
+            val serviceRoleKey = BuildConfig.SUPABASE_SERVICE_ROLE_KEY
 
             val adminEmail = "torrymsimango@gmail.com"
-            val adminPassword = "torry123M"
+            val adminPassword = BuildConfig.PLATFORM_ADMIN_PASSWORD
 
             println("\n[1/4] Initializing Supabase clients...")
 
@@ -646,8 +648,8 @@ class DatabaseResetUtility {
             println("SANIBONANI SAVE - LOCAL-REMOTE SYNC VERIFICATION")
             println(separator)
 
-            val supabaseUrl = "https://prosbbknupoexgzjwrwr.supabase.co"
-            val anonKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InByb3NiYmtudXBvZXhnemp3cndyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM1NDE4MDUsImV4cCI6MjA4OTExNzgwNX0.CJs8oWt0Q3quK8FkyaldwyOg-sXiU25rFaBCh5Mi2tE"
+            val supabaseUrl = BuildConfig.SUPABASE_URL
+            val anonKey = BuildConfig.SUPABASE_ANON_KEY
 
             val supabaseClient = createSupabaseClient(supabaseUrl, anonKey) {
                 install(Auth) {
@@ -782,8 +784,8 @@ class DatabaseResetUtility {
             println("DIAGNOSTIC: RAW REMOTE GROUPS CHECK")
             println(separator)
 
-            val supabaseUrl = "https://prosbbknupoexgzjwrwr.supabase.co"
-            val anonKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InByb3NiYmtudXBvZXhnemp3cndyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM1NDE4MDUsImV4cCI6MjA4OTExNzgwNX0.CJs8oWt0Q3quK8FkyaldwyOg-sXiU25rFaBCh5Mi2tE"
+            val supabaseUrl = BuildConfig.SUPABASE_URL
+            val anonKey = BuildConfig.SUPABASE_ANON_KEY
 
             val supabaseClient = createSupabaseClient(supabaseUrl, anonKey) {
                 install(Auth) {

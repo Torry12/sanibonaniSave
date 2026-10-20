@@ -5,15 +5,12 @@ import com.sanibonani.save.domain.model.Group
 import com.sanibonani.save.domain.model.LedgerEntry
 import com.sanibonani.save.domain.model.Loan
 import com.sanibonani.save.domain.model.Member
-import com.sanibonani.save.domain.model.Payment
 import java.io.File
 
 /**
  * Repository for exporting data to CSV or PDF formats.
  */
 interface ExportRepository {
-    suspend fun exportPaymentsToCsv(group: Group, payments: List<Payment>, members: List<Member>): Result<File>
-    suspend fun exportPaymentsToPdf(group: Group, payments: List<Payment>, members: List<Member>): Result<File>
     suspend fun exportContributionsToCsv(group: Group, member: Member, contributions: List<Contribution>): Result<File>
 
     /**
@@ -29,6 +26,9 @@ interface ExportRepository {
 
     /**
      * Generates a PDF loan agreement locally.
+     *
+     * Kept as the producer for [com.sanibonani.save.domain.repository.credit.LoanRepository.uploadLoanContract]:
+     * the member UI can download `loan.contractUrl`, but nothing in the app generates it yet.
      */
     suspend fun exportLoanAgreement(
         loan: Loan,

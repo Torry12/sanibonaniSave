@@ -53,7 +53,25 @@ class CalculateLoanRepaymentScheduleUseCase @Inject constructor() {
             monthlyInstallment = monthlyInstallmentWithFee,
             processingFee = params.processingFee,
             effectiveApr = params.annualInterestRate,
-            schedule = calc.schedule
+            schedule = reconcile(calc.schedule, totalToRepayWithFee, monthlyInstallmentWithFee)
         )
+    }
+
+    /**
+     * Bills the fee on the published instalment and settles the difference between the rounded
+     * instalment and the whole balance on the final row, so the plan a member is shown adds up to
+     * the amount the loan is actually owed.
+     */
+    private fun reconcile(
+        schedule: List<LoanRepaymentScheduleEntry>,
+        totalToRepay: Money,
+        monthlyInstallment: Money
+    ): List<LoanRepaymentScheduleEntry> = schedule.mapIndexed { index, entry ->
+        val amount = if (index == schedule.lastIndex) {
+            totalToRepay - monthlyInstallment * index
+        } else {
+            monthlyInstallment
+        }
+        entry.copy(totalInstallment = amount)
     }
 }

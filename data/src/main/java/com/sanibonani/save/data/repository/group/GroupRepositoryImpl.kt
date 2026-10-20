@@ -16,20 +16,23 @@ class GroupRepositoryImpl @Inject constructor(
     private val localGroupSource: LocalGroupDataSource,
     private val fileStorageService: FileStorageService,
     private val realtimeSource: RealtimeDataSource,
-    private val supabaseRepo: com.sanibonani.save.domain.repository.auth.SupabaseRepository,
     private val json: Json
 ) : BaseRepository("GroupRepository"), GroupRepository {
 
-    override suspend fun uploadConstitution(groupId: String, fileBytes: ByteArray, fileName: String): Result<String> = safeRunCatching {
-        val extension = fileName.substringAfterLast(".", "pdf")
-        val url = fileStorageService.uploadGroupConstitution(groupId, fileBytes, extension).getOrThrow()
+    override suspend fun uploadConstitution(groupId: String, fileBytes: ByteArray, fileName: String): Result<String> =
+        authoritativeCall("uploadConstitution") {
+            val extension = fileName.substringAfterLast(".", "pdf")
+            val url = fileStorageService.uploadGroupConstitution(groupId, fileBytes, extension).getOrThrow()
 
-        remoteGroupSource.updateGroupSettings(groupId, mapOf("constitution_url" to url, "constitution_status" to "pending")).getOrThrow()
-        localGroupSource.getGroupById(groupId)?.let {
-            localGroupSource.saveGroup(it.copy(constitutionUrl = url, constitutionStatus = DocumentStatus.PENDING))
+            remoteGroupSource.updateGroupSettings(
+                groupId,
+                mapOf("constitution_url" to url, "constitution_status" to "pending")
+            ).getOrThrow()
+            localGroupSource.getGroupById(groupId)?.let {
+                localGroupSource.saveGroup(it.copy(constitutionUrl = url, constitutionStatus = DocumentStatus.PENDING))
+            }
+            url
         }
-        url
-    }
 
     override fun getPublicGroups(): Flow<Result<List<Group>>> = observeAndSync(
         dbFlow = localGroupSource.observePublicGroups(),
@@ -64,17 +67,16 @@ class GroupRepositoryImpl @Inject constructor(
         cacheSync = { localGroupSource.saveGroups(it) }
     )
 
-    override suspend fun createGroup(group: Group): Result<String> = safeRunCatching {
+    override suspend fun createGroup(group: Group): Result<String> = authoritativeCall("createGroup") {
         val groupId = remoteGroupSource.createGroup(group).getOrThrow()
-        val created = remoteGroupSource.getGroupById(groupId).getOrThrow()
-        localGroupSource.saveGroup(created)
+        localGroupSource.saveGroup(remoteGroupSource.getGroupById(groupId).getOrThrow())
         groupId
     }
 
-    override suspend fun incrementGroupBalance(groupId: String, amount: Money): Result<Money> = authoritativeCall("increment_group_balance") {
+    override suspend fun incrementGroupBalance(groupId: String, amount: Money, transactionId: String?): Result<Money> = authoritativeCall("increment_group_balance") {
         require(groupId.isNotBlank()) { "Group id is required" }
         require(!amount.isZero) { "Balance adjustment must be non-zero" }
-        val newBalance = remoteGroupSource.incrementGroupBalance(groupId, amount, null).getOrThrow()
+        val newBalance = remoteGroupSource.incrementGroupBalance(groupId, amount, null, transactionId).getOrThrow()
         localGroupSource.getGroupById(groupId)?.let {
             localGroupSource.saveGroup(it.copy(balance = newBalance))
         }
@@ -93,37 +95,36 @@ class GroupRepositoryImpl @Inject constructor(
         newBalance
     }
 
-    override suspend fun updateGroupSettings(groupId: String, settings: GroupSettings): Result<Unit> = safeRunCatching {
-        remoteGroupSource.updateGroupSettings(groupId, settings).getOrThrow()
-        val updated = remoteGroupSource.getGroupById(groupId).getOrThrow()
-        localGroupSource.saveGroup(updated)
-    }
+    override suspend fun updateGroupSettings(groupId: String, settings: GroupSettings): Result<Unit> =
+        authoritativeCall("updateGroupSettings") {
+            remoteGroupSource.updateGroupSettings(groupId, settings).getOrThrow()
+            localGroupSource.saveGroup(remoteGroupSource.getGroupById(groupId).getOrThrow())
+        }
 
-    override suspend fun updateGroupSettings(groupId: String, settings: Map<String, Any>): Result<Unit> = safeRunCatching {
-        remoteGroupSource.updateGroupSettings(groupId, settings).getOrThrow()
-        val updated = remoteGroupSource.getGroupById(groupId).getOrThrow()
-        localGroupSource.saveGroup(updated)
-    }
+    override suspend fun updateGroupSettings(groupId: String, settings: Map<String, Any>): Result<Unit> =
+        authoritativeCall("updateGroupSettings") {
+            remoteGroupSource.updateGroupSettings(groupId, settings).getOrThrow()
+            localGroupSource.saveGroup(remoteGroupSource.getGroupById(groupId).getOrThrow())
+        }
 
     override fun observeGroupFeeStatus(groupId: String): Flow<AdminFeeState> = realtimeSource.observeGroupFeeStatus(groupId)
 
-    override suspend fun updateFeeStatus(groupId: String, status: AdminFeeState): Result<Unit> = safeRunCatching {
-        remoteGroupSource.updateFeeStatus(groupId, status).getOrThrow()
-        localGroupSource.getGroupById(groupId)?.let {
-            localGroupSource.saveGroup(it.copy(feeStatus = status))
+    override suspend fun updateFeeStatus(groupId: String, status: AdminFeeState): Result<Unit> =
+        authoritativeCall("updateFeeStatus") {
+            remoteGroupSource.updateFeeStatus(groupId, status).getOrThrow()
+            localGroupSource.getGroupById(groupId)?.let {
+                localGroupSource.saveGroup(it.copy(feeStatus = status))
+            }
         }
-    }
 
-    override suspend fun updateGroup(group: Group): Result<Unit> = safeRunCatching {
+    override suspend fun updateGroup(group: Group): Result<Unit> = authoritativeCall("updateGroup") {
         remoteGroupSource.updateGroup(group).getOrThrow()
         localGroupSource.saveGroup(group)
     }
 
-    override suspend fun getCurrentUserEmail(): String? = supabaseRepo.currentSessionEmail
-
     override suspend fun getGroupsByAdmin(adminId: String): Result<List<Group>> = remoteGroupSource.getGroupsByAdmin(adminId)
 
-    override suspend fun deleteGroup(groupId: String): Result<Unit> = safeRunCatching {
+    override suspend fun deleteGroup(groupId: String): Result<Unit> = authoritativeCall("deleteGroup") {
         remoteGroupSource.deleteGroup(groupId).getOrThrow()
         localGroupSource.deleteGroup(groupId)
     }

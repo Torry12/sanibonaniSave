@@ -86,7 +86,7 @@ fun BurialClaimsContent(
 
         if (claims.isEmpty()) {
             EmptyState(
-                icon = "Ã°Å¸â€œâ€¹",
+                icon = "📋",
                 title = "No burial claims",
                 description = "You haven't submitted any burial payout claims yet."
             )
@@ -178,14 +178,14 @@ fun StokvelPayoutsContent(
                         modifier = Modifier.size(44.dp)
                     ) {
                         Box(contentAlignment = Alignment.Center) {
-                            Text("Ã°Å¸â€™Â°", fontSize = 20.sp)
+                            Text("💰", fontSize = 20.sp)
                         }
                     }
                     Spacer(Modifier.width(14.dp))
                     Column(Modifier.weight(1f)) {
                         Text("Scheduled Annual Distribution", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall)
                         Text("Expected: ${formatZAR(individualPayout)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text(if (remainingMonths == 0) "Maturity reached Ã¢â‚¬Â¢ Pending Group Disbursal" else "$remainingMonths month(s) remaining until payout", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                        Text(if (remainingMonths == 0) "Maturity reached • Pending Group Disbursal" else "$remainingMonths month(s) remaining until payout", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                     }
                     Surface(
                         shape = RoundedCornerShape(8.dp),
@@ -258,7 +258,7 @@ fun RoscaPayoutsContent(
 
         if (payouts.isEmpty()) {
             EmptyState(
-                icon = "Ã°Å¸â€”â€œÃ¯Â¸Â",
+                icon = "🗓️",
                 title = "No payouts completed yet",
                 description = "Your rotating pot payouts will be logged here when it's your turn in the rotation."
             )
@@ -304,7 +304,7 @@ fun WithdrawalContent(
 
         if (payouts.isEmpty()) {
             EmptyState(
-                icon = if (type == GroupType.EMERGENCY_FUND) "Ã°Å¸Å¡Â¨" else "Ã°Å¸â€œË†",
+                icon = if (type == GroupType.EMERGENCY_FUND) "🚨" else "📈",
                 title = "No withdrawals yet",
                 description = "Submit a request to withdraw funds based on your group's liquidity rules."
             )

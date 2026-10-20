@@ -18,20 +18,20 @@ class PlatformAuditViewModel @Inject constructor(
 
     fun load() {
         launchJob("platform_audit") {
-            updateState { it.copy(platformAuditReport = AsyncResult.Loading, isLoadingAuditReport = true) }
+            updateState { it.copy(platformAuditReport = AsyncResult.Loading) }
             platformRepo.triggerPlatformAudit()
                 .onSuccess {
                     platformRepo.getPlatformAuditReport()
                         .onSuccess { report ->
-                            updateState { it.copy(platformAuditReport = AsyncResult.Success(report), isLoadingAuditReport = false) }
+                            updateState { it.copy(platformAuditReport = AsyncResult.Success(report)) }
                         }
                         .onFailure { e ->
-                            updateState { it.copy(platformAuditReport = AsyncResult.Error(e.toUserMessage(), e.javaClass.simpleName), isLoadingAuditReport = false) }
+                            updateState { it.copy(platformAuditReport = AsyncResult.Error(e.toUserMessage(), e.javaClass.simpleName)) }
                             handleError(e)
                         }
                 }
                 .onFailure { e ->
-                    updateState { it.copy(platformAuditReport = AsyncResult.Error(e.toUserMessage(), e.javaClass.simpleName), isLoadingAuditReport = false) }
+                    updateState { it.copy(platformAuditReport = AsyncResult.Error(e.toUserMessage(), e.javaClass.simpleName)) }
                     handleError(e)
                 }
         }

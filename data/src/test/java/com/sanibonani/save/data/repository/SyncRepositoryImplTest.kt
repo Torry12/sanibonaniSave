@@ -11,6 +11,7 @@ import com.sanibonani.save.data.repository.system.DisbursementOutboxHandler
 import com.sanibonani.save.data.repository.system.LoanRepaymentOutboxHandler
 import com.sanibonani.save.data.repository.system.OutboxPolicy
 import com.sanibonani.save.data.repository.system.PayoutRequestOutboxHandler
+import com.sanibonani.save.data.repository.system.PayoutStatusUpdateOutboxHandler
 import com.sanibonani.save.domain.model.Group
 import com.sanibonani.save.domain.model.Member
 import com.sanibonani.save.domain.model.UserRole
@@ -52,6 +53,7 @@ class SyncRepositoryImplTest {
     private val disbursementHandler = mockk<DisbursementOutboxHandler>(relaxed = true)
     private val balanceAdjustmentHandler = mockk<BalanceAdjustmentOutboxHandler>(relaxed = true)
     private val beneficiaryClaimHandler = mockk<BeneficiaryClaimOutboxHandler>(relaxed = true)
+    private val payoutStatusUpdateHandler = mockk<PayoutStatusUpdateOutboxHandler>(relaxed = true)
 
     private lateinit var repository: SyncRepositoryImpl
 
@@ -70,7 +72,8 @@ class SyncRepositoryImplTest {
             payoutHandler = payoutHandler,
             disbursementHandler = disbursementHandler,
             balanceAdjustmentHandler = balanceAdjustmentHandler,
-            beneficiaryClaimHandler = beneficiaryClaimHandler
+            beneficiaryClaimHandler = beneficiaryClaimHandler,
+            payoutStatusUpdateHandler = payoutStatusUpdateHandler
         )
     }
 
@@ -223,6 +226,25 @@ class SyncRepositoryImplTest {
         coVerify(exactly = 1) { outboxDao.upsert(capture(stored)) }
         assertEquals(OutboxPolicy.MAX_PERMANENT_ATTEMPTS, stored.captured.retryCount)
         assertNotNull(stored.captured.lastError)
+    }
+
+    @Test
+    fun `a queued payout status update is replayed instead of dead-lettered`() = runBlocking {
+        val statusUpdate = PendingOperationEntity(
+            id = "status-1",
+            type = "payout_status_update",
+            payload = """{"payout_id":"p-1","status":"GROUP_APPROVED"}""",
+            groupId = null,
+            createdAt = 1
+        )
+        coEvery { outboxDao.getAll() } returns listOf(statusUpdate)
+        coEvery { payoutStatusUpdateHandler.handle(any()) } returns Result.success(Unit)
+
+        repository.processOutbox()
+
+        coVerify(exactly = 1) { payoutStatusUpdateHandler.handle(match { it.id == "status-1" }) }
+        coVerify(exactly = 1) { outboxDao.delete(match { it.id == "status-1" }) }
+        coVerify(exactly = 0) { outboxDao.upsert(match { it.retryCount > 0 }) }
     }
 
     @Test

@@ -145,7 +145,8 @@ val globalSpinnerActive by globalLoadingViewModel.showSpinner.collectAsStateWith
                 arguments = listOf(navArgument("groupType") { type = NavType.StringType; nullable = true })
             ) { back ->
                 val groupTypeString = back.arguments?.getString("groupType")
-                val groupType = groupTypeString?.let { GroupType.valueOf(it) }
+                // An unknown type name from a deep link must not crash the wizard via valueOf().
+                val groupType = GroupType.entries.firstOrNull { it.name == groupTypeString }
                 GroupRegistrationScreen(
                     onSuccess = {
                         val dest = NavigationUtils.destinationForUserRole(authState.userRole)

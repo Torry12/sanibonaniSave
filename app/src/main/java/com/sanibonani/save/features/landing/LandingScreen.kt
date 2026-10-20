@@ -71,7 +71,7 @@ fun LandingScreen(
                 .padding(padding)
                 .verticalScroll(rememberScrollState())
         ) {
-            // â”€â”€ Network Status â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+            // ── Network Status ────────────────────────────────────────────────
             if (!uiState.isSystemOnline || uiState.isAirplaneMode) {
                 OfflineBanner(
                     isOnline = false,
@@ -80,7 +80,7 @@ fun LandingScreen(
                 )
             }
 
-            // â”€â”€ Language Selector â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+            // ── Language Selector ─────────────────────────────────────────────
             LanguageSelector(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -88,7 +88,7 @@ fun LandingScreen(
                     .padding(horizontal = 24.dp, vertical = 8.dp)
             )
 
-            // â”€â”€ Hero Section â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+            // ── Hero Section ──────────────────────────────────────────────────
             val infiniteTransition = rememberInfiniteTransition()
             val gradientOffset by infiniteTransition.animateFloat(
                 initialValue = 0f,
@@ -181,7 +181,7 @@ fun LandingScreen(
                         enter = slideInVertically(initialOffsetY = { 50 }, animationSpec = tween(800, delayMillis = 300, easing = FastOutSlowInEasing)) + fadeIn(animationSpec = tween(800, delayMillis = 300))
                     ) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
-                            // âš¡ Hero Actions
+                            // ⚡ Hero Actions
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.Center,
@@ -276,7 +276,7 @@ fun LandingScreen(
                 }
             }
 
-            // â”€â”€ Stats Section â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+            // ── Stats Section ─────────────────────────────────────────────────
             Surface(
                 color = MaterialTheme.colorScheme.surface,
                 tonalElevation = 2.dp,
@@ -324,7 +324,7 @@ fun LandingScreen(
                 }
             }
 
-            // â”€â”€ Core Features â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+            // ── Core Features ─────────────────────────────────────────────────
             Column(Modifier.padding(horizontal = 24.dp, vertical = 8.dp)) {
                 SanibonaniSectionHeader(stringResource(R.string.ui_designed_for_south_africa))
                 Text(stringResource(R.string.ui_tailored_features_for_the_unique_needs_o),
@@ -405,7 +405,7 @@ fun LandingScreen(
                 )
             }
 
-            // â”€â”€ Compliance & Security â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+            // ── Compliance & Security ──────────────────────────────────────────
             ElevatedCard(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -436,7 +436,7 @@ fun LandingScreen(
                 }
             }
 
-            // â”€â”€ Call to Action Section â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+            // ── Call to Action Section ──────────────────────────────────────
             ElevatedCard(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -473,7 +473,7 @@ fun LandingScreen(
                 }
             }
 
-            // â”€â”€ How It Works â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+            // ── How It Works ──────────────────────────────────────────────────
             Column(Modifier.padding(24.dp)) {
                 SanibonaniSectionHeader(stringResource(R.string.ui_how_it_works))
                 Spacer(Modifier.height(16.dp))
@@ -495,21 +495,21 @@ fun LandingScreen(
                 )
             }
 
-            // â”€â”€ About, Owner Creditation, Contact & Group Types Help â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+            // ── About, Owner Creditation, Contact & Group Types Help ───────────
             Column(Modifier.padding(horizontal = 24.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
                 Card(
                     shape = RoundedCornerShape(24.dp),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
                 ) {
                     Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Text("â„¹ï¸ About SanibonaniSave", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                        Text("ℹ️ About SanibonaniSave", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                         Text(
                             "SanibonaniSave is South Africa's premier digital savings platform, designed to digitize informal community finance with transparent ledgers, automated banking reconciliation, and actuarial risk modeling.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(0.1f))
-                        Text("ðŸ‘‘ App Owner & Creditation", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                        Text("👑 App Owner & Creditation", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                         Text(
                             "Founded and Architected by Torry Msimango (Lead Platform Architect & Developer). Built with passion to empower African community wealth-building.",
                             style = MaterialTheme.typography.bodySmall,
@@ -523,7 +523,7 @@ fun LandingScreen(
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
                 ) {
                     Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("ðŸ“ž Company Contact", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                        Text("📝 Company Contact", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                         // NOTE: no personal/admin email here. This card is on the public
                         // landing screen, and exposing an administrator's personal address
                         // (especially a platform-admin account) is a phishing and targeting
@@ -539,7 +539,7 @@ fun LandingScreen(
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
                 ) {
                     Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Text("â“ Help & Group Types Guide", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                        Text("❓ Help & Group Types Guide", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                         Text(
                             "Understanding the different savings structures supported on SanibonaniSave:",
                             style = MaterialTheme.typography.bodySmall,

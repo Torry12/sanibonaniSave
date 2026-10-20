@@ -6,7 +6,6 @@ import com.sanibonani.save.domain.model.*
 import com.sanibonani.save.domain.repository.admin.*
 import com.sanibonani.save.domain.repository.auth.*
 import com.sanibonani.save.domain.repository.payment.BankRepository
-import com.sanibonani.save.domain.repository.payment.FinancialProviderRepository
 import com.sanibonani.save.domain.repository.treasury.LedgerRepository
 import com.sanibonani.save.domain.repository.disbursement.PayoutRepository
 import com.sanibonani.save.domain.repository.treasury.ReconciliationRepository
@@ -14,6 +13,7 @@ import com.sanibonani.save.domain.repository.group.*
 import com.sanibonani.save.domain.repository.member.*
 import com.sanibonani.save.domain.repository.system.*
 import com.sanibonani.save.domain.usecase.payment.SyncBankTransactionsUseCase
+import com.sanibonani.save.domain.usecase.disbursement.ProcessDisbursementUseCase
 import com.sanibonani.save.domain.usecase.disbursement.RequestPayoutUseCase
 import com.sanibonani.save.domain.usecase.credit.ProcessLoanDisbursementUseCase
 import com.sanibonani.save.domain.usecase.member.ProcessBurialClaimUseCase
@@ -61,12 +61,11 @@ class AdminFinancialViewModelTest {
     private val bankRepo = mockk<BankRepository>(relaxed = true)
     private val exportRepo = mockk<ExportRepository>(relaxed = true)
     private val syncBankTransactionsUseCase = mockk<SyncBankTransactionsUseCase>(relaxed = true)
-    private val linkBankAccountUseCase = mockk<com.sanibonani.save.domain.usecase.payment.LinkBankAccountUseCase>(relaxed = true)
     private val finalizeBankConnectionUseCase = mockk<com.sanibonani.save.domain.usecase.payment.FinalizeBankConnectionUseCase>(relaxed = true)
-    private val financialProviderRepo = mockk<FinancialProviderRepository>(relaxed = true)
     private val supabaseRepo = mockk<SupabaseRepository>(relaxed = true)
 
     private val requestPayoutUseCase = mockk<RequestPayoutUseCase>(relaxed = true)
+    private val processDisbursementUseCase = mockk<ProcessDisbursementUseCase>(relaxed = true)
     private val processLoanDecisionUseCase = mockk<com.sanibonani.save.domain.usecase.credit.ProcessLoanDecisionUseCase>(relaxed = true)
     private val processLoanDisbursementUseCase = mockk<ProcessLoanDisbursementUseCase>(relaxed = true)
     private val processBurialClaimUseCase = mockk<ProcessBurialClaimUseCase>(relaxed = true)
@@ -115,12 +114,10 @@ class AdminFinancialViewModelTest {
     private fun createViewModel() = AdminFinancialViewModel(
         adminContextCacheService,
         ledgerRepo,
-        reconRepo,
         bankRepo,
         payoutRepo,
         loanRepo,
         claimRepo,
-        financialProviderRepo,
         supabaseRepo,
         AdminLoanActions(
             processLoanDecisionUseCase,
@@ -137,11 +134,12 @@ class AdminFinancialViewModelTest {
         AdminPayoutActions(
             requestPayoutUseCase,
             payoutRepo,
+            processDisbursementUseCase,
+            supabaseRepo,
             adminContextCacheService
         ),
         AdminBankActions(
             syncBankTransactionsUseCase,
-            linkBankAccountUseCase,
             finalizeBankConnectionUseCase,
             bankRepo,
             adminContextCacheService
@@ -174,17 +172,81 @@ class AdminFinancialViewModelTest {
     }
 
     @Test
-    fun `approveAndEscalatePayoutRequest updates status via repository`() = runTest {
+    fun `approveAndEscalatePayoutRequest escalates through the disbursement use case`() = runTest {
+        val groupId = "group-1"
         val payoutId = "payout-1"
-        coEvery { payoutRepo.updatePayoutStatus(payoutId, PayoutStatus.GROUP_APPROVED) } returns Result.success(Unit)
+        selectedGroupIdFlow.value = groupId
+        val approved = PayoutRequest(
+            id = payoutId,
+            groupId = groupId,
+            amount = Money("1500.0"),
+            status = PayoutStatus.GROUP_APPROVED,
+            bankName = "FNB",
+            accountNo = "123456789",
+            branchCode = "250655"
+        )
+        coEvery {
+            processDisbursementUseCase(payoutId, groupId, PayoutStatus.GROUP_APPROVED, any(), any(), any())
+        } returns Result.success(approved)
 
         val vm = createViewModel()
 
         vm.approveAndEscalatePayoutRequest(payoutId)
         advanceUntilIdle()
 
-        coVerify(exactly = 1) { payoutRepo.updatePayoutStatus(payoutId, PayoutStatus.GROUP_APPROVED) }
+        coVerify(exactly = 1) {
+            processDisbursementUseCase(payoutId, groupId, PayoutStatus.GROUP_APPROVED, any(), any(), any())
+        }
+        // The raw write bypasses transition, liquidity and audit checks, so it must not be used.
+        coVerify(exactly = 0) { payoutRepo.updatePayoutStatus(any(), any(), any(), any()) }
         assertEquals("Request escalated for platform approval", vm.state.value.successMessage)
+    }
+
+    @Test
+    fun `approveAndEscalatePayoutRequest reports rejection without touching the ledger`() = runTest {
+        val groupId = "group-1"
+        val payoutId = "payout-1"
+        selectedGroupIdFlow.value = groupId
+        coEvery {
+            processDisbursementUseCase(payoutId, groupId, PayoutStatus.GROUP_APPROVED, any(), any(), any())
+        } returns Result.failure(Exception("INSUFFICIENT_LIQUIDITY: balance is below the required amount"))
+
+        val vm = createViewModel()
+
+        vm.approveAndEscalatePayoutRequest(payoutId)
+        advanceUntilIdle()
+
+        assertEquals(null, vm.state.value.successMessage)
+        assertEquals(false, vm.state.value.isLoading)
+        assertEquals(emptySet<String>(), vm.state.value.processingIds)
+    }
+
+    @Test
+    fun `executeStokvelBatchPayout reports members whose request failed`() = runTest {
+        val groupId = "group-1"
+        contextsFlow.value = mapOf(
+            groupId to CachedAdminGroupContext(
+                group = Group(id = groupId, name = "Test Group"),
+                members = listOf(
+                    Member(id = "m1", fullName = "Alpha", status = MemberStatus.ACTIVE),
+                    Member(id = "m2", fullName = "Bravo", status = MemberStatus.ACTIVE)
+                )
+            )
+        )
+        selectedGroupIdFlow.value = groupId
+        coEvery { requestPayoutUseCase(groupId = groupId, memberId = "m1") } returns Result.success("p1")
+        coEvery { requestPayoutUseCase(groupId = groupId, memberId = "m2") } returns
+            Result.failure(Exception("Member is still in probation"))
+
+        val vm = createViewModel()
+        advanceUntilIdle()
+
+        vm.executeStokvelBatchPayout()
+        advanceUntilIdle()
+
+        assertEquals(true, vm.state.value.payoutRequestSuccess)
+        assertEquals("Annual Stokvel savings payouts requested for 1 member(s).", vm.state.value.successMessage)
+        assertEquals("1 member(s) could not be requested. Please review and retry.", vm.state.value.error)
     }
 
     @Test

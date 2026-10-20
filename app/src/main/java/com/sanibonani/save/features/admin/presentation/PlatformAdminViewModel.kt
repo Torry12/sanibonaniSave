@@ -43,7 +43,18 @@ class PlatformAdminViewModel @Inject constructor(
         launchJob("verify_mfa") {
             updateState { it.copy(isVerifyingMfa = true) }
             supabaseRepo.getMfaFactors().onSuccess { factors ->
-                val factor = factors.firstOrNull() ?: return@onSuccess
+                val factor = factors.firstOrNull()
+                if (factor == null) {
+                    updateState {
+                        it.copy(
+                            isVerifyingMfa = false,
+                            mfaChallengeError = IllegalStateException(
+                                "No authenticator is enrolled on this account. Set up two-step verification before authorising this action."
+                            ).toUserMessage()
+                        )
+                    }
+                    return@onSuccess
+                }
                 supabaseRepo.verifyMfa(factor.id, code, true).onSuccess {
                     updateState { it.copy(isVerifyingMfa = false, showMfaChallenge = false) }
                     _mfaVerified.tryEmit(Unit)
@@ -51,6 +62,8 @@ class PlatformAdminViewModel @Inject constructor(
                 }.onFailure { e ->
                     updateState { it.copy(isVerifyingMfa = false, mfaChallengeError = e.toUserMessage()) }
                 }
+            }.onFailure { e ->
+                updateState { it.copy(isVerifyingMfa = false, mfaChallengeError = e.toUserMessage()) }
             }
         }
     }

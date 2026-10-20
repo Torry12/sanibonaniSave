@@ -63,7 +63,6 @@ class MockSupabaseRepository @Inject constructor() : SupabaseRepository {
         TestAuthSessionController.setRole(role)
         return Result.success(Unit)
     }
-    override suspend fun resetLocalCache() {}
 
     // MFA Mocks
     override val isMfaVerified: Boolean get() = TestAuthSessionController.mockedIsMfaVerified

@@ -1,3 +1,5 @@
+import org.gradle.api.artifacts.type.ArtifactTypeDefinition
+
 plugins {
     alias(libs.plugins.android.library)
     alias(libs.plugins.kotlin.android)
@@ -8,19 +10,14 @@ android {
     namespace = "com.sanibonani.save.simulation"
     compileSdk = 37
 
-    defaultConfig {
-        minSdk = 26
-        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-    }
+    defaultConfig { minSdk = 26 }
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    kotlin {
-        jvmToolchain(17)
-    }
+    kotlin { jvmToolchain(17) }
 
     packaging {
         resources {
@@ -31,49 +28,41 @@ android {
             )
         }
     }
-
 }
 
 dependencies {
     implementation(project(":domain"))
-    implementation(libs.kotlinx.serialization.json)
-    implementation(libs.kotlinx.datetime)
-    implementation(libs.kotlinx.coroutines.core)
-    implementation(platform(libs.supabase.bom))
-    implementation(libs.supabase.postgrest)
-    implementation(libs.supabase.auth)
-    implementation(libs.supabase.realtime)
-    implementation(libs.ktor.client.okhttp)
-    // mockk is a genuine *runtime* dependency, not just test: Main.kt's main() entrypoint
-    // mocks android.util.Log / android.os.Looper so the simulation can run on the JVM
-    // outside an emulator. `implementation` is correct here; it only reaches :app's test
-    // classpaths (which is where :app consumes :simulation), not :app's main classpath.
-    implementation(libs.mockk)
-
-    // Testing
     testImplementation(libs.junit)
-    testImplementation(libs.mockk)
-    testImplementation(libs.kotlinx.coroutines.test)
-    testImplementation(libs.robolectric)
-    testImplementation(libs.androidx.arch.core.testing)
-    testImplementation(libs.androidx.test.core)
-    testImplementation(libs.androidx.test.ext.junit)
-
-    androidTestImplementation(libs.junit)
-    androidTestImplementation(libs.androidx.test.core)
-    androidTestImplementation(libs.androidx.test.ext.junit)
-    androidTestImplementation(libs.androidx.test.runner)
-    androidTestImplementation(libs.hilt.android.testing)
-    androidTestImplementation(libs.ktor.client.android)
-    androidTestImplementation(libs.mockk.android)
 }
 
-// To keep the 'run' task working, we need to carefully set the classpath
+// The seed factory stays isolated in :simulation. The app owns the live Supabase
+// runner, which uses the app's debug test runtime for Android APIs.
 tasks.register<JavaExec>("run") {
-    mainClass.set("com.sanibonani.save.simulation.MainKt")
-    // This is a bit hacky for an Android library but can work for JVM-only parts
-    classpath = sourceSets["main"].runtimeClasspath
-    if (project.hasProperty("args")) {
-        args(project.property("args").toString().split(" "))
-    }
+    val app = project(":app")
+    val android = app.extensions.getByType<com.android.build.gradle.BaseExtension>()
+    val sdkPlatformPrefix = "android-${android.compileSdkVersion?.removePrefix("android-")}"
+    val androidJar = android.sdkDirectory.resolve("platforms")
+        .listFiles()
+        ?.filter { it.isDirectory && it.name.startsWith(sdkPlatformPrefix) }
+        ?.maxByOrNull { it.name }
+        ?.resolve("android.jar")
+        ?: error("Android SDK platform for ${android.compileSdkVersion} is not installed")
+
+    dependsOn(
+        app.tasks.named("compileDebugKotlin"),
+        app.tasks.named("compileDebugUnitTestKotlin")
+    )
+    mainClass.set("com.sanibonani.save.simulation.SimulationCliKt")
+    classpath = files(
+        app.layout.buildDirectory.dir("tmp/kotlin-classes/debug"),
+        app.layout.buildDirectory.dir("tmp/kotlin-classes/debugUnitTest"),
+        app.layout.buildDirectory.dir("intermediates/javac/debug/compileDebugJavaWithJavac/classes"),
+        app.layout.buildDirectory.dir("intermediates/javac/debugUnitTest/compileDebugUnitTestJavaWithJavac/classes"),
+        androidJar,
+        app.configurations.getByName("debugUnitTestRuntimeClasspath").incoming.artifactView {
+            attributes.attribute(ArtifactTypeDefinition.ARTIFACT_TYPE_ATTRIBUTE, ArtifactTypeDefinition.JAR_TYPE)
+        }.files
+    )
+    providers.gradleProperty("args").orNull?.trim()?.split(" ")?.firstOrNull()
+        ?.takeIf(String::isNotBlank)?.let { args(it) }
 }

@@ -35,7 +35,7 @@ class CreateGroupUseCaseTest {
         val adminPassword = "password"
         val adminFullName = "Admin Name"
         val adminPhone = "0821234567"
-        val adminIdNumber = "8501015009087"
+        val adminIdNumber = "8501015009086"
         val userId = "user-123"
         val groupId = "group-456"
 
@@ -120,7 +120,7 @@ class CreateGroupUseCaseTest {
         val adminPassword = "securePassword123"
         val adminFullName = "Sipho Nkosi"
         val adminPhone = "0833334444"
-        val adminIdNumber = "9001015800085"
+        val adminIdNumber = "9001015800088"
         val adminStreet = "123 Main Street"
         val adminSuburb = "Phoenix"
         val userId = "user-full-info"

@@ -80,4 +80,41 @@ class ProcessDisbursementUseCaseTest {
         assertTrue(result.isFailure)
         assertTrue(result.exceptionOrNull()?.message?.contains("MFA_REQUIRED") == true)
     }
+
+    @Test
+    fun `committed payouts are counted against the balance before approval`() = runBlocking {
+        coEvery { payoutRepository.getPayoutById("p1") } returns Result.success(pendingPayout(Money("40000.0")))
+        coEvery { payoutRepository.getPendingPayouts() } returns Result.success(
+            listOf(pendingPayout(Money("20000.0"), id = "p2", status = PayoutStatus.GROUP_APPROVED))
+        )
+
+        val result = useCase("p1", "g1", PayoutStatus.GROUP_APPROVED, "admin1")
+
+        assertTrue(result.isFailure)
+        assertTrue(result.exceptionOrNull()?.message?.contains("INSUFFICIENT_LIQUIDITY") == true)
+        coVerify(exactly = 0) { payoutRepository.updatePayoutStatus(any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `an unreadable pending payout queue blocks approval instead of pretending to be empty`() = runBlocking {
+        coEvery { payoutRepository.getPayoutById("p1") } returns Result.success(pendingPayout(Money("40000.0")))
+        // R50 000 of balance would cover R40 000 only if the queue were really empty.
+        coEvery { payoutRepository.getPendingPayouts() } returns Result.failure(Exception("offline"))
+
+        val result = useCase("p1", "g1", PayoutStatus.GROUP_APPROVED, "admin1")
+
+        assertTrue(result.isFailure)
+        coVerify(exactly = 0) { payoutRepository.updatePayoutStatus(any(), any(), any(), any()) }
+    }
+
+    private fun pendingPayout(amount: Money, id: String = "p1", status: PayoutStatus = PayoutStatus.PENDING) =
+        PayoutRequest(
+            id = id,
+            groupId = "g1",
+            amount = amount,
+            bankName = "FNB",
+            accountNo = "123",
+            branchCode = "456",
+            status = status
+        )
 }

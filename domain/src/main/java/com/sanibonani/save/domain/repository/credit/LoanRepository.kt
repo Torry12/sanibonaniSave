@@ -22,10 +22,9 @@ interface LoanRepository {
         reason: String? = null
     ): Result<Unit>
     suspend fun disburseLoan(loanId: String, paymentMethod: PaymentMethod, adminId: String? = null): Result<Unit>
-    suspend fun recordRepayment(repayment: LoanRepayment): Result<Unit>
+    suspend fun recordRepayment(repayment: LoanRepayment, idempotencyKey: String? = null): Result<Unit>
     suspend fun getRepayments(loanId: String): Flow<Result<List<LoanRepayment>>>
     suspend fun updateLoanContract(loanId: String, contractUrl: String): Result<Unit>
     suspend fun uploadLoanContract(loanId: String, byteArray: ByteArray, fileName: String): Result<String>
     suspend fun acceptLoanAgreement(loanId: String): Result<Unit>
-    suspend fun getActiveLoansCount(memberId: String): Result<Int>
 }

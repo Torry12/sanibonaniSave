@@ -128,7 +128,7 @@ fun MessagingTab(state: AdminOverviewUiState, vm: AdminOverviewViewModel) {
         if (state.memberMessages.isEmpty()) {
             item {
                 EmptyState(
-                    icon = "âœ‰ï¸",
+                    icon = "✉️",
                     title = "No messages",
                     description = "Your broadcast history will appear here."
                 )

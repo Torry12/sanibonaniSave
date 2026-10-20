@@ -10,6 +10,7 @@ import com.sanibonani.save.domain.model.UserRole
 import com.sanibonani.save.domain.repository.group.GroupRepository
 import com.sanibonani.save.domain.repository.member.MemberRepository
 import com.sanibonani.save.domain.repository.auth.SupabaseRepository
+import com.sanibonani.save.domain.validation.ValidationUtils
 import java.time.LocalDateTime
 import java.util.UUID
 import javax.inject.Inject
@@ -116,7 +117,7 @@ class CreateGroupUseCase @Inject constructor(
                 ?: existingProfileMember?.phone
                 ?: ""
 
-            val resolvedIdNumber = adminIdNumber?.takeIf { it.length == 13 && it.all { c -> c.isDigit() } }
+            val resolvedIdNumber = adminIdNumber?.takeIf { ValidationUtils.isValidSAIdNumber(it) }
                 ?: existingProfileMember?.idNumber
 
             val resolvedStreet = adminStreet?.takeIf { it.isNotBlank() }

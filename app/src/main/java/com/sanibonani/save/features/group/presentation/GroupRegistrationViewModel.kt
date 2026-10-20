@@ -3,6 +3,7 @@ package com.sanibonani.save.features.group.presentation
 import com.sanibonani.save.domain.utils.safeRunCatching
 import com.sanibonani.save.domain.model.*
 import com.sanibonani.save.domain.repository.auth.*
+import com.sanibonani.save.domain.repository.group.GroupDocumentRepository
 import com.sanibonani.save.domain.service.LocationService
 import com.sanibonani.save.domain.service.PlatformFeeService
 import com.sanibonani.save.domain.usecase.group.CreateGroupUseCase
@@ -39,7 +40,7 @@ data class GroupRegistrationState(
     val bankName: String = "",
     val accountNumber: String = "",
     val branchCode: String = "",
-    val logoEmoji: String = "ðŸ¤",
+    val logoEmoji: String = "🤝",
     val maxBeneficiaries: String = "0",
     val beneficiaryIncreasePct: String = "0",
     val burialClaimAmount: String = "10000",
@@ -89,9 +90,14 @@ class GroupRegistrationViewModel @Inject constructor(
     private val supabaseRepo: SupabaseRepository,
     private val userProfileCache: UserProfileCacheService? = null,
     private val memberContextCacheService: MemberGroupContextCacheService? = null,
+    private val documentRepository: GroupDocumentRepository? = null,
 ) : BaseViewModel<GroupRegistrationState>(GroupRegistrationState()) {
 
     val state: StateFlow<GroupRegistrationState> = uiState
+
+    // Held outside the state flow: a 3MB PDF does not belong in a StateFlow that Compose
+    // recomposes on every keystroke. Cleared once it has been stored.
+    private var pendingConstitutionBytes: ByteArray? = null
 
     init {
         // AI Note: Warmup the state with current login status, standard platform fees, and cached user profile.
@@ -116,6 +122,7 @@ class GroupRegistrationViewModel @Inject constructor(
      * Resets the registration form to its initial state.
      */
     fun resetNavigation() {
+        pendingConstitutionBytes = null
         updateState { initialState.copy(
             isLoggedIn = supabaseRepo.isLoggedIn,
             platformRegistrationFee = it.platformRegistrationFee
@@ -230,8 +237,28 @@ class GroupRegistrationViewModel @Inject constructor(
         ) }
     }
 
-    fun uploadConstitution(fileName: String) {
+    fun uploadConstitution(fileName: String, fileBytes: ByteArray) {
+        pendingConstitutionBytes = fileBytes
         updateState { it.copy(pendingConstitutionName = fileName, useStandardConstitution = false) }
+    }
+
+    /**
+     * Stores the constitution the admin picked for the group that was just created. The upload is
+     * intentionally non-fatal and only logged: losing a completed registration because a PDF could
+     * not be stored would discard the group, and the document can be attached again afterwards.
+     */
+    private suspend fun storePendingConstitution(groupId: String) {
+        val bytes = pendingConstitutionBytes ?: return
+        val fileName = uiState.value.pendingConstitutionName ?: return
+        val repository = documentRepository ?: return
+        repository.uploadConstitution(groupId, bytes, fileName)
+            .onSuccess { url ->
+                pendingConstitutionBytes = null
+                updateState { it.copy(constitutionUrl = url) }
+            }
+            .onFailure { e ->
+                AppLogger.w("GroupRegViewModel", "Constitution upload failed for group $groupId: ${e.message}")
+            }
     }
 
     /**
@@ -240,6 +267,22 @@ class GroupRegistrationViewModel @Inject constructor(
      */
     fun submitGroup() {
         val s = uiState.value
+        val alreadyCreated = s.createdGroupId
+        if (!alreadyCreated.isNullOrBlank()) {
+            // The group exists in the database already (the payment sheet was dismissed after
+            // creation). Running creation again would register a duplicate group and a second
+            // admin account, so resume the step that is still owed for this group instead.
+            if (s.platformRegistrationFee == Money.ZERO) {
+                launchJob("submit_group") {
+                    storePendingConstitution(alreadyCreated)
+                    autoActivateZeroFee(alreadyCreated)
+                }
+            } else {
+                updateState { it.copy(needsPayment = true, error = null) }
+            }
+            return
+        }
+
         val groupRes = RegisterGroupValidator.toGroupDraft(s)
         if (groupRes.isFailure) {
             updateState { it.copy(error = groupRes.exceptionOrNull()?.message ?: "Validation failed. Please check all fields.") }
@@ -277,20 +320,10 @@ class GroupRegistrationViewModel @Inject constructor(
                     userProfileCache?.save(s.adminFullName, s.adminEmail, s.adminPhone)
                 }
 
+                storePendingConstitution(id)
+
                 if (s.platformRegistrationFee == Money.ZERO) {
-                    // Automatically activate group & onboard creator member immediately for zero-fee setups
-                    activateGroupUseCase(id, txId = "FREE_ONBOARDING")
-                        .onSuccess {
-                            val userId = supabaseRepo.currentUserId
-                            if (userId != null) {
-                                memberContextCacheService?.warmUpForUser(userId)
-                            }
-                            updateState { it.copy(createdGroupId = id, isSubmitting = false, success = true, needsPayment = false) }
-                        }
-                        .onFailure { e ->
-                            AppLogger.w("GroupRegViewModel", "Auto-activation failed for zero-fee group: ${e.message}")
-                            updateState { it.copy(createdGroupId = id, isSubmitting = false, needsPayment = true) }
-                        }
+                    autoActivateZeroFee(id)
                 } else {
                     updateState { it.copy(createdGroupId = id, isSubmitting = false, needsPayment = true) }
                 }
@@ -301,20 +334,51 @@ class GroupRegistrationViewModel @Inject constructor(
     }
 
     /**
+     * Activates a group that owes no platform registration fee. Kept separate from creation so a
+     * retry after a failed activation reuses the group that already exists.
+     */
+    private suspend fun autoActivateZeroFee(groupId: String) {
+        updateState { it.copy(isSubmitting = true, error = null) }
+        activateGroupUseCase(groupId, txId = "FREE_ONBOARDING:$groupId")
+            .onSuccess {
+                warmUpMemberContext()
+                updateState { it.copy(createdGroupId = groupId, isSubmitting = false, success = true, needsPayment = false) }
+            }
+            .onFailure { e ->
+                AppLogger.w("GroupRegViewModel", "Auto-activation failed for zero-fee group: ${e.message}")
+                // Nothing is owed here, so the payment screen would be a dead end;
+                // keep the group and surface the failure so the admin can retry.
+                updateState { it.copy(createdGroupId = groupId, isSubmitting = false, needsPayment = false, error = e.toUserMessage()) }
+            }
+    }
+
+    private suspend fun warmUpMemberContext() {
+        val userId = supabaseRepo.currentUserId
+        if (userId != null) {
+            memberContextCacheService?.warmUpForUser(userId)
+        }
+    }
+
+    /**
      * Finalizes the registration by activating the group after payment confirmation
      * and warming up member context cache for onboarding.
      * @param txId The external transaction reference (e.g., from YoCo).
      */
     fun finalizeRegistrationAfterPayment(txId: String?) {
-        val groupId = uiState.value.createdGroupId ?: return
+        val groupId = uiState.value.createdGroupId
+        if (groupId.isNullOrBlank()) {
+            // The fee may already be captured at this point, so silently returning would take
+            // the money and leave the group inactive with nothing on screen to explain it.
+            AppLogger.e(tag = "GroupRegViewModel", message = "Payment finalization has no group to activate (txId=$txId).")
+            updateState { it.copy(error = "We could not match this payment to a group. Your group is not active yet - please retry the registration or contact support.") }
+            return
+        }
         launchJob("finalize_payment") {
             updateState { it.copy(isSubmitting = true, error = null) }
+            storePendingConstitution(groupId)
             activateGroupUseCase(groupId, txId)
                 .onSuccess {
-                    val userId = supabaseRepo.currentUserId
-                    if (userId != null) {
-                        memberContextCacheService?.warmUpForUser(userId)
-                    }
+                    warmUpMemberContext()
                     updateState { it.copy(isSubmitting = false, success = true, needsPayment = false) }
                 }
                 .onFailure { e ->

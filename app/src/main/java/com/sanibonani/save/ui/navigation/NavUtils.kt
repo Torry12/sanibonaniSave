@@ -43,9 +43,11 @@ object RouteGuard {
 object NavigationUtils {
     fun String?.isAuthOrPublicRoute(): Boolean {
         val route = this ?: return false
+        // "register" has no arguments, so it must be matched exactly: startsWith() would
+        // also classify "register_group?…" (the authenticated group wizard) as public.
         return route.startsWith(Screen.Landing.route) ||
                 route.startsWith(Screen.Login.route) ||
-                route.startsWith(Screen.Register.route) ||
+                route == Screen.Register.route ||
                 route.startsWith(Screen.NewUserOnboarding.baseRoute) ||
                 route.startsWith(Screen.PasswordRecovery.route) ||
                 route.startsWith(Screen.UpdatePassword.route) ||
@@ -56,7 +58,7 @@ object NavigationUtils {
     fun String?.isAuthEntryRoute(): Boolean {
         val route = this ?: return false
         return route.startsWith(Screen.Login.route) ||
-                route.startsWith(Screen.Register.route)
+                route == Screen.Register.route
     }
 
     fun destinationForUserRole(role: UserRole, groupId: String? = null): String {

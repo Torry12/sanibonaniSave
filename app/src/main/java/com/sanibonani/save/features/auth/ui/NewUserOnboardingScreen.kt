@@ -39,11 +39,9 @@ import com.sanibonani.save.domain.model.GroupType
  *   2. Browse groups and join one (member path)
  *
  * The user's name is read from [UserProfileCacheService] for a personalised welcome.
- * Sandbox mode is only available in DEBUG builds and accessible via the footer note.
  */
 @Composable
 fun NewUserOnboardingScreen(
-    userId: String,
     profileCache: UserProfileCacheService?,
     onRegisterGroup: (GroupType?) -> Unit,
     onBrowseGroups: () -> Unit,
@@ -52,7 +50,11 @@ fun NewUserOnboardingScreen(
     val clickDebouncer = rememberClickDebouncer()
     val fullName = profileCache?.getFullName()
     val firstName = fullName?.trim()?.substringBefore(" ")?.takeIf { it.isNotBlank() } ?: "there"
-    val selectedGroupTypeState = rememberSaveable { mutableStateOf(selectedGroupType) }
+    // Keyed on the argument so a group type arriving from navigation replaces the restored
+    // selection instead of being silently ignored by the saveable.
+    val selectedGroupTypeState = rememberSaveable(selectedGroupType?.name) {
+        mutableStateOf(selectedGroupType)
+    }
 
     Box(
         modifier = Modifier

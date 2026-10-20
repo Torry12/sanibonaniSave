@@ -3,7 +3,6 @@ package com.sanibonani.save.features.admin.presentation.state
 import com.sanibonani.save.domain.model.*
 
 data class AdminOverviewUiState(
-    val groupContext: AsyncResult<AdminGroupContext> = AsyncResult.Uninitialized,
     val group: Group? = null,
     val members: List<Member> = emptyList(),
     val managedGroups: AsyncResult<List<Group>> = AsyncResult.Uninitialized,
@@ -12,7 +11,6 @@ data class AdminOverviewUiState(
     val healthScore: GroupHealthScore? = null,
     val feeStatus: AdminFeeState = AdminFeeState.DUE,
     val daysOverdue: Int = 0,
-    val restoreRequested: Boolean = false,
     val viabilityPlan: ViabilityPlan? = null,
     val isCalculatingViability: Boolean = false,
     val notifications: List<AppNotification> = emptyList(),
@@ -33,7 +31,6 @@ data class AdminOverviewUiState(
     val isImpersonationBannerDismissed: Boolean = false,
     val currentUserId: String? = null,
     val groupAuditReport: AsyncResult<GroupAuditReport> = AsyncResult.Uninitialized,
-    val isLoadingAuditReport: Boolean = false,
     val platformRegistrationFee: Money = Money.ZERO,
     val outstandingPlatformFees: List<PlatformFee> = emptyList(),
     val isPayingPlatformFee: Boolean = false,
@@ -47,7 +44,6 @@ data class AdminOverviewUiState(
         healthScore = null,
         notifications = emptyList(),
         memberMessages = emptyList(),
-        groupContext = AsyncResult.Uninitialized,
         isLoading = true,
         error = null,
         groupAuditReport = AsyncResult.Uninitialized

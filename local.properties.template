@@ -7,11 +7,20 @@
 # Android SDK — set automatically by Android Studio
 sdk.dir=/Users/YOUR_USERNAME/Library/Android/sdk
 
-# ── Supabase ──────────────────────────────────────────────────────────────────
-# Dashboard → Project Settings → API
-SUPABASE_URL=https://uqqrrszthrvkpxxidewm.supabase.co
-SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVxcXJyc3p0aHJ2a3B4eGlkZXdtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Mzg0ODg4OTgsImV4cCI6MjA1NDA0ODg5OH0.7z6p_U9_U9_U9_U9_U9_U9_U9_U9_U9_U9_U9_U9_U9_U
-SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVxcXJyc3p0aHJ2a3B4eGlkZXdtIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTczODQ4ODg5OCwiZXhwIjoyMDU0MDQ4ODk4fQ.7z6p_U9_U9_U9_U9_U9_U9_U9_U9_U9_U9_U9_U9_U9_U
+# ── Supabase: primary tier (the app's default project) ─────────────────────
+# Dashboard → Project Settings → API Keys. Never commit real values here.
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_ANON_KEY=paste-anon-key-here
+# Debug builds only (release BuildConfig is an empty string) - bypasses RLS.
+SUPABASE_SERVICE_ROLE_KEY=paste-service-role-key-here
+
+# ── Supabase: local Docker tier (supabase start) ───────────────────────────
+SUPABASE_URL_LOCAL=http://127.0.0.1:45421
+SUPABASE_ANON_KEY_LOCAL=paste-local-anon-key-here
+
+# ── Supabase: online/cloud tier ────────────────────────────────────────────
+SUPABASE_URL_ONLINE=https://your-online-project.supabase.co
+SUPABASE_ANON_KEY_ONLINE=paste-online-anon-key-here
 
 # ── YoCo Payment Gateway ──────────────────────────────────────────────────────
 # dashboard.yoco.com → Settings → API Keys
@@ -29,4 +38,7 @@ KEY_PASSWORD=your_key_password
 
 # ── Platform Admin ────────────────────────────────────────────────────────────
 PLATFORM_ADMIN_EMAIL=torrymsimango@gmail.com
+# Debug builds only (release BuildConfig is an empty string). Read by the manual
+# login/reset/simulation tools; app code never uses it. No quotes needed.
+PLATFORM_ADMIN_PASSWORD=paste-admin-password-here
 

@@ -28,7 +28,7 @@ class GroupDocumentRepositoryImpl @Inject constructor(
         groupId: String,
         fileBytes: ByteArray,
         fileName: String,
-    ): Result<String> = retryWithExponentialBackoff {
+    ): Result<String> = authoritativeCall("uploadConstitution") {
         fun sanitizeFileName(input: String): String {
             val base = input
                 .substringAfterLast('\\')

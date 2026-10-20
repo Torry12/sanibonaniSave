@@ -20,54 +20,6 @@ class AuditRepositoryImpl @Inject constructor(
     private val json: Json,
 ) : BaseRepository("AuditRepository"), AuditRepository {
 
-    override suspend fun getMemberAuditReport(memberId: String): Result<MemberAuditReport> =
-        remoteSource.generateMemberAudit(memberId).map { it.data }
-
-    override suspend fun getGroupAuditReport(groupId: String): Result<GroupAuditReport> =
-        remoteSource.generateGroupAudit(groupId).map { it.data }
-
-    override fun observeGroupAuditReport(groupId: String): Flow<Result<GroupAuditReport>> = observeAndSync(
-        dbFlow = localSource.observeReport("group_$groupId").map { it?.let { listOf(it) } ?: emptyList() },
-        mapper = { entity -> json.decodeFromString<GroupAuditReport>(entity.contentJson) },
-        toEntity = { report ->
-            AuditReportEntity(
-                id = "group_$groupId",
-                type = "group",
-                targetId = groupId,
-                contentJson = json.encodeToString(GroupAuditReport.serializer(), report),
-                generatedAt = java.time.Instant.now().toString(),
-            )
-        },
-        networkFetch = {
-            val res = remoteSource.generateGroupAudit(groupId).getOrThrow()
-            listOf(res.data)
-        },
-        cacheSync = { list ->
-            list.firstOrNull()?.let { localSource.saveReport(it) }
-        }
-    ).map { res -> res.map { it.first() } }
-
-    override fun observeMemberAuditReport(memberId: String): Flow<Result<MemberAuditReport>> = observeAndSync(
-        dbFlow = localSource.observeReport("member_$memberId").map { it?.let { listOf(it) } ?: emptyList() },
-        mapper = { entity -> json.decodeFromString<MemberAuditReport>(entity.contentJson) },
-        toEntity = { report ->
-            AuditReportEntity(
-                id = "member_$memberId",
-                type = "member",
-                targetId = memberId,
-                contentJson = json.encodeToString(MemberAuditReport.serializer(), report),
-                generatedAt = java.time.Instant.now().toString(),
-            )
-        },
-        networkFetch = {
-            val res = remoteSource.generateMemberAudit(memberId).getOrThrow()
-            listOf(res.data)
-        },
-        cacheSync = { list ->
-            list.firstOrNull()?.let { localSource.saveReport(it) }
-        }
-    ).map { res -> res.map { it.first() } }
-
     override suspend fun getPlatformAuditReport(): Result<PlatformAuditReport> =
         remoteSource.generatePlatformAudit().map { it.data }
 

@@ -36,7 +36,18 @@ class StorageRepositoryImpl @Inject constructor(
         path: String,
         byteArray: ByteArray,
         upsert: Boolean
-    ): Result<String> = retryWithExponentialBackoff {
+    ): Result<String> = if (upsert) retryWithExponentialBackoff {
+        uploadFileOnce(bucketName, path, byteArray, upsert = true)
+    } else authoritativeCall("uploadFile") {
+        uploadFileOnce(bucketName, path, byteArray, upsert = false)
+    }
+
+    private suspend fun uploadFileOnce(
+        bucketName: String,
+        path: String,
+        byteArray: ByteArray,
+        upsert: Boolean
+    ): String {
         require(byteArray.isNotEmpty()) { "Cannot upload an empty file." }
         require(byteArray.size <= MAX_FILE_SIZE_BYTES) { "File size (${byteArray.size / (1024 * 1024)}MB) exceeds 10MB limit." }
 
@@ -49,7 +60,7 @@ class StorageRepositoryImpl @Inject constructor(
             this.contentType = contentType
         }
         AppLogger.d(tag, "✅ Upload successful: $path")
-        path
+        return path
     }
 
     override suspend fun downloadFile(
@@ -66,7 +77,7 @@ class StorageRepositoryImpl @Inject constructor(
     override suspend fun deleteFile(
         bucketName: String,
         path: String
-    ): Result<Unit> = retryWithExponentialBackoff {
+    ): Result<Unit> = authoritativeCall("deleteFile") {
         AppLogger.d(tag, "🗑️ Deleting file $bucketName/$path")
         val bucket = supabase.storage[bucketName]
         bucket.delete(path)

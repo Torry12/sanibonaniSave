@@ -1,38 +1,22 @@
 package com.sanibonani.save.domain.validation
 
 import com.sanibonani.save.domain.model.Money
-import com.sanibonani.save.domain.utils.parseMoneyAmountOrNull
-import java.math.BigDecimal
 import java.util.Calendar
 
 /**
- * Centralized validation logic to avoid redundant checks across screens/ViewModels
+ * Centralized validation logic to avoid redundant checks across screens/ViewModels.
+ *
+ * Identity, banking and email rules live in [InputValidator]; this object is the
+ * convenience surface callers use and must not restate a rule with its own regex.
  */
 object ValidationUtils {
 
     private val strictSaPhoneRegex = "^0(6|7)[0-9]{8}$".toRegex()
-    // SA bank account numbers vary by bank; accept the common 7–13 digit range.
-    private val bankAccountRegex = "^[0-9]{7,13}$".toRegex()
-    private val branchCodeRegex = "^[0-9]{6}$".toRegex()
-    private val minimumMonthlyContribution = BigDecimal("10.00")
 
     // ──────────────────────────────────────────────────────────────────────────
     // EMAIL VALIDATION
     // ──────────────────────────────────────────────────────────────────────────
-    fun isValidEmail(email: String): Boolean {
-        if (email.isBlank()) return false
-        val emailRegex = "^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$".toRegex()
-        return email.matches(emailRegex)
-    }
-
-    fun validateEmailField(email: String, isOptional: Boolean = false): ValidationResult {
-        if (isOptional && email.isBlank()) return ValidationResult.Valid
-        return when {
-            email.isBlank() -> ValidationResult.Error("Email is required")
-            !isValidEmail(email) -> ValidationResult.Error("Invalid email format")
-            else -> ValidationResult.Valid
-        }
-    }
+    fun isValidEmail(email: String): Boolean = InputValidator.isValidEmail(email)
 
     // ──────────────────────────────────────────────────────────────────────────
     // PASSWORD VALIDATION
@@ -47,101 +31,27 @@ object ValidationUtils {
         return true
     }
 
-    fun validatePasswordField(password: String): ValidationResult {
-        return when {
-            password.isBlank() -> ValidationResult.Error("Password is required")
-            password.length < 10 -> ValidationResult.Error("Password must be at least 10 characters")
-            !password.any { it.isUpperCase() } -> ValidationResult.Error("Password must include at least one uppercase letter")
-            !password.any { it.isLowerCase() } -> ValidationResult.Error("Password must include at least one lowercase letter")
-            !password.any { it.isDigit() } -> ValidationResult.Error("Password must include at least one number")
-            !password.any { !it.isLetterOrDigit() } -> ValidationResult.Error("Password must include at least one special character")
-            else -> ValidationResult.Valid
-        }
-    }
-
-    fun validatePasswordMatch(password: String, confirmPassword: String): ValidationResult {
-        return when {
-            password != confirmPassword -> ValidationResult.Error("Passwords do not match")
-            else -> ValidationResult.Valid
-        }
-    }
-
     // ──────────────────────────────────────────────────────────────────────────
     // MEMBER VALIDATION
     // ──────────────────────────────────────────────────────────────────────────
-    fun validateMemberFields(
-        fullName: String,
-        idNumber: String,
-        phone: String,
-        email: String,
-        street: String,
-        suburb: String,
-        city: String,
-        province: String
-    ): ValidationResult {
-        return when {
-            fullName.isBlank() -> ValidationResult.Error("Full name is required")
-            fullName.trim().length < 2 -> ValidationResult.Error("Full name must be at least 2 characters")
-            idNumber.isBlank() -> ValidationResult.Error("ID number is required")
-            !isValidSAID(idNumber) -> ValidationResult.Error("Invalid South African ID number")
-            phone.isBlank() -> ValidationResult.Error("Phone number is required")
-            !phone.matches("^0[1-9][0-9]{8}$".toRegex()) -> ValidationResult.Error("Invalid phone number format (e.g. 0712345678)")
-            email.isNotBlank() && !isValidEmail(email) -> ValidationResult.Error("Invalid email format")
-            street.isBlank() -> ValidationResult.Error("Street address is required")
-            suburb.isBlank() -> ValidationResult.Error("Suburb is required")
-            city.isBlank() -> ValidationResult.Error("City is required")
-            province.isBlank() -> ValidationResult.Error("Province is required")
-            else -> ValidationResult.Valid
-        }
-    }
 
     /**
-     * Validates South African ID number using Luhn Algorithm
+     * Validates South African ID number: 13 digits, date of birth and Luhn checksum.
+     * Delegates to [InputValidator] so registration and KYC can never disagree.
      */
-    fun isValidSAID(idNumber: String): Boolean {
-        val cleanId = idNumber.trim()
-        if (cleanId.length != 13 || !cleanId.all { it.isDigit() }) return false
+    fun isValidSAIdNumber(idNumber: String): Boolean = InputValidator.isValidSAIdNumber(idNumber)
 
-        // Basic date validation (YYMMDD)
-        val month = cleanId.substring(2, 4).toInt()
-        val day = cleanId.substring(4, 6).toInt()
-        if (month !in 1..12 || day !in 1..31) return false
-
-        // Luhn Algorithm
-        var sum = 0
-        for (i in 0 until 12) {
-            var digit = cleanId[i] - '0'
-            if (i % 2 == 1) {
-                digit *= 2
-                if (digit > 9) digit -= 9
-            }
-            sum += digit
-        }
-        val checkDigit = (10 - (sum % 10)) % 10
-        return checkDigit == (cleanId[12] - '0')
-    }
-
-    // Compatibility helpers used by legacy and test validation callsites.
-    fun isValidSAIdNumber(idNumber: String): Boolean = isValidSAID(idNumber)
-
+    // Only the 06x/07x mobile ranges are accepted today; 081-085 are also live SA mobile
+    // prefixes, so widening this is an open product decision (see task: phone prefix policy).
     fun isValidPhoneNumber(phoneNumber: String): Boolean {
         val cleaned = phoneNumber.trim()
         return cleaned.matches(strictSaPhoneRegex)
     }
 
-    fun isValidBankAccount(accountNumber: String): Boolean = accountNumber.matches(bankAccountRegex)
+    fun isValidBankAccount(accountNumber: String): Boolean =
+        InputValidator.validateAccountNumber(accountNumber, "").isValid()
 
-    fun isValidBranchCode(branchCode: String): Boolean = branchCode.matches(branchCodeRegex)
-
-    fun normalizePhoneNumber(number: String): String {
-        val digitsOnly = number.filter { it.isDigit() }
-        return when {
-            digitsOnly.startsWith("27") && digitsOnly.length == 11 -> digitsOnly
-            digitsOnly.startsWith("0") && digitsOnly.length == 10 -> "27" + digitsOnly.substring(1)
-            digitsOnly.length == 9 -> "27" + digitsOnly
-            else -> digitsOnly
-        }
-    }
+    fun isValidBranchCode(branchCode: String): Boolean = InputValidator.isValidBranchCode(branchCode)
 
     fun isValidName(name: String): Boolean = InputValidator.isValidName(name)
 
@@ -161,66 +71,6 @@ object ValidationUtils {
             isValidName(lastName) &&
             isValidSAIdNumber(idNumber) &&
             isValidPhoneNumber(phoneNumber)
-    }
-
-    // ──────────────────────────────────────────────────────────────────────────
-    // GROUP VALIDATION
-    // ──────────────────────────────────────────────────────────────────────────
-    fun validateGroupStep1(name: String, email: String, phone: String): ValidationResult {
-        return when {
-            name.isBlank() -> ValidationResult.Error("Group name is required")
-            name.length < 3 -> ValidationResult.Error("Group name must be at least 3 characters")
-            email.isBlank() -> ValidationResult.Error("Group email is required")
-            !isValidEmail(email) -> ValidationResult.Error("Invalid email format")
-            phone.isBlank() -> ValidationResult.Error("WhatsApp number is required")
-            !phone.matches("^0[1-9][0-9]{8}$".toRegex()) -> ValidationResult.Error("Invalid phone number format")
-            else -> ValidationResult.Valid
-        }
-    }
-
-    fun validateGroupStep2(province: String, city: String): ValidationResult {
-        return when {
-            province.isBlank() -> ValidationResult.Error("Province is required")
-            city.isBlank() -> ValidationResult.Error("City / Town is required")
-            else -> ValidationResult.Valid
-        }
-    }
-
-    fun validateGroupStep3(joining: String, contribution: String, maxMembers: String): ValidationResult {
-        val joiningFee = joining.parseMoneyAmountOrNull()
-        val monthlyContrib = contribution.parseMoneyAmountOrNull()
-        val maxMem = maxMembers.toIntOrNull()
-
-        return when {
-            joiningFee == null -> ValidationResult.Error("Joining fee must be a valid amount")
-            monthlyContrib == null || monthlyContrib < minimumMonthlyContribution -> ValidationResult.Error("Monthly contribution must be at least R10")
-            maxMem == null || maxMem < 2 -> ValidationResult.Error("Maximum members must be at least 2")
-            else -> ValidationResult.Valid
-        }
-    }
-
-    fun validateGroupStep4(bankName: String, accountNumber: String, branchCode: String): ValidationResult {
-        return when {
-            bankName.isBlank() -> ValidationResult.Error("Bank name is required")
-            accountNumber.length !in 7..11 || !accountNumber.all { it.isDigit() } -> 
-                ValidationResult.Error("Account number must be 7–11 digits (SA PASA standard)")
-            branchCode.length != 6 || !branchCode.all { it.isDigit() } -> 
-                ValidationResult.Error("Branch code must be 6 digits")
-            else -> ValidationResult.Valid
-        }
-    }
-
-    fun validateGroupStep6(fullName: String, email: String, password: String, isLoggedIn: Boolean, idNumber: String = ""): ValidationResult {
-        return when {
-            fullName.isBlank() -> ValidationResult.Error("Admin name is required")
-            fullName.trim().length < 3 -> ValidationResult.Error("Admin name must be at least 3 characters")
-            idNumber.isBlank() -> ValidationResult.Error("SA ID Number is required")
-            !isValidSAID(idNumber) -> ValidationResult.Error("Invalid SA ID Number. Please enter a valid 13-digit ID.")
-            !isLoggedIn && email.isBlank() -> ValidationResult.Error("Admin email is required")
-            !isLoggedIn && !isValidEmail(email) -> ValidationResult.Error("Invalid email format")
-            !isLoggedIn && password.length < 10 -> ValidationResult.Error("Password must be at least 10 characters")
-            else -> ValidationResult.Valid
-        }
     }
 
     // ──────────────────────────────────────────────────────────────────────────

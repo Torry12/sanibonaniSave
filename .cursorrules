@@ -67,7 +67,7 @@ A Distributed Cooperative Financial Infrastructure for South African savings gro
 ---
 
 ## TESTING ACCOUNTS
-- **Platform Admin**: `torrymsimango@gmail.com` / `torry123M`
+- **Platform Admin**: email in `BuildConfig.PLATFORM_ADMIN_EMAIL`; password in `local.properties` as `PLATFORM_ADMIN_PASSWORD` (debug-only BuildConfig field, never committed)
 - **Standard Password**: `Test@12345` (for all seeded test accounts)
 
 ---

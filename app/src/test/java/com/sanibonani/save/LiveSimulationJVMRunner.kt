@@ -1,5 +1,7 @@
 package com.sanibonani.save
 
+import com.sanibonani.save.BuildConfig
+
 import com.sanibonani.save.domain.model.*
 import androidx.arch.core.executor.ArchTaskExecutor
 import androidx.arch.core.executor.TaskExecutor
@@ -59,8 +61,8 @@ class LiveSimulationJVMRunner {
         unmockkAll()
     }
 
-    private val supabaseUrl = "https://aszmodkqpafwtnfufmow.supabase.co"
-    private val anonKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFzem1vZGtxcGFmd3RuZnVmbW93Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc2NDA2MzksImV4cCI6MjA5MzIxNjYzOX0.xmjdSHDGO8sm1cq_574yUxADfCWljtBKf94U-ReTxy8"
+    private val supabaseUrl = BuildConfig.SUPABASE_URL_ONLINE
+    private val anonKey = BuildConfig.SUPABASE_ANON_KEY_ONLINE
 
     private val memorySessionManager = object : SessionManager {
         private var stored: UserSession? = null
@@ -98,7 +100,7 @@ class LiveSimulationJVMRunner {
         val client = buildClient()
         try {
             val PLATFORM_ADMIN = "torrymsimango@gmail.com"
-            val PLATFORM_PASS = "torry123M"
+            val PLATFORM_PASS = BuildConfig.PLATFORM_ADMIN_PASSWORD
 
             println("SIM_TRACE: Step 1 - Signing In")
             client.auth.signInWith(Email) {

@@ -1,4 +1,5 @@
 package com.sanibonani.save.data.repository.equity
+import com.sanibonani.save.data.datasource.RemoteContributionDataSource
 import com.sanibonani.save.data.repository.BaseRepository
 
 import com.sanibonani.save.data.local.*
@@ -9,15 +10,12 @@ import com.sanibonani.save.domain.repository.equity.MemberContributionRepository
 import com.sanibonani.save.domain.repository.member.MemberRepository
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.postgrest.postgrest
-import io.github.jan.supabase.postgrest.rpc
 import kotlinx.coroutines.flow.Flow
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.put
-import java.time.Instant
 import javax.inject.Inject
 import javax.inject.Provider
 
 class MemberContributionRepositoryImpl @Inject constructor(
+    private val remoteSource: RemoteContributionDataSource,
     private val supabaseProvider: Provider<SupabaseClient>,
     private val memberRepo: Provider<MemberRepository>,
     private val dbProvider: Provider<SanibonaniDatabase>
@@ -34,17 +32,10 @@ class MemberContributionRepositoryImpl @Inject constructor(
         val transactionId = contribution.transactionId?.takeIf(String::isNotBlank)
             ?: contribution.id?.let { "contribution_$it" }
             ?: throw IllegalArgumentException("A stable contribution transaction id is required")
-        val rpcParams = buildJsonObject {
-            put("p_member_id", contribution.memberId)
-            put("p_group_id", contribution.groupId)
-            put("p_amount", contribution.amount.amount.toPlainString())
-            put("p_due_date", contribution.dueDate)
-            put("p_paid_at", contribution.paidAt ?: Instant.now().toString())
-            put("p_status", contribution.status.name.lowercase())
-            put("p_type", contribution.type)
-            put("p_tx_id", transactionId)
-        }
-        supabase.postgrest.rpc("record_contribution_v2", rpcParams)
+        // The record_contribution_v2 payload is assembled once, in the remote data source.
+        // Carrying the resolved id on the model keeps `p_tx_id` byte-identical, which is the
+        // key the server deduplicates on.
+        remoteSource.recordContribution(contribution.copy(transactionId = transactionId)).getOrThrow()
 
         // Refresh local cache
         memberRepo.get().getMemberById(contribution.memberId)

@@ -17,17 +17,31 @@ class BeneficiaryClaimRepositoryImpl @Inject constructor(
     private val pendingOpDao: com.sanibonani.save.data.local.PendingOperationDao
 ) : BaseRepository("BeneficiaryClaimRepository"), BeneficiaryClaimRepository {
 
-    override suspend fun submitClaim(claim: BeneficiaryPayoutClaim): Result<BeneficiaryPayoutClaim> =
-        safeApiCall(
+    override suspend fun submitClaim(
+        claim: BeneficiaryPayoutClaim,
+        idempotencyKey: String?
+    ): Result<BeneficiaryPayoutClaim> {
+        val stableClaim = claim.copy(
+            id = claim.id ?: idempotencyKey ?: java.util.UUID.randomUUID().toString()
+        )
+        return safeApiCall(
             operationType = "beneficiary_claim",
-            groupId = claim.groupId,
-            payload = json.encodeToString(claim),
-            dao = pendingOpDao
+            groupId = stableClaim.groupId,
+            payload = json.encodeToString(stableClaim),
+            dao = pendingOpDao,
+            idempotencyKey = idempotencyKey
         ) {
-            val saved = remoteSource.submitClaim(claim).getOrThrow()
+            val saved = if (idempotencyKey != null) {
+                remoteSource.getClaimById(stableClaim.id!!).getOrElse {
+                    remoteSource.submitClaim(stableClaim).getOrThrow()
+                }
+            } else {
+                remoteSource.submitClaim(stableClaim).getOrThrow()
+            }
             localSource.saveClaim(saved)
             saved
         }
+    }
 
     override fun observeClaimsForMember(memberId: String, groupId: String): Flow<Result<List<BeneficiaryPayoutClaim>>> = observeAndSync(
         dbFlow = localSource.observeClaimsForMember(memberId, groupId),
@@ -45,23 +59,31 @@ class BeneficiaryClaimRepositoryImpl @Inject constructor(
         cacheSync = { localSource.syncClaimsForGroup(groupId, it) }
     )
 
-    override suspend fun updateClaimStatus(claimId: String, status: BeneficiaryClaimStatus, reviewedBy: String?, adminNotes: String?, rejectionReason: String?): Result<Unit> = safeRunCatching {
+    override suspend fun updateClaimStatus(
+        claimId: String,
+        status: BeneficiaryClaimStatus,
+        reviewedBy: String?,
+        adminNotes: String?,
+        rejectionReason: String?
+    ): Result<Unit> = authoritativeCall("updateClaimStatus") {
         remoteSource.updateClaimStatus(claimId, status, reviewedBy, adminNotes, rejectionReason).getOrThrow()
-        val updated = remoteSource.getClaimById(claimId).getOrThrow()
-        localSource.saveClaim(updated)
+        localSource.saveClaim(remoteSource.getClaimById(claimId).getOrThrow())
     }
 
-    override suspend fun verifyClaimDocument(claimId: String, docKey: String, status: DocumentStatus): Result<Unit> = safeRunCatching {
+    override suspend fun verifyClaimDocument(
+        claimId: String,
+        docKey: String,
+        status: DocumentStatus
+    ): Result<Unit> = authoritativeCall("verifyClaimDocument") {
         remoteSource.updateClaimDocumentStatus(claimId, docKey, status).getOrThrow()
-        val updated = remoteSource.getClaimById(claimId).getOrThrow()
-        localSource.saveClaim(updated)
+        localSource.saveClaim(remoteSource.getClaimById(claimId).getOrThrow())
     }
 
-    override suspend fun payClaimAtomic(claimId: String, adminId: String, notes: String?): Result<Unit> = safeRunCatching {
-        remoteSource.payClaimAtomic(claimId, adminId, notes).getOrThrow()
-        val updated = remoteSource.getClaimById(claimId).getOrThrow()
-        localSource.saveClaim(updated)
-    }
+    override suspend fun payClaimAtomic(claimId: String, adminId: String, notes: String?): Result<Unit> =
+        authoritativeCall("payClaimAtomic") {
+            remoteSource.payClaimAtomic(claimId, adminId, notes).getOrThrow()
+            localSource.saveClaim(remoteSource.getClaimById(claimId).getOrThrow())
+        }
 
     override fun observeEscalatedClaims(): Flow<Result<List<BeneficiaryPayoutClaim>>> = observeAndSync(
         dbFlow = localSource.observeEscalatedClaims(),

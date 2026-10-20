@@ -9,11 +9,6 @@ import kotlinx.coroutines.flow.Flow
 interface MemberRepository {
     fun getGroupMembers(groupId: String): Flow<Result<List<Member>>>
     suspend fun syncGroupMembers(groupId: String): Result<List<Member>>
-    suspend fun getGroupMembersPaginated(
-        groupId: String,
-        offset: Int,
-        limit: Int
-    ): Result<List<Member>>
     suspend fun getMemberById(id: String): Result<Member>
     fun observeMemberById(id: String): Flow<Result<Member?>>
     suspend fun getMemberByUserId(userId: String, groupId: String): Result<Member>
@@ -63,6 +58,4 @@ interface MemberRepository {
         fileName: String,
         documentType: String? = null
     ): Result<String>
-    fun getMemberContributions(memberId: String, groupId: String): Flow<Result<List<Contribution>>>
-    fun getGroupContributions(groupId: String): Flow<Result<List<Contribution>>>
 }

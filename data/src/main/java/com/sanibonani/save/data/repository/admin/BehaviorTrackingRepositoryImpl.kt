@@ -9,12 +9,12 @@ import com.sanibonani.save.domain.utils.BehaviorScoringUtils
 import com.sanibonani.save.domain.model.*
 import com.sanibonani.save.domain.repository.admin.BehaviorTrackingRepository
 import com.sanibonani.save.domain.repository.credit.LoanRepository
+import com.sanibonani.save.domain.repository.equity.MemberContributionRepository
 import com.sanibonani.save.domain.repository.member.MemberRepository
 import io.github.jan.supabase.SupabaseClient
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
-import kotlinx.serialization.json.JsonObject
 import javax.inject.Inject
 import java.time.Instant
 import com.sanibonani.save.domain.utils.safeRunCatching
@@ -23,28 +23,16 @@ class BehaviorTrackingRepositoryImpl @Inject constructor(
     private val supabaseProvider: javax.inject.Provider<SupabaseClient>,
     private val dbProvider: javax.inject.Provider<SanibonaniDatabase>,
     private val memberRepository: MemberRepository,
+    private val contributionRepository: MemberContributionRepository,
     private val loanRepository: LoanRepository
 ) : BaseRepository("BehaviorTrackingRepository"), BehaviorTrackingRepository {
 
     private val supabase: SupabaseClient get() = supabaseProvider.get()
     private val db: SanibonaniDatabase get() = dbProvider.get()
 
-    override fun observeMemberBehavior(memberId: String): Flow<Result<MemberBehaviorTrack?>> = db.memberBehaviorTrackDao().observeByMemberId(memberId).map { Result.success(it?.toModel()) }
-
-    override fun observeMemberBehaviorByIdNumber(idNumber: String, groupId: String): Flow<Result<MemberBehaviorTrack?>> = db.memberBehaviorTrackDao().observeGroupMembersBehavior(groupId).map { list -> Result.success(list.find { it.memberIdNumber == idNumber }?.toModel()) }
-
     override fun observeGroupMembersBehavior(groupId: String): Flow<Result<List<MemberBehaviorTrack>>> = db.memberBehaviorTrackDao().observeGroupMembersBehavior(groupId).map { list -> Result.success(list.map { it.toModel() }) }
 
-    override fun observeHighRiskMembers(groupId: String): Flow<Result<List<MemberBehaviorTrack>>> = db.memberBehaviorTrackDao().observeHighRiskMembers(groupId).map { list -> Result.success(list.map { it.toModel() }) }
-
-    override fun observeFlaggedMembers(groupId: String): Flow<Result<List<MemberBehaviorTrack>>> = db.memberBehaviorTrackDao().observeFlaggedMembersInGroup(groupId).map { list -> Result.success(list.map { it.toModel() }) }
-
-    override fun observeSuspendedMembers(groupId: String): Flow<Result<List<MemberBehaviorTrack>>> = db.memberBehaviorTrackDao().observeSuspendedMembers().map { list -> Result.success(list.filter { it.groupId == groupId }.map { it.toModel() }) }
-
     override suspend fun getMemberBehavior(memberId: String): Result<MemberBehaviorTrack?> = safeRunCatching { db.memberBehaviorTrackDao().getByMemberId(memberId)?.toModel() }
-
-    override suspend fun getMemberBehaviorByIdNumber(idNumber: String, groupId: String): Result<MemberBehaviorTrack?> = safeRunCatching { db.memberBehaviorTrackDao().getByIdNumber(idNumber, groupId)?.toModel() }
-
 
     override suspend fun calculateAndUpdateMemberBehavior(memberId: String, groupId: String): Result<MemberBehaviorTrack> = safeRunCatching {
         val member = memberRepository.getMemberById(memberId).getOrThrow()
@@ -55,12 +43,6 @@ class BehaviorTrackingRepositoryImpl @Inject constructor(
         db.memberBehaviorTrackDao().upsert(track.toEntity())
         track
     }
-
-    override suspend fun recalculateGroupBehaviorScores(groupId: String): Result<Unit> = safeRunCatching { memberRepository.getGroupMembers(groupId).first().getOrNull()?.forEach { it.id?.let { id -> calculateAndUpdateMemberBehavior(id, groupId) } } }
-
-    override suspend fun saveBehaviorTrack(track: MemberBehaviorTrack): Result<Unit> = safeRunCatching { db.memberBehaviorTrackDao().upsert(track.toEntity()) }
-
-    override suspend fun saveBehaviorTracks(tracks: List<MemberBehaviorTrack>): Result<Unit> = safeRunCatching { tracks.forEach { saveBehaviorTrack(it) } }
 
     override fun observeFraudEventsByMember(memberId: String): Flow<Result<List<FraudDetectionEvent>>> = db.fraudDetectionEventDao().observeEventsByMember(memberId).map { Result.success(it.map { e -> e.toModel() }) }
 
@@ -94,16 +76,6 @@ class BehaviorTrackingRepositoryImpl @Inject constructor(
         val track = getMemberBehavior(memberId).getOrNull() ?: throw Exception("Not found")
         db.memberBehaviorTrackDao().upsert(track.copy(isSuspended = false, suspensionReason = null).toEntity())
     }
-
-    override fun observeBehaviorAnalytics(groupId: String): Flow<Result<BehaviorAnalyticsSummary?>> = db.behaviorAnalyticsSummaryDao().observeByGroup(groupId).map { Result.success(it?.toModel()) }
-
-    override suspend fun calculateBehaviorAnalytics(groupId: String): Result<BehaviorAnalyticsSummary> = safeRunCatching {
-        val summary = BehaviorAnalyticsSummary(groupId = groupId, calculatedAt = Instant.now().toString())
-        db.behaviorAnalyticsSummaryDao().upsert(summary.toEntity())
-        summary
-    }
-
-    override suspend fun getMembersBehaviorStats(groupId: String): Result<JsonObject> = safeRunCatching { JsonObject(emptyMap()) }
 
     /**
      * Generates a dataset formatted for Supervised Fine-Tuning (SFT) of Azure AI Foundry models.
@@ -142,8 +114,10 @@ class BehaviorTrackingRepositoryImpl @Inject constructor(
     private fun createDefaultBehaviorTrack(member: Member, groupId: String): MemberBehaviorTrack = MemberBehaviorTrack(id = java.util.UUID.randomUUID().toString(), memberId = member.id ?: "", memberIdNumber = member.idNumber ?: "", groupId = groupId, joinedAt = member.joinedAt, createdAt = Instant.now().toString())
 
     private suspend fun updateContributionMetrics(track: MemberBehaviorTrack, memberId: String): MemberBehaviorTrack {
-        val contributionsResult = memberRepository.getMemberContributions(memberId, track.groupId).first()
-        val contributions = contributionsResult.getOrDefault(emptyList())
+        // A failed history read carries no amounts, so it cannot be scored as an empty one: the row
+        // would go out saying this member has never contributed and the ledger total is R0.00.
+        val contributions = contributionRepository.getMemberContributions(memberId, track.groupId)
+            .first().getOrThrow()
 
         val paid = contributions.filter { it.status == ContributionStatus.PAID || it.status == ContributionStatus.PARTIAL }
         val totalAmount = paid.fold(Money.ZERO) { acc, c -> acc + c.amount }
@@ -162,7 +136,7 @@ class BehaviorTrackingRepositoryImpl @Inject constructor(
     }
 
     private suspend fun updateLoanMetrics(track: MemberBehaviorTrack, memberId: String): MemberBehaviorTrack {
-        val loans = loanRepository.getMemberLoans(memberId).first().getOrDefault(emptyList())
+        val loans = loanRepository.getMemberLoans(memberId).first().getOrThrow()
         return track.copy(activeLoans = loans.count { it.status == LoanStatus.ACTIVE })
     }
 }

@@ -96,12 +96,6 @@ fun LoanStatus.toMemberStatus(): MemberStatus = when(this) {
     LoanStatus.REJECTED, LoanStatus.OVERDUE, LoanStatus.CANCELLED, LoanStatus.DEFAULTED -> MemberStatus.SUSPENDED
 }
 
-fun ContributionStatus.toMemberStatus(): MemberStatus = when(this) {
-    ContributionStatus.PAID, ContributionStatus.PARTIAL -> MemberStatus.ACTIVE
-    ContributionStatus.DUE -> MemberStatus.PENDING_PAYMENT
-    ContributionStatus.OVERDUE -> MemberStatus.SUSPENDED
-}
-
 @Composable
 fun NotificationItem(n: AppNotification) {
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), modifier = Modifier.fillMaxWidth()) {
@@ -119,43 +113,6 @@ fun MessageItem(m: AppNotification) {
             Text(m.message, style = MaterialTheme.typography.bodyMedium)
             Spacer(Modifier.height(4.dp))
             Text(m.createdAt?.substringBefore("T") ?: "", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
-        }
-    }
-}
-
-@Composable
-fun ContributionItem(c: Contribution, onClick: (Contribution) -> Unit) {
-    Card(
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).animateContentSize().clickable { onClick(c) },
-        shape = RoundedCornerShape(16.dp),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.1f))
-    ) {
-        Row(Modifier.padding(20.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                modifier = Modifier
-                    .size(44.dp)
-                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.1f), RoundedCornerShape(12.dp)),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(if (c.type == "joining_fee") "ðŸŽŸï¸" else "ðŸ’°", fontSize = 20.sp)
-            }
-            Column(Modifier.weight(1f).padding(horizontal = 16.dp)) {
-                Text(
-                    text = if (c.type == "joining_fee") "Joining Fee" else "Monthly Contribution",
-                    style = MaterialTheme.typography.bodyLarge,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
-                    softWrap = false,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Text(c.createdAt?.substringBefore("T") ?: "", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(formatZAR(c.amount), style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.onSurface)
-                StatusChip(status = c.status.toMemberStatus(), label = c.status.name)
-            }
         }
     }
 }
@@ -230,7 +187,7 @@ fun BeneficiaryItem(
                         }
                     }
                     Text(
-                        text = "${beneficiary.relationship} â€¢ ${beneficiary.idNumber ?: "N/A"}",
+                        text = "${beneficiary.relationship} • ${beneficiary.idNumber ?: "N/A"}",
                         style = MaterialTheme.typography.bodySmall,
                         color = Color.Gray,
                         maxLines = 1,

@@ -164,7 +164,7 @@ fun AccountOverviewCard(
                 ProfilePhotoBox(member, profileImageVersion, profileLauncher, vm, context)
             }
 
-            // â”€â”€ FINANCIAL BREAKDOWN & PAYMENT OPTIONS â”€â”€
+            // ── FINANCIAL BREAKDOWN & PAYMENT OPTIONS ──
             Spacer(Modifier.height(16.dp))
             HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
             Spacer(Modifier.height(12.dp))

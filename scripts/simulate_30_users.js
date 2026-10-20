@@ -1,8 +1,9 @@
 const { createClient } = require('@supabase/supabase-js');
 const fs = require('fs');
 
-const supabaseUrl = 'https://aszmodkqpafwtnfufmow.supabase.co';
-const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFzem1vZGtxcGFmd3RuZnVmbW93Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc2NDA2MzksImV4cCI6MjA5MzIxNjYzOX0.xmjdSHDGO8sm1cq_574yUxADfCWljtBKf94U-ReTxy8';
+const { requireValue } = require('./lib/supabase-config');
+const supabaseUrl = requireValue('SUPABASE_URL_ONLINE');
+const supabaseKey = requireValue('SUPABASE_ANON_KEY_ONLINE');
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 async function delay(ms) {

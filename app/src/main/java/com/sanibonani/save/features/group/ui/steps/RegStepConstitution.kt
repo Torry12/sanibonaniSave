@@ -61,10 +61,12 @@ fun RegStepConstitution(s: GroupRegistrationState, vm: GroupRegistrationViewMode
                     context.contentResolver.openInputStream(it)?.use { inputStream ->
                         val bytes = inputStream.readBytes()
                         val fileName = "constitution_${System.currentTimeMillis()}.pdf"
-                        if (bytes.size > FileUploadLimits.MAX_FILE_SIZE_BYTES) {
+                        if (bytes.isEmpty()) {
+                            ToastUtils.showError(context, "The selected file is empty. Please choose another PDF.")
+                        } else if (bytes.size > FileUploadLimits.MAX_FILE_SIZE_BYTES) {
                             ToastUtils.showError(context, "File too large. Maximum 3MB allowed.")
                         } else {
-                            vm.uploadConstitution(fileName)
+                            vm.uploadConstitution(fileName, bytes)
                         }
                     }
                 } catch (e: Exception) {

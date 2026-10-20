@@ -51,7 +51,7 @@ class MemberBeneficiaryViewModel @Inject constructor(
         launchJob("submit_claim") {
             updateState { it.copy(isSubmittingClaim = true) }
             claimRepo.submitClaim(claim).onSuccess {
-                updateState { it.copy(isSubmittingClaim = false, claimSubmitSuccess = true) }
+                updateState { it.copy(isSubmittingClaim = false) }
                 showMessage("Claim submitted successfully")
             }.onFailure {
                 updateState { it.copy(isSubmittingClaim = false) }
@@ -61,7 +61,7 @@ class MemberBeneficiaryViewModel @Inject constructor(
     }
 
     fun clearClaimState() {
-        updateState { it.copy(claimSubmitSuccess = false, isSubmittingClaim = false) }
+        updateState { it.copy(isSubmittingClaim = false) }
     }
 
     fun checkEligibility(cause: String, date: String): com.sanibonani.save.domain.usecase.member.ValidateBurialClaimEligibilityUseCase.EligibilityResult? {

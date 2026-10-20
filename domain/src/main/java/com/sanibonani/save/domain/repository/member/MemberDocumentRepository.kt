@@ -5,8 +5,6 @@ import kotlinx.coroutines.flow.Flow
 
 interface MemberDocumentRepository {
     fun observeMemberDocuments(memberId: String): Flow<Result<List<MemberDocument>>>
-    suspend fun syncMemberDocuments(memberId: String): Result<List<MemberDocument>>
-    suspend fun addMemberDocument(document: MemberDocument): Result<MemberDocument>
     suspend fun updateMemberDocument(document: MemberDocument): Result<MemberDocument>
     suspend fun uploadAndAddMemberDocument(
         memberId: String,

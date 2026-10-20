@@ -43,6 +43,7 @@ import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.put
 import com.sanibonani.save.domain.utils.safeRunCatching
 
@@ -165,19 +166,16 @@ class PlatformRepositoryImpl @Inject constructor(
         report ?: PlatformAuditReport()
     }
 
-    override suspend fun triggerPlatformAudit(): Result<Unit> = retryWithExponentialBackoff {
+    override suspend fun triggerPlatformAudit(): Result<Unit> = authoritativeCall("triggerPlatformAudit") {
         auditRemoteSource.generatePlatformAudit().getOrThrow()
-        Unit
     }
 
-    override suspend fun computeSystemWideMetrics(): Result<Unit> = retryWithExponentialBackoff {
+    override suspend fun computeSystemWideMetrics(): Result<Unit> = authoritativeCall("computeSystemWideMetrics") {
         supabase.functions.invoke("compute-platform-metrics")
-        Unit
     }
 
-    override suspend fun triggerCloudBackup(): Result<Unit> = retryWithExponentialBackoff {
+    override suspend fun triggerCloudBackup(): Result<Unit> = authoritativeCall("triggerCloudBackup") {
         supabase.functions.invoke("trigger-backup")
-        Unit
     }
 
     override suspend fun getCloudBackups(): Result<List<DatabaseBackup>> = retryWithExponentialBackoff {
@@ -188,22 +186,20 @@ class PlatformRepositoryImpl @Inject constructor(
         }.getOrElse { emptyList() }
     }
 
-    override suspend fun deleteCloudBackup(name: String): Result<Unit> = retryWithExponentialBackoff {
+    override suspend fun deleteCloudBackup(name: String): Result<Unit> = authoritativeCall("deleteCloudBackup") {
         supabase.storage["backups"].delete(name)
-        Unit
     }
 
     override suspend fun auditGroup(groupId: String): Result<GroupAuditResult> = retryWithExponentialBackoff {
         auditRemoteSource.auditAndFixGroupBalance(groupId, false).getOrThrow()
     }
 
-    override suspend fun repairGroup(groupId: String): Result<GroupAuditResult> = retryWithExponentialBackoff {
+    override suspend fun repairGroup(groupId: String): Result<GroupAuditResult> = authoritativeCall("repairGroup") {
         auditRemoteSource.auditAndFixGroupBalance(groupId, true).getOrThrow()
     }
 
-    override suspend fun repairGroupData(groupId: String): Result<Unit> = retryWithExponentialBackoff {
+    override suspend fun repairGroupData(groupId: String): Result<Unit> = authoritativeCall("repairGroupData") {
         supabase.postgrest.rpc("recalculate_all_group_financials_v3", buildJsonObject { put("p_group_id", groupId) })
-        Unit
     }
 
     override suspend fun searchMembers(query: String): Result<List<MemberBehaviorInsight>> = retryWithExponentialBackoff {
@@ -220,9 +216,8 @@ class PlatformRepositoryImpl @Inject constructor(
         }.getOrElse { emptyList() }
     }
 
-    override suspend fun updateGranularFeeConfig(config: PlatformFeeConfig): Result<Unit> = retryWithExponentialBackoff {
+    override suspend fun updateGranularFeeConfig(config: PlatformFeeConfig): Result<Unit> = authoritativeCall("updateGranularFeeConfig") {
         supabase.postgrest["platform_fee_config"].upsert(config) { select() }
-        Unit
     }
 
     override suspend fun exportLocalDatabase(useOnline: Boolean): Result<File> = safeRunCatching {
@@ -238,15 +233,9 @@ class PlatformRepositoryImpl @Inject constructor(
     }
 
     override suspend fun getPlatformSettings(): Result<PlatformConfig> = retryWithExponentialBackoff {
-        val settings = try {
-            supabase.postgrest["platform_settings"].select().decodeList<PlatformSetting>()
-        } catch (e: kotlinx.coroutines.CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            val userMsg = e.logAndGetMessage(tag)
-            AppLogger.w(tag, "Failed to fetch platform_settings: $userMsg")
-            emptyList()
-        }
+        // A read that never reached the server stays a failure: an outage reported as a set of
+        // fees would have the app bill its own fallbacks over the fee the admin published.
+        val settings = supabase.postgrest["platform_settings"].select().decodeList<PlatformSetting>()
 
         val map = settings.associateBy { it.key }
 
@@ -259,17 +248,28 @@ class PlatformRepositoryImpl @Inject constructor(
             return null
         }
 
+        // PlatformConfig is the only list of fallbacks, so a key the server has never carried
+        // resolves to the same amount as the rest of the app rather than a copy in this table.
+        val defaults = PlatformConfig()
+        fun moneySetting(default: Money, vararg keys: String): Money {
+            val raw = getSettingValue(*keys) ?: return default
+            return runCatching { Money(raw) }.getOrElse {
+                AppLogger.w(tag, "Unparseable platform_settings fee; keeping the published default.")
+                default
+            }
+        }
+
         PlatformConfig(
-            monthlyMemberFee = Money(getSettingValue("monthly_member_fee", "monthly_per_member") ?: "10.00"),
-            registrationFee = Money(getSettingValue("registration_fee") ?: "700.00"),
-            payoutFee = Money(getSettingValue("payout_fee") ?: "5.00"),
-            lateFeePercent = Money(getSettingValue("late_fee_percent") ?: "10.00"),
-            shortfallRecoveryFee = Money(getSettingValue("shortfall_recovery_fee") ?: "20.00"),
-            loanInterestRate = Money(getSettingValue("loan_interest_rate") ?: "20.00"),
-            loanProcessingFee = Money(getSettingValue("loan_processing_fee") ?: "15.00"),
-            groupSuspensionLiftingFee = Money(getSettingValue("group_suspension_lifting_fee") ?: "250.00"),
-            memberSuspensionLiftingFee = Money(getSettingValue("member_suspension_lifting_fee") ?: "50.00"),
-            autoSuspensionDays = getSettingValue("auto_suspension_days")?.toIntOrNull() ?: 30,
+            monthlyMemberFee = moneySetting(defaults.monthlyMemberFee, "monthly_member_fee", "monthly_per_member"),
+            registrationFee = moneySetting(defaults.registrationFee, "registration_fee"),
+            payoutFee = moneySetting(defaults.payoutFee, "payout_fee"),
+            lateFeePercent = moneySetting(defaults.lateFeePercent, "late_fee_percent"),
+            shortfallRecoveryFee = moneySetting(defaults.shortfallRecoveryFee, "shortfall_recovery_fee"),
+            loanInterestRate = moneySetting(defaults.loanInterestRate, "loan_interest_rate"),
+            loanProcessingFee = moneySetting(defaults.loanProcessingFee, "loan_processing_fee"),
+            groupSuspensionLiftingFee = moneySetting(defaults.groupSuspensionLiftingFee, "group_suspension_lifting_fee"),
+            memberSuspensionLiftingFee = moneySetting(defaults.memberSuspensionLiftingFee, "member_suspension_lifting_fee"),
+            autoSuspensionDays = getSettingValue("auto_suspension_days")?.toIntOrNull() ?: defaults.autoSuspensionDays,
             bankName = getSettingValue("platform_bank_name", "bank_name") ?: "FNB",
             accountNumber = getSettingValue("platform_account_number", "account_number") ?: "",
             branchCode = getSettingValue("platform_branch_code", "branch_code") ?: "",
@@ -277,49 +277,36 @@ class PlatformRepositoryImpl @Inject constructor(
         )
     }
 
-    override suspend fun getPlatformPayments(): Result<List<Payment>> = retryWithExponentialBackoff {
-        safeRunCatching {
-            supabase.postgrest["payments"].select {
-                filter { eq("payment_type", "platform_fee") }
-            }.decodeList<Payment>()
-        }.recoverCatching {
-            db.paymentDao().observePlatformPayments().firstOrNull()?.map { it.toModel() } ?: emptyList()
-        }.getOrElse { emptyList() }
-    }
-
-    override suspend fun unsuspendGroup(groupId: String): Result<Unit> = retryWithExponentialBackoff {
-        val config = getPlatformSettings().getOrDefault(PlatformConfig())
+    override suspend fun unsuspendGroup(groupId: String): Result<Unit> {
+        // The lifting fee is what the group is being charged to come back online, so an unreadable
+        // settings table stops the action instead of running it on an amount nobody published.
+        val config = getPlatformSettings().getOrElse { return Result.failure(it) }
         val liftingFee = config.groupSuspensionLiftingFee
+        // One key for the whole action, and no retry around it: payments has no unique constraint,
+        // so re-issuing an ambiguous timeout would post a second lifting fee the group never agreed to.
+        val feeTxId = buildLiftingFeeTransactionId(groupId)
 
-        supabase.postgrest["groups"].update(buildJsonObject {
-            put("is_platform_suspended", false)
-            put("fee_status", AdminFeeState.PAID.name.lowercase())
-        }) {
-            filter { eq("id", groupId) }
+        return authoritativeCall("unsuspendGroup") {
+            // The fee is recorded first. If the server refuses it the group stays suspended,
+            // instead of coming back online with its revenue unaccounted for.
+            supabase.postgrest["payments"].insert(liftingFeePayload(groupId, liftingFee, feeTxId))
+
+            supabase.postgrest["groups"].update(buildJsonObject {
+                put("is_platform_suspended", false)
+                put("fee_status", AdminFeeState.PAID.name.lowercase())
+            }) {
+                filter { eq("id", groupId) }
+            }
+
+            notifRepo.sendNotification(AppNotification(
+                groupId = groupId,
+                message = "Platform Admin has lifted your suspension (Lifting Fee: ${liftingFee.format()}). Your group is now fully active.",
+                triggerEvent = NotifEvent.GROUP_RESTORED
+            )).onFailure { AppLogger.w(tag, "Group restoration notification failed: ${it.logAndGetMessage(tag)}") }
         }
-
-        val txId = "unsuspend_group_${groupId}_${System.currentTimeMillis()}"
-        safeRunCatching {
-            supabase.postgrest["payments"].insert(buildJsonObject {
-                put("group_id", groupId)
-                put("amount", liftingFee.amount.toPlainString())
-                put("payment_type", "platform_fee")
-                put("payment_method", "bank")
-                put("transaction_id", txId)
-                put("status", "completed")
-                put("description", "Group Suspension Lifting Fee (Platform Revenue)")
-            })
-        }.getOrThrow()
-
-        notifRepo.sendNotification(AppNotification(
-            groupId = groupId,
-            message = "Platform Admin has lifted your suspension (Lifting Fee: ${liftingFee.format()}). Your group is now fully active.",
-            triggerEvent = NotifEvent.GROUP_RESTORED
-        )).onFailure { AppLogger.w(tag, "Group restoration notification failed: ${it.logAndGetMessage(tag)}") }
-        Unit
     }
 
-    override suspend fun suspendGroup(groupId: String, reason: String): Result<Unit> = retryWithExponentialBackoff {
+    override suspend fun suspendGroup(groupId: String, reason: String): Result<Unit> = authoritativeCall("suspendGroup") {
         supabase.postgrest["groups"].update(buildJsonObject {
             put("is_platform_suspended", true)
             put("fee_status", AdminFeeState.SUSPENDED.name.lowercase())
@@ -332,19 +319,17 @@ class PlatformRepositoryImpl @Inject constructor(
             message = "Your group has been suspended by the Platform Admin. Reason: $reason",
             triggerEvent = NotifEvent.GROUP_SUSPENDED
         )).onFailure { AppLogger.w(tag, "Group suspension notification failed: ${it.logAndGetMessage(tag)}") }
-        Unit
     }
 
     override suspend fun getGroupMetrics(groupId: String): Result<ActuarialMetrics> = retryWithExponentialBackoff {
         actuarialRepo.computeMetrics(groupId).getOrThrow()
     }
 
-    override suspend fun logAuditEvent(auditLog: AuditLog): Result<Unit> = retryWithExponentialBackoff {
+    override suspend fun logAuditEvent(auditLog: AuditLog): Result<Unit> = authoritativeCall("logAuditEvent") {
         supabase.postgrest["audit_logs"].insert(auditLog) { select() }
-        Unit
     }
 
-    override suspend fun broadcastPlatformMessage(message: String): Result<Unit> = retryWithExponentialBackoff {
+    override suspend fun broadcastPlatformMessage(message: String): Result<Unit> = authoritativeCall("broadcastPlatformMessage") {
         val groups = getAllGroups().getOrThrow()
         groups.forEach { group ->
             notifRepo.sendNotification(AppNotification(
@@ -370,22 +355,29 @@ class PlatformRepositoryImpl @Inject constructor(
         }.getOrElse { emptyList() }
     }
 
-    override suspend fun getMemberBehaviorInsights(): Result<List<MemberBehaviorInsight>> = retryWithExponentialBackoff {
-        safeRunCatching {
-            supabase.postgrest["platform_member_behavior_insights_v1"].select {
-                order("overdue_loans", order = Order.DESCENDING)
-                order("outstanding_amount", order = Order.DESCENDING)
-            }.decodeList<MemberBehaviorInsight>()
-        }.getOrElse { emptyList() }
-    }
-
-    override suspend fun deleteGroupFromPlatform(groupId: String): Result<Unit> = retryWithExponentialBackoff {
+    override suspend fun deleteGroupFromPlatform(groupId: String): Result<Unit> = authoritativeCall("deleteGroupFromPlatform") {
         safeRunCatching {
             supabase.postgrest["groups"].delete {
                 filter { eq("id", groupId) }
             }
         }.getOrThrow()
         db.groupDao().deleteGroupById(groupId)
+    }
+
+    companion object {
+        internal fun buildLiftingFeeTransactionId(groupId: String): String =
+            "unsuspend_group_${groupId}_${System.currentTimeMillis()}"
+
+        internal fun liftingFeePayload(groupId: String, amount: Money, transactionId: String): JsonObject =
+            buildJsonObject {
+                put("group_id", groupId)
+                put("amount", amount.amount.toPlainString())
+                put("payment_type", "platform_fee")
+                put("payment_method", "bank")
+                put("transaction_id", transactionId)
+                put("status", "completed")
+                put("description", "Group Suspension Lifting Fee (Platform Revenue)")
+            }
     }
 }
 

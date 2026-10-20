@@ -33,7 +33,6 @@ import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.ui.geometry.Offset
 import com.sanibonani.save.ui.theme.*
 import com.sanibonani.save.domain.model.Money
-import com.sanibonani.save.domain.utils.formatPlain
 
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -77,12 +76,6 @@ fun SecondaryScrollableTabRow(
  * Handles null values as R0.00.
  */
 fun Money?.format(): String = this?.format() ?: "R0.00"
-
-/**
- * Unified extension for formatting Money values as plain decimals.
- * Handles null values as 0.00.
- */
-fun Money?.formatPlain(): String = this?.amount?.toPlainString() ?: "0.00"
 
 @Composable
 fun SanibonaniRefreshButton(

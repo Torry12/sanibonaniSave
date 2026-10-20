@@ -6,8 +6,11 @@ import com.sanibonani.save.domain.repository.auth.SupabaseRepository
 import com.sanibonani.save.domain.repository.equity.GroupFinancialRepository
 import com.sanibonani.save.domain.service.FinancialSecurityService
 import com.sanibonani.save.domain.usecase.disbursement.ProcessDisbursementUseCase
+import com.sanibonani.save.domain.utils.requiresMfaChallenge
+import com.sanibonani.save.domain.utils.toUserMessage
 import io.mockk.*
 import kotlinx.coroutines.runBlocking
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -82,5 +85,24 @@ class FinancialWorkflowIntegrityTest {
         // Then
         assertTrue(result.isFailure)
         assertTrue(result.exceptionOrNull()?.message?.contains("MFA_REQUIRED") == true)
+        // Presenters must be able to recognise the gate without sniffing the message.
+        assertTrue(result.exceptionOrNull() is MfaRequiredException)
+        assertTrue(result.exceptionOrNull()!!.requiresMfaChallenge())
+    }
+
+    @Test
+    fun `only the security service and the database marker require an mfa challenge`() {
+        assertTrue(MfaRequiredException(Money("10000.00")).requiresMfaChallenge())
+        // The same gate raised by a DB trigger arrives as a plain exception.
+        assertTrue(Exception("MFA_REQUIRED: AAL2 verification missing").requiresMfaChallenge())
+        assertFalse(Exception("Transition from PENDING to COMPLETED is not permitted").requiresMfaChallenge())
+    }
+
+    @Test
+    fun `mfa gate message stays user facing when it reaches a generic error handler`() {
+        val message = MfaRequiredException(Money("15000.0")).toUserMessage()
+        assertFalse(message.contains("MFA_REQUIRED"))
+        assertFalse(message.contains("AAL2"))
+        assertTrue(message.contains("verification"))
     }
 }

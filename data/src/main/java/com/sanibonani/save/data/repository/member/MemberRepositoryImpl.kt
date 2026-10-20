@@ -1,35 +1,29 @@
 package com.sanibonani.save.data.repository.member
 
-import com.sanibonani.save.data.datasource.LocalBeneficiaryDataSource
 import com.sanibonani.save.data.datasource.LocalMemberDataSource
-import com.sanibonani.save.data.datasource.RemoteBeneficiaryDataSource
 import com.sanibonani.save.data.datasource.RemoteContributionDataSource
 import com.sanibonani.save.data.datasource.RemoteMemberDataSource
 import com.sanibonani.save.data.local.SanibonaniDatabase
 import com.sanibonani.save.data.local.toEntity
 import com.sanibonani.save.data.repository.BaseRepository
 import com.sanibonani.save.domain.event.EventBus
-import com.sanibonani.save.domain.model.Beneficiary
 import com.sanibonani.save.domain.model.Contribution
 import com.sanibonani.save.domain.model.DocumentStatus
 import com.sanibonani.save.domain.model.Member
-import com.sanibonani.save.domain.model.MemberDocument
 import com.sanibonani.save.domain.model.MemberStatus
-import com.sanibonani.save.domain.repository.admin.ActuarialRepository
-import com.sanibonani.save.domain.repository.group.GroupRepository
-import com.sanibonani.save.domain.repository.member.BeneficiaryRepository
-import com.sanibonani.save.domain.repository.member.MemberDocumentRepository
 import com.sanibonani.save.domain.repository.member.MemberRepository
 import com.sanibonani.save.domain.service.FileStorageService
 import javax.inject.Inject
 import javax.inject.Provider
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.flowOf
 import kotlinx.serialization.json.Json
 import com.sanibonani.save.domain.utils.safeRunCatching
 
 /**
- * Implementation of [MemberRepository], [BeneficiaryRepository], and [MemberDocumentRepository].
+ * Implementation of [MemberRepository].
+ *
+ * Beneficiaries live in `BeneficiaryRepositoryImpl` and member documents in
+ * `MemberDocumentRepositoryImpl`; contribution reads live in the contribution repositories.
  *
  * Data Flow Pattern (as per AGENTS.md):
  * 1. Local First: Emits Room cache data immediately.
@@ -39,17 +33,12 @@ import com.sanibonani.save.domain.utils.safeRunCatching
 class MemberRepositoryImpl @Inject constructor(
     private val remoteMemberSource: RemoteMemberDataSource,
     private val localMemberSource: LocalMemberDataSource,
-    private val remoteBeneficiarySource: RemoteBeneficiaryDataSource,
-    private val localBeneficiarySource: LocalBeneficiaryDataSource,
-    private val groupRepo: GroupRepository,
-    private val actuarialRepo: Provider<ActuarialRepository>,
     private val fileStorageService: FileStorageService,
-    private val payloadFactory: com.sanibonani.save.data.repository.mappers.DataPayloadFactory,
     private val json: Json,
     private val pendingOpDao: com.sanibonani.save.data.local.PendingOperationDao,
     private val dbProvider: Provider<SanibonaniDatabase>,
     private val remoteContributionSource: RemoteContributionDataSource
-) : BaseRepository("MemberRepository"), MemberRepository, BeneficiaryRepository, MemberDocumentRepository {
+) : BaseRepository("MemberRepository"), MemberRepository {
 
     override fun getGroupMembers(groupId: String): Flow<Result<List<Member>>> = observeAndSync(
         dbFlow = localMemberSource.observeActiveMembers(groupId),
@@ -64,9 +53,6 @@ class MemberRepositoryImpl @Inject constructor(
         localMemberSource.syncActiveMembers(groupId, remote)
         remote
     }
-
-    override suspend fun getGroupMembersPaginated(groupId: String, offset: Int, limit: Int): Result<List<Member>> =
-        remoteMemberSource.getMembers(groupId) // Simplification for portability demo
 
     override suspend fun getMemberById(id: String): Result<Member> = safeRunCatching {
         remoteMemberSource.getMemberById(id).getOrElse {
@@ -110,40 +96,53 @@ class MemberRepositoryImpl @Inject constructor(
         cacheSync = { localMemberSource.syncMemberships(userId, it) }
     )
 
-    override suspend fun registerMember(member: Member, transactionId: String?): Result<Member> = safeRunCatching {
-        val registered = remoteMemberSource.registerMember(member, transactionId).getOrThrow()
-        localMemberSource.saveMember(registered)
-        registered
-    }
+    override suspend fun registerMember(member: Member, transactionId: String?): Result<Member> =
+        authoritativeCall("registerMember") {
+            val registered = remoteMemberSource.registerMember(member, transactionId).getOrThrow()
+            localMemberSource.saveMember(registered)
+            registered
+        }
 
-    override suspend fun upsertMember(member: Member): Result<Member> = safeRunCatching {
+    override suspend fun upsertMember(member: Member): Result<Member> = authoritativeCall("upsertMember") {
         val saved = remoteMemberSource.upsertMember(member).getOrThrow()
         localMemberSource.saveMember(saved)
         saved
     }
 
-    override suspend fun recordContribution(contribution: Contribution): Result<Unit> =
-        safeApiCall(
+    override suspend fun recordContribution(contribution: Contribution): Result<Unit> {
+        val stableContribution = contribution.copy(
+            transactionId = contribution.transactionId
+                ?: contribution.id
+                ?: java.util.UUID.randomUUID().toString()
+        )
+        return safeApiCall(
             operationType = "contribution",
-            groupId = contribution.groupId,
-            payload = json.encodeToString(contribution),
-            dao = pendingOpDao
+            groupId = stableContribution.groupId,
+            payload = json.encodeToString(stableContribution),
+            dao = pendingOpDao,
+            idempotencyKey = stableContribution.transactionId
         ) {
-            remoteContributionSource.recordContribution(contribution).getOrThrow()
-            dbProvider.get().contributionDao().upsertContributions(listOf(contribution.toEntity()))
-            Unit
-        }
-
-    override suspend fun updateMemberStatus(memberId: String, status: MemberStatus): Result<Unit> = safeRunCatching {
-        remoteMemberSource.updateMemberStatus(memberId, status).getOrThrow()
-        val updated = localMemberSource.getMemberById(memberId)?.copy(status = status)
-        if (updated != null) {
-            localMemberSource.saveMember(updated)
-            EventBus.emit(com.sanibonani.save.domain.event.MemberStatusChangedEvent(updated))
+            remoteContributionSource.recordContribution(stableContribution).getOrThrow()
+            dbProvider.get().contributionDao().upsertContributions(listOf(stableContribution.toEntity()))
         }
     }
 
-    override suspend fun updateMemberBankingDetails(memberId: String, bankName: String, accountNo: String, branchCode: String): Result<Unit> = safeRunCatching {
+    override suspend fun updateMemberStatus(memberId: String, status: MemberStatus): Result<Unit> =
+        authoritativeCall("updateMemberStatus") {
+            remoteMemberSource.updateMemberStatus(memberId, status).getOrThrow()
+            val updated = localMemberSource.getMemberById(memberId)?.copy(status = status)
+            if (updated != null) {
+                localMemberSource.saveMember(updated)
+                EventBus.emit(com.sanibonani.save.domain.event.MemberStatusChangedEvent(updated))
+            }
+        }
+
+    override suspend fun updateMemberBankingDetails(
+        memberId: String,
+        bankName: String,
+        accountNo: String,
+        branchCode: String
+    ): Result<Unit> = authoritativeCall("updateMemberBankingDetails") {
         remoteMemberSource.updateMemberBankingDetails(memberId, bankName, accountNo, branchCode).getOrThrow()
         localMemberSource.getMemberById(memberId)?.let {
             localMemberSource.saveMember(it.copy(bankName = bankName, accountNo = accountNo, branchCode = branchCode))
@@ -156,7 +155,11 @@ class MemberRepositoryImpl @Inject constructor(
         remote
     }
 
-    override suspend fun updateMemberDocumentStatus(memberId: String, docIndex: Int, status: DocumentStatus): Result<Unit> = safeRunCatching {
+    override suspend fun updateMemberDocumentStatus(
+        memberId: String,
+        docIndex: Int,
+        status: DocumentStatus
+    ): Result<Unit> = authoritativeCall("updateMemberDocumentStatus") {
         remoteMemberSource.updateMemberDocumentStatus(memberId, docIndex, status).getOrThrow()
         localMemberSource.getMemberById(memberId)?.let { member ->
             val updated = when (docIndex) {
@@ -171,7 +174,20 @@ class MemberRepositoryImpl @Inject constructor(
         }
     }
 
-    override suspend fun updateMemberDocuments(memberId: String, doc1Url: String?, doc1Type: String?, doc2Url: String?, doc2Type: String?, doc3Url: String?, doc3Type: String?, doc4Url: String?, doc4Type: String?, doc5Url: String?, doc5Type: String?, profilePhotoUrl: String?): Result<Unit> = safeRunCatching {
+    override suspend fun updateMemberDocuments(
+        memberId: String,
+        doc1Url: String?,
+        doc1Type: String?,
+        doc2Url: String?,
+        doc2Type: String?,
+        doc3Url: String?,
+        doc3Type: String?,
+        doc4Url: String?,
+        doc4Type: String?,
+        doc5Url: String?,
+        doc5Type: String?,
+        profilePhotoUrl: String?
+    ): Result<Unit> = authoritativeCall("updateMemberDocuments") {
         remoteMemberSource.updateMemberDocuments(memberId, doc1Url, doc1Type, doc2Url, doc2Type, doc3Url, doc3Type, doc4Url, doc4Type, doc5Url, doc5Type, profilePhotoUrl).getOrThrow()
         localMemberSource.getMemberById(memberId)?.let { member ->
             localMemberSource.saveMember(
@@ -192,7 +208,13 @@ class MemberRepositoryImpl @Inject constructor(
         } ?: throw IllegalStateException("Member not found: $memberId")
     }
 
-    override suspend fun uploadMemberDocument(memberId: String, documentIndex: Int, byteArray: ByteArray, fileName: String, documentType: String?): Result<String> = safeRunCatching {
+    override suspend fun uploadMemberDocument(
+        memberId: String,
+        documentIndex: Int,
+        byteArray: ByteArray,
+        fileName: String,
+        documentType: String?
+    ): Result<String> = authoritativeCall("uploadMemberDocument") {
         val extension = fileName.substringAfterLast(".", "pdf")
         val url = fileStorageService.uploadMemberDocument(memberId, documentIndex, byteArray, extension).getOrThrow()
 
@@ -208,76 +230,5 @@ class MemberRepositoryImpl @Inject constructor(
             }
         }
         url
-    }
-
-    override fun getMemberContributions(memberId: String, groupId: String): Flow<Result<List<Contribution>>> = flowOf(Result.success(emptyList())) // Move to ContributionRepo
-    override fun getGroupContributions(groupId: String): Flow<Result<List<Contribution>>> = flowOf(Result.success(emptyList()))
-
-    // ── BeneficiaryRepository ────────────────────────────────────────────────
-
-    override fun observeBeneficiaries(memberId: String): Flow<Result<List<Beneficiary>>> = observeAndSync(
-        dbFlow = localBeneficiarySource.observeBeneficiaries(memberId),
-        mapper = { it },
-        toEntity = { it },
-        networkFetch = { remoteBeneficiarySource.getBeneficiaries(memberId).getOrThrow() },
-        cacheSync = { localBeneficiarySource.saveBeneficiaries(memberId, it) }
-    )
-
-    override suspend fun addBeneficiary(beneficiary: Beneficiary): Result<Beneficiary> = safeRunCatching {
-        val saved = remoteBeneficiarySource.addBeneficiary(beneficiary).getOrThrow()
-        localBeneficiarySource.saveBeneficiary(saved)
-        saved
-    }
-
-    override suspend fun updateBeneficiary(beneficiary: Beneficiary): Result<Beneficiary> = safeRunCatching {
-        val saved = remoteBeneficiarySource.updateBeneficiary(beneficiary).getOrThrow()
-        localBeneficiarySource.saveBeneficiary(saved)
-        saved
-    }
-
-    override suspend fun deleteBeneficiary(groupId: String, memberId: String, id: String): Result<Unit> = safeRunCatching {
-        remoteBeneficiarySource.deleteBeneficiary(groupId, memberId, id).getOrThrow()
-        localBeneficiarySource.deleteBeneficiary(groupId, memberId, id)
-    }
-
-    override suspend fun syncBeneficiaries(memberId: String): Result<List<Beneficiary>> = safeRunCatching {
-        val remote = remoteBeneficiarySource.getBeneficiaries(memberId).getOrThrow()
-        localBeneficiarySource.saveBeneficiaries(memberId, remote)
-        remote
-    }
-
-    override suspend fun uploadBeneficiaryDocument(beneficiaryId: String, groupId: String, memberId: String, byteArray: ByteArray, fileName: String): Result<String> {
-        val extension = fileName.substringAfterLast(".", "pdf")
-        return fileStorageService.uploadBeneficiaryDocument(memberId, beneficiaryId, byteArray, extension)
-    }
-
-    // ── MemberDocumentRepository ─────────────────────────────────────────────
-
-    override fun observeMemberDocuments(memberId: String): Flow<Result<List<MemberDocument>>> = flowOf(Result.success(emptyList()))
-    override suspend fun syncMemberDocuments(memberId: String): Result<List<MemberDocument>> = Result.success(emptyList())
-    override suspend fun addMemberDocument(document: MemberDocument): Result<MemberDocument> = safeRunCatching {
-        val saved = document.copy(id = document.id ?: java.util.UUID.randomUUID().toString())
-        dbProvider.get().memberDocumentDao().upsertDocument(saved.toEntity())
-        saved
-    }
-
-    override suspend fun updateMemberDocument(document: MemberDocument): Result<MemberDocument> = safeRunCatching {
-        val saved = document.copy(id = document.id ?: java.util.UUID.randomUUID().toString())
-        dbProvider.get().memberDocumentDao().upsertDocument(saved.toEntity())
-        saved
-    }
-
-    override suspend fun uploadAndAddMemberDocument(memberId: String, groupId: String, label: String, byteArray: ByteArray, fileName: String, documentType: String?): Result<MemberDocument> = safeRunCatching {
-        val extension = fileName.substringAfterLast(".", "pdf")
-        val url = fileStorageService.uploadMemberDocument(memberId, 99, byteArray, extension).getOrThrow()
-        val document = MemberDocument(
-            memberId = memberId,
-            groupId = groupId,
-            label = label,
-            documentUrl = url,
-            documentType = documentType ?: "file",
-            status = DocumentStatus.PENDING
-        )
-        addMemberDocument(document).getOrThrow()
     }
 }

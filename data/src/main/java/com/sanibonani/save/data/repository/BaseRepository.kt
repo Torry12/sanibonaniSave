@@ -2,6 +2,7 @@ package com.sanibonani.save.data.repository
 
 import com.sanibonani.save.domain.logging.AppLogger
 import com.sanibonani.save.domain.utils.logAndGetMessage
+import io.ktor.client.plugins.HttpRequestTimeoutException
 import io.ktor.client.plugins.ResponseException
 import java.io.IOException
 import kotlinx.coroutines.CancellationException
@@ -20,9 +21,9 @@ import com.sanibonani.save.domain.utils.safeRunCatching
 abstract class BaseRepository(protected val tag: String) {
 
     /**
-     * Runs a financial mutation once against its authoritative server-side transaction.
-     * The caller owns idempotency through a stable transaction key; blindly retrying an
-     * ambiguous timeout could otherwise post the same ledger movement twice.
+     * Runs one state-changing operation against its authoritative server-side transaction.
+     * This path never retries or queues an ambiguous write; callers should use [safeApiCall]
+     * when the operation has a safe offline outbox representation.
      */
     protected suspend fun <T> authoritativeCall(
         operation: String,
@@ -126,7 +127,7 @@ abstract class BaseRepository(protected val tag: String) {
             } catch (e: Exception) {
                 if (e is CancellationException) throw e
 
-                val isRecoverable = e is io.ktor.client.plugins.HttpRequestTimeoutException ||
+                val isRecoverable = e is HttpRequestTimeoutException ||
                                    e is java.net.SocketTimeoutException ||
                                    e is IOException
 
@@ -170,19 +171,23 @@ abstract class BaseRepository(protected val tag: String) {
         groupId: String?,
         payload: String,
         dao: com.sanibonani.save.data.local.PendingOperationDao,
+        idempotencyKey: String? = null,
         block: suspend () -> T
     ): Result<T> = safeRunCatching("$tag.$operationType") {
         block()
     }.onFailure { e ->
         if (e is CancellationException) throw e
 
+        val statusCode = (e as? ResponseException)?.response?.status?.value
+        // 408 and 429 are 'try again later' answers, exactly like a 5xx. Treating them as
+        // permanent would drop a queued money movement that the outbox could still replay.
         val isRecoverable = e is IOException ||
-                           (e is ResponseException && e.response.status.value >= 500)
+                           statusCode?.let { it == 408 || it == 429 || it >= 500 } == true
 
         if (isRecoverable) {
             AppLogger.w(tag, "$operationType queued for retry.")
             dao.upsert(com.sanibonani.save.data.local.PendingOperationEntity(
-                id = java.util.UUID.randomUUID().toString(),
+                id = idempotencyKey ?: java.util.UUID.randomUUID().toString(),
                 type = operationType,
                 payload = payload,
                 groupId = groupId,

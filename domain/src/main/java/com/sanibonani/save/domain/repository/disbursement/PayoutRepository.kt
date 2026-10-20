@@ -8,19 +8,9 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 
 interface PayoutRepository {
-    suspend fun requestPayout(payout: PayoutRequest): Result<String>
+    suspend fun requestPayout(payout: PayoutRequest, idempotencyKey: String? = null): Result<String>
     suspend fun getPendingPayouts(): Result<List<PayoutRequest>>
     suspend fun getPayoutById(payoutId: String): Result<PayoutRequest>
-
-    /**
-     * Checks if a member/group is eligible for a payout without creating a request.
-     */
-    suspend fun validatePayoutEligibility(
-        groupId: String,
-        memberId: String?,
-        amount: Money,
-        type: com.sanibonani.save.domain.model.PayoutType
-    ): Result<Unit>
 
     suspend fun updatePayoutStatus(
         payoutId: String,

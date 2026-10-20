@@ -7,7 +7,8 @@ interface GroupFinancialRepository {
     suspend fun incrementGroupBalance(
         groupId: String,
         amount: Money,
-        memberId: String? = null
+        memberId: String? = null,
+        transactionId: String? = null
     ): Result<Money>
 
     /**

@@ -39,7 +39,11 @@ class ValidateLoanEligibilityUseCase @Inject constructor(
         val contributions = contributionRepository.observeMemberContributions(member.id ?: "", group.id ?: "").firstValueOrNull() ?: emptyList()
 
         // Enforce joining fee rule: Member must have paid their joining fee to be fully active/eligible
-        val hasPaidJoiningFee = group.joiningFee.isZero || contributions.any { it.type == "registration_contribution" && it.status == ContributionStatus.PAID }
+        // A joining fee is written with allocation type "joining_fee"; the legacy
+        // spelling "registration_contribution" still exists in older rows.
+        val hasPaidJoiningFee = group.joiningFee.isZero || contributions.any {
+            (it.type == "joining_fee" || it.type == "registration_contribution") && it.status == ContributionStatus.PAID
+        }
         if (!hasPaidJoiningFee) {
             return EligibilityResult.Ineligible("Joining fee of ${group.joiningFee.format()} is outstanding. Please settle your joining fee first.")
         }

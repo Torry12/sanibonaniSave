@@ -6,8 +6,11 @@ import com.sanibonani.save.domain.repository.member.MemberRepository
 import com.sanibonani.save.domain.service.PayoutGuard
 import io.mockk.coEvery
 import io.mockk.coVerify
+import io.mockk.every
 import io.mockk.mockk
+import io.mockk.slot
 import kotlinx.coroutines.runBlocking
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -34,6 +37,36 @@ class RequestPayoutUseCaseTest {
             calculateStokvelPayoutsUseCase,
             calculateInvestmentClubValuationUseCase
         )
+    }
+
+    @Test
+    fun `a stokvel member payout is valued from one roster sync`() = runBlocking {
+        val group = Group(id = "group-1", type = GroupType.STOKVEL)
+        val member = Member(
+            id = "m-1",
+            groupId = "group-1",
+            fullName = "Nomsa Dlamini",
+            bankName = "FNB",
+            accountNo = "1234567890",
+            branchCode = "250655"
+        )
+        coEvery { groupRepository.getGroupById("group-1") } returns Result.success(group)
+        coEvery { memberRepository.syncGroupMembers("group-1") } returns Result.success(listOf(member))
+        every { calculateStokvelPayoutsUseCase(any(), any(), any()) } returns Money("1500.00")
+        coEvery { payoutGuard.validateRequest(any(), any(), any(), any()) } returns Result.success(Unit)
+        coEvery { payoutRepository.requestPayout(any()) } returns Result.success("payout-1")
+
+        val result = requestPayoutUseCase(groupId = "group-1", memberId = "m-1")
+
+        assertTrue(result.isSuccess)
+        // The bank details and the pool value come from the same read, so the amount can never be
+        // calculated against a roster that has moved on since the member was found.
+        coVerify(exactly = 1) { memberRepository.syncGroupMembers("group-1") }
+        val submitted = slot<PayoutRequest>()
+        coVerify { payoutRepository.requestPayout(capture(submitted)) }
+        assertEquals(Money("1500.00"), submitted.captured.amount)
+        assertEquals("m-1", submitted.captured.memberId)
+        assertEquals(PayoutType.ANNUAL, submitted.captured.type)
     }
 
     @Test

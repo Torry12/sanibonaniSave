@@ -8,13 +8,12 @@ import kotlinx.coroutines.flow.Flow
  */
 interface ContributionRepository {
     // ── Individual Contributions (Equity Logs) ────────────────────────────────
-    suspend fun recordContribution(contribution: Contribution): Result<Unit>
+    suspend fun recordContribution(contribution: Contribution, idempotencyKey: String? = null): Result<Unit>
     fun observeMemberContributions(memberId: String, groupId: String): Flow<Result<List<Contribution>>>
     fun observeGroupContributions(groupId: String): Flow<Result<List<Contribution>>>
 
     // ── Payment Transactions (Receipts) ───────────────────────────────────────
     suspend fun recordPayment(payment: Payment): Result<String>
-    fun observePayments(groupId: String): Flow<Result<List<Payment>>>
 
     /**
      * Executes a multi-allocation payment atomically on the server.
@@ -31,7 +30,4 @@ interface ContributionRepository {
         paymentType: PaymentType = PaymentType.CONTRIBUTION,
         destination: PaymentDestination = PaymentDestination.GROUP
     ): Result<Money>
-
-    // ── Compatibility & Helpers ──────────────────────────────────────────────
-    suspend fun getTotalContributed(memberId: String, groupId: String): Money
 }

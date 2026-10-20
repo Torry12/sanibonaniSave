@@ -23,18 +23,8 @@ interface ActuarialRepository {
     fun calculateMetrics(group: Group, members: List<Member>): Result<ActuarialMetrics>
 
     /**
-     * Calculates the adjusted monthly contribution for a specific member based on beneficiaries.
-     */
-    fun calculateMemberContribution(group: Group, member: Member): Money
-
-    /**
      * Computes comprehensive, group-type-specific financial insight using
      * industry-standard actuarial methods.
      */
     fun computeGroupInsight(group: Group, members: List<Member>): Result<GroupFinancialInsight>
-
-    /**
-     * Async version: loads group + members then calls [computeGroupInsight].
-     */
-    suspend fun fetchGroupInsight(groupId: String): Result<GroupFinancialInsight>
 }

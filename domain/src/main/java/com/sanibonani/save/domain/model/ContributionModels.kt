@@ -35,9 +35,3 @@ enum class ContributionStatus(val displayName: String) {
     @SerialName("overdue") OVERDUE("Overdue"),
     @SerialName("partial") PARTIAL("Partial")
 }
-
-@Serializable
-data class RecordContributionResult(
-    val contribution: Contribution,
-    @SerialName("new_balance") val newBalance: Money
-)

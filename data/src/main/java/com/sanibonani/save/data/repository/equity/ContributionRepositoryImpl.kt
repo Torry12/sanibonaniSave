@@ -8,13 +8,10 @@ import com.sanibonani.save.domain.model.*
 import com.sanibonani.save.domain.repository.equity.ContributionRepository
 import com.sanibonani.save.domain.repository.member.MemberRepository
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.map
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import javax.inject.Inject
 import javax.inject.Provider
-import com.sanibonani.save.domain.utils.safeRunCatching
 
 class ContributionRepositoryImpl @Inject constructor(
     private val remoteSource: RemoteContributionDataSource,
@@ -25,16 +22,27 @@ class ContributionRepositoryImpl @Inject constructor(
     private val pendingOpDao: com.sanibonani.save.data.local.PendingOperationDao
 ) : BaseRepository("ContributionRepository"), ContributionRepository {
 
-    override suspend fun recordContribution(contribution: Contribution): Result<Unit> =
-        safeApiCall(
+    override suspend fun recordContribution(
+        contribution: Contribution,
+        idempotencyKey: String?
+    ): Result<Unit> {
+        val stableContribution = contribution.copy(
+            transactionId = contribution.transactionId
+                ?: contribution.id
+                ?: idempotencyKey
+                ?: java.util.UUID.randomUUID().toString()
+        )
+        return safeApiCall(
             operationType = "contribution",
-            groupId = contribution.groupId,
-            payload = json.encodeToString(contribution),
-            dao = pendingOpDao
+            groupId = stableContribution.groupId,
+            payload = json.encodeToString(stableContribution),
+            dao = pendingOpDao,
+            idempotencyKey = stableContribution.transactionId
         ) {
-            remoteSource.recordContribution(contribution).getOrThrow()
-            localSource.saveContributions(listOf(contribution))
+            remoteSource.recordContribution(stableContribution).getOrThrow()
+            localSource.saveContributions(listOf(stableContribution))
         }
+    }
 
     override fun observeMemberContributions(memberId: String, groupId: String): Flow<Result<List<Contribution>>> = observeAndSync(
         dbFlow = localSource.observeMemberContributions(memberId),
@@ -52,20 +60,12 @@ class ContributionRepositoryImpl @Inject constructor(
         cacheSync = { localSource.syncGroupContributions(groupId, it) }
     )
 
-    override suspend fun recordPayment(payment: Payment): Result<String> = safeRunCatching {
+    override suspend fun recordPayment(payment: Payment): Result<String> = authoritativeCall("recordPayment") {
         val paymentId = remoteSource.recordPayment(payment).getOrThrow()
         localSource.savePayments(listOf(payment.copy(id = paymentId)))
         EventBus.emit(PaymentProcessedEvent(payment.copy(id = paymentId)))
         paymentId
     }
-
-    override fun observePayments(groupId: String): Flow<Result<List<Payment>>> = observeAndSync(
-        dbFlow = localSource.observeGroupPayments(groupId),
-        mapper = { it },
-        toEntity = { it },
-        networkFetch = { remoteSource.getPayments(groupId).getOrThrow() },
-        cacheSync = { localSource.savePayments(it) }
-    )
 
     override suspend fun processComplexPayment(
         groupId: String,
@@ -76,7 +76,7 @@ class ContributionRepositoryImpl @Inject constructor(
         method: PaymentMethod,
         paymentType: PaymentType,
         destination: PaymentDestination
-    ): Result<Money> = safeRunCatching {
+    ): Result<Money> = authoritativeCall("processComplexPayment") {
         val newBalance = remoteSource.processComplexPayment(groupId, memberId, totalAmount, txId, allocations, method, paymentType, destination).getOrThrow()
 
         // 1. Sync local group balance
@@ -104,8 +104,4 @@ class ContributionRepositoryImpl @Inject constructor(
 
         newBalance
     }
-
-    override suspend fun getTotalContributed(memberId: String, groupId: String): Money =
-        observeMemberContributions(memberId, groupId).map { it.getOrDefault(emptyList()) }.first()
-            .fold(Money.ZERO) { acc, next -> acc + next.amount }
 }

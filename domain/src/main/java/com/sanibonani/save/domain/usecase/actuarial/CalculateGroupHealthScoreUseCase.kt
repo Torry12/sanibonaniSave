@@ -1,6 +1,7 @@
 package com.sanibonani.save.domain.usecase.actuarial
 import com.sanibonani.save.domain.model.*
 import com.sanibonani.save.domain.repository.admin.*
+import com.sanibonani.save.domain.repository.equity.MemberContributionRepository
 import com.sanibonani.save.domain.repository.group.*
 import com.sanibonani.save.domain.repository.member.*
 import kotlinx.coroutines.flow.first
@@ -17,13 +18,14 @@ import com.sanibonani.save.domain.utils.safeRunCatching
 class CalculateGroupHealthScoreUseCase @Inject constructor(
     private val groupRepository: GroupRepository,
     private val memberRepository: MemberRepository,
+    private val contributionRepository: MemberContributionRepository,
     private val healthScoreRepository: HealthScoreRepository
 ) {
     suspend operator fun invoke(groupId: String): Result<GroupHealthScore> = safeRunCatching {
         val group = groupRepository.getGroupById(groupId).getOrThrow()
         val membersResult: Result<List<Member>> = memberRepository.getGroupMembers(groupId).first()
         val members = membersResult.getOrThrow()
-        val contributionsResult: Result<List<Contribution>> = memberRepository.getGroupContributions(groupId).first()
+        val contributionsResult: Result<List<Contribution>> = contributionRepository.getGroupContributions(groupId).first()
         val contributions = contributionsResult.getOrThrow()
         val currentMemberCount = members.size
         // Count members who joined before the previous month for retention calculation

@@ -35,6 +35,13 @@ class ExecuteRoscaPayoutUseCase @Inject constructor(
         val members = memberRepository.syncGroupMembers(groupId).getOrNull() ?: throw Exception("No members")
 
         val allContributions = contributionRepository.observeGroupContributions(groupId).firstValueOrNull() ?: emptyList()
+        // One loan fetch for the whole rotation instead of one per payoutee. Each per-member fetch
+        // is a network round-trip that re-syncs the cache, so a 30-person ROSCA used to issue thirty
+        // of them and could deduct against a balance that changed partway through the loop.
+        val activeLoansByMember = loanRepository.getGroupLoansSync(groupId).getOrNull()
+            ?.filter { it.status == LoanStatus.ACTIVE || it.status == LoanStatus.PARTIALLY_PAID }
+            ?.groupBy { it.memberId }
+            ?: emptyMap()
         val schedule = roscaRotationUseCase(group, members).getOrThrow()
         val currentItems = schedule.subgroups.flatMap { sub -> sub.items.filter { it.isCurrent } }
         if (currentItems.isEmpty()) throw Exception("No current members")
@@ -65,9 +72,7 @@ class ExecuteRoscaPayoutUseCase @Inject constructor(
                 continue
             }
             val currentMonth = currentItem.payoutDate.substring(0, 7)
-            val activeLoans = loanRepository.getMemberLoans(currentMember.id ?: "").firstValueOrNull()?.filter {
-                it.status == LoanStatus.ACTIVE || it.status == LoanStatus.PARTIALLY_PAID
-            } ?: emptyList()
+            val activeLoans = activeLoansByMember[currentMember.id ?: ""] ?: emptyList()
             val subgroup = schedule.subgroups.find { it.memberIds.contains(currentMember.id) } ?: continue
             val actualCollectedPot = allContributions
                 .filter { it.memberId in subgroup.memberIds && it.dueDate.startsWith(currentMonth) && it.status == ContributionStatus.PAID }

@@ -83,16 +83,16 @@ class MemberRegistrationViewModel @Inject constructor(
      * Updates specific form fields in the UI state.
      */
     fun onFieldChange(field: String, value: String) {
+        // Address lookup is launched outside the state update: `updateState` re-runs its lambda
+        // while concurrent updates contend, which would fire the search more than once.
+        if (field == "street") searchAddress(value)
         updateState { s ->
             when (field) {
                 "fullName" -> s.copy(fullName = value)
                 "idNumber" -> s.copy(idNumber = value)
                 "phone" -> s.copy(phone = value)
                 "email" -> s.copy(email = value)
-                "street" -> {
-                    searchAddress(value)
-                    s.copy(street = value)
-                }
+                "street" -> s.copy(street = value)
                 "suburb" -> s.copy(suburb = value)
                 "city" -> s.copy(city = value)
                 "province" -> s.copy(province = value)
@@ -127,8 +127,8 @@ class MemberRegistrationViewModel @Inject constructor(
             updateState { it.copy(error = "Full Name must be at least 3 characters.") }
             return
         }
-        if (s.idNumber.isNotBlank() && (s.idNumber.length != 13 || !s.idNumber.all { c -> c.isDigit() })) {
-            updateState { it.copy(error = "SA ID Number must be exactly 13 numeric digits.") }
+        if (s.idNumber.isNotBlank() && !ValidationUtils.isValidSAIdNumber(s.idNumber)) {
+            updateState { it.copy(error = "SA ID Number must be exactly 13 digits with a valid date of birth and checksum.") }
             return
         }
         if (s.email.isNotBlank() && !ValidationUtils.isValidEmail(s.email.trim())) {

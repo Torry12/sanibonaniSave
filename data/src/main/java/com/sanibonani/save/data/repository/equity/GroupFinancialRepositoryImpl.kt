@@ -5,26 +5,23 @@ import com.sanibonani.save.domain.event.EventBus
 import com.sanibonani.save.domain.event.LedgerEntryCreatedEvent
 import com.sanibonani.save.domain.model.*
 import com.sanibonani.save.domain.repository.equity.GroupFinancialRepository
-import com.sanibonani.save.domain.repository.group.GroupRepository
 import javax.inject.Inject
-import javax.inject.Provider
 import com.sanibonani.save.domain.utils.safeRunCatching
 
 class GroupFinancialRepositoryImpl @Inject constructor(
     private val remoteGroupSource: RemoteGroupDataSource,
     private val localGroupSource: LocalGroupDataSource,
-    private val remoteFinSource: RemoteFinancialDataSource,
-    private val groupRepo: Provider<GroupRepository>
+    private val remoteFinSource: RemoteFinancialDataSource
 ) : BaseRepository("GroupFinancialRepository"), GroupFinancialRepository {
 
-    override suspend fun incrementGroupBalance(groupId: String, amount: Money, memberId: String?): Result<Money> = authoritativeCall("increment_group_balance") {
+    override suspend fun incrementGroupBalance(groupId: String, amount: Money, memberId: String?, transactionId: String?): Result<Money> = authoritativeCall("increment_group_balance") {
         require(groupId.isNotBlank()) { "Group id is required" }
         require(amount.isPositive) { "Balance adjustment must be positive; use a disbursement for debits" }
-        val newBalance = remoteGroupSource.incrementGroupBalance(groupId, amount, memberId).getOrThrow()
+        val newBalance = remoteGroupSource.incrementGroupBalance(groupId, amount, memberId, transactionId).getOrThrow()
         localGroupSource.getGroupById(groupId)?.let {
             localGroupSource.saveGroup(it.copy(balance = newBalance))
         }
-        EventBus.emit(LedgerEntryCreatedEvent(LedgerEntry(groupId = groupId, amount = amount, balanceAfter = newBalance, description = "Atomic balance update", category = "adjustment", transactionId = null)))
+        EventBus.emit(LedgerEntryCreatedEvent(LedgerEntry(groupId = groupId, amount = amount, balanceAfter = newBalance, description = "Atomic balance update", category = "adjustment", transactionId = transactionId)))
         newBalance
     }
 
@@ -46,8 +43,6 @@ class GroupFinancialRepositoryImpl @Inject constructor(
         require(amount.isPositive) { "Platform fee amount must be positive" }
         require(feeType.isNotBlank()) { "Platform fee type is required" }
         remoteFinSource.payPlatformFee(groupId, amount, feeType, txId, true).getOrThrow()
-        groupRepo.get().getGroupById(groupId)
-        Unit
     }
 
     override suspend fun getOutstandingPlatformFees(groupId: String): Result<List<PlatformFee>> =
@@ -57,6 +52,5 @@ class GroupFinancialRepositoryImpl @Inject constructor(
 
     override suspend fun repairGroupData(groupId: String): Result<Unit> = safeRunCatching {
         remoteFinSource.repairGroupData(groupId).getOrThrow()
-        groupRepo.get().getGroupById(groupId)
     }
 }

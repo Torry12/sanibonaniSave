@@ -120,12 +120,12 @@ fun LoginScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
-            // â”€â”€ Language Selector â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+            // ── Language Selector ─────────────────────────────────────────────
             LanguageSelector(
                 modifier = Modifier.padding(bottom = 16.dp)
             )
 
-            // â”€â”€ App Brand / Icon â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+            // ── App Brand / Icon ──────────────────────────────────────────────
             Surface(
                 modifier = Modifier.size(88.dp),
                 shape = RoundedCornerShape(28.dp),
@@ -133,7 +133,7 @@ fun LoginScreen(
                 tonalElevation = 4.dp
             ) {
                 Box(contentAlignment = Alignment.Center) {
-                    Text("ðŸ¤", fontSize = 46.sp)
+                    Text("🤝", fontSize = 46.sp)
                 }
             }
 
@@ -151,7 +151,7 @@ fun LoginScreen(
                 modifier = Modifier.padding(top = 4.dp, bottom = 32.dp)
             )
 
-            // â”€â”€ Login Form Card â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+            // ── Login Form Card ──────────────────────────────────────────────
             ElevatedCard(
                 shape = RoundedCornerShape(28.dp),
                 colors = CardDefaults.elevatedCardColors(
@@ -197,7 +197,7 @@ fun LoginScreen(
                         supportingText = state.fieldErrors["password"]
                     )
 
-                    // â”€â”€ Remember Me Switch / Checkbox Row â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+                    // ── Remember Me Switch / Checkbox Row ────────────────────
                     Card(
                         onClick = { vm.updateRememberMe(!state.rememberMe) },
                         shape = RoundedCornerShape(12.dp),
@@ -226,7 +226,7 @@ fun LoginScreen(
                         }
                     }
 
-                    // â”€â”€ Biometric Setting Toggle â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+                    // ── Biometric Setting Toggle ─────────────────────────────
                     if (BiometricHelper.canAuthenticate(context)) {
                         Card(
                             onClick = {
@@ -263,7 +263,7 @@ fun LoginScreen(
                         }
                     }
 
-                    // â”€â”€ Error Info Banner â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+                    // ── Error Info Banner ────────────────────────────────────
                     AnimatedVisibility(visible = state.error != null, enter = fadeIn(), exit = fadeOut()) {
                         state.error?.let { err ->
                             val isSuccess = state.errorType == "success"
@@ -298,7 +298,7 @@ fun LoginScreen(
                         }
                     }
 
-                    // â”€â”€ Action Buttons â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+                    // ── Action Buttons ───────────────────────────────────────
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         SanibonaniButton(
                             text = if (state.isLoading) stringResource(R.string.ui_signing_you_in) else stringResource(R.string.ui_log_in),
@@ -322,7 +322,7 @@ fun LoginScreen(
                         }
                     }
 
-                    // â”€â”€ Quick Biometric Login Button â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+                    // ── Quick Biometric Login Button ────────────────────────
                     if (BiometricHelper.canAuthenticate(context) && state.hasSavedCredentials && state.biometricEnabled) {
                         OutlinedButton(
                             onClick = {
@@ -397,14 +397,14 @@ fun LoginScreen(
                 }
             }
 
-            // â”€â”€ Debug Connection Switch â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+            // ── Debug Connection Switch ─────────────────────────────────────
             if (BuildConfig.DEBUG) {
                 DevSettingsOverlay(devSettings)
             }
 
             Spacer(Modifier.height(28.dp))
 
-            // â”€â”€ Register Navigation Pill â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+            // ── Register Navigation Pill ────────────────────────────────────
             Surface(
                 onClick = { clickDebouncer.processClick(onNavigateRegister) },
                 color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
@@ -431,7 +431,7 @@ fun LoginScreen(
 
             Spacer(Modifier.height(24.dp))
 
-            // â”€â”€ Security Footer â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+            // ── Security Footer ─────────────────────────────────────────────
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.padding(bottom = 16.dp)

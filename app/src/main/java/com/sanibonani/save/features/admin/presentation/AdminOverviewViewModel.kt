@@ -133,8 +133,6 @@ class AdminOverviewViewModel @Inject constructor(
                                 updateState { it.copy(isLoading = false, error = "Loading timed out. Please try again.") }
                             }
                         }
-                    } else {
-                        updateState { it.copy(groupContext = AsyncResult.Uninitialized) }
                     }
                     return@observeGroupContext
                 }
@@ -150,7 +148,6 @@ class AdminOverviewViewModel @Inject constructor(
                 )
 
                 updateState { it.copy(
-                    groupContext = if (context.isFullyHydrated) AsyncResult.Success(pkg) else AsyncResult.Loading,
                     group = pkg.group,
                     members = pkg.members,
                     metrics = pkg.metrics,
@@ -259,13 +256,13 @@ class AdminOverviewViewModel @Inject constructor(
         val groupId = uiState.value.group?.id ?: return
         AppLogger.i("AdminOverview", "Loading Group Audit Report for ID: $groupId")
         launchSafeJob("audit_report_loading", "Failed to load audit report") {
-            updateState { it.copy(groupAuditReport = AsyncResult.Loading, isLoadingAuditReport = true) }
+            updateState { it.copy(groupAuditReport = AsyncResult.Loading) }
             auditRepo.triggerGroupAudit(groupId)
                 .onSuccess { report ->
-                    updateState { it.copy(groupAuditReport = AsyncResult.Success(report), isLoadingAuditReport = false) }
+                    updateState { it.copy(groupAuditReport = AsyncResult.Success(report)) }
                 }
                 .onFailure { e ->
-                    updateState { it.copy(groupAuditReport = AsyncResult.Error(e.toUserMessage(), e.javaClass.simpleName), isLoadingAuditReport = false) }
+                    updateState { it.copy(groupAuditReport = AsyncResult.Error(e.toUserMessage(), e.javaClass.simpleName)) }
                 }
         }
     }

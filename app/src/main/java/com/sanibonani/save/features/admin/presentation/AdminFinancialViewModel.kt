@@ -3,11 +3,10 @@ package com.sanibonani.save.features.admin.presentation
 import com.sanibonani.save.domain.model.*
 import com.sanibonani.save.domain.repository.auth.SupabaseRepository
 import com.sanibonani.save.domain.repository.payment.BankRepository
-import com.sanibonani.save.domain.repository.payment.FinancialProviderRepository
 import com.sanibonani.save.domain.repository.treasury.LedgerRepository
 import com.sanibonani.save.domain.repository.disbursement.PayoutRepository
-import com.sanibonani.save.domain.repository.treasury.ReconciliationRepository
 import com.sanibonani.save.domain.repository.member.BeneficiaryClaimRepository
+import com.sanibonani.save.domain.utils.requiresMfaChallenge
 import com.sanibonani.save.domain.utils.toUserMessage
 import com.sanibonani.save.service.AdminGroupContextCacheService
 import com.sanibonani.save.features.admin.presentation.actions.AdminBankActions
@@ -37,12 +36,10 @@ import com.sanibonani.save.domain.repository.credit.LoanRepository
 class AdminFinancialViewModel @Inject constructor(
     private val adminContextCacheService: AdminGroupContextCacheService,
     private val ledgerRepo: LedgerRepository,
-    private val reconRepo: ReconciliationRepository,
     private val bankRepo: BankRepository,
     private val payoutRepo: PayoutRepository,
     private val loanRepo: LoanRepository,
     private val claimRepo: BeneficiaryClaimRepository,
-    private val financialProviderRepo: FinancialProviderRepository,
     private val supabaseRepo: SupabaseRepository,
     private val loanActions: AdminLoanActions,
     private val claimActions: AdminClaimActions,
@@ -111,33 +108,13 @@ class AdminFinancialViewModel @Inject constructor(
             updateState { it.copy(isLoading = true) }
 
             combine(
-                combine(
-                    ledgerRepo.observeConsolidatedAuditTrail(groupId).orEmptyList(),
-                    bankRepo.observeUnreconciledTransactions(groupId).orEmptyList(),
-                    payoutRepo.observePayouts(groupId).orEmptyList(),
-                    loanRepo.getGroupLoans(groupId).orEmptyList()
-                ) { ledger, bankTx, payouts, loans ->
-                    LedgerBundle(ledger, bankTx, payouts, loans)
-                },
-                combine(
-                    claimRepo.observeClaimsForGroup(groupId).orEmptyList(),
-                    reconRepo.observeReconciliations(groupId).orEmptyList(),
-                    bankRepo.observeBankConnection(groupId).orNull(),
-                    financialProviderRepo.observeProviders().orEmptyList()
-                ) { claims, recons, connection, providers ->
-                    ContextBundle(claims, recons, connection, providers)
-                }
-            ) { ledgerBundle, contextBundle ->
-                DataPackage(
-                    ledger = ledgerBundle.ledger,
-                    bankTx = ledgerBundle.bankTx,
-                    payouts = ledgerBundle.payouts,
-                    loans = ledgerBundle.loans,
-                    claims = contextBundle.claims,
-                    recons = contextBundle.recons,
-                    connection = contextBundle.connection,
-                    providers = contextBundle.providers
-                )
+                ledgerRepo.observeConsolidatedAuditTrail(groupId).orEmptyList(),
+                bankRepo.observeUnreconciledTransactions(groupId).orEmptyList(),
+                payoutRepo.observePayouts(groupId).orEmptyList(),
+                loanRepo.getGroupLoans(groupId).orEmptyList(),
+                claimRepo.observeClaimsForGroup(groupId).orEmptyList()
+            ) { ledger, bankTx, payouts, loans, claims ->
+                DataPackage(ledger, bankTx, payouts, loans, claims)
             }
                 .distinctUntilChanged()
                 .collect { pkg ->
@@ -147,10 +124,6 @@ class AdminFinancialViewModel @Inject constructor(
                         payouts = pkg.payouts,
                         groupLoans = pkg.loans,
                         burialClaims = pkg.claims,
-                        reconciliationHistory = pkg.recons,
-                        latestReconciliation = pkg.recons.firstOrNull(),
-                        bankConnection = pkg.connection,
-                        availableProviders = pkg.providers.filter { it.type == FinancialProviderType.BANK },
                         isLoading = false
                     ) }
                 }
@@ -164,32 +137,12 @@ class AdminFinancialViewModel @Inject constructor(
     private fun <T> Flow<Result<List<T>>>.orEmptyList(): Flow<List<T>> =
         map { result -> result.getOrDefault(emptyList()) }
 
-    private fun <T> Flow<Result<T>>.orNull(): Flow<T?> =
-        map { result -> result.getOrNull() }
-
-    private data class LedgerBundle(
-        val ledger: List<LedgerEntry>,
-        val bankTx: List<BankTransaction>,
-        val payouts: List<PayoutRequest>,
-        val loans: List<Loan>
-    )
-
-    private data class ContextBundle(
-        val claims: List<BeneficiaryPayoutClaim>,
-        val recons: List<ReconciliationRecord>,
-        val connection: BankConnection?,
-        val providers: List<FinancialProvider>
-    )
-
     private data class DataPackage(
         val ledger: List<LedgerEntry>,
         val bankTx: List<BankTransaction>,
         val payouts: List<PayoutRequest>,
         val loans: List<Loan>,
-        val claims: List<BeneficiaryPayoutClaim>,
-        val recons: List<ReconciliationRecord>,
-        val connection: BankConnection?,
-        val providers: List<FinancialProvider>
+        val claims: List<BeneficiaryPayoutClaim>
     )
 
     // endregion
@@ -232,13 +185,6 @@ class AdminFinancialViewModel @Inject constructor(
 
     fun refreshBankData() = bankActions.refreshBankData(this)
 
-    fun initiateBankLinking(providerId: String) = bankActions.initiateBankLinking(this, providerId)
-
-    fun unlinkBankAccount() = bankActions.unlinkBankAccount(this)
-
-    fun handleBankCallback(connectionId: String, status: String) =
-        bankActions.handleBankCallback(this, connectionId, status)
-
     fun ignoreBankTransaction(bankTxId: String, reason: String) =
         bankActions.ignoreBankTransaction(this, bankTxId, reason)
 
@@ -258,10 +204,23 @@ class AdminFinancialViewModel @Inject constructor(
         launchJob("verify_mfa_challenge") {
             updateState { it.copy(isVerifyingMfa = true) }
             supabaseRepo.getMfaFactors().onSuccess { factors ->
-                val factor = factors.firstOrNull() ?: return@onSuccess
-                supabaseRepo.verifyMfa(factor.id, code, true).onSuccess {
-                    updateState { it.copy(isVerifyingMfa = false, showMfaChallenge = false) }
-                }.onFailure { e -> updateState { it.copy(isVerifyingMfa = false, mfaChallengeError = e.toUserMessage()) } }
+                val factor = factors.firstOrNull()
+                if (factor == null) {
+                    updateState {
+                        it.copy(
+                            isVerifyingMfa = false,
+                            mfaChallengeError = IllegalStateException(
+                                "No authenticator is enrolled on this account. Set up two-step verification before authorising this payment."
+                            ).toUserMessage()
+                        )
+                    }
+                } else {
+                    supabaseRepo.verifyMfa(factor.id, code, true).onSuccess {
+                        updateState { it.copy(isVerifyingMfa = false, showMfaChallenge = false) }
+                    }.onFailure { e -> updateState { it.copy(isVerifyingMfa = false, mfaChallengeError = e.toUserMessage()) } }
+                }
+            }.onFailure { e ->
+                updateState { it.copy(isVerifyingMfa = false, mfaChallengeError = e.toUserMessage()) }
             }
         }
     }
@@ -271,8 +230,7 @@ class AdminFinancialViewModel @Inject constructor(
     }
 
     private fun handleActionFailure(e: Throwable) {
-        val msg = e.message ?: ""
-        if (msg.contains("MFA_REQUIRED")) {
+        if (e.requiresMfaChallenge()) {
             updateState { it.copy(showMfaChallenge = true, mfaChallengeError = null) }
         } else {
             handleError(e)

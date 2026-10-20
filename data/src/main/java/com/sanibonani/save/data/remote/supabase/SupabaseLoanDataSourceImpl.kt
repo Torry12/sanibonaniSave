@@ -73,6 +73,7 @@ class SupabaseLoanDataSourceImpl @Inject constructor(
             put("p_group_id", repayment.groupId)
             put("p_amount", repayment.amount.amount.toPlainString())
             put("p_payment_method", repayment.paymentMethod.name.lowercase())
+            repayment.transactionId?.let { put("p_transaction_id", it) }
         }
         val response = client.postgrest.rpc("record_loan_repayment_v1", rpcParams)
         try {

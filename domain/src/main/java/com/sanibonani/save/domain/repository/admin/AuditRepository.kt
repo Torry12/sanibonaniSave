@@ -8,10 +8,6 @@ import com.sanibonani.save.domain.model.PlatformAuditReport
  * Repository for generating audit reports for members, groups, and the platform.
  */
 interface AuditRepository {
-    suspend fun getMemberAuditReport(memberId: String): Result<MemberAuditReport>
-    fun observeMemberAuditReport(memberId: String): kotlinx.coroutines.flow.Flow<Result<MemberAuditReport>>
-    suspend fun getGroupAuditReport(groupId: String): Result<GroupAuditReport>
-    fun observeGroupAuditReport(groupId: String): kotlinx.coroutines.flow.Flow<Result<GroupAuditReport>>
     suspend fun getPlatformAuditReport(): Result<PlatformAuditReport>
     suspend fun triggerMemberAudit(memberId: String): Result<MemberAuditReport>
     suspend fun triggerGroupAudit(groupId: String): Result<GroupAuditReport>

@@ -1,6 +1,7 @@
 package com.sanibonani.save.domain.utils
 
 import com.sanibonani.save.domain.logging.AppLogger
+import com.sanibonani.save.domain.model.MfaRequiredException
 import kotlinx.coroutines.CancellationException
 
 /**
@@ -49,6 +50,13 @@ inline fun <T> safeRunCatching(
  */
 fun String?.requirePersistedId(entity: String): String =
     this ?: error("The $entity could not be saved: the server returned it without an identifier. Please try again.")
+
+/**
+ * True when a failure means the session must step up to AAL2 before the operation can be
+ * retried. Covers the domain gate and the identical marker raised by database triggers.
+ */
+fun Throwable.requiresMfaChallenge(): Boolean =
+    this is MfaRequiredException || message?.contains(MfaRequiredException.MARKER) == true
 
 /**
  * Convert Throwable to user-friendly error message
@@ -161,6 +169,10 @@ fun Throwable.toUserMessage(): String {
             (msg.contains("23514") && msg.contains("amount", ignoreCase = true)) ->
             return "Contribution amount must be greater than zero."
 
+        // High-value disbursement gate: the marker is a machine signal, not a message.
+        msg.contains(MfaRequiredException.MARKER) ->
+            return "This transaction requires two-step verification. Complete the verification and try again."
+
         // RPC Business Logic Exceptions
         msg.contains("Repayment amount exceeds", ignoreCase = true) ->
             return "Repayment amount exceeds the remaining loan balance."
@@ -242,23 +254,6 @@ fun Throwable.getErrorMessage(): String = this.toUserMessage()
 fun Throwable.logAndGetMessage(tag: String): String {
     AppLogger.e(tag, this.message ?: "Unknown error", this)
     return this.toUserMessage()
-}
-
-/**
- * Safe execution with error callback
- */
-inline fun <T> safeCallWithCallback(
-    tag: String,
-    onError: (String) -> Unit = {},
-    block: () -> T
-): Result<T> = try {
-    Result.success(block())
-} catch (e: CancellationException) {
-    throw e
-} catch (e: Exception) {
-    val message = e.logAndGetMessage(tag)
-    onError(message)
-    Result.failure(e)
 }
 
 /**

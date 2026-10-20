@@ -194,7 +194,7 @@ fun LedgerItem(entry: LedgerEntry, onClick: () -> Unit) {
                     overflow = TextOverflow.Ellipsis
                 )
                 Text(
-                    text = "${entry.createdAt?.take(16)?.replace("T", " ")} Ã¢â‚¬Â¢ ${entry.category.uppercase()}",
+                    text = "${entry.createdAt?.take(16)?.replace("T", " ")} • ${entry.category.uppercase()}",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                 )
@@ -213,44 +213,4 @@ fun LedgerItem(entry: LedgerEntry, onClick: () -> Unit) {
             }
         }
     }
-}
-
-@Composable
-fun LedgerDetailDialog(
-    entry: LedgerEntry,
-    onDismiss: () -> Unit
-) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Transaction Verification", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold) },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                InfoBox(
-                    message = "This transaction is immutable and recorded on the permanent group ledger.",
-                    type = InfoType.INFO
-                )
-
-                DetailRow("Description", entry.description)
-                DetailRow("Category", entry.category.uppercase())
-                DetailRow("Amount", formatZAR(entry.amount))
-                DetailRow("Running Balance", formatZAR(entry.balanceAfter ?: Money.ZERO))
-                DetailRow("Date", entry.createdAt?.replace("T", " ") ?: "N/A")
-
-                HorizontalDivider(color = LightGray.copy(alpha = 0.3f))
-
-                Column {
-                    Text("Digital Audit Reference", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
-                    Text(
-                        entry.transactionId ?: entry.id ?: "SYSTEM_VERIFIED",
-                        style = MaterialTheme.typography.bodySmall,
-                        fontWeight = FontWeight.Bold,
-                        fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
-                    )
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = onDismiss) { Text(stringResource(R.string.ui_close)) }
-        }
-    )
 }

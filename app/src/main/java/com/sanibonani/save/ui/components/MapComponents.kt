@@ -222,7 +222,7 @@ fun SaOsmMap(
 
                     // Initialize Clusterer
                     val clusterer = RadiusMarkerClusterer(ctx)
-                    val clusterIcon = createMarkerIcon(ctx, "ðŸ“", "...")
+                    val clusterIcon = createMarkerIcon(ctx, "📍", "...")
                     clusterer.setIcon((clusterIcon as BitmapDrawable).bitmap)
 
                     overlays.add(clusterer)
@@ -299,7 +299,7 @@ fun SaLocationPickerMap(
             val marker = Marker(mv).apply {
                 position = GeoPoint(selectedLat, selectedLon)
                 setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
-                icon = getCachedMarkerIcon(context, "ðŸ“", "Selected")
+                icon = getCachedMarkerIcon(context, "📍", "Selected")
                 title = "Selected Location"
             }
             mv.overlays.add(marker)

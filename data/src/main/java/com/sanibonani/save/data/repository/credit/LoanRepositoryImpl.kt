@@ -24,7 +24,7 @@ class LoanRepositoryImpl @Inject constructor(
     private val groupDao: com.sanibonani.save.data.local.GroupDao
 ) : BaseRepository("LoanRepository"), LoanRepository {
 
-    override suspend fun requestLoan(loan: Loan): Result<String> = safeRunCatching {
+    override suspend fun requestLoan(loan: Loan): Result<String> = authoritativeCall("requestLoan") {
         val loanId = remoteSource.requestLoan(loan).getOrThrow()
         val saved = remoteSource.getLoanById(loanId).getOrThrow()
         localSource.saveLoan(saved)
@@ -61,25 +61,33 @@ class LoanRepositoryImpl @Inject constructor(
 
     override suspend fun getAllPendingLoansSync(): Result<List<Loan>> = remoteSource.getAllPendingLoans()
 
-    override suspend fun updateLoanStatus(loanId: String, status: LoanStatus, adminId: String?, reason: String?): Result<Unit> = safeRunCatching {
+    override suspend fun updateLoanStatus(
+        loanId: String,
+        status: LoanStatus,
+        adminId: String?,
+        reason: String?
+    ): Result<Unit> = authoritativeCall("updateLoanStatus") {
         remoteSource.updateLoanStatus(loanId, status, adminId, Instant.now().toString(), reason).getOrThrow()
-        val updated = remoteSource.getLoanById(loanId).getOrThrow()
-        localSource.saveLoan(updated)
+        localSource.saveLoan(remoteSource.getLoanById(loanId).getOrThrow())
     }
 
-    override suspend fun approveLoan(loanId: String, adminId: String?): Result<Unit> = safeRunCatching {
-        remoteSource.updateLoanStatus(loanId, LoanStatus.APPROVED, adminId, Instant.now().toString()).getOrThrow()
-        val updated = remoteSource.getLoanById(loanId).getOrThrow()
-        localSource.saveLoan(updated)
-    }
+    override suspend fun approveLoan(loanId: String, adminId: String?): Result<Unit> =
+        authoritativeCall("approveLoan") {
+            remoteSource.updateLoanStatus(loanId, LoanStatus.APPROVED, adminId, Instant.now().toString()).getOrThrow()
+            localSource.saveLoan(remoteSource.getLoanById(loanId).getOrThrow())
+        }
 
-    override suspend fun rejectLoan(loanId: String, reason: String, adminId: String?): Result<Unit> = safeRunCatching {
-        remoteSource.updateLoanStatus(loanId, LoanStatus.REJECTED, adminId, Instant.now().toString(), reason).getOrThrow()
-        val updated = remoteSource.getLoanById(loanId).getOrThrow()
-        localSource.saveLoan(updated)
-    }
+    override suspend fun rejectLoan(loanId: String, reason: String, adminId: String?): Result<Unit> =
+        authoritativeCall("rejectLoan") {
+            remoteSource.updateLoanStatus(loanId, LoanStatus.REJECTED, adminId, Instant.now().toString(), reason).getOrThrow()
+            localSource.saveLoan(remoteSource.getLoanById(loanId).getOrThrow())
+        }
 
-    override suspend fun disburseLoan(loanId: String, paymentMethod: PaymentMethod, adminId: String?): Result<Unit> = safeRunCatching {
+    override suspend fun disburseLoan(
+        loanId: String,
+        paymentMethod: PaymentMethod,
+        adminId: String?
+    ): Result<Unit> = authoritativeCall("disburseLoan") {
         val finalAdminId = adminId ?: "system"
         remoteSource.disburseLoan(loanId, finalAdminId, paymentMethod).getOrThrow()
         val updated = remoteSource.getLoanById(loanId).getOrThrow()
@@ -88,39 +96,51 @@ class LoanRepositoryImpl @Inject constructor(
     }
 
     override suspend fun updateLoanContract(loanId: String, contractUrl: String): Result<Unit> =
-        remoteSource.updateLoanContract(loanId, contractUrl)
-
-    override suspend fun uploadLoanContract(loanId: String, byteArray: ByteArray, fileName: String): Result<String> = safeRunCatching {
-        val extension = fileName.substringAfterLast(".", "pdf")
-        val publicUrl = fileStorageService.uploadLoanContract(loanId, byteArray, extension).getOrThrow()
-        updateLoanContract(loanId, publicUrl).getOrThrow()
-        publicUrl
-    }
-
-    override suspend fun acceptLoanAgreement(loanId: String): Result<Unit> =
-        remoteSource.updateLoanStatus(loanId, LoanStatus.APPROVED, null, null)
-
-    override suspend fun recordRepayment(repayment: LoanRepayment): Result<Unit> =
-        safeApiCall(
-            operationType = "loan_repayment",
-            groupId = repayment.groupId,
-            payload = json.encodeToString(repayment),
-            dao = pendingOpDao
-        ) {
-            val result = remoteSource.recordRepayment(repayment).getOrThrow()
-            localSource.saveRepayments(listOf(result.repayment))
-
-            val loan = remoteSource.getLoanById(repayment.loanId).getOrThrow()
-            localSource.saveLoan(loan)
-
-            groupDao.getGroupById(repayment.groupId)?.let {
-                groupDao.upsertGroup(it.copy(balance = result.newBalance))
-            }
+        authoritativeCall("updateLoanContract") {
+            remoteSource.updateLoanContract(loanId, contractUrl).getOrThrow()
+            localSource.getLoanById(loanId)?.let { localSource.saveLoan(it.copy(contractUrl = contractUrl)) }
         }
 
-    override suspend fun getActiveLoansCount(memberId: String): Result<Int> = safeRunCatching {
-        remoteSource.getMemberLoans(memberId).getOrThrow().count {
-            it.status == LoanStatus.ACTIVE || it.status == LoanStatus.PARTIALLY_PAID || it.status == LoanStatus.APPROVED
+    override suspend fun uploadLoanContract(loanId: String, byteArray: ByteArray, fileName: String): Result<String> =
+        authoritativeCall("uploadLoanContract") {
+            val extension = fileName.substringAfterLast(".", "pdf")
+            val publicUrl = fileStorageService.uploadLoanContract(loanId, byteArray, extension).getOrThrow()
+            updateLoanContract(loanId, publicUrl).getOrThrow()
+            publicUrl
+        }
+
+    override suspend fun acceptLoanAgreement(loanId: String): Result<Unit> =
+        authoritativeCall("acceptLoanAgreement") {
+            remoteSource.updateLoanStatus(loanId, LoanStatus.APPROVED, null, null).getOrThrow()
+            localSource.saveLoan(remoteSource.getLoanById(loanId).getOrThrow())
+        }
+
+    override suspend fun recordRepayment(
+        repayment: LoanRepayment,
+        idempotencyKey: String?
+    ): Result<Unit> {
+        val stableRepayment = repayment.copy(
+            transactionId = repayment.transactionId
+                ?: repayment.id
+                ?: idempotencyKey
+                ?: java.util.UUID.randomUUID().toString()
+        )
+        return safeApiCall(
+            operationType = "loan_repayment",
+            groupId = stableRepayment.groupId,
+            payload = json.encodeToString(stableRepayment),
+            dao = pendingOpDao,
+            idempotencyKey = idempotencyKey
+        ) {
+            val result = remoteSource.recordRepayment(stableRepayment).getOrThrow()
+            localSource.saveRepayments(listOf(result.repayment))
+
+            val loan = remoteSource.getLoanById(stableRepayment.loanId).getOrThrow()
+            localSource.saveLoan(loan)
+
+            groupDao.getGroupById(stableRepayment.groupId)?.let {
+                groupDao.upsertGroup(it.copy(balance = result.newBalance))
+            }
         }
     }
 

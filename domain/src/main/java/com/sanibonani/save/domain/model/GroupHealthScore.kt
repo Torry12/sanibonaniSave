@@ -26,36 +26,3 @@ data class GroupHealthScore(
     @SerialName("expires_at")
     val expiresAt: String? = null                  // Cache expiration
 )
-
-@Serializable
-data class HealthScoreComponent(
-    val name: String,                // e.g., "Solvency Ratio"
-    val score: Int,                  // Component's contribution to total
-    val weight: Float,               // e.g., 0.25 = 25% of total score
-    val formula: String,             // "Assets / Liabilities"
-    @SerialName("current_value")
-    val currentValue: Double,        // Actual calculated value
-    val benchmark: Double,           // Industry benchmark
-    val status: String               // "Good", "Warning", "Critical"
-)
-
-enum class RecommendationPriority {
-    HIGH,
-    MEDIUM,
-    LOW
-}
-
-@Serializable
-data class HealthScoreRecommendation(
-    val id: String,
-    @SerialName("group_id")
-    val groupId: String,
-    val title: String,               // e.g., "Increase monthly contribution"
-    val description: String,
-    val priority: RecommendationPriority,
-    val category: String,            // "Contributions", "Retention", "Claims"
-    @SerialName("estimated_impact")
-    val estimatedImpact: String,     // e.g., "Would move to Green zone"
-    @SerialName("created_at")
-    val createdAt: String
-)

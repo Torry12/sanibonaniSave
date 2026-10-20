@@ -292,6 +292,93 @@ class GroupRegistrationEventRegressionTest {
         assertEquals("1234567", result.getOrThrow().accountNumber)
     }
 
+    // ── Optional money fields silently substituted a different amount ──────
+
+    @Test
+    fun `unparseable optional money fields are rejected instead of defaulted`() {
+        val lateFeeTypo = RegisterGroupValidator.toGroupDraft(
+            baseState.copy(name = "Typo Late Fee", adminEmail = "a@b.com", adminPhone = "0712345678", lateFee = "5O", termsAccepted = true)
+        )
+        assertTrue("A mistyped late fee must not become R0", lateFeeTypo.isFailure)
+
+        val claimTypo = RegisterGroupValidator.toGroupDraft(
+            baseState.copy(name = "Typo Claim", adminEmail = "a@b.com", adminPhone = "0712345678", burialClaimAmount = "10O00", termsAccepted = true)
+        )
+        assertTrue("A mistyped claim amount must not become R10 000", claimTypo.isFailure)
+
+        val goalTypo = RegisterGroupValidator.toGroupDraft(
+            baseState.copy(name = "Typo Goal", adminEmail = "a@b.com", adminPhone = "0712345678", goalAmount = "25O00", termsAccepted = true)
+        )
+        assertTrue("A mistyped goal amount must not become R0", goalTypo.isFailure)
+    }
+
+    @Test
+    fun `blank optional money fields still fall back to their defaults`() {
+        val draft = RegisterGroupValidator.toGroupDraft(
+            baseState.copy(
+                name = "Blank Money",
+                adminEmail = "a@b.com",
+                adminPhone = "0712345678",
+                lateFee = "",
+                burialClaimAmount = "",
+                goalAmount = "",
+                termsAccepted = true
+            )
+        ).getOrThrow()
+        assertEquals(Money.ZERO, draft.lateFee)
+        assertEquals(Money("10000.00"), draft.burialClaimAmount)
+        assertEquals(Money.ZERO, draft.goalAmount)
+    }
+
+    // ── Numeric form fields silently substituted their defaults ────────────
+
+    @Test
+    fun `unparseable numeric fields are rejected instead of defaulted`() {
+        val grace = RegisterGroupValidator.toGroupDraft(
+            baseState.copy(name = "Bad Grace", adminEmail = "a@b.com", adminPhone = "0712345678", lateFeeGraceDays = "5 days", termsAccepted = true)
+        )
+        assertTrue("Typed-but-unreadable grace days must not silently become 5", grace.isFailure)
+
+        val reserve = RegisterGroupValidator.toGroupDraft(
+            baseState.copy(name = "Bad Reserve", adminEmail = "a@b.com", adminPhone = "0712345678", minReservePercentage = "2O", termsAccepted = true)
+        )
+        assertTrue("A mistyped reserve percentage must not silently become 20%", reserve.isFailure)
+
+        val beneficiaries = RegisterGroupValidator.toGroupDraft(
+            baseState.copy(name = "Bad Beneficiaries", adminEmail = "a@b.com", adminPhone = "0712345678", maxBeneficiaries = "1O", termsAccepted = true)
+        )
+        assertTrue("A mistyped beneficiary cap must not silently mean unlimited", beneficiaries.isFailure)
+
+        val dueDay = RegisterGroupValidator.toGroupDraft(
+            baseState.copy(name = "Bad Due Day", adminEmail = "a@b.com", adminPhone = "0712345678", paymentDueDay = "32", termsAccepted = true)
+        )
+        assertTrue("A due day outside the calendar must be rejected, not moved to the 28th", dueDay.isFailure)
+    }
+
+    @Test
+    fun `blank numeric fields still fall back to their defaults`() {
+        val draft = RegisterGroupValidator.toGroupDraft(
+            baseState.copy(
+                name = "Blank Numbers",
+                adminEmail = "a@b.com",
+                adminPhone = "0712345678",
+                lateFeeGraceDays = "",
+                probationMonths = "",
+                paymentDueDay = "",
+                minMembersForClaims = "",
+                minReservePercentage = "",
+                maxBeneficiaries = "",
+                termsAccepted = true
+            )
+        ).getOrThrow()
+        assertEquals(5, draft.lateFeeGraceDays)
+        assertEquals(3, draft.probationMonths)
+        assertEquals(28, draft.paymentDueDay)
+        assertEquals(10, draft.minMembersForClaims)
+        assertEquals(20.0, draft.minReservePercentage, 0.0)
+        assertNull(draft.maxBeneficiaries)
+    }
+
     // A logged-in admin so the validator's password branch is satisfied and
     // the later business rules (terms, phone, banking) are the assertions under test.
     private val baseState = GroupRegistrationState(isLoggedIn = true)

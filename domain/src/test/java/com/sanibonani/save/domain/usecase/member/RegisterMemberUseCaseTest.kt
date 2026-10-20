@@ -34,7 +34,7 @@ class RegisterMemberUseCaseTest {
     fun `invoke should register member with PENDING_PAYMENT when group requires joining fee`() = runBlocking {
         // Given
         val groupId = "group-123"
-        val member = Member(groupId = groupId, idNumber = "9001015000081")
+        val member = Member(groupId = groupId, idNumber = "9001015000085")
         val group = Group(id = groupId, joiningFee = Money("100.0"), registrationPaid = true, maxMembers = 50, currentMembers = 10, probationMonths = 0)
 
         coEvery { groupRepository.getGroupById(groupId) } returns Result.success(group)
@@ -53,7 +53,7 @@ class RegisterMemberUseCaseTest {
     fun `invoke should register member with ACTIVE status when group has no joining fee and no probation`() = runBlocking {
         // Given
         val groupId = "group-123"
-        val member = Member(groupId = groupId, idNumber = "9001015000081")
+        val member = Member(groupId = groupId, idNumber = "9001015000085")
         val group = Group(id = groupId, joiningFee = Money("0.0"), registrationPaid = true, maxMembers = 50, currentMembers = 10, probationMonths = 0)
 
         coEvery { groupRepository.getGroupById(groupId) } returns Result.success(group)
@@ -72,7 +72,7 @@ class RegisterMemberUseCaseTest {
     fun `invoke should register member with PROBATION status when group has probation period`() = runBlocking {
         // Given
         val groupId = "group-123"
-        val member = Member(groupId = groupId, idNumber = "9001015000081")
+        val member = Member(groupId = groupId, idNumber = "9001015000085")
         val group = Group(id = groupId, joiningFee = Money("0.0"), registrationPaid = true, maxMembers = 50, currentMembers = 10, probationMonths = 3)
 
         coEvery { groupRepository.getGroupById(groupId) } returns Result.success(group)
@@ -91,7 +91,7 @@ class RegisterMemberUseCaseTest {
     fun `invoke should fail when group capacity is reached`() = runBlocking {
         // Given
         val groupId = "group-full"
-        val member = Member(groupId = groupId, idNumber = "9001015000081")
+        val member = Member(groupId = groupId, idNumber = "9001015000085")
         val group = Group(id = groupId, registrationPaid = true, maxMembers = 20, currentMembers = 20)
 
         coEvery { groupRepository.getGroupById(groupId) } returns Result.success(group)
@@ -110,7 +110,7 @@ class RegisterMemberUseCaseTest {
     fun `invoke should fail when user is already enrolled in the group`() = runBlocking {
         // Given
         val groupId = "group-dup"
-        val member = Member(groupId = groupId, userId = "user-123", idNumber = "9001015000081")
+        val member = Member(groupId = groupId, userId = "user-123", idNumber = "9001015000085")
         val group = Group(id = groupId, registrationPaid = true, maxMembers = 50, currentMembers = 10)
 
         coEvery { groupRepository.getGroupById(groupId) } returns Result.success(group)

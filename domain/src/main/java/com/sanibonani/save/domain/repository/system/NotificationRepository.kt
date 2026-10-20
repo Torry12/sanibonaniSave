@@ -15,7 +15,6 @@ interface NotificationRepository {
         memberCount: Int,
         amountDue: Money
     ): Result<Unit>
-    suspend fun notifyPlatformAdmin(message: String): Result<Unit>
     suspend fun sendPasswordResetWhatsApp(phone: String): Result<Unit>
     suspend fun syncNotifications(groupId: String): Result<Unit>
 }

@@ -32,8 +32,8 @@ Run these in Supabase SQL Editor (in order):
 ## Test Accounts
 
 - Platform Admin
-  - Email: `torrymsimango@gmail.com`
-  - Password: `torry123M`
+  - Email: see `BuildConfig.PLATFORM_ADMIN_EMAIL`
+  - Password: see `PLATFORM_ADMIN_PASSWORD` in `local.properties` (not tracked)
 
 - Group Admin
   - Email: `test.groupadmin@example.com`

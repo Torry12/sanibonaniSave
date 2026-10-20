@@ -4,6 +4,8 @@ import com.sanibonani.save.domain.utils.safeRunCatching
 import com.sanibonani.save.domain.logging.AppLogger
 import com.sanibonani.save.domain.model.*
 import com.sanibonani.save.domain.repository.admin.PlatformRepository
+import com.sanibonani.save.domain.validation.InputValidator
+import com.sanibonani.save.domain.validation.ValidationResult
 import com.sanibonani.save.features.admin.presentation.state.PlatformFeeConfigUiState
 import com.sanibonani.save.features.common.presentation.BaseViewModel
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -68,17 +70,32 @@ class PlatformFeeConfigViewModel @Inject constructor(
     fun saveGlobalFees() {
         launchJob("save_fees") {
             updateState { it.copy(isSaving = true) }
+            val current = uiState.value
+            val invalid = firstInvalidFeeField(current)
+            val suspensionDays = current.autoSuspensionDays.trim().toIntOrNull()?.takeIf { it > 0 }
+
+            if (invalid != null || suspensionDays == null) {
+                updateState { it.copy(isSaving = false) }
+                handleError(
+                    IllegalStateException("Invalid platform fee input"),
+                    invalid?.let { "$it must be an amount in rand, with at most two decimals." }
+                        ?: "Auto suspension days must be a whole number greater than 0."
+                )
+                return@launchJob
+            }
+
+            // Every field passed the amount rule above, so these parses cannot fail.
             val config = PlatformConfig(
-                monthlyMemberFee = Money(uiState.value.memberCharge.replace(',', '.').ifBlank { "0.00" }),
-                registrationFee = Money(uiState.value.registrationFee.replace(',', '.').ifBlank { "0.00" }),
-                payoutFee = Money(uiState.value.payoutFee.replace(',', '.').ifBlank { "0.00" }),
-                lateFeePercent = Money(uiState.value.lateFeePercent.replace(',', '.').ifBlank { "0.00" }),
-                shortfallRecoveryFee = Money(uiState.value.shortfallRecoveryFee.replace(',', '.').ifBlank { "0.00" }),
-                loanInterestRate = Money(uiState.value.loanInterestRate.replace(',', '.').ifBlank { "20.00" }),
-                loanProcessingFee = Money(uiState.value.loanProcessingFee.replace(',', '.').ifBlank { "15.00" }),
-                groupSuspensionLiftingFee = Money(uiState.value.groupSuspensionLiftingFee.replace(',', '.').ifBlank { "250.00" }),
-                memberSuspensionLiftingFee = Money(uiState.value.memberSuspensionLiftingFee.replace(',', '.').ifBlank { "50.00" }),
-                autoSuspensionDays = uiState.value.autoSuspensionDays.toIntOrNull() ?: 90,
+                monthlyMemberFee = Money(normaliseAmount(current.memberCharge)),
+                registrationFee = Money(normaliseAmount(current.registrationFee)),
+                payoutFee = Money(normaliseAmount(current.payoutFee)),
+                lateFeePercent = Money(normaliseAmount(current.lateFeePercent)),
+                shortfallRecoveryFee = Money(normaliseAmount(current.shortfallRecoveryFee)),
+                loanInterestRate = Money(normaliseAmount(current.loanInterestRate)),
+                loanProcessingFee = Money(normaliseAmount(current.loanProcessingFee)),
+                groupSuspensionLiftingFee = Money(normaliseAmount(current.groupSuspensionLiftingFee)),
+                memberSuspensionLiftingFee = Money(normaliseAmount(current.memberSuspensionLiftingFee)),
+                autoSuspensionDays = suspensionDays,
                 bankName = uiState.value.platformBankName,
                 accountNumber = uiState.value.platformAccountNumber,
                 branchCode = uiState.value.platformBranchCode,
@@ -94,10 +111,47 @@ class PlatformFeeConfigViewModel @Inject constructor(
         }
     }
 
+    /**
+     * The field the admin left unreadable, if any. A cleared or mistyped price must stop the save:
+     * publishing a fallback would bill groups an amount nobody chose.
+     */
+    private fun firstInvalidFeeField(current: PlatformFeeConfigUiState): String? =
+        listOf(
+            "Monthly member fee" to current.memberCharge,
+            "Registration fee" to current.registrationFee,
+            "Payout fee" to current.payoutFee,
+            "Late fee percentage" to current.lateFeePercent,
+            "Shortfall recovery fee" to current.shortfallRecoveryFee,
+            "Loan interest rate" to current.loanInterestRate,
+            "Loan processing fee" to current.loanProcessingFee,
+            "Group suspension lifting fee" to current.groupSuspensionLiftingFee,
+            "Member suspension lifting fee" to current.memberSuspensionLiftingFee
+        ).firstOrNull { (label, raw) ->
+            InputValidator.validateNonNegativeAmount(normaliseAmount(raw), label) is ValidationResult.Error
+        }?.first
+
+    private fun normaliseAmount(raw: String): String = raw.trim().replace(',', '.')
+
     fun mapGlobalToGranularFees() {
-        val globalMonthly = safeRunCatching { Money(uiState.value.memberCharge.replace(',', '.').trim()) }.getOrDefault(Money("10.0"))
-        val globalReg = safeRunCatching { Money(uiState.value.registrationFee.replace(',', '.').trim()) }.getOrDefault(Money("700.0"))
-        val globalRecovery = safeRunCatching { Money(uiState.value.shortfallRecoveryFee.replace(',', '.').trim()) }.getOrDefault(Money("20.0"))
+        val current = uiState.value
+        val invalid = listOf(
+            "Monthly member fee" to current.memberCharge,
+            "Registration fee" to current.registrationFee,
+            "Shortfall recovery fee" to current.shortfallRecoveryFee
+        ).firstOrNull { (label, raw) ->
+            InputValidator.validateNonNegativeAmount(normaliseAmount(raw), label) is ValidationResult.Error
+        }
+        if (invalid != null) {
+            handleError(
+                IllegalStateException("Invalid platform fee input"),
+                "${invalid.first} must be an amount in rand, with at most two decimals."
+            )
+            return
+        }
+
+        val globalMonthly = Money(normaliseAmount(current.memberCharge))
+        val globalReg = Money(normaliseAmount(current.registrationFee))
+        val globalRecovery = Money(normaliseAmount(current.shortfallRecoveryFee))
 
         val updated = uiState.value.granularFees.map { config ->
             config.copy(

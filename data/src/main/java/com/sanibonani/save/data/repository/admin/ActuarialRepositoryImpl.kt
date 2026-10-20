@@ -1,7 +1,6 @@
 package com.sanibonani.save.data.repository.admin
 
 import com.sanibonani.save.data.repository.BaseRepository
-import com.sanibonani.save.domain.utils.PaymentCalculator
 import com.sanibonani.save.domain.model.*
 import com.sanibonani.save.domain.repository.admin.ActuarialRepository
 import com.sanibonani.save.domain.repository.equity.GroupFinancialRepository
@@ -23,7 +22,6 @@ class ActuarialRepositoryImpl @Inject constructor(
     private val groupRepo: GroupRepository,
     private val financialRepo: GroupFinancialRepository,
     private val memberRepo: Provider<MemberRepository>,
-    private val paymentCalculator: PaymentCalculator,
     private val actuarialEngine: GroupTypeActuarialEngine,
 ) : BaseRepository("ActuarialRepository"), ActuarialRepository {
 
@@ -73,18 +71,6 @@ class ActuarialRepositoryImpl @Inject constructor(
         } ?: Result.failure(Exception("Calculation timed out. Please try again."))
     }
 
-    override suspend fun fetchGroupInsight(groupId: String): Result<GroupFinancialInsight> =
-        withContext(Dispatchers.IO) {
-            safeRunCatching {
-                financialRepo.repairGroupData(groupId)
-                val group = groupRepo.getGroupById(groupId).getOrThrow()
-                val members = memberRepo.get().getGroupMembers(groupId).first().getOrThrow()
-                withContext(Dispatchers.Default) {
-                    actuarialEngine.computeGroupInsight(group, members)
-                }
-            }
-        }
-
     override fun calculateMetrics(group: Group, members: List<Member>): Result<ActuarialMetrics> = safeRunCatching {
         actuarialEngine.calculateMetrics(group, members)
     }
@@ -92,7 +78,4 @@ class ActuarialRepositoryImpl @Inject constructor(
     override fun computeGroupInsight(group: Group, members: List<Member>): Result<GroupFinancialInsight> = safeRunCatching {
         actuarialEngine.computeGroupInsight(group, members)
     }
-
-    override fun calculateMemberContribution(group: Group, member: Member): Money =
-        paymentCalculator.calculateExpectedMemberGroupPart(group, member)
 }

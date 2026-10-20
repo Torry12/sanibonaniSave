@@ -35,7 +35,6 @@ interface SupabaseRepository {
     suspend fun handleDeepLink(url: String): Result<Unit>
     suspend fun getUserRole(): UserRole
     suspend fun updateUserRole(userId: String, role: UserRole, groupId: String? = null): Result<Unit>
-    suspend fun resetLocalCache()
     suspend fun getMfaFactors(): Result<List<MfaFactor>>
     suspend fun verifyMfa(factorId: String, code: String, saveSession: Boolean = true): Result<Unit>
     suspend fun enrollMfa(): Result<TotpEnrollment>

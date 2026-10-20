@@ -48,7 +48,6 @@ fun MemberOverviewTab(
     member: Member?,
     group: Group?,
     userRole: UserRole,
-    contributions: List<Contribution>,
     calculation: PaymentCalculation?,
     profileImageVersion: Long,
     onPay: (String, Money, String) -> Unit,
@@ -76,7 +75,7 @@ fun MemberOverviewTab(
             item {
                 OfflineBanner(
                     isOnline = false,
-                    message = if (uiState.isAirplaneMode) "âš ï¸ Airplane Mode: Syncing is paused." else "âš ï¸ Offline: Using cached data."
+                    message = if (uiState.isAirplaneMode) "⚠️ Airplane Mode: Syncing is paused." else "⚠️ Offline: Using cached data."
                 )
             }
         }
@@ -169,7 +168,7 @@ fun MemberOverviewTab(
             SanibonaniSectionHeader("Recent Activity", subtitle = "Your latest ledger entries")
             if (recentActivity.isEmpty()) {
                 EmptyState(
-                    icon = "ðŸ’¸",
+                    icon = "💸",
                     title = "No transactions",
                     description = "Your financial history will appear here.",
                     actionLabel = "Refresh",

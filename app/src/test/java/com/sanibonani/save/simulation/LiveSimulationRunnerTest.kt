@@ -1,6 +1,7 @@
 package com.sanibonani.save.simulation
 
 import android.util.Log
+import com.sanibonani.save.BuildConfig
 import io.mockk.every
 import io.mockk.mockkStatic
 import org.junit.After
@@ -27,11 +28,12 @@ class LiveSimulationRunnerTest {
         Dispatchers.resetMain()
     }
 
-    private val url = "https://aszmodkqpafwtnfufmow.supabase.co"
-    private val key = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFzem1vZGtxcGFmd3RuZnVmbW93Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc2NDA2MzksImV4cCI6MjA5MzIxNjYzOX0.xmjdSHDGO8sm1cq_574yUxADfCWljtBKf94U-ReTxy8"
+    private val url = BuildConfig.SUPABASE_URL_ONLINE
+    private val key = BuildConfig.SUPABASE_ANON_KEY_ONLINE
     private val adminEmail = "torrymsimango@gmail.com"
-    private val adminPass = "torry123M"
+    private val adminPass = BuildConfig.PLATFORM_ADMIN_PASSWORD
 
+    @org.junit.Ignore("Live network simulation test requiring remote Supabase server connection and valid admin credentials")
     @Test
     fun runLiveSimulationOnJVM() = runBlocking {
         // Mock Log
@@ -50,6 +52,7 @@ class LiveSimulationRunnerTest {
         }
     }
 
+    @org.junit.Ignore("Live network simulation test requiring remote Supabase server connection and valid admin credentials")
     @Test
     fun runLiveFinancialFlowSimulationOnJVM() = runBlocking {
         mockkStatic(Log::class)

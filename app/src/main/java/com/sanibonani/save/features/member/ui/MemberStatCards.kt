@@ -60,7 +60,7 @@ fun MemberStatCards(state: com.sanibonani.save.features.member.presentation.stat
                 GroupType.BURIAL_SOCIETY -> {
                     val activeCount = member.beneficiaries.count { it.documentStatus == DocumentStatus.VERIFIED }
                     StatCard(
-                        title = "ðŸ›¡ï¸",
+                        title = "🛡️",
                         value = "$activeCount Active",
                         label = "Policy Coverage",
                         trend = if (activeCount > 0) "Covered" else "At Risk",
@@ -70,7 +70,7 @@ fun MemberStatCards(state: com.sanibonani.save.features.member.presentation.stat
                 }
                 GroupType.ROSCA -> {
                     StatCard(
-                        title = "ðŸ’°",
+                        title = "💰",
                         value = formatZAR(state.totalSavings),
                         label = "Total Contributed",
                         modifier = Modifier.width(160.dp)
@@ -78,7 +78,7 @@ fun MemberStatCards(state: com.sanibonani.save.features.member.presentation.stat
                 }
                 else -> {
                     StatCard(
-                        title = "ðŸ’°",
+                        title = "💰",
                         value = formatZAR(state.totalSavings),
                         label = stringResource(R.string.ui_total_savings),
                         modifier = Modifier.width(160.dp)
@@ -92,7 +92,7 @@ fun MemberStatCards(state: com.sanibonani.save.features.member.presentation.stat
             val memberMonthlyAmount = state.monthlyContributionAmount
             val nextAmount = if (calculation?.totalDueNow?.isPositive == true) calculation.totalDueNow else memberMonthlyAmount
             StatCard(
-                title = "ðŸ“…",
+                title = "📅",
                 value = formatZAR(nextAmount),
                 label = stringResource(R.string.ui_next_payment_label),
                 trend = if (calculation?.isOverdue == true) stringResource(R.string.ui_overdue) else stringResource(R.string.ui_due_soon),
@@ -107,7 +107,7 @@ fun MemberStatCards(state: com.sanibonani.save.features.member.presentation.stat
                 GroupType.BURIAL_SOCIETY -> {
                     val claimCount = state.burialClaims.count { it.status == BeneficiaryClaimStatus.SUBMITTED || it.status == BeneficiaryClaimStatus.UNDER_REVIEW }
                     StatCard(
-                        title = "ðŸ“‘",
+                        title = "📑",
                         value = "$claimCount Claims",
                         label = "In Progress",
                         trend = if (claimCount > 0) "Action Required" else "No Claims",
@@ -118,7 +118,7 @@ fun MemberStatCards(state: com.sanibonani.save.features.member.presentation.stat
                 GroupType.STOKVEL, GroupType.INVESTMENT_CLUB -> {
                     val projected = insight?.totalProjectedFund ?: Money.ZERO
                     StatCard(
-                        title = "ðŸŽ¯",
+                        title = "🎯",
                         value = if (projected.isPositive) formatZAR(projected / group.currentMembers.coerceAtLeast(1)) else "---",
                         label = "Projected Payout",
                         trend = "Year-end Est.",
@@ -129,7 +129,7 @@ fun MemberStatCards(state: com.sanibonani.save.features.member.presentation.stat
                 else -> {
                     val rate = calculation?.paymentRate ?: 100.0
                     StatCard(
-                        title = "ðŸŽ¯",
+                        title = "🎯",
                         value = formatPct(rate),
                         label = stringResource(R.string.ui_payment_rate),
                         trend = if (rate >= 90) stringResource(R.string.ui_healthy) else stringResource(R.string.ui_low),

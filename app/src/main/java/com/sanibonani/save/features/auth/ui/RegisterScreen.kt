@@ -203,7 +203,7 @@ fun RegisterScreen(
                         Spacer(Modifier.height(8.dp))
 
                         SanibonaniButton(
-                            text = if (state.isLoading) "Creating accountâ€¦" else "Create Account",
+                            text = if (state.isLoading) "Creating account…" else "Create Account",
                             onClick = { clickDebouncer.processClick { vm.signUp() } },
                             modifier = Modifier.fillMaxWidth().height(56.dp),
                             enabled = !state.isLoading && isFormValid

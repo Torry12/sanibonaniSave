@@ -15,7 +15,7 @@ import javax.inject.Singleton
 import java.util.UUID
 
 object TestAuthSessionController {
-    private const val TEST_PLATFORM_ADMIN_PASSWORD = "torry123M"
+    private const val TEST_PLATFORM_ADMIN_PASSWORD = "TestAdminPass1"
 
     private val _sessionStatus =
         MutableStateFlow<AuthSessionStatus>(AuthSessionStatus.NotAuthenticated(false))

@@ -44,7 +44,8 @@ class SyncRepositoryImpl @Inject constructor(
     private val payoutHandler: PayoutRequestOutboxHandler,
     private val disbursementHandler: DisbursementOutboxHandler,
     private val balanceAdjustmentHandler: BalanceAdjustmentOutboxHandler,
-    private val beneficiaryClaimHandler: BeneficiaryClaimOutboxHandler
+    private val beneficiaryClaimHandler: BeneficiaryClaimOutboxHandler,
+    private val payoutStatusUpdateHandler: PayoutStatusUpdateOutboxHandler
 ) : BaseRepository("SyncRepository"), SyncRepository {
 
     private val handlers by lazy {
@@ -52,6 +53,7 @@ class SyncRepositoryImpl @Inject constructor(
             "contribution" to contributionHandler,
             "loan_repayment" to loanRepaymentHandler,
             "payout" to payoutHandler,
+            "payout_status_update" to payoutStatusUpdateHandler,
             "disbursement" to disbursementHandler,
             "balance_adjustment" to balanceAdjustmentHandler,
             "beneficiary_claim" to beneficiaryClaimHandler

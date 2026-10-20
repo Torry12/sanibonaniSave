@@ -8,19 +8,16 @@ import com.sanibonani.save.domain.model.DocumentStatus
 import com.sanibonani.save.domain.model.MemberDocument
 import com.sanibonani.save.domain.repository.member.MemberDocumentRepository
 import com.sanibonani.save.domain.repository.member.MemberRepository
-import com.sanibonani.save.domain.repository.system.StorageRepository
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.postgrest.postgrest
 import kotlinx.coroutines.flow.Flow
 import javax.inject.Inject
 import javax.inject.Provider
-import com.sanibonani.save.domain.utils.safeRunCatching
 
 class MemberDocumentRepositoryImpl @Inject constructor(
     private val supabaseProvider: Provider<SupabaseClient>,
     private val memberRepo: Provider<MemberRepository>,
-    private val dbProvider: Provider<SanibonaniDatabase>,
-    private val storageRepo: StorageRepository
+    private val dbProvider: Provider<SanibonaniDatabase>
 ) : BaseRepository("MemberDocumentRepository"), MemberDocumentRepository {
 
     private val supabase: SupabaseClient get() = supabaseProvider.get()
@@ -36,29 +33,15 @@ class MemberDocumentRepositoryImpl @Inject constructor(
         cacheSync = { list -> db.memberDocumentDao().syncDocuments(memberId, list) }
     )
 
-    override suspend fun syncMemberDocuments(memberId: String): Result<List<MemberDocument>> = safeRunCatching {
-        val remote = supabase.postgrest["member_documents"].select { filter { eq("member_id", memberId) } }.decodeList<MemberDocument>()
-        db.memberDocumentDao().syncDocuments(memberId, remote.map { it.toEntity() })
-        remote
-    }
-
-    override suspend fun addMemberDocument(document: MemberDocument): Result<MemberDocument> = retryWithExponentialBackoff {
-        val saved = supabase.postgrest["member_documents"].upsert(document) {
-            onConflict = "id"
-            select()
-        }.decodeSingle<MemberDocument>()
-        db.memberDocumentDao().upsertDocument(saved.toEntity())
-        saved
-    }
-
-    override suspend fun updateMemberDocument(document: MemberDocument): Result<MemberDocument> = retryWithExponentialBackoff {
-        val saved = supabase.postgrest["member_documents"].upsert(document) {
-            onConflict = "id"
-            select()
-        }.decodeSingle<MemberDocument>()
-        db.memberDocumentDao().upsertDocument(saved.toEntity())
-        saved
-    }
+    override suspend fun updateMemberDocument(document: MemberDocument): Result<MemberDocument> =
+        authoritativeCall("updateMemberDocument") {
+            val saved = supabase.postgrest["member_documents"].upsert(document) {
+                onConflict = "id"
+                select()
+            }.decodeSingle<MemberDocument>()
+            db.memberDocumentDao().upsertDocument(saved.toEntity())
+            saved
+        }
 
     override suspend fun uploadAndAddMemberDocument(
         memberId: String,
@@ -67,9 +50,9 @@ class MemberDocumentRepositoryImpl @Inject constructor(
         byteArray: ByteArray,
         fileName: String,
         documentType: String?
-    ): Result<MemberDocument> = safeRunCatching {
+    ): Result<MemberDocument> = authoritativeCall("uploadAndAddMemberDocument") {
         val url = memberRepo.get().uploadMemberDocument(memberId, 99, byteArray, fileName, documentType).getOrThrow()
-        val doc = MemberDocument(
+        val document = MemberDocument(
             memberId = memberId,
             groupId = groupId,
             label = label,
@@ -77,6 +60,6 @@ class MemberDocumentRepositoryImpl @Inject constructor(
             documentType = documentType ?: "file",
             status = DocumentStatus.PENDING
         )
-        addMemberDocument(doc).getOrThrow()
+        updateMemberDocument(document).getOrThrow()
     }
 }

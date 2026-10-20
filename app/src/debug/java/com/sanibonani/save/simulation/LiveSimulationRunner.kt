@@ -1,7 +1,5 @@
 package com.sanibonani.save.simulation
 
-import android.content.Context
-import com.sanibonani.save.domain.model.GroupType
 import com.sanibonani.save.domain.model.Money
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.auth.Auth
@@ -40,8 +38,7 @@ import com.sanibonani.save.domain.utils.safeRunCatching
  */
 class LiveSimulationRunner(
     private val supabaseUrl: String,
-    private val anonKey: String,
-    private val context: Context? = null
+    private val anonKey: String
 ) {
 
     private val json = Json {
@@ -132,26 +129,17 @@ class LiveSimulationRunner(
 
         val groupId = UUID.randomUUID().toString()
 
-        val typeEnum = GroupType.entries.find { it.name.lowercase() == groupType.lowercase() } ?: GroupType.STOKVEL
-        val testGroup = DomainSeedFactory.createTestGroup(
-            id = groupId,
-            name = groupName,
-            type = typeEnum,
-            adminUserId = adminUserId,
-            monthlyContribution = monthlyContributionAmount
-        )
-
         // 1. Create Group
         client.postgrest["groups"].insert(buildJsonObject {
-            put("id", testGroup.id)
-            put("name", testGroup.name)
-            put("type", testGroup.type.name.lowercase())
-            put("admin_user_id", testGroup.adminUserId)
-            put("province", testGroup.province)
-            put("city", testGroup.city)
-            put("joining_fee", testGroup.joiningFee.amount.toPlainString())
-            put("monthly_contribution", testGroup.monthlyContribution.amount.toPlainString())
-            put("registration_paid", testGroup.registrationPaid)
+            put("id", groupId)
+            put("name", groupName)
+            put("type", groupType)
+            put("admin_user_id", adminUserId)
+            put("province", "Gauteng")
+            put("city", "Johannesburg")
+            put("joining_fee", Money("150.00").toPlainString())
+            put("monthly_contribution", monthlyContributionAmount.toPlainString())
+            put("registration_paid", true)
             put("fee_status", "paid")
         })
 
@@ -160,27 +148,19 @@ class LiveSimulationRunner(
         val joinedDate = LocalDate.now().minusMonths(12).withDayOfMonth(1)
         val joinedStr = joinedDate.toString() + "T00:00:00Z"
 
-        // Helper to setup member banking and joining fee using DomainSeedFactory
+        // Helper to set up member banking and joining fee with realistic test values.
         suspend fun setupMember(memberId: String, fullName: String, userId: String? = null) {
-            val testMember = DomainSeedFactory.createTestMember(
-                id = memberId,
-                groupId = groupId,
-                userId = userId,
-                fullName = fullName,
-                joinedDate = joinedDate
-            )
-
             val memberPayload = buildJsonObject {
-                put("id", testMember.id)
-                put("group_id", testMember.groupId)
-                if (testMember.userId != null) put("user_id", testMember.userId)
-                put("full_name", testMember.fullName)
+                put("id", memberId)
+                put("group_id", groupId)
+                userId?.let { put("user_id", it) }
+                put("full_name", fullName)
                 put("status", "active")
-                put("joined_at", testMember.joinedAt)
-                put("phone", testMember.phone)
-                put("bank_name", testMember.bankName)
-                put("account_no", testMember.accountNo)
-                put("branch_code", testMember.branchCode)
+                put("joined_at", "${joinedDate}T00:00:00Z")
+                put("phone", "082${(1000000..9999999).random()}")
+                put("bank_name", "First National Bank")
+                put("account_no", "62${(10000000..99999999).random()}")
+                put("branch_code", "250655")
             }
 
             // Upsert or insert member

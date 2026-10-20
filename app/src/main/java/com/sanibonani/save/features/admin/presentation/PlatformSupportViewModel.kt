@@ -24,11 +24,11 @@ class PlatformSupportViewModel @Inject constructor(
 
     fun selectImpersonationGroup(groupId: String) {
         if (groupId.isBlank()) {
-            updateState { it.copy(impersonationGroupId = null, impersonationMembers = emptyList()) }
+            updateState { it.copy(impersonationMembers = emptyList()) }
             return
         }
         launchJob("impersonation_members") {
-            updateState { it.copy(impersonationGroupId = groupId, isLoadingImpersonationMembers = true) }
+            updateState { it.copy(isLoadingImpersonationMembers = true) }
             memberRepo.syncGroupMembers(groupId)
             memberRepo.getGroupMembers(groupId).first().onSuccess { members ->
                 updateState { it.copy(impersonationMembers = members, isLoadingImpersonationMembers = false) }

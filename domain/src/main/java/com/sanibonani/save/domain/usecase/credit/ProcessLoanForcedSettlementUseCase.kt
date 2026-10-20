@@ -19,8 +19,10 @@ import com.sanibonani.save.domain.repository.admin.PlatformRepository
 import com.sanibonani.save.domain.repository.equity.ContributionRepository
 import com.sanibonani.save.domain.repository.credit.LoanRepository
 import com.sanibonani.save.domain.repository.member.MemberRepository
+import com.sanibonani.save.domain.logging.AppLogger
 import com.sanibonani.save.domain.repository.system.NotificationRepository
 import com.sanibonani.save.domain.utils.PaymentCalculator
+import com.sanibonani.save.domain.utils.safeRunCatching
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
 import javax.inject.Inject
@@ -50,7 +52,13 @@ class ProcessLoanForcedSettlementUseCase @Inject constructor(
                 isLoanTermExceeded(loan)
             }
             for (loan in expiredLoans) {
-                settleLoanFromContributions(loan, group)
+                // This sweep runs across every group and is not resumable, so a single rejected
+                // RPC must not strand the settlements that come after it.
+                safeRunCatching("$TAG.settleLoan") {
+                    settleLoanFromContributions(loan, group)
+                }.onFailure { e ->
+                    AppLogger.w(TAG, "Forced settlement failed for loan ${loan.id}; continuing sweep.", e)
+                }
             }
         }
     }
@@ -120,11 +128,22 @@ class ProcessLoanForcedSettlementUseCase @Inject constructor(
     }
     private suspend fun handleBurialSocietyProbationReset(member: Member, group: Group) {
         val updatedMember = memberRepository.getMemberById(member.id ?: "").getOrNull() ?: return
-        val contributions = contributionRepository.observeMemberContributions(member.id ?: "", group.id ?: "").firstValueOrNull() ?: emptyList()
-        val loans = loanRepository.getMemberLoans(member.id ?: "").firstValueOrNull() ?: emptyList()
+        val memberId = member.id ?: ""
+        // A history that never arrived contains no payments, and scoring that as arrears would put a
+        // member who is up to date on probation. The sanction waits for a readable ledger instead.
+        val contributions = contributionRepository
+            .observeMemberContributions(memberId, group.id ?: "").firstValueOrNull() ?: return
+        val loans = loanRepository.getMemberLoans(memberId).firstValueOrNull() ?: return
         val status = paymentCalculator.calculateStatus(group, updatedMember, contributions, loans, LocalDate.now())
-        if (status.shortfall > (group.monthlyContribution * 2.0)) {
-            memberRepository.updateMemberStatus(member.id ?: "", MemberStatus.PROBATION)
+        if (status.shortfall > (group.monthlyContribution * PROBATION_SHORTFALL_MONTHS)) {
+            memberRepository.updateMemberStatus(memberId, MemberStatus.PROBATION)
         }
+    }
+
+    private companion object {
+        const val TAG = "ForcedLoanSettlement"
+
+        /** A burial-society member is returned to probation once they fall this many months behind. */
+        const val PROBATION_SHORTFALL_MONTHS = 2
     }
 }

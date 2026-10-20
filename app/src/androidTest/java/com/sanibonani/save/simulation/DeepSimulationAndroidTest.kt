@@ -1,6 +1,7 @@
 package com.sanibonani.save.simulation
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.sanibonani.save.BuildConfig
 import dagger.hilt.android.testing.HiltAndroidRule
 import dagger.hilt.android.testing.HiltAndroidTest
 import kotlinx.coroutines.*
@@ -19,10 +20,10 @@ class DeepSimulationAndroidTest {
     @get:Rule
     var hiltRule = HiltAndroidRule(this)
 
-    private val url = "https://prosbbknupoexgzjwrwr.supabase.co"
-    private val key = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InByb3NiYmtudXBvZXhnemp3cndyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM1NDE4MDUsImV4cCI6MjA4OTExNzgwNX0.CJs8oWt0Q3quK8FkyaldwyOg-sXiU25rFaBCh5Mi2tE"
+    private val url = BuildConfig.SUPABASE_URL
+    private val key = BuildConfig.SUPABASE_ANON_KEY
     private val adminEmail = "torrymsimango@gmail.com"
-    private val adminPass = "torry123M"
+    private val adminPass = BuildConfig.PLATFORM_ADMIN_PASSWORD
 
     @Before
     fun init() {
