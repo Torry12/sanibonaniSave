@@ -9,7 +9,7 @@ RETURNS BOOLEAN AS $$
 BEGIN
   RETURN (auth.jwt() ->> 'aal') = 'aal2';
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER STABLE;
+$$ LANGUAGE plpgsql SECURITY DEFINER STABLE SET search_path = public, pg_temp;
 
 CREATE OR REPLACE FUNCTION public.is_platform_admin()
 RETURNS BOOLEAN AS $$
@@ -17,21 +17,21 @@ BEGIN
   IF (auth.jwt() -> 'app_metadata' ->> 'role') = 'platform_admin' THEN RETURN true; END IF;
   RETURN EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'platform_admin');
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER STABLE;
+$$ LANGUAGE plpgsql SECURITY DEFINER STABLE SET search_path = public, pg_temp;
 
 CREATE OR REPLACE FUNCTION public.is_group_admin(p_group_id UUID)
 RETURNS BOOLEAN AS $$
 BEGIN
     RETURN EXISTS (SELECT 1 FROM public.groups WHERE id = p_group_id AND admin_user_id = auth.uid());
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER STABLE;
+$$ LANGUAGE plpgsql SECURITY DEFINER STABLE SET search_path = public, pg_temp;
 
 CREATE OR REPLACE FUNCTION public.is_group_member(p_group_id UUID)
 RETURNS BOOLEAN AS $$
 BEGIN
     RETURN EXISTS (SELECT 1 FROM public.members WHERE group_id = p_group_id AND user_id = auth.uid());
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER STABLE;
+$$ LANGUAGE plpgsql SECURITY DEFINER STABLE SET search_path = public, pg_temp;
 
 CREATE OR REPLACE FUNCTION public.can_access_member_storage(p_path text)
 RETURNS BOOLEAN AS $$
@@ -47,7 +47,7 @@ BEGIN
         WHERE m.id::text = v_m_id AND (m.user_id = auth.uid() OR g.admin_user_id = auth.uid())
     );
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER STABLE;
+$$ LANGUAGE plpgsql SECURITY DEFINER STABLE SET search_path = public, pg_temp;
 
 -- 2. UTILITY FUNCTIONS
 CREATE OR REPLACE FUNCTION public.update_updated_at_column()
@@ -70,6 +70,7 @@ CREATE OR REPLACE FUNCTION public.increment_group_balance(
 ) RETURNS NUMERIC
 LANGUAGE plpgsql
 SECURITY DEFINER
+SET search_path = public, pg_temp
 AS $$
 DECLARE
     v_new_balance NUMERIC;
@@ -114,7 +115,19 @@ CREATE OR REPLACE FUNCTION public.record_platform_revenue_v2(
 DECLARE
     v_last_balance NUMERIC;
     v_new_balance NUMERIC;
+    v_existing RECORD;
 BEGIN
+    -- Serialises every writer of this running total: two concurrent fee payments would otherwise
+    -- read the same SUM and each store it as their own balance_after.
+    PERFORM pg_advisory_xact_lock(hashtext('platform_ledger')::bigint);
+
+    IF p_transaction_id IS NOT NULL THEN
+        SELECT * INTO v_existing FROM public.platform_ledger WHERE transaction_id = p_transaction_id LIMIT 1;
+        IF FOUND THEN
+            RETURN jsonb_build_object('amount', v_existing.amount, 'balance_after', v_existing.balance_after, 'idempotent', true);
+        END IF;
+    END IF;
+
     SELECT COALESCE(SUM(amount), 0) INTO v_last_balance FROM public.platform_ledger;
     v_new_balance := v_last_balance + p_amount;
 
@@ -123,7 +136,7 @@ BEGIN
 
     RETURN jsonb_build_object('amount', p_amount, 'balance_after', v_new_balance);
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 -- 4. CONTRIBUTION SYSTEM (V2)
 CREATE OR REPLACE FUNCTION public.internal_post_contribution(
@@ -139,6 +152,7 @@ CREATE OR REPLACE FUNCTION public.internal_post_contribution(
 ) RETURNS JSONB
 LANGUAGE plpgsql
 SECURITY DEFINER
+SET search_path = public, pg_temp
 AS $$
 DECLARE
     v_contrib RECORD;
@@ -179,6 +193,7 @@ CREATE OR REPLACE FUNCTION public.record_contribution_v2(
 ) RETURNS JSONB
 LANGUAGE plpgsql
 SECURITY DEFINER
+SET search_path = public, pg_temp
 AS $$
 DECLARE
     v_contrib RECORD;
@@ -205,6 +220,7 @@ CREATE OR REPLACE FUNCTION public.record_loan_repayment_v1(
 ) RETURNS JSONB
 LANGUAGE plpgsql
 SECURITY DEFINER
+SET search_path = public, pg_temp
 AS $$
 DECLARE
     v_repay RECORD;
@@ -239,17 +255,31 @@ CREATE OR REPLACE FUNCTION public.recompute_ledger_running_balances_v2(p_group_i
 RETURNS JSONB
 LANGUAGE plpgsql
 SECURITY DEFINER
+SET search_path = public, pg_temp
 AS $$
 DECLARE
-    v_entry RECORD;
-    v_bal NUMERIC := 0;
-    v_count INT := 0;
+    v_bal NUMERIC;
+    v_count INT;
 BEGIN
-    FOR v_entry IN (SELECT id, amount FROM public.group_ledger WHERE group_id = p_group_id ORDER BY created_at ASC, id ASC) LOOP
-        v_bal := v_bal + v_entry.amount;
-        v_count := v_count + 1;
-        UPDATE public.group_ledger SET balance_after = v_bal WHERE id = v_entry.id;
-    END LOOP;
+    PERFORM id FROM public.groups WHERE id = p_group_id FOR UPDATE;
+    IF NOT FOUND THEN RAISE EXCEPTION '[SYS_001] GROUP_NOT_FOUND'; END IF;
+
+    -- One set-based pass. The previous cursor issued one UPDATE per ledger row, so every payment
+    -- rewritten the group's whole history; only rows whose running balance actually moved are
+    -- touched now.
+    UPDATE public.group_ledger gl
+       SET balance_after = sub.running_balance
+      FROM (
+        SELECT id, SUM(amount) OVER (ORDER BY created_at ASC, id ASC) AS running_balance
+        FROM public.group_ledger
+        WHERE group_id = p_group_id
+      ) sub
+     WHERE gl.id = sub.id
+       AND gl.balance_after IS DISTINCT FROM sub.running_balance;
+
+    SELECT COALESCE(SUM(amount), 0), COUNT(*) INTO v_bal, v_count
+    FROM public.group_ledger WHERE group_id = p_group_id;
+
     UPDATE public.groups SET balance = v_bal WHERE id = p_group_id;
     RETURN jsonb_build_object('final_balance', v_bal, 'count', v_count);
 END;
@@ -291,23 +321,46 @@ CREATE OR REPLACE FUNCTION public.recalculate_all_group_financials_v3(p_group_id
 RETURNS JSONB
 LANGUAGE plpgsql
 SECURITY DEFINER
+SET search_path = public, pg_temp
 AS $$
 DECLARE
     v_stats JSONB;
     v_recon_id UUID;
     v_report JSONB;
+    v_recorded_balance NUMERIC;
+    v_ledger_sum NUMERIC;
+    v_diff NUMERIC;
+    v_status TEXT;
+    v_notes TEXT;
 BEGIN
+    PERFORM 1 FROM public.groups WHERE id = p_group_id FOR UPDATE;
+    IF NOT FOUND THEN RAISE EXCEPTION '[SYS_001] GROUP_NOT_FOUND'; END IF;
+
+    SELECT balance INTO v_recorded_balance FROM public.groups WHERE id = p_group_id;
+    v_recorded_balance := COALESCE(v_recorded_balance, 0);
+
     v_recon_id := gen_random_uuid();
     SELECT public.recompute_ledger_running_balances_v2(p_group_id) INTO v_stats;
+
+    -- The balance the group believed it had before this reconstruction, against what its own
+    -- ledger adds up to. Reporting 'balanced' unconditionally made this row pure theatre and
+    -- kept LedgerConsistencyWorker's discrepancy alert permanently armed off.
+    v_ledger_sum := (v_stats->>'final_balance')::NUMERIC;
+    v_diff := ROUND(v_recorded_balance - v_ledger_sum, 2);
+    v_status := CASE WHEN ABS(v_diff) <= 0.01 THEN 'balanced' ELSE 'discrepancy_found' END;
+    v_notes := CASE WHEN v_status = 'balanced'
+        THEN 'Deep ledger reconstruction performed via system repair.'
+        ELSE 'Deep ledger reconstruction: repaired a ' || ABS(v_diff)::TEXT || ' drift between the recorded group balance and the ledger sum.'
+    END;
 
     -- Insert a record into reconciliations for forensic tracking
     INSERT INTO public.reconciliations (
         id, group_id, period_start, period_end, status,
         ledger_balance, actual_balance, discrepancy, notes, created_at
     ) VALUES (
-        v_recon_id, p_group_id, NOW() - INTERVAL '365 days', NOW(), 'balanced',
-        (v_stats->>'final_balance')::NUMERIC, (v_stats->>'final_balance')::NUMERIC, 0,
-        'Deep ledger reconstruction performed via system repair.', NOW()
+        v_recon_id, p_group_id, NOW() - INTERVAL '365 days', NOW(), v_status,
+        v_ledger_sum, v_recorded_balance, v_diff,
+        v_notes, NOW()
     );
 
     v_report := jsonb_build_object(
@@ -320,11 +373,11 @@ BEGIN
             'group_id', p_group_id::text,
             'period_start', (EXTRACT(EPOCH FROM (NOW() - INTERVAL '365 days')) * 1000)::bigint,
             'period_end', (EXTRACT(EPOCH FROM NOW()) * 1000)::bigint,
-            'status', 'balanced',
-            'ledger_balance', (v_stats->>'final_balance')::text,
-            'actual_balance', (v_stats->>'final_balance')::text,
-            'discrepancy', '0.00',
-            'notes', 'Deep ledger reconstruction performed via system repair.',
+            'status', v_status,
+            'ledger_balance', v_ledger_sum::NUMERIC(12,2)::text,
+            'actual_balance', v_recorded_balance::NUMERIC(12,2)::text,
+            'discrepancy', v_diff::NUMERIC(12,2)::text,
+            'notes', v_notes,
             'created_at', NOW()::text
         ),
         'timestamp', NOW()::text
@@ -340,6 +393,7 @@ CREATE OR REPLACE FUNCTION public.generate_platform_audit_report_v1()
 RETURNS JSONB
 LANGUAGE plpgsql
 SECURITY DEFINER
+SET search_path = public, pg_temp
 AS $$
 DECLARE
     v_liquidity NUMERIC;
@@ -398,6 +452,7 @@ CREATE OR REPLACE FUNCTION public.generate_group_audit_report_v1(p_group_id UUID
 RETURNS JSONB
 LANGUAGE plpgsql
 SECURITY DEFINER
+SET search_path = public, pg_temp
 AS $$
 DECLARE
     v_group RECORD;
@@ -475,6 +530,7 @@ CREATE OR REPLACE FUNCTION public.generate_member_audit_report_v1(p_member_id UU
 RETURNS JSONB
 LANGUAGE plpgsql
 SECURITY DEFINER
+SET search_path = public, pg_temp
 AS $$
 DECLARE
     v_member RECORD;
@@ -599,7 +655,7 @@ BEGIN
     END IF;
     RETURN NULL;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 DROP TRIGGER IF EXISTS tr_member_status_audit ON public.members;
 CREATE TRIGGER tr_member_status_audit AFTER UPDATE OF status ON public.members FOR EACH ROW EXECUTE FUNCTION public.fn_member_status_audit();
@@ -614,7 +670,7 @@ BEGIN
     END IF;
     RETURN NULL;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 DROP TRIGGER IF EXISTS tr_member_document_audit ON public.members;
 CREATE TRIGGER tr_member_document_audit AFTER UPDATE OF document_1_status, document_2_status ON public.members FOR EACH ROW EXECUTE FUNCTION public.fn_member_document_audit();
@@ -626,7 +682,7 @@ BEGIN
     END IF;
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 DROP TRIGGER IF EXISTS tr_reconciliation_audit ON public.reconciliations;
 CREATE TRIGGER tr_reconciliation_audit AFTER UPDATE ON public.reconciliations FOR EACH ROW EXECUTE FUNCTION public.fn_trigger_reconciliation_audit();
@@ -676,6 +732,7 @@ CREATE OR REPLACE FUNCTION public.pay_platform_fee_v2(
 ) RETURNS JSONB
 LANGUAGE plpgsql
 SECURITY DEFINER
+SET search_path = public, pg_temp
 AS $$
 DECLARE
     v_current_bal NUMERIC;
@@ -779,6 +836,7 @@ CREATE OR REPLACE FUNCTION public.automate_monthly_billing_v1()
 RETURNS JSONB
 LANGUAGE plpgsql
 SECURITY DEFINER
+SET search_path = public, pg_temp
 AS $$
 DECLARE
     v_group RECORD;
@@ -1041,6 +1099,14 @@ CREATE OR REPLACE FUNCTION public.record_platform_revenue_v1(
 DECLARE
     v_last_balance NUMERIC;
 BEGIN
+    PERFORM pg_advisory_xact_lock(hashtext('platform_ledger')::bigint);
+
+    IF p_transaction_id IS NOT NULL THEN
+        IF EXISTS (SELECT 1 FROM public.platform_ledger WHERE transaction_id = p_transaction_id LIMIT 1) THEN
+            RETURN;
+        END IF;
+    END IF;
+
     SELECT balance_after INTO v_last_balance FROM public.platform_ledger ORDER BY created_at DESC LIMIT 1;
     INSERT INTO public.platform_ledger (transaction_id, amount, balance_after, description, category, group_id)
     VALUES (p_transaction_id, p_amount, COALESCE(v_last_balance, 0) + p_amount, p_description, p_category, p_group_id);
@@ -1086,6 +1152,11 @@ DECLARE
     v_m_name TEXT;
     v_group RECORD;
 BEGIN
+    -- Groups-first, the same order complete_payout_v2 and increment_group_balance use: the status
+    -- and liquidity guards below must be evaluated with the lock already held.
+    PERFORM id FROM public.groups WHERE id = (SELECT group_id FROM public.loans WHERE id = p_loan_id) FOR UPDATE;
+    IF NOT FOUND THEN RAISE EXCEPTION '[SYS_001] LOAN_NOT_FOUND'; END IF;
+
     SELECT * INTO v_loan FROM public.loans WHERE id = p_loan_id;
     IF v_loan.id IS NULL THEN RAISE EXCEPTION '[SYS_001] LOAN_NOT_FOUND'; END IF;
     IF v_loan.status NOT IN ('pending', 'approved') THEN RAISE EXCEPTION '[FIN_002] INVALID_STATUS: Loan cannot be disbursed from status %', v_loan.status; END IF;

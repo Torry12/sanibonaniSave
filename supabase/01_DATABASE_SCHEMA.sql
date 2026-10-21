@@ -722,6 +722,18 @@ CREATE INDEX IF NOT EXISTS idx_audit_logs_actor ON public.audit_logs(actor_id);
 CREATE INDEX IF NOT EXISTS idx_payouts_composite ON public.payouts(group_id, status);
 CREATE INDEX IF NOT EXISTS idx_members_name_trgm ON public.members USING gin (full_name gin_trgm_ops);
 
+-- 20.1 FINANCIAL HOT-PATH INDEXES
+-- Every one of these backs an idempotency guard or a per-write aggregate that runs inside a
+-- money path, so a sequential scan here is paid on every payment, contribution and repayment.
+CREATE INDEX IF NOT EXISTS idx_group_ledger_tx ON public.group_ledger(group_id, transaction_id);
+CREATE INDEX IF NOT EXISTS idx_contributions_group_tx ON public.contributions(group_id, transaction_id);
+CREATE INDEX IF NOT EXISTS idx_payments_group_tx ON public.payments(group_id, transaction_id);
+CREATE INDEX IF NOT EXISTS idx_platform_ledger_tx ON public.platform_ledger(transaction_id);
+CREATE INDEX IF NOT EXISTS idx_loan_repayments_loan_id ON public.loan_repayments(loan_id);
+CREATE INDEX IF NOT EXISTS idx_reconciliations_group_created ON public.reconciliations(group_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_loans_group_id ON public.loans(group_id);
+CREATE INDEX IF NOT EXISTS idx_members_id_number ON public.members(id_number);
+
 -- 21. DEFAULT PROVISIONING
 INSERT INTO public.financial_providers (id, name, type, adapter_type, supported_ops)
 VALUES
