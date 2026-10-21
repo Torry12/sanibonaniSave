@@ -8,7 +8,9 @@
 --   K.1  creates 8 missing indexes that back idempotency guards and per-write
 --        aggregates inside the money paths.
 --   K.2  replaces 5 function bodies with the corrected versions now in the masters.
---   K.3  pins SET search_path on 21 SECURITY DEFINER functions with ALTER FUNCTION.
+--   K.3  pins SET search_path with ALTER FUNCTION on the functions in its list that the
+--        tier reports as SECURITY DEFINER and still unpinned. How many that turns out to
+--        be is a fact about the live tier, measured in K.0.f - not a number promised here.
 --
 -- WHAT THIS DOES NOT DO
 --   No DROP of any object, no DELETE, no UPDATE of stored data, no GRANT or REVOKE,
@@ -134,9 +136,13 @@ SELECT 'recon_status_allows_discrepancy_found=' || EXISTS (
 --        comparison) and is worth chasing on its own.
 SELECT 'groups_null_balance=' || count(*) AS e_null_balance FROM public.groups WHERE balance IS NULL;
 
--- K.0.f  How many of the 21 pin targets are still unpinned.  Expect 21 here and 0 in K.4.
---        (Three of them are re-created already-pinned by K.2, so the count drops to 18
---        between K.2 and K.3 - that is the intended sequence, not a failure.)
+-- K.0.f  How many of the listed pin targets the tier still reports as SECURITY DEFINER
+--        and unpinned. This is a measurement of the live tier, not a gate: any value from
+--        0 up to the list size is a legitimate starting point, and a low count simply means
+--        the tier already carries most of the pins. Do NOT stop on a small number here.
+--        The post-condition that does matter is targets_unpinned=0 in K.4.b, after K.3.
+--        A count above the list size is impossible by construction, so read K.4.b, not
+--        this row, for the pass/fail.
 SELECT 'targets_unpinned=' || count(*) AS f_targets_unpinned
   FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
  WHERE n.nspname = 'public' AND p.prosecdef
@@ -403,15 +409,23 @@ $$;
 
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- K.3  PIN search_path ON THE REMAINING SECURITY DEFINER FUNCTIONS
+-- K.3  PIN search_path ON THE LISTED FUNCTIONS THAT ARE SECURITY DEFINER
 --      ALTER FUNCTION, not CREATE OR REPLACE: search_path is a function attribute and
 --      is not part of prosrc, so this section changes no stored hash and cannot alter
 --      any behaviour. The signatures are read from pg_catalog rather than transcribed,
 --      so an overload or a changed argument list cannot make the paste fail.
 --      Idempotent: the WHERE clause only selects functions that lack the pin, so
---      re-running it is a no-op. Safe because no function in this list touches a
---      schema other than public/auth, and every pgcrypto call in the repository is
---      already written as extensions.crypt / extensions.gen_salt.
+--      re-running it is a no-op. It also selects only p.prosecdef rows, so a name in the
+--      list that the tier reports as SECURITY INVOKER is skipped rather than failing the
+--      paste; that is deliberate - invoker functions already resolve objects through the
+--      caller's path and are not the search_path risk this section targets.
+--      Safe because a body-level scan of every name below found no unqualified reference
+--      that public, pg_temp would fail to resolve: no bare auth table name (no "FROM
+--      users" / "FROM sessions" - the auth references that do exist in this repository are
+--      written as auth.uid() and auth.<table>, which resolve regardless of search_path)
+--      and no bare pgcrypto call. In fact none of the listed bodies call pgcrypto at all;
+--      the only crypt / gen_salt sites in the repository are the setup and seed scripts,
+--      and every one of them is already written as extensions.crypt / extensions.gen_salt.
 -- ─────────────────────────────────────────────────────────────────────────────
 DO $$
 DECLARE
