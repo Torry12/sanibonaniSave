@@ -17,7 +17,7 @@ data class PayoutRequest(
     @SerialName("account_no")  val accountNo: String,
     @SerialName("branch_code") val branchCode: String,
     val status: PayoutStatus = PayoutStatus.PENDING,
-    val type: PayoutType = PayoutType.STANDARD,
+    @SerialName("payout_type") val type: PayoutType = PayoutType.STANDARD,
     val metadata: kotlinx.serialization.json.JsonObject? = null,
     @SerialName("processed_by") val processedBy: String? = null,
     @SerialName("processed_at") val processedAt: String? = null,
@@ -45,5 +45,11 @@ enum class PayoutType {
     @SerialName("emergency") EMERGENCY,
     @SerialName("disinvestment") DISINVESTMENT,
     @SerialName("claim") CLAIM,
-    @SerialName("rotation") ROTATION
+    @SerialName("rotation") ROTATION,
+
+    // Both literals are live data and cannot be collapsed: 'rosca' is what
+    // process_rosca_payout_v2/v3 insert and 'custom' is the payouts table's own DEFAULT,
+    // so any row created outside the app arrives as one of these two.
+    @SerialName("rosca") ROSCA,
+    @SerialName("custom") CUSTOM
 }

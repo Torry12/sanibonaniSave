@@ -386,6 +386,8 @@ fun PayoutRequestItem(payout: PayoutRequest) {
                         PayoutType.EMERGENCY -> "Emergency"
                         PayoutType.DISINVESTMENT -> "Disinvestment"
                         PayoutType.ROTATION -> "Rotation"
+                        PayoutType.ROSCA -> "Rotation"
+                        PayoutType.CUSTOM -> "Custom"
                         PayoutType.ANNUAL -> "Annual"
                         else -> "Standard"
                     }
