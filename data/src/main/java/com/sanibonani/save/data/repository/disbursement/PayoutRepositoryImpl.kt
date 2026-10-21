@@ -104,7 +104,8 @@ class PayoutRepositoryImpl @Inject constructor(
         payoutId: String,
         status: PayoutStatus,
         payoutReference: String?,
-        metadata: JsonObject?
+        metadata: JsonObject?,
+        actorId: String?
     ): Result<Unit> = safeApiCall(
         operationType = "payout_status_update",
         groupId = null, // Will be fetched if needed, but not critical for queuing
@@ -113,16 +114,19 @@ class PayoutRepositoryImpl @Inject constructor(
             put("status", status.name)
             payoutReference?.let { put("reference", it) }
             metadata?.let { put("metadata", it) }
+            actorId?.let { put("actor_id", it) }
         }),
         dao = pendingOpDao
     ) {
-        remoteSource.updatePayoutStatus(payoutId, status, payoutReference, metadata = metadata).getOrThrow()
+        remoteSource.updatePayoutStatus(payoutId, status, payoutReference, processedBy = actorId, metadata = metadata).getOrThrow()
         val updated = remoteSource.getPayoutById(payoutId).getOrThrow()
         localSource.savePayout(updated)
 
         auditLogRepo.logEvent(
             AuditLog(
-                actorId = updated.processedBy ?: updated.groupId,
+                // The admin who asked, not whatever the server row ended up carrying: an audit
+                // line must name the actor even if the response was stale or stripped.
+                actorId = actorId ?: updated.processedBy ?: updated.groupId,
                 targetGroupId = updated.groupId,
                 targetMemberId = updated.memberId,
                 action = "PAYOUT_STATUS_CHANGED",
@@ -202,15 +206,17 @@ class PayoutRepositoryImpl @Inject constructor(
         totalPot: Money,
         loanDeductions: JsonArray,
         payoutAmount: Money,
-        payoutData: JsonObject
-    ): Result<String> = authoritativeCall("processRoscaPayout") {
+        payoutData: JsonObject,
+        period: String
+    ): Result<String?> = authoritativeCall("processRoscaPayout") {
         remoteSource.processRoscaPayout(
             groupId,
             memberId,
             totalPot,
             loanDeductions,
             payoutAmount,
-            payoutData
+            payoutData,
+            period
         ).getOrThrow()
     }
 

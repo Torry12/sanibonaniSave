@@ -31,6 +31,13 @@ class ProcessDisbursementUseCase @Inject constructor(
     ): Result<PayoutRequest> = financialResult {
         AppLogger.d(TAG, "Processing payout $payoutId transition to $status by $adminId")
 
+        // An empty actor id is what a dropped session hands over. Refusing it here keeps the audit
+        // trail attributable and stops processed_by being stamped with a value the dual-control
+        // gate would later read back as a match between two different admins.
+        if (adminId.isBlank()) {
+            throw IllegalStateException("A signed-in administrator is required to change a payout status.")
+        }
+
         // 1. Fetch current record
         val payout = payoutRepository.getPayoutById(payoutId).getOrThrow()
 
@@ -52,16 +59,14 @@ class ProcessDisbursementUseCase @Inject constructor(
             securityService.validateLiquidity(groupId, payout.amount + committedAmount).getOrThrow()
         }
 
-        // MAKER-CHECKER DUAL CONTROL ENFORCEMENT
-        // In a live environment, one admin cannot single-handedly request and complete a high-value payout.
+        // MAKER-CHECKER DUAL CONTROL
+        // One administrator cannot both prepare and pay out a high-value request alone.
         if (status == PayoutStatus.COMPLETED) {
-            val isHighValue = payout.amount >= Money("5000.0")
-            if (isHighValue && payout.processedBy == adminId) {
-                // If the same admin who approved/processed earlier is now trying to complete, block it.
-                // Note: In real life, `payout.processedBy` would track the initiator.
-                AppLogger.w(TAG, "Dual-control violation: Admin $adminId is attempting to auto-complete a high-value payout.")
-                // throw IllegalStateException("DUAL_CONTROL_VIOLATION: High value payouts require a second administrator to complete.")
-            }
+            securityService.assertDualControl(payout.amount, adminId, payout.processedBy)
+                .onFailure {
+                    AppLogger.w(TAG, "Dual-control gate blocked admin $adminId on payout $payoutId (processor ${payout.processedBy}).")
+                }
+                .getOrThrow()
             securityService.assertMfaRequirement(payout.amount).getOrThrow()
         }
 
@@ -69,7 +74,7 @@ class ProcessDisbursementUseCase @Inject constructor(
         val updateResult = if (status == PayoutStatus.COMPLETED) {
             payoutRepository.completePayoutAtomic(payoutId, adminId, payoutReference)
         } else {
-            payoutRepository.updatePayoutStatus(payoutId, status, payoutReference, metadata)
+            payoutRepository.updatePayoutStatus(payoutId, status, payoutReference, metadata, adminId)
         }
 
         // 5. Fetch updated record

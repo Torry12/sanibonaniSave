@@ -119,8 +119,9 @@ class PayoutStatusUpdateOutboxHandler @Inject constructor(
             ?: error("Outbox payload carries an unknown payout status '$statusName'")
         val reference = request["reference"]?.jsonPrimitive?.contentOrNull
         val metadata = request["metadata"] as? JsonObject
+        val actorId = request["actor_id"]?.jsonPrimitive?.contentOrNull
 
-        remoteSource.updatePayoutStatus(payoutId, status, reference, metadata = metadata).getOrThrow()
+        remoteSource.updatePayoutStatus(payoutId, status, reference, processedBy = actorId, metadata = metadata).getOrThrow()
         val updated = remoteSource.getPayoutById(payoutId).getOrThrow()
         localSource.savePayout(updated)
 

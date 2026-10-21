@@ -12,11 +12,14 @@ interface PayoutRepository {
     suspend fun getPendingPayouts(): Result<List<PayoutRequest>>
     suspend fun getPayoutById(payoutId: String): Result<PayoutRequest>
 
+    // [actorId] is persisted as the processor: the dual-control gate needs to know who moved a
+    // request into processing before it can block that same admin from completing it.
     suspend fun updatePayoutStatus(
         payoutId: String,
         status: PayoutStatus,
         payoutReference: String? = null,
-        metadata: JsonObject? = null
+        metadata: JsonObject? = null,
+        actorId: String? = null
     ): Result<Unit>
     suspend fun completePayoutAtomic(payoutId: String, adminId: String, payoutReference: String? = null): Result<Unit>
 
@@ -32,6 +35,11 @@ interface PayoutRepository {
 
     /**
      * Executes a ROSCA payout with loan offsets atomically.
+     *
+     * [period] is the rotation period (yyyy-MM) this payout settles. The server claims it before it
+     * offsets a single loan, so a re-run of a period cannot repay the same loans twice. The returned
+     * payout id is null when the database created no payouts row - a pot the offsets fully absorbed,
+     * or a period it had already executed.
      */
     suspend fun processRoscaPayout(
         groupId: String,
@@ -39,6 +47,7 @@ interface PayoutRepository {
         totalPot: Money,
         loanDeductions: JsonArray,
         payoutAmount: Money,
-        payoutData: JsonObject
-    ): Result<String>
+        payoutData: JsonObject,
+        period: String
+    ): Result<String?>
 }

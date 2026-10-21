@@ -10,6 +10,7 @@ import com.sanibonani.save.domain.usecase.disbursement.ProcessDisbursementUseCas
 import com.sanibonani.save.domain.usecase.credit.ProcessLoanDecisionUseCase
 import com.sanibonani.save.domain.usecase.credit.ProcessLoanDisbursementUseCase
 import com.sanibonani.save.domain.usecase.member.ProcessBurialClaimUseCase
+import com.sanibonani.save.domain.utils.requiresMfaChallenge
 import com.sanibonani.save.features.admin.presentation.state.PlatformDisbursementsUiState
 import com.sanibonani.save.features.common.presentation.BaseViewModel
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -210,8 +211,7 @@ class PlatformDisbursementsViewModel @Inject constructor(
     }
 
     private fun handleActionFailure(e: Throwable) {
-        val msg = e.message ?: ""
-        if (msg.contains("MFA_REQUIRED")) {
+        if (e.requiresMfaChallenge()) {
             _mfaRequired.tryEmit(Unit)
         } else {
             handleError(e)

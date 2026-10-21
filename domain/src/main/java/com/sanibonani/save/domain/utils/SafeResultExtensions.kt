@@ -1,6 +1,7 @@
 package com.sanibonani.save.domain.utils
 
 import com.sanibonani.save.domain.logging.AppLogger
+import com.sanibonani.save.domain.model.DualControlViolationException
 import com.sanibonani.save.domain.model.MfaRequiredException
 import kotlinx.coroutines.CancellationException
 
@@ -172,6 +173,10 @@ fun Throwable.toUserMessage(): String {
         // High-value disbursement gate: the marker is a machine signal, not a message.
         msg.contains(MfaRequiredException.MARKER) ->
             return "This transaction requires two-step verification. Complete the verification and try again."
+
+        // Maker-checker gate: no self-service fix exists, another administrator is needed.
+        msg.contains(DualControlViolationException.MARKER) ->
+            return "A second administrator must complete this disbursement. Ask another admin to review and confirm it."
 
         // RPC Business Logic Exceptions
         msg.contains("Repayment amount exceeds", ignoreCase = true) ->

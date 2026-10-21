@@ -91,23 +91,40 @@ class SupabasePayoutDataSourceImpl @Inject constructor(
         }) { filter { eq("id", payoutId) } }
     }
 
-    override suspend fun processRoscaPayout(groupId: String, memberId: String, totalPot: Money, loanDeductions: JsonArray, payoutAmount: Money, payoutData: JsonObject): Result<String> = safeRunCatching {
-        AppLogger.d(tag, "Processing ROSCA payout for member $memberId in group $groupId")
-        val rpcParams = buildJsonObject {
+    override suspend fun processRoscaPayout(groupId: String, memberId: String, totalPot: Money, loanDeductions: JsonArray, payoutAmount: Money, payoutData: JsonObject, period: String): Result<String?> = safeRunCatching {
+        AppLogger.d(tag, "Processing ROSCA payout for member $memberId in group $groupId for period $period")
+        val element = client.postgrest.rpc(ROSCA_PAYOUT_RPC, buildRoscaPayoutRpcParams(groupId, memberId, totalPot, loanDeductions, payoutAmount, payoutData, period)).decodeAs<JsonElement>()
+        val obj = when (element) {
+            is JsonObject -> element
+            is JsonArray -> element.firstOrNull()?.jsonObject ?: buildJsonObject {}
+            else -> buildJsonObject {}
+        }
+        // A rotation whose offsets absorb the whole pot creates no payouts row, and a period the
+        // server has already executed reports the same. Inventing an id here would put a payout
+        // that does not exist into the audit trail.
+        obj["payout_id"]?.jsonPrimitive?.contentOrNull
+    }
+
+    companion object {
+        const val ROSCA_PAYOUT_RPC = "process_rosca_payout_v3"
+
+        fun buildRoscaPayoutRpcParams(
+            groupId: String,
+            memberId: String,
+            totalPot: Money,
+            loanDeductions: JsonArray,
+            payoutAmount: Money,
+            payoutData: JsonObject,
+            period: String
+        ): JsonObject = buildJsonObject {
             put("p_group_id", groupId)
             put("p_member_id", memberId)
             put("p_total_pot", totalPot.amount.toPlainString())
             put("p_loan_deductions", loanDeductions)
             put("p_payout_amount", payoutAmount.amount.toPlainString())
             put("p_payout_data", payoutData)
+            put("p_period", period)
         }
-        val element = client.postgrest.rpc("process_rosca_payout_v2", rpcParams).decodeAs<JsonElement>()
-        val obj = when (element) {
-            is JsonObject -> element
-            is JsonArray -> element.firstOrNull()?.jsonObject ?: buildJsonObject {}
-            else -> buildJsonObject {}
-        }
-        obj["payout_id"]?.jsonPrimitive?.content ?: "OK"
     }
 }
 

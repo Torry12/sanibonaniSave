@@ -106,6 +106,23 @@ class PayoutStatusUpdateOutboxHandlerTest {
     }
 
     @Test
+    fun `the acting admin replays as the processor`() = runBlocking {
+        // The dual-control gate reads processed_by, so a transition queued offline must replay
+        // with the same admin stamped, or the offline approval would be invisible to the gate.
+        val payload = """{"payout_id":"p-1","status":"PROCESSING","actor_id":"admin-2"}"""
+        coEvery {
+            remoteSource.updatePayoutStatus("p-1", PayoutStatus.PROCESSING, null, "admin-2", null, null)
+        } returns Result.success(Unit)
+        coEvery { remoteSource.getPayoutById("p-1") } returns Result.success(payout(PayoutStatus.PROCESSING))
+
+        assertTrue(handler.handle(operation(payload)).isSuccess)
+
+        coVerify(exactly = 1) {
+            remoteSource.updatePayoutStatus("p-1", PayoutStatus.PROCESSING, null, "admin-2", null, null)
+        }
+    }
+
+    @Test
     fun `a server rejection leaves the cache and the audit trail untouched`() = runBlocking {
         coEvery {
             remoteSource.updatePayoutStatus(any(), any(), any(), metadata = any())

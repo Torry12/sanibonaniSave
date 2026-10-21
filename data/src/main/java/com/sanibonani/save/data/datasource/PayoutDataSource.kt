@@ -24,7 +24,11 @@ interface RemotePayoutDataSource {
     ): Result<Unit>
     suspend fun completePayoutAtomic(payoutId: String, adminId: String, reference: String?): Result<Unit>
     suspend fun updatePayoutDocumentStatus(payoutId: String, status: DocumentStatus): Result<Unit>
-    suspend fun processRoscaPayout(groupId: String, memberId: String, totalPot: Money, loanDeductions: JsonArray, payoutAmount: Money, payoutData: JsonObject): Result<String>
+
+    // [period] is the rotation period (yyyy-MM) the payout belongs to: the server claims it so a
+    // re-run of a period cannot offset the same loans twice. The payout id is null when the
+    // database created no payouts row, which is also what a duplicate period reports.
+    suspend fun processRoscaPayout(groupId: String, memberId: String, totalPot: Money, loanDeductions: JsonArray, payoutAmount: Money, payoutData: JsonObject, period: String): Result<String?>
 }
 
 interface LocalPayoutDataSource {

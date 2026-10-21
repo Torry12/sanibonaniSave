@@ -91,6 +91,31 @@ class FinancialWorkflowIntegrityTest {
     }
 
     @Test
+    fun `the dual-control block is a typed gate with a plain-language message`() = runBlocking {
+        val payoutId = "p1"
+        val payout = PayoutRequest(
+            id = payoutId,
+            groupId = "g1",
+            amount = Money("15000.0"),
+            bankName = "FNB",
+            accountNo = "123",
+            branchCode = "456",
+            status = PayoutStatus.PROCESSING,
+            processedBy = "admin1"
+        )
+        coEvery { payoutRepository.getPayoutById(payoutId) } returns Result.success(payout)
+
+        val result = processDisbursementUseCase(payoutId, "g1", PayoutStatus.COMPLETED, "admin1")
+
+        assertTrue(result.exceptionOrNull() is DualControlViolationException)
+        assertTrue(result.exceptionOrNull()!!.message!!.contains(DualControlViolationException.MARKER))
+        // Presenters must never show the machine marker to an admin.
+        val userMessage = result.exceptionOrNull()!!.toUserMessage()
+        assertFalse(userMessage.contains(DualControlViolationException.MARKER))
+        assertTrue(userMessage.contains("administrator", ignoreCase = true))
+    }
+
+    @Test
     fun `only the security service and the database marker require an mfa challenge`() {
         assertTrue(MfaRequiredException(Money("10000.00")).requiresMfaChallenge())
         // The same gate raised by a DB trigger arrives as a plain exception.

@@ -39,3 +39,17 @@ class MfaRequiredException(
         const val MARKER = "MFA_REQUIRED"
     }
 }
+
+/**
+ * Raised when the administrator completing a high-value disbursement is the same one who moved it
+ * into processing. Unlike the AAL2 gate this has no challenge to run: it needs a different person.
+ */
+class DualControlViolationException(
+    val amount: Money
+) : PayoutException(
+    "$MARKER: A disbursement of ${amount.format()} must be completed by a second administrator."
+) {
+    companion object {
+        const val MARKER = "DUAL_CONTROL_VIOLATION"
+    }
+}

@@ -8,6 +8,8 @@ import com.sanibonani.save.domain.repository.credit.LoanRepository
 import com.sanibonani.save.domain.repository.disbursement.PayoutRepository
 import com.sanibonani.save.domain.repository.equity.ContributionRepository
 import com.sanibonani.save.domain.service.PayoutGuard
+import com.sanibonani.save.domain.validation.InputValidator
+import com.sanibonani.save.domain.logging.AppLogger
 import com.sanibonani.save.domain.event.EventBus
 import com.sanibonani.save.domain.event.PayoutProcessedEvent
 import kotlinx.serialization.json.*
@@ -25,6 +27,8 @@ class ExecuteRoscaPayoutUseCase @Inject constructor(
     private val roscaRotationUseCase: CalculateRoscaRotationUseCase,
     private val payoutGuard: PayoutGuard
 ) {
+    private val TAG = "ExecuteRoscaPayout"
+
     suspend operator fun invoke(groupId: String): Result<String> = financialResult {
         val group = groupRepository.getGroupById(groupId).getOrNull() ?: throw Exception("Group not found")
         if (group.type != GroupType.ROSCA) throw Exception("Not a ROSCA")
@@ -38,10 +42,24 @@ class ExecuteRoscaPayoutUseCase @Inject constructor(
         // One loan fetch for the whole rotation instead of one per payoutee. Each per-member fetch
         // is a network round-trip that re-syncs the cache, so a 30-person ROSCA used to issue thirty
         // of them and could deduct against a balance that changed partway through the loop.
-        val activeLoansByMember = loanRepository.getGroupLoansSync(groupId).getOrNull()
+        val loanLedger = loanRepository.getGroupLoansSync(groupId)
+        val activeLoansByMember = loanLedger.getOrNull()
             ?.filter { it.status == LoanStatus.ACTIVE || it.status == LoanStatus.PARTIALLY_PAID }
             ?.groupBy { it.memberId }
             ?: emptyMap()
+        // The rotation runs on a daily schedule and again from the admin screen, so the queue of
+        // unsettled payouts is what stops one period being paid out several times over.
+        val payoutQueue = payoutRepository.getPendingPayouts()
+        // An unreadable ledger puts every payoutee on hold: a missing row cannot be told apart
+        // from a member who genuinely has no loans.
+        val loanLedgerUnreadable = loanLedger.isFailure
+        if (loanLedgerUnreadable) {
+            AppLogger.e(TAG, "Loan ledger unreadable for group $groupId, no payout executed this rotation. cause=${loanLedger.exceptionOrNull()?.message}")
+        }
+        val payoutQueueUnreadable = payoutQueue.isFailure
+        if (payoutQueueUnreadable) {
+            AppLogger.e(TAG, "Payout queue unreadable for group $groupId, no payout executed this rotation. cause=${payoutQueue.exceptionOrNull()?.message}")
+        }
         val schedule = roscaRotationUseCase(group, members).getOrThrow()
         val currentItems = schedule.subgroups.flatMap { sub -> sub.items.filter { it.isCurrent } }
         if (currentItems.isEmpty()) throw Exception("No current members")
@@ -52,8 +70,45 @@ class ExecuteRoscaPayoutUseCase @Inject constructor(
                 results.add("❌ Skipped ${currentMember.fullName}: Not active")
                 continue
             }
-            if (currentMember.bankName.isNullOrBlank() || currentMember.accountNo.isNullOrBlank()) {
+            val bankName = currentMember.bankName
+            val accountNo = currentMember.accountNo
+            if (bankName.isNullOrBlank() || accountNo.isNullOrBlank()) {
                 results.add("❌ Skipped ${currentMember.fullName}: No banking info")
+                continue
+            }
+            val currentMonth = currentItem.payoutDate.substring(0, 7)
+            // Money addressed to a malformed account never arrives, and the rotation would still
+            // count the period as paid. InputValidator is the single source of truth for that shape.
+            val accountCheck = InputValidator.validateAccountNumber(accountNo, bankName)
+            if (!accountCheck.isValid()) {
+                results.add("❌ Skipped ${currentMember.fullName}: ${accountCheck.getErrorMessage()}")
+                continue
+            }
+            val branchCheck = InputValidator.validateBranchCode(currentMember.branchCode.orEmpty())
+            if (!branchCheck.isValid()) {
+                results.add("❌ Skipped ${currentMember.fullName}: ${branchCheck.getErrorMessage()}")
+                continue
+            }
+            // Paying the gross pot would hand over money already earmarked for loans this
+            // rotation could not read. The next rotation retries with a readable ledger.
+            if (loanLedgerUnreadable) {
+                results.add("❌ Skipped ${currentMember.fullName}: Outstanding loans could not be read")
+                continue
+            }
+            if (payoutQueueUnreadable) {
+                results.add("❌ Skipped ${currentMember.fullName}: Outstanding payouts could not be read")
+                continue
+            }
+            // The queue cannot name the kind of request a row is - the database writes payout_type
+            // while the model reads type - so any unsettled request addressed to this member in this
+            // period holds the rotation. A held rotation retries on the next run; a second payout is
+            // money out of the treasury.
+            val alreadyRequested = payoutQueue.getOrNull()?.any { request ->
+                request.groupId == groupId && request.memberId == currentMember.id &&
+                    (request.createdAt == null || request.createdAt.startsWith(currentMonth))
+            } == true
+            if (alreadyRequested) {
+                results.add("❌ Skipped ${currentMember.fullName}: A payout for $currentMonth is already outstanding")
                 continue
             }
 
@@ -71,7 +126,6 @@ class ExecuteRoscaPayoutUseCase @Inject constructor(
                 results.add("❌ Skipped ${currentMember.fullName}: Has arrears")
                 continue
             }
-            val currentMonth = currentItem.payoutDate.substring(0, 7)
             val activeLoans = activeLoansByMember[currentMember.id ?: ""] ?: emptyList()
             val subgroup = schedule.subgroups.find { it.memberIds.contains(currentMember.id) } ?: continue
             val actualCollectedPot = allContributions
@@ -112,24 +166,31 @@ class ExecuteRoscaPayoutUseCase @Inject constructor(
                     put("bank_name", currentMember.bankName)
                     put("account_no", currentMember.accountNo)
                     put("branch_code", currentMember.branchCode)
-                }
+                },
+                period = currentMonth
             ).onSuccess { payoutId ->
-                platformRepository.logAuditEvent(AuditLog(actorId = "system_rosca", targetGroupId = groupId, targetMemberId = currentMember.id, action = "ROSCA_PAYOUT_EXECUTED", details = buildJsonObject { put("payoutId", payoutId); put("totalPot", actualCollectedPot.amount.toPlainString()); put("period", currentMonth) }))
+                platformRepository.logAuditEvent(AuditLog(actorId = "system_rosca", targetGroupId = groupId, targetMemberId = currentMember.id, action = "ROSCA_PAYOUT_INITIATED", details = buildJsonObject { put("payoutId", payoutId); put("totalPot", actualCollectedPot.amount.toPlainString()); put("period", currentMonth) }))
 
-                // AI Note: Notify all members of the successful ROSCA payout.
-                EventBus.emit(PayoutProcessedEvent(
-                    payout = PayoutRequest(
-                        id = payoutId,
-                        groupId = groupId,
-                        memberId = currentMember.id ?: "",
-                        amount = remainingPot,
-                        status = PayoutStatus.COMPLETED,
-                        bankName = currentMember.bankName ?: "",
-                        accountNo = currentMember.accountNo ?: "",
-                        branchCode = currentMember.branchCode ?: ""
-                    ),
-                    status = PayoutStatus.COMPLETED
-                ))
+                // The server answers with no payout id when it created no payouts row: the offsets
+                // absorbed the whole pot, or this period was already executed. Announce only a request
+                // that exists, and announce it as a request - a COMPLETED event tells the member funds
+                // are on their way and broadcasts the same claim to the group.
+                if (payoutId != null) {
+                    EventBus.emit(PayoutProcessedEvent(
+                        payout = PayoutRequest(
+                            id = payoutId,
+                            groupId = groupId,
+                            memberId = currentMember.id ?: "",
+                            amount = remainingPot,
+                            status = PayoutStatus.PENDING,
+                            type = PayoutType.ROTATION,
+                            bankName = bankName,
+                            accountNo = accountNo,
+                            branchCode = currentMember.branchCode ?: ""
+                        ),
+                        status = PayoutStatus.PENDING
+                    ))
+                }
             }.getOrThrow()
             results.add("✅ Created payout for ${currentMember.fullName} (Net: ${remainingPot.format()})")
         }
