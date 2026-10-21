@@ -5,6 +5,9 @@ import com.sanibonani.save.domain.repository.member.BeneficiaryClaimRepository
 import com.sanibonani.save.domain.repository.member.BeneficiaryRepository
 import com.sanibonani.save.domain.repository.member.MemberRepository
 import com.sanibonani.save.domain.service.FileStorageService
+import com.sanibonani.save.domain.validation.InputValidator
+import com.sanibonani.save.domain.validation.ValidationResult
+import com.sanibonani.save.features.common.presentation.UIEvent
 import com.sanibonani.save.features.member.presentation.state.MemberUiState
 import com.sanibonani.save.features.common.presentation.BaseViewModel
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -29,12 +32,27 @@ class MemberBeneficiaryViewModel @Inject constructor(
 
     fun addBeneficiary(name: String, idNumber: String, relationship: String, dateOfBirth: String, isImmediate: Boolean) {
         val memberId = uiState.value.member?.let { it.id.serverIdOrReport("member") } ?: return
+
+        // A beneficiary is the record a future burial or emergency claim is settled against, so
+        // the same brain that checks a member's ID checks this one before anything is queued.
+        val cleanedId = idNumber.trim()
+        val idError = when {
+            cleanedId.isBlank() -> "Add the beneficiary's SA ID number before saving."
+            InputValidator.validateSAIdNumber(cleanedId) !is ValidationResult.Valid ->
+                "Add a valid 13-digit SA ID number for the beneficiary."
+            else -> null
+        }
+        if (idError != null) {
+            sendEvent(UIEvent.ShowError(idError))
+            return
+        }
+
         launchJob("add_beneficiary") {
             updateState { it.copy(isLoading = true) }
             val beneficiary = Beneficiary(
                 memberId = memberId,
                 fullName = name,
-                idNumber = idNumber,
+                idNumber = cleanedId,
                 relationship = relationship
             )
             beneficiaryRepo.addBeneficiary(beneficiary).onSuccess {
