@@ -1178,6 +1178,81 @@ END;
 $$;
 
 
+-- 10.3.2.1 ROTATION IDEMPOTENCY (v3)
+-- v2 is kept only so builds already in the field keep working; it has no period key, so the
+-- daily worker, the admin button and a replayed outbox row could each pay the same rotation.
+-- v3 claims (group, member, period) BEFORE any loan is offset, which also covers a rotation whose
+-- net pot was zero - that one creates no payouts row at all, so nothing else could dedupe it.
+CREATE OR REPLACE FUNCTION public.process_rosca_payout_v3(
+    p_group_id UUID,
+    p_member_id UUID,
+    p_total_pot NUMERIC,
+    p_loan_deductions JSONB,
+    p_payout_amount NUMERIC,
+    p_payout_data JSONB,
+    p_period TEXT
+) RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+    v_loan RECORD;
+    v_p_id UUID;
+    v_existing UUID;
+    v_claimed UUID;
+    v_offset_total NUMERIC := 0;
+BEGIN
+    PERFORM id FROM public.groups WHERE id = p_group_id FOR UPDATE;
+
+    SELECT COALESCE(sum(x.amount), 0) INTO v_offset_total
+      FROM jsonb_to_recordset(p_loan_deductions) AS x(loan_id uuid, amount numeric)
+     WHERE x.amount > 0;
+
+    -- Whatever the offsets do not absorb becomes the payout. A caller that sends a split which
+    -- exceeds the pot would spend the same group money twice.
+    IF v_offset_total + COALESCE(p_payout_amount, 0) > p_total_pot THEN
+        RAISE EXCEPTION '[FIN_003] POT_IMBALANCE: offsets % and payout % exceed pot %',
+            v_offset_total, COALESCE(p_payout_amount, 0), p_total_pot;
+    END IF;
+
+    -- Claim the period. The group lock above serialises concurrent rotations, so a conflict here
+    -- means the period has genuinely already been executed.
+    INSERT INTO public.rosca_rotation_executions (group_id, member_id, period, total_pot, net_amount)
+    VALUES (p_group_id, p_member_id, p_period, p_total_pot, COALESCE(p_payout_amount, 0))
+    ON CONFLICT (group_id, member_id, period) DO NOTHING
+    RETURNING group_id INTO v_claimed;
+
+    IF NOT FOUND THEN
+        SELECT payout_id INTO v_existing FROM public.rosca_rotation_executions
+         WHERE group_id = p_group_id AND member_id = p_member_id AND period = p_period;
+        PERFORM public.log_audit_event('ROSCA_PAYOUT_SKIPPED_DUPLICATE', 'system_rosca', p_member_id, p_group_id, jsonb_build_object('period', p_period, 'existing_payout_id', v_existing), v_existing);
+        RETURN jsonb_build_object('success', true, 'payout_id', v_existing, 'duplicate', true);
+    END IF;
+
+    FOR v_loan IN (SELECT * FROM jsonb_to_recordset(p_loan_deductions) AS x(loan_id uuid, amount numeric)) LOOP
+        IF v_loan.amount > 0 THEN
+            PERFORM public.increment_group_balance(p_group_id, -v_loan.amount, 'ROSCA Offset', 'rosca_payout_offset', 'off-' || v_loan.loan_id::text, p_member_id);
+            PERFORM public.record_loan_repayment_v1(v_loan.loan_id, p_member_id, p_group_id, v_loan.amount, 'wallet');
+        END IF;
+    END LOOP;
+
+    IF COALESCE(p_payout_amount, 0) > 0 THEN
+        INSERT INTO public.payouts (group_id, member_id, amount, bank_name, account_no, branch_code, description, status, payout_type)
+        VALUES (p_group_id, p_member_id, p_payout_amount, p_payout_data->>'bank_name', p_payout_data->>'account_no', p_payout_data->>'branch_code', 'ROSCA rotation ' || p_period, 'pending', 'rosca') RETURNING id INTO v_p_id;
+    END IF;
+
+    UPDATE public.rosca_rotation_executions
+       SET payout_id = v_p_id, loan_offsets = v_offset_total
+     WHERE group_id = p_group_id AND member_id = p_member_id AND period = p_period;
+
+    PERFORM public.log_audit_event('ROSCA_PAYOUT_INITIATED', 'system_rosca', p_member_id, p_group_id, jsonb_build_object('pot', p_total_pot, 'net_payout', p_payout_amount, 'loan_offsets', v_offset_total, 'period', p_period), v_p_id);
+
+    RETURN jsonb_build_object('success', true, 'payout_id', v_p_id, 'duplicate', false);
+END;
+$$;
+
+
 CREATE OR REPLACE FUNCTION public.perform_group_reconciliation_v1(p_group_id UUID)
 RETURNS JSONB
 LANGUAGE plpgsql

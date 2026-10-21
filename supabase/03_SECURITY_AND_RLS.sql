@@ -38,7 +38,7 @@ CREATE POLICY "Profiles: Owner manage" ON public.profiles FOR ALL TO authenticat
 DO $$
 DECLARE v_t text;
 BEGIN
-    FOREACH v_t IN ARRAY ARRAY['contributions', 'payments', 'loans', 'loan_repayments', 'payouts', 'beneficiary_payout_claims', 'member_documents', 'notifications', 'group_poll_votes'] LOOP
+    FOREACH v_t IN ARRAY ARRAY['contributions', 'payments', 'loans', 'loan_repayments', 'payouts', 'beneficiary_payout_claims', 'member_documents', 'notifications', 'group_poll_votes', 'rosca_rotation_executions'] LOOP
         EXECUTE format('DROP POLICY IF EXISTS "Member: View own" ON public.%I', v_t);
         EXECUTE format('CREATE POLICY "Member: View own" ON public.%I FOR SELECT TO authenticated USING (member_id IN (SELECT id FROM public.members WHERE user_id = auth.uid()))', v_t);
 
@@ -66,7 +66,8 @@ BEGIN
         'members', 'contributions', 'payments', 'loans', 'loan_repayments', 'payouts',
         'beneficiary_payout_claims', 'member_documents', 'notifications', 'group_polls',
         'group_poll_votes', 'group_actuarial_metrics',
-        'group_health_scores', 'ledger_checkpoints', 'group_ledger'
+        'group_health_scores', 'ledger_checkpoints', 'group_ledger',
+        'rosca_rotation_executions'
     ] LOOP
         EXECUTE format('DROP POLICY IF EXISTS "Group Admin: Manage group" ON public.%I', v_t);
         EXECUTE format('CREATE POLICY "Group Admin: Manage group" ON public.%I FOR ALL TO authenticated USING (public.is_group_admin(group_id))', v_t);

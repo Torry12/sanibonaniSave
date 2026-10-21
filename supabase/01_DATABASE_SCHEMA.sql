@@ -297,6 +297,22 @@ CREATE TABLE IF NOT EXISTS public.payouts (
     updated_at        TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- 8.1 ROTATION IDEMPOTENCY LEDGER
+-- One row per member per rotation period. process_rosca_payout_v3 claims this key before it
+-- offsets any loan, so a re-run of a period that already executed cannot move money twice -
+-- including a period whose net pot was zero, which leaves no payouts row to dedupe against.
+CREATE TABLE IF NOT EXISTS public.rosca_rotation_executions (
+    group_id     UUID NOT NULL REFERENCES public.groups(id) ON DELETE CASCADE,
+    member_id    UUID NOT NULL REFERENCES public.members(id) ON DELETE CASCADE,
+    period       TEXT NOT NULL CHECK (period ~ '^[0-9]{4}-[0-9]{2}$'),
+    payout_id    UUID REFERENCES public.payouts(id) ON DELETE SET NULL,
+    total_pot    NUMERIC(12,2) NOT NULL CHECK (total_pot >= 0),
+    loan_offsets NUMERIC(12,2) NOT NULL DEFAULT 0 CHECK (loan_offsets >= 0),
+    net_amount   NUMERIC(12,2) NOT NULL CHECK (net_amount >= 0),
+    executed_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (group_id, member_id, period)
+);
+
 -- 9. LEDGERS
 DROP TABLE IF EXISTS public.group_ledger CASCADE;
 CREATE TABLE public.group_ledger (

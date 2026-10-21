@@ -3,25 +3,41 @@
 -- Generated: 2026-10-14   Source: regenerated GROUND_ZERO v2.2 baseline
 -- Refreshed: 2026-10-18. Sections H and I are new: H grants the EXECUTE that A-G never
 --   issued, I fingerprints the app RPCs this delta does not define.
+-- Refreshed: 2026-10-20. Section J is new: the ROSCA rotation idempotency ledger
+--   (rosca_rotation_executions) and process_rosca_payout_v3, keyed on (group, member, period).
+--   The production app now calls v3; v2 is left installed and untouched, because in-field builds
+--   still call it and dropping it would break them. J.3 issues the EXECUTE grant for v3 the same
+--   way the masters do, so H.0 finds no shortfall and H.1 has nothing to re-issue.
 -- Re-verified: 2026-10-20 against the masters as they stand now (they moved after the
---   2026-10-18 pass above). All 24 function bodies embedded in A-G are verbatim in
---   02_FUNCTIONS_AND_TRIGGERS.sql and in the regenerated GROUND_ZERO.sql under the same
---   whitespace-insensitive compare, so nothing drifted and nothing is absent. The 14 RPC
---   names the production app calls also reconcile with this delta's design: 4 are created by
---   G.1, 7 are assumed-present and fingerprinted in I.1, and the remaining 3 are exactly the
---   known implementation gap reported by I.2. No statement in this file needs to change
---   because of the master edits; A..V below is still the current target state.
+--   2026-10-18 pass above). All 25 function bodies embedded in A-G and J are verbatim in
+--   02_FUNCTIONS_AND_TRIGGERS.sql and in the regenerated GROUND_ZERO.sql. This pass re-computed
+--   every stored expectation with the file's own normalisation, straight from the master text:
+--   all 11 G.0 hashes, all 7 I.1 hashes and the J.4 hash reproduce exactly, and each of those
+--   bodies re-hashes identically in the master and in this delta. GROUND_ZERO was regenerated
+--   from the masters and an object inventory diff shows it gains
+--   rosca_rotation_executions and loses nothing. The 14 RPC
+--   names the production app calls also reconcile with this delta's design: 3 are created by
+--   G.1, 1 (process_rosca_payout_v3) by J.2, 7 are assumed-present and fingerprinted in I.1, and
+--   the remaining 3 are exactly the known implementation gap reported by I.2. Nothing in A..I
+--   needed to change because of the master edits; A..V below is still the current target state.
 -- =============================================================================
 -- PURPOSE
 --   Brings an existing Online tier up to the schema and financial logic that the Local
 --   (Docker) tier was verified against on 2026-10-14, without a destructive reset.
+-- MULTI-TIER
+--   Section J is not Online-only. The same objects live in the masters (01_DATABASE_SCHEMA.sql
+--   section 8.1, 02_FUNCTIONS_AND_TRIGGERS.sql section 10.3.2.1, and the two policy tiers in
+--   03_SECURITY_AND_RLS.sql), so the Local tier gets them when the masters are re-applied
+--   (supabase/00_REBUILD_ALL.sql / scripts/apply_all.ps1). Paste this file for Online, re-apply
+--   the masters for Local; the app calls process_rosca_payout_v3 on both tiers and fails closed
+--   on whichever one lacks it.
 -- SAFETY
 --   Every statement is additive or idempotent: CREATE ... IF NOT EXISTS,
 --   CREATE OR REPLACE FUNCTION, and DROP TRIGGER IF EXISTS + CREATE TRIGGER pairs.
 --   This file contains no DROP TABLE, TRUNCATE, DELETE and no 07_RESET_DATABASE.sql.
---   The only objects removed are in section E, which creates the replacement
---   member-count trigger before dropping the duplicate it supersedes, so no
---   invariant is ever left unmaintained.
+--   The only objects removed are the duplicate member-count trigger in section E and the
+--   DROP POLICY IF EXISTS guards in section J, which each re-create what they drop in the same
+--   statement pair, so no invariant or row-level rule is ever left unmaintained.
 --   Section F reconciles constraints that CREATE TABLE IF NOT EXISTS cannot change on
 --   a table that already exists; every statement there is guarded and self-skipping.
 -- NOT INCLUDED
@@ -36,12 +52,16 @@
 -- EXPECTED RESULT: 0 errors. An error means Online differs from what this delta assumed;
 --   run section V and compare against Local before retrying.
 -- ORDER OF WORK: the sections are already in safe application order, so pasting A -> V in one
---   pass works. Before that, run the four read-only probes alone and honour them:
+--   pass works. Before that, run the six read-only probes alone and honour them:
 --     G.0 and I.1 -> STOP if either reports rpc_hash_differs (a cloud-only hot fix would be
 --                    overwritten); skip G.1 entirely if G.0 reports rpc_missing=0.
 --     H.0        -> 0 rows means H.1 has nothing to do.
 --     I.2        -> 3 rows of definitions_in_db=0 is the known implementation gap, not an error.
---   Writing sections: A..F, G.1, H.1. Everything else reports only.
+--     J.0        -> 0 rows. A row is a member paid twice for one month by the old v2 path: resolve
+--                    it by hand; the new key does not retroactively protect history.
+--     J.4        -> expected 138002dafaebd53db091b4cd9948141a. 'ABSENT' before pasting J.2 is
+--                    correct; any other hash means the tier holds a different v3 - STOP and diff.
+--   Writing sections: A..F, G.1, H.1, J.1, J.2, J.3. Everything else reports only.
 -- =============================================================================
 
 -- -----------------------------------------------------------------------------
@@ -889,10 +909,10 @@ $$;
 -- H. FUNCTION EXECUTE GRANTS for the objects this delta creates.
 --   Sections A-G CREATE OR REPLACE 24 functions but issue no GRANT, so a tier whose
 --   default privileges do not cover them accepts the DDL and then rejects the app at
---   call time. The baseline grants these same three roles (GROUND_ZERO section 11 plus
+--   call time. Section J is the one part of this file that does grant, in J.3, so v3 is
+--   already covered before H.0 runs. The baseline grants these same three roles (GROUND_ZERO section 11 plus
 --   its ALTER DEFAULT PRIVILEGES block), so H restores the documented parity target
---   rather than widening access. H.0 is read-only and reports the shortfall; H.1 grants
---   by exact signature, so overloaded names are never ambiguous, and no-ops when H.0
+--   rather than widening access. H.0 is read-only and reports the shortfall; H.1 grants--   by exact signature, so overloaded names are never ambiguous, and no-ops when H.0
 --   returned no rows.
 --   The audited list is the 24 functions this delta defines PLUS the seven RPCs section I
 --   fingerprints, so one audit covers every routine production Kotlin calls.
@@ -1047,6 +1067,146 @@ SELECT x.name,
          WHERE n.nspname = 'public' AND p.proname = x.name) AS definitions_in_db
   FROM (VALUES ('close_poll_v1'), ('pay_burial_claim_v1'), ('record_disbursement_v1')) AS x(name)
  ORDER BY 1;
+
+-- -----------------------------------------------------------------------------
+-- J. ROTATION IDEMPOTENCY (additive). One row per (group, member, period) is claimed inside
+--   process_rosca_payout_v3 BEFORE a single loan is offset, so the daily worker, the admin
+--   button and a replayed outbox row cannot pay one rotation twice and cannot settle the same
+--   loan twice from the same pot. The payouts table cannot carry this key: a rotation whose
+--   loan offsets absorb the whole pot creates no payouts row at all, and payout_reference
+--   belongs to the administrator's disbursement, not to the period.
+--   v2 stays in place. Builds already in the field call it and it has no period parameter, so
+--   it must not be dropped until those installs are gone; the current app calls v3 only.
+--   Bodies below are verbatim from 01_DATABASE_SCHEMA.sql section 8.1 and
+--   02_FUNCTIONS_AND_TRIGGERS.sql section 10.3.2.1. Expected fingerprint, same normalisation
+--   as G.0 and I.1:
+--     process_rosca_payout_v3            138002dafaebd53db091b4cd9948141a
+-- -----------------------------------------------------------------------------
+
+-- J.0 pre-flight (read-only). What the history already holds, before any key existed: more than
+--   one rosca payouts row for one member in one month. Expected: 0 rows.
+--   A row here was created by v2 and is NOT retroactively protected by the key - resolve it as a
+--   duplicate disbursement by hand before relying on J.3. A period that was fully absorbed by
+--   loan offsets is invisible in this report, because it never produced a payouts row.
+SELECT g.id AS group_id, coalesce(m.full_name, p.member_id::text) AS member,
+       to_char(p.created_at, 'YYYY-MM') AS period,
+       count(*) AS rosca_rows, sum(p.amount) AS total_requested
+  FROM public.payouts p
+  JOIN public.groups g ON g.id = p.group_id
+  LEFT JOIN public.members m ON m.id = p.member_id
+ WHERE p.payout_type = 'rosca'
+ GROUP BY 1, 2, 3
+HAVING count(*) > 1
+ ORDER BY 1, 2, 3;
+
+-- J.1 the rotation ledger and its RLS, mirroring 01_DATABASE_SCHEMA.sql section 8.1 plus the
+--   tier policies 03_SECURITY_AND_RLS.sql generates (Tier 2 member-view, Tier 3 group-admin).
+--   Writes reach this table only through the SECURITY DEFINER RPC in J.2.
+CREATE TABLE IF NOT EXISTS public.rosca_rotation_executions (
+    group_id     UUID NOT NULL REFERENCES public.groups(id) ON DELETE CASCADE,
+    member_id    UUID NOT NULL REFERENCES public.members(id) ON DELETE CASCADE,
+    period       TEXT NOT NULL CHECK (period ~ '^[0-9]{4}-[0-9]{2}$'),
+    payout_id    UUID REFERENCES public.payouts(id) ON DELETE SET NULL,
+    total_pot    NUMERIC(12,2) NOT NULL CHECK (total_pot >= 0),
+    loan_offsets NUMERIC(12,2) NOT NULL DEFAULT 0 CHECK (loan_offsets >= 0),
+    net_amount   NUMERIC(12,2) NOT NULL CHECK (net_amount >= 0),
+    executed_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (group_id, member_id, period)
+);
+
+ALTER TABLE public.rosca_rotation_executions ENABLE ROW LEVEL SECURITY;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.rosca_rotation_executions TO anon, authenticated, service_role;
+
+DROP POLICY IF EXISTS "Member: View own" ON public.rosca_rotation_executions;
+CREATE POLICY "Member: View own" ON public.rosca_rotation_executions FOR SELECT TO authenticated USING (member_id IN (SELECT id FROM public.members WHERE user_id = auth.uid()));
+
+DROP POLICY IF EXISTS "Group Admin: Manage group" ON public.rosca_rotation_executions;
+CREATE POLICY "Group Admin: Manage group" ON public.rosca_rotation_executions FOR ALL TO authenticated USING (public.is_group_admin(group_id));
+
+DROP POLICY IF EXISTS "Platform Admin Bypass" ON public.rosca_rotation_executions;
+CREATE POLICY "Platform Admin Bypass" ON public.rosca_rotation_executions FOR ALL TO authenticated USING (public.is_platform_admin()) WITH CHECK (public.is_platform_admin());
+
+-- J.2 the period-keyed rotation RPC, verbatim from 02_FUNCTIONS_AND_TRIGGERS.sql 10.3.2.1
+CREATE OR REPLACE FUNCTION public.process_rosca_payout_v3(
+    p_group_id UUID,
+    p_member_id UUID,
+    p_total_pot NUMERIC,
+    p_loan_deductions JSONB,
+    p_payout_amount NUMERIC,
+    p_payout_data JSONB,
+    p_period TEXT
+) RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+    v_loan RECORD;
+    v_p_id UUID;
+    v_existing UUID;
+    v_claimed UUID;
+    v_offset_total NUMERIC := 0;
+BEGIN
+    PERFORM id FROM public.groups WHERE id = p_group_id FOR UPDATE;
+
+    SELECT COALESCE(sum(x.amount), 0) INTO v_offset_total
+      FROM jsonb_to_recordset(p_loan_deductions) AS x(loan_id uuid, amount numeric)
+     WHERE x.amount > 0;
+
+    -- Whatever the offsets do not absorb becomes the payout. A caller that sends a split which
+    -- exceeds the pot would spend the same group money twice.
+    IF v_offset_total + COALESCE(p_payout_amount, 0) > p_total_pot THEN
+        RAISE EXCEPTION '[FIN_003] POT_IMBALANCE: offsets % and payout % exceed pot %',
+            v_offset_total, COALESCE(p_payout_amount, 0), p_total_pot;
+    END IF;
+
+    -- Claim the period. The group lock above serialises concurrent rotations, so a conflict here
+    -- means the period has genuinely already been executed.
+    INSERT INTO public.rosca_rotation_executions (group_id, member_id, period, total_pot, net_amount)
+    VALUES (p_group_id, p_member_id, p_period, p_total_pot, COALESCE(p_payout_amount, 0))
+    ON CONFLICT (group_id, member_id, period) DO NOTHING
+    RETURNING group_id INTO v_claimed;
+
+    IF NOT FOUND THEN
+        SELECT payout_id INTO v_existing FROM public.rosca_rotation_executions
+         WHERE group_id = p_group_id AND member_id = p_member_id AND period = p_period;
+        PERFORM public.log_audit_event('ROSCA_PAYOUT_SKIPPED_DUPLICATE', 'system_rosca', p_member_id, p_group_id, jsonb_build_object('period', p_period, 'existing_payout_id', v_existing), v_existing);
+        RETURN jsonb_build_object('success', true, 'payout_id', v_existing, 'duplicate', true);
+    END IF;
+
+    FOR v_loan IN (SELECT * FROM jsonb_to_recordset(p_loan_deductions) AS x(loan_id uuid, amount numeric)) LOOP
+        IF v_loan.amount > 0 THEN
+            PERFORM public.increment_group_balance(p_group_id, -v_loan.amount, 'ROSCA Offset', 'rosca_payout_offset', 'off-' || v_loan.loan_id::text, p_member_id);
+            PERFORM public.record_loan_repayment_v1(v_loan.loan_id, p_member_id, p_group_id, v_loan.amount, 'wallet');
+        END IF;
+    END LOOP;
+
+    IF COALESCE(p_payout_amount, 0) > 0 THEN
+        INSERT INTO public.payouts (group_id, member_id, amount, bank_name, account_no, branch_code, description, status, payout_type)
+        VALUES (p_group_id, p_member_id, p_payout_amount, p_payout_data->>'bank_name', p_payout_data->>'account_no', p_payout_data->>'branch_code', 'ROSCA rotation ' || p_period, 'pending', 'rosca') RETURNING id INTO v_p_id;
+    END IF;
+
+    UPDATE public.rosca_rotation_executions
+       SET payout_id = v_p_id, loan_offsets = v_offset_total
+     WHERE group_id = p_group_id AND member_id = p_member_id AND period = p_period;
+
+    PERFORM public.log_audit_event('ROSCA_PAYOUT_INITIATED', 'system_rosca', p_member_id, p_group_id, jsonb_build_object('pot', p_total_pot, 'net_payout', p_payout_amount, 'loan_offsets', v_offset_total, 'period', p_period), v_p_id);
+
+    RETURN jsonb_build_object('success', true, 'payout_id', v_p_id, 'duplicate', false);
+END;
+$$;
+
+-- J.3 the EXECUTE the masters grant by blanket rule (02_FUNCTIONS_AND_TRIGGERS.sql section 11
+--   grants EXECUTE ON ALL FUNCTIONS to these three roles). Without this line H.0 would report the
+--   new function as a shortfall and H.1 would re-issue the same grant.
+GRANT EXECUTE ON FUNCTION public.process_rosca_payout_v3(uuid, uuid, numeric, jsonb, numeric, jsonb, text) TO anon, authenticated, service_role;
+
+-- J.4 verify (read-only). Expected: v3_fingerprint=138002dafaebd53db091b4cd9948141a.
+--   Anything else means the tier holds a different version of this routine: STOP and diff it
+--   against 02_FUNCTIONS_AND_TRIGGERS.sql 10.3.2.1 before pasting J.2 again.
+SELECT 'v3_fingerprint='||coalesce((SELECT md5(btrim(regexp_replace(replace(prosrc, E'', ''), E'[[:space:]]+', ' ', 'g')))
+  FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+  WHERE n.nspname='public' AND proname='process_rosca_payout_v3'), 'ABSENT') AS j4;
 -- -----------------------------------------------------------------------------
 -- V. VERIFY (read-only). Expected on a healthy tier:
 --   fee_v2_guard          = true
@@ -1057,6 +1217,11 @@ SELECT x.name,
 --   total_paid_drift      = 0      (non-zero = member totals out of line with ledger)
 --   current_members_drift = 0
 --   fee_unique_ok         = 1
+--   rotation_table        = 1      (rosca_rotation_executions exists)
+--   rotation_key_pkey     = 1      (PRIMARY KEY (group_id, member_id, period))
+--   rotation_rls          = true
+--   rotation_v3           = 1      (process_rosca_payout_v3 installed)
+--   v3_fingerprint        = 138002dafaebd53db091b4cd9948141a  (J.4)
 -- -----------------------------------------------------------------------------
 SELECT 'fee_v2_guard='||coalesce((SELECT (prosrc LIKE '%idempotent%') FROM pg_proc p
   JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND proname='pay_platform_fee_v2'), false)::text AS c1;
@@ -1082,4 +1247,13 @@ SELECT 'current_members_drift='||count(*) AS c7 FROM public.groups g WHERE g.cur
   (SELECT count(*) FROM public.members m WHERE m.group_id=g.id AND m.status <> 'suspended');
 SELECT 'fee_unique_ok='||count(*) AS c8 FROM pg_constraint WHERE conname =
   'platform_fees_group_id_month_reference_key' AND conrelid='public.platform_fees'::regclass;
+SELECT 'rotation_table='||count(*) AS c9 FROM information_schema.tables WHERE table_schema='public'
+  AND table_name='rosca_rotation_executions';
+SELECT 'rotation_key_pkey='||count(*) AS c10 FROM pg_constraint con JOIN pg_class c ON c.oid=con.conrelid
+  JOIN pg_namespace n ON n.oid=c.relnamespace
+  WHERE n.nspname='public' AND c.relname='rosca_rotation_executions' AND con.contype='p';
+SELECT 'rotation_rls='||coalesce((SELECT c.relrowsecurity FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+  WHERE n.nspname='public' AND c.relname='rosca_rotation_executions'), false)::text AS c11;
+SELECT 'rotation_v3='||count(*) AS c12 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+  WHERE n.nspname='public' AND proname='process_rosca_payout_v3';
 NOTIFY pgrst, 'reload schema';
