@@ -99,10 +99,9 @@ class ExecuteRoscaPayoutUseCase @Inject constructor(
                 results.add("❌ Skipped ${currentMember.fullName}: Outstanding payouts could not be read")
                 continue
             }
-            // The queue cannot name the kind of request a row is - the database writes payout_type
-            // while the model reads type - so any unsettled request addressed to this member in this
-            // period holds the rotation. A held rotation retries on the next run; a second payout is
-            // money out of the treasury.
+            // Deliberately not narrowed to the rotation types: any unsettled request addressed to
+            // this member in this period holds the rotation. A held rotation retries on the next
+            // run; a second payout is money out of the treasury.
             val alreadyRequested = payoutQueue.getOrNull()?.any { request ->
                 request.groupId == groupId && request.memberId == currentMember.id &&
                     (request.createdAt == null || request.createdAt.startsWith(currentMonth))
