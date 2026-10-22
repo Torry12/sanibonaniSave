@@ -18,11 +18,18 @@ Usage (you supply the connection; this script never stores or prints it):
   # yourself - same file, same order, same section boundaries:
   .\supabase\scripts\run_sync_delta_20261021.ps1 -Section K0,K1,K2,K3,K4 -ExtractOnly
 
+  # Local tier with no host psql: run each section through the Supabase Postgres
+  # container. No connection string and no DB password is read or needed - psql runs
+  # inside the container over its local socket:
+  .\supabase\scripts\run_sync_delta_20261021.ps1 -Section K0 -Container supabase_db_aszmodkqpafwtnfufmow
+  .\supabase\scripts\run_sync_delta_20261021.ps1 -Section K1,K2,K3 -Container supabase_db_aszmodkqpafwtnfufmow
+
   # Prove the gate parsing without sending anything anywhere:
   .\supabase\scripts\run_sync_delta_20261021.ps1 -SelfTest
 
 K.0 and K.4 only SELECT. K.1/K.2/K.3 write, so they sit behind -Confirm
-(SupportsShouldProcess) and behind the recorded K.0 pass.
+(SupportsShouldProcess) and behind the recorded K.0 pass. The recorded pass is per tier:
+a K.0 that passed on Local does not unlock a writing section on the cloud tier.
 
 K.1 uses plain CREATE INDEX, which blocks writes on each table while it builds.
 Run it in a quiet window.
@@ -36,6 +43,15 @@ param(
     [string]$Section,
 
     [string]$PgConn = $env:PG_CONN,
+
+    # Reach the tier through a running Docker container instead of a host psql: the
+    # section file is copied in and psql runs inside it. Ignores PG_CONN entirely.
+    [string]$Container,
+
+    # Only used with -Container. The Postgres image's local socket trusts this user, so
+    # no password is involved; override if the tier's role or database differs.
+    [string]$DbUser = 'postgres',
+    [string]$DbName = 'postgres',
 
     [string]$DeltaPath,
 
@@ -99,6 +115,15 @@ function Count-Statements {
     return ([regex]::Matches($stripped, ';')).Count
 }
 
+# A K.0 pass is only evidence about the tier it ran against, so the record is keyed per
+# tier. The cloud key is a digest of the connection string, never the string itself.
+function Get-TierKey {
+    if ($Container) { return "container-$Container" }
+    if (-not $PgConn) { return 'pgconn-unset' }
+    $hash = [Security.Cryptography.SHA256]::Create().ComputeHash([Text.Encoding]::UTF8.GetBytes($PgConn))
+    return 'pgconn-' + (($hash | Select-Object -First 6 | ForEach-Object { $_.ToString('x2') }) -join '')
+}
+
 function Invoke-Section {
     param([string]$Id)
 
@@ -106,10 +131,24 @@ function Invoke-Section {
     $logFile = Join-Path $LogDir "$Id.out"
     # -A keeps each 'label=value' check on one line so the gates can parse it,
     # -t drops column headers, ON_ERROR_STOP makes a bad statement abort the section.
-    $out = & psql $PgConn -v ON_ERROR_STOP=1 -X -A -t --no-psqlrc -f $sqlFile 2>&1 |
-        Tee-Object -FilePath $logFile
+    if ($Container) {
+        # The file is copied in rather than piped: PowerShell would re-encode stdin in the
+        # console codepage, and the container cannot see a Windows path for -f.
+        $inTier = "/tmp/sanibonani_$Id.sql"
+        & docker cp $sqlFile "${Container}:${inTier}" | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw "docker cp of $sqlFile into ${Container}:${inTier} failed (exit $LASTEXITCODE)." }
+        # Merge psql's stderr inside the container: a NOTICE from 'index already exists,
+        # skipping' arrives as output, and Windows PowerShell turns native stderr routed
+        # through 2>&1 into error records.
+        $sh = "psql -U $DbUser -d $DbName -v ON_ERROR_STOP=1 -X -A -t --no-psqlrc -f $inTier 2>&1"
+        $out = & docker exec -i $Container sh -c $sh 2>&1
+    } else {
+        $out = & psql $PgConn -v ON_ERROR_STOP=1 -X -A -t --no-psqlrc -f $sqlFile 2>&1
+    }
+    $code = $LASTEXITCODE
+    $out | Tee-Object -FilePath $logFile | Out-Null
     return [pscustomobject]@{
-        Id = $Id; ExitCode = $LASTEXITCODE; Output = ($out -join "`n"); LogFile = $logFile
+        Id = $Id; ExitCode = $code; Output = ($out -join "`n"); LogFile = $logFile
     }
 }
 
@@ -180,15 +219,30 @@ record_disbursement_v1|0
     exit 0
 }
 
-# ------------------------------------------------------------------- setup ----
+# ---------------------------------------------------------------- setup ----
 $repoRoot  = Split-Path -Parent $PSScriptRoot                     # ...\supabase
 $DeltaPath = if ($DeltaPath) { $DeltaPath } else { Join-Path $repoRoot 'online\SYNC_DELTA_20261021.sql' }
 $LogDir    = if ($LogDir)    { $LogDir }    else { Join-Path ([IO.Path]::GetTempPath()) 'sanibonani_sync_delta_20261021' }
 
+if ($Container -and $PgConn) {
+    throw '-Container and PG_CONN point at different tiers; pass one or the other, not both.'
+}
+if ($Container -and $Container -notmatch '^[A-Za-z0-9][A-Za-z0-9_.-]*$') {
+    throw "-Container '$Container' is not a valid container name."
+}
+foreach ($pair in @{ DbUser = $DbUser; DbName = $DbName }.GetEnumerator()) {
+    if ($pair.Value -notmatch '^[A-Za-z0-9_]+$') {
+        throw "-$($pair.Key) '$($pair.Value)' is not a plain identifier; it would be interpolated into the container command."
+    }
+}
+
 if (-not (Test-Path -LiteralPath $DeltaPath)) { throw "delta not found: $DeltaPath" }
 if (-not $Section) { throw 'pass -Section, e.g. -Section K0 or -Section K1,K2,K3 (or -SelfTest / -ExtractOnly).' }
 
-New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
+# Local scratch and the delta fingerprint are not tier operations, so they go through
+# .NET rather than a cmdlet: a cmdlet would honour -WhatIf and return nothing, which
+# would make a dry run crash instead of previewing.
+[IO.Directory]::CreateDirectory($LogDir) | Out-Null
 
 $ids     = @($Section -split '[,;\s]+' | Where-Object { $_ } | ForEach-Object { $_.ToUpper() })
 $allowed = 'K0', 'K1', 'K2', 'K3', 'K4'
@@ -203,7 +257,9 @@ if ($bad.Count) { throw "-Section accepts only K0 K1 K2 K3 K4; got: $($bad -join
 # cannot desynchronise this runner.
 $txt   = [IO.File]::ReadAllText($DeltaPath) -replace "`r`n", "`n"
 $lines = $txt -split "`n"
-$deltaSha = (Get-FileHash -LiteralPath $DeltaPath -Algorithm SHA256).Hash
+$bytes    = [IO.File]::ReadAllBytes($DeltaPath)
+$deltaSha = (([Security.Cryptography.SHA256]::Create().ComputeHash($bytes) |
+              ForEach-Object { $_.ToString('X2') }) -join '')
 
 $starts = @()
 for ($i = 0; $i -lt $lines.Count; $i++) {
@@ -237,14 +293,16 @@ if ($ExtractOnly) {
 
 # ------------------------------------------------------ ordering discipline ----
 # A writing section runs only on the strength of a K.0 pass recorded against this exact
-# copy of the delta. Checked before the psql and credential requirements, so you hear
-# about the missing pre-flight even when the environment is not ready.
-$marker = Join-Path $LogDir 'K0.pass.json'
+# copy of the delta, on this exact tier. Checked before the psql and credential
+# requirements, so you hear about the missing pre-flight even when the environment is
+# not ready.
+$tierKey = Get-TierKey
+$marker = Join-Path $LogDir "K0.pass.$tierKey.json"
 foreach ($id in $ids) {
     if ($id -eq 'K0') { continue }
     if ($Force) { Write-Warning "-Force: the recorded K.0 pass was not required for $id."; continue }
     if (-not (Test-Path -LiteralPath $marker)) {
-        throw "run -Section K0 and let its gates pass first (no record at $marker)."
+        throw "run -Section K0 against this tier and let its gates pass first (no record at $marker)."
     }
     $rec = Get-Content -LiteralPath $marker -Raw | ConvertFrom-Json
     if ($rec.deltaSha256 -ne $deltaSha) {
@@ -252,18 +310,32 @@ foreach ($id in $ids) {
     }
 }
 
-# ------------------------------------------------------------------- psql -----
-if (-not (Get-Command psql -ErrorAction SilentlyContinue)) {
-    throw 'psql not found in PATH. Use -ExtractOnly and paste the section files in the Dashboard instead.'
+# ------------------------------------------------------------------- tier -----
+if ($Container) {
+    if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
+        throw "docker not found in PATH, so -Container $Container cannot be reached."
+    }
+    $running = & docker ps --format '{{.Names}}'
+    if ($LASTEXITCODE -ne 0) { throw 'docker ps failed; is the daemon running?' }
+    if ($running -notcontains $Container) {
+        $hint = if ($running -match 'supabase_db') { " running: $(($running | Where-Object { $_ -like 'supabase_db*' }) -join ', ')" } else { '' }
+        throw "container '$Container' is not running;$hint start it (e.g. supabase start) and re-run."
+    }
+} else {
+    if (-not (Get-Command psql -ErrorAction SilentlyContinue)) {
+        throw 'psql not found in PATH. Either give the Local tier via -Container <name>, or use -ExtractOnly and paste the section files in the Dashboard.'
+    }
+    if (-not $PgConn) {
+        throw 'PG_CONN is not set (or pass -PgConn). This script never stores or echoes it.'
+    }
+    $env:PGCLIENTENCODING = 'UTF8'
 }
-if (-not $PgConn) {
-    throw 'PG_CONN is not set (or pass -PgConn). This script never stores or echoes it.'
-}
-$env:PGCLIENTENCODING = 'UTF8'
+$targetLabel = if ($Container) { "container $Container as $DbUser@$DbName" } else { 'the tier PG_CONN points at' }
+Write-Host "Target tier: $targetLabel"
 
 # ------------------------------------------------------------------- run -----
 foreach ($id in $ids) {
-    if (-not $PSCmdlet.ShouldProcess("section $id against the tier PG_CONN points at", 'run with psql')) { continue }
+    if (-not $PSCmdlet.ShouldProcess("section $id against $targetLabel", 'run with psql')) { continue }
 
     $r = Invoke-Section -Id $id
     Write-Host "`n----- $id output -----"
@@ -280,9 +352,10 @@ foreach ($id in $ids) {
             $gates | ForEach-Object { Write-Host "  - $_" }
             throw 'pre-flight did not pass.'
         }
-        $json = @{ deltaSha256 = $deltaSha; delta = $DeltaPath; passedAt = (Get-Date).ToString('o') } | ConvertTo-Json
+        $json = @{ deltaSha256 = $deltaSha; delta = $DeltaPath; tier = $tierKey;
+                   passedAt = (Get-Date).ToString('o') } | ConvertTo-Json
         [IO.File]::WriteAllText($marker, $json, (New-Object Text.UTF8Encoding($false)))
-        Write-Host 'K.0 gates passed. Record written; K.1-K.3 are now allowed.' -ForegroundColor Green
+        Write-Host 'K.0 gates passed. Record written; K.1-K.3 are now allowed on this tier.' -ForegroundColor Green
     }
 
     if ($id -eq 'K4') {
@@ -296,4 +369,5 @@ foreach ($id in $ids) {
     }
 }
 
-Write-Host "`nDone. Run the same file in the same order against the Local tier; do not re-apply the masters there." -ForegroundColor Yellow
+$other = if ($Container) { 'cloud tier via -PgConn (or a Dashboard paste)' } else { 'Local tier via -Container <name>' }
+Write-Host "`nDone for $targetLabel. Run the same file in the same order against the $other; do not re-apply the masters on Local." -ForegroundColor Yellow
