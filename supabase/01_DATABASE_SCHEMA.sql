@@ -60,7 +60,7 @@ CREATE TABLE IF NOT EXISTS public.groups (
     branch_code            TEXT,
     account_type           TEXT DEFAULT 'Savings',
     gateway_public_key     TEXT,
-    balance                NUMERIC(12,2) DEFAULT 0, -- Hardened: constraint checked in triggers
+    balance                NUMERIC(12,2) NOT NULL DEFAULT 0,
     goal_amount            NUMERIC(12,2) DEFAULT 0 CHECK (goal_amount >= 0),
     period_months          INTEGER DEFAULT 12 CHECK (period_months > 0),
     burial_claim_amount    NUMERIC(10,2) DEFAULT 10000.00 CHECK (burial_claim_amount >= 0),

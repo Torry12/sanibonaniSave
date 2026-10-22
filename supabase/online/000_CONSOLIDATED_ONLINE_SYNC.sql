@@ -1,6 +1,6 @@
 -- ─────────────────────────────────────────────────────────────────────────────
 -- SanibonaniSave - ONLINE (Supabase Cloud) FULL REBUILD
--- Generated: 2026-10-21 from the master scripts, version 2.2
+-- Generated: 2026-10-22 from the master scripts, version 2.2
 -- ─────────────────────────────────────────────────────────────────────────────
 -- HOW THIS FILE IS BUILT
 --   It is the concatenation of the modules listed by supabase/online/00_REBUILD_ONLINE.sql,
@@ -154,7 +154,7 @@ CREATE TABLE IF NOT EXISTS public.groups (
     branch_code            TEXT,
     account_type           TEXT DEFAULT 'Savings',
     gateway_public_key     TEXT,
-    balance                NUMERIC(12,2) DEFAULT 0, -- Hardened: constraint checked in triggers
+    balance                NUMERIC(12,2) NOT NULL DEFAULT 0,
     goal_amount            NUMERIC(12,2) DEFAULT 0 CHECK (goal_amount >= 0),
     period_months          INTEGER DEFAULT 12 CHECK (period_months > 0),
     burial_claim_amount    NUMERIC(10,2) DEFAULT 10000.00 CHECK (burial_claim_amount >= 0),
@@ -2008,7 +2008,7 @@ BEGIN
     PERFORM public.assert_mfa_for_disbursement_v1(v_loan.amount);
 
     SELECT * INTO v_group FROM public.groups WHERE id = v_loan.group_id;
-    IF v_group.balance < v_loan.amount THEN RAISE EXCEPTION '[FIN_001] INSUFFICIENT_LIQUIDITY'; END IF;
+    IF COALESCE(v_group.balance, 0) < v_loan.amount THEN RAISE EXCEPTION '[FIN_001] INSUFFICIENT_LIQUIDITY'; END IF;
 
     SELECT full_name INTO v_m_name FROM public.members WHERE id = v_loan.member_id;
 
@@ -2046,7 +2046,7 @@ BEGIN
     PERFORM public.assert_mfa_for_disbursement_v1(v_payout.amount);
 
     SELECT * INTO v_group FROM public.groups WHERE id = v_payout.group_id;
-    IF v_group.balance < v_payout.amount THEN RAISE EXCEPTION '[FIN_001] NO_CASH: Group balance insufficient for payout.'; END IF;
+    IF COALESCE(v_group.balance, 0) < v_payout.amount THEN RAISE EXCEPTION '[FIN_001] NO_CASH: Group balance insufficient for payout.'; END IF;
 
     UPDATE public.payouts SET status = 'completed', processed_by = v_eff_admin_id, processed_at = NOW(), payout_reference = COALESCE(p_payout_reference, payout_reference), updated_at = NOW() WHERE id = p_payout_id;
     PERFORM public.increment_group_balance(v_payout.group_id, -v_payout.amount, 'Disbursement Ref: ' || COALESCE(p_payout_reference, p_payout_id::text), 'payout', p_payout_id::text, v_payout.member_id);
