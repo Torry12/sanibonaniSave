@@ -30,8 +30,14 @@ class MemberBeneficiaryViewModel @Inject constructor(
         updateState { it.copy(member = member, group = group, isImpersonating = member != null) }
     }
 
-    fun addBeneficiary(name: String, idNumber: String, relationship: String, dateOfBirth: String, isImmediate: Boolean) {
-        val memberId = uiState.value.member?.let { it.id.serverIdOrReport("member") } ?: return
+    fun addBeneficiary(name: String, idNumber: String, relationship: String, dateOfBirth: String, isOver65: Boolean) {
+        val member = uiState.value.member ?: return
+        val memberId = member.id.serverIdOrReport("member") ?: return
+        val cleanedName = name.trim()
+        if (cleanedName.isBlank()) {
+            sendEvent(UIEvent.ShowError("Add the beneficiary's full name before saving."))
+            return
+        }
 
         // A beneficiary is the record a future burial or emergency claim is settled against, so
         // the same brain that checks a member's ID checks this one before anything is queued.
@@ -47,13 +53,24 @@ class MemberBeneficiaryViewModel @Inject constructor(
             return
         }
 
+        // beneficiaries.group_id is a NOT NULL uuid with a FK to groups, so the model default of
+        // "" is not an omission the server fills in - PostgREST rejects it and the row never lands.
+        val groupId = member.groupId.ifBlank { uiState.value.group?.id.orEmpty() }
+        if (groupId.isBlank()) {
+            sendEvent(UIEvent.ShowError("No group is loaded for this member, so the beneficiary cannot be saved. Sync and try again."))
+            return
+        }
+
         launchJob("add_beneficiary") {
             updateState { it.copy(isLoading = true) }
             val beneficiary = Beneficiary(
+                groupId = groupId,
                 memberId = memberId,
-                fullName = name,
+                fullName = cleanedName,
                 idNumber = cleanedId,
-                relationship = relationship
+                relationship = relationship.trim().ifBlank { null },
+                dateOfBirth = dateOfBirth.trim().ifBlank { null },
+                isOver65 = isOver65
             )
             beneficiaryRepo.addBeneficiary(beneficiary).onSuccess {
                 updateState { s -> s.copy(isLoading = false) }

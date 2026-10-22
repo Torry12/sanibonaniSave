@@ -137,4 +137,49 @@ class MemberBeneficiaryIdValidationTest {
         assertEquals("m1", stored.memberId)
         assertEquals("Brother", stored.relationship)
     }
+
+    @Test
+    fun `the row carries the group foreign key and the fields the dialog collected`() = runTest {
+        coEvery { beneficiaryRepo.addBeneficiary(any()) } returns Result.success(Beneficiary(
+            memberId = "m1", fullName = "Bheki Zulu", idNumber = validId
+        ))
+
+        viewModel.addBeneficiary("Bheki Zulu", validId, "Brother", "1980-01-01", true)
+        advanceUntilIdle()
+
+        // beneficiaries.group_id is a NOT NULL uuid with a FK to groups. Sending the model default
+        // "" makes PostgREST reject the insert, so the whole roster silently stays empty.
+        val stored = capturedBeneficiary()
+        assertEquals("g1", stored.groupId)
+        assertEquals("1980-01-01", stored.dateOfBirth)
+        assertTrue(stored.isOver65)
+    }
+
+    @Test
+    fun `a beneficiary is refused rather than written against no group`() = runTest {
+        viewModel.setImpersonationContext(
+            Member(id = "m1", groupId = "", fullName = "Alpha Member", status = MemberStatus.ACTIVE),
+            null
+        )
+
+        viewModel.addBeneficiary("Bheki Zulu", validId, "Brother", "1980-01-01", false)
+        advanceUntilIdle()
+
+        coVerify(exactly = 0) { beneficiaryRepo.addBeneficiary(any()) }
+
+        val events = viewModel.events.take(1).toList()
+        assertTrue("emitted events: $events", events.singleOrNull() is UIEvent.ShowError)
+    }
+
+    @Test
+    fun `a blank name is refused and says why`() = runTest {
+        viewModel.addBeneficiary("   ", validId, "Brother", "1980-01-01", false)
+        advanceUntilIdle()
+
+        coVerify(exactly = 0) { beneficiaryRepo.addBeneficiary(any()) }
+
+        val events = viewModel.events.take(1).toList()
+        assertTrue("emitted events: $events", events.singleOrNull() is UIEvent.ShowError)
+        assertTrue((events.single() as UIEvent.ShowError).message.contains("name"))
+    }
 }

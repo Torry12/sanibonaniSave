@@ -162,7 +162,7 @@ fun AddBeneficiaryDialog(beneficiary: Beneficiary?, onDismiss: () -> Unit, onCon
                 Row(verticalAlignment = Alignment.CenterVertically) { Checkbox(i, { i = it }); Text(stringResource(R.string.ui_over_65_years_old)) }
             }
         },
-        confirmButton = { SanibonaniButton(text = if (beneficiary == null) "Add" else "Update", onClick = { if (n.isNotBlank()) onConfirm(n, id, r, d, i) }, modifier = Modifier.fillMaxWidth()) },
+        confirmButton = { SanibonaniButton(text = if (beneficiary == null) "Add" else "Update", onClick = { onConfirm(n, id, r, d, i) }, modifier = Modifier.fillMaxWidth()) },
         dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.ui_cancel)) } }
     )
 }
