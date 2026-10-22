@@ -27,9 +27,13 @@ Usage (you supply the connection; this script never stores or prints it):
   # Prove the gate parsing without sending anything anywhere:
   .\supabase\scripts\run_sync_delta_20261021.ps1 -SelfTest
 
-K.0 and K.4 only SELECT. K.1/K.2/K.3 write, so they sit behind -Confirm
-(SupportsShouldProcess) and behind the recorded K.0 pass. The recorded pass is per tier:
-a K.0 that passed on Local does not unlock a writing section on the cloud tier.
+K.0 and K.4 only SELECT, so they run without asking - that is what makes the pre-flight and
+the post-check scriptable. K.1/K.2/K.3 write, and because ConfirmImpact is 'High' they ask
+for an answer on every run (no -Confirm switch needed) and additionally require a recorded
+K.0 pass. If no one can answer - the process has no interactive input - a writing section
+stops with that explanation rather than running or dumping PowerShell's internal
+NullReferenceException. The recorded pass is per tier: a K.0 that passed on Local does not
+unlock a writing section on the cloud tier.
 
 K.1 uses plain CREATE INDEX, which blocks writes on each table while it builds.
 Run it in a quiet window.
@@ -334,8 +338,29 @@ $targetLabel = if ($Container) { "container $Container as $DbUser@$DbName" } els
 Write-Host "Target tier: $targetLabel"
 
 # ------------------------------------------------------------------- run -----
+# Only a section that changes the tier gets to ask. K.0 and K.4 are read-only - the delta
+# says so and the extraction is scanned before it runs - so putting them behind a
+# confirmation would block the very step that tells you whether a paste is needed, and it
+# made scripted verification fail with PowerShell's own NullReferenceException from inside
+# an unanswerable prompt, which reads as a bug in this script.
+#
+# Writing sections still need an answer from a person, and if nothing can answer, they must
+# not run: the exception is caught and turned into the real reason instead of a stack trace.
+$writing = 'K1', 'K2', 'K3'
 foreach ($id in $ids) {
-    if (-not $PSCmdlet.ShouldProcess("section $id against $targetLabel", 'run with psql')) { continue }
+    if ($writing -contains $id) {
+        $confirmed = try {
+            $PSCmdlet.ShouldProcess("section $id against $targetLabel", 'run with psql')
+        } catch {
+            throw "$id writes to $targetLabel and its confirmation could not be answered (no interactive input here). Run it from a terminal where you can read and answer the prompt; this script will not auto-confirm a writing section."
+        }
+        if (-not $confirmed) { continue }
+    }
+    elseif ($WhatIfPreference) {
+        # $PSCmdlet has no WhatIf property in Windows PowerShell 5.1; -WhatIf sets this one.
+        Write-Host "What if: would run read-only section $id against $targetLabel"
+        continue
+    }
 
     $r = Invoke-Section -Id $id
     Write-Host "`n----- $id output -----"
