@@ -1,31 +1,22 @@
-# Auth Layers V3
+# Auth layers V3
 
-This update introduces a strict 3-level authorization model:
+The three-level authorization model is current:
 
 - `platform_admin`
 - `group_admin`
 - `member`
 
-## Files
+## Where it lives
 
-- `supabase/auth_layers_v3.sql` - applies hardened RBAC helper functions and RLS policies.
-- `supabase/test_auth_layers_v3.sql` - verifies function/policy setup and runs role-visibility checks.
+The former standalone `auth_layers_v3.sql` / `test_auth_layers_v3.sql` files are not part of this repository. The model is implemented in the canonical sources:
 
-## Apply
+- `supabase/02_FUNCTIONS_AND_TRIGGERS.sql` — helpers `is_platform_admin()`, `is_group_admin(group_id)`, `is_group_member(group_id)`, `is_aal2()`.
+- `supabase/03_SECURITY_AND_RLS.sql` — RLS policies and grants for groups, members, contributions, payouts, platform fees, and storage.
+- `supabase/04_PLATFORM_ADMIN_SETUP.sql` — platform administrator provisioning.
 
-Run in Supabase SQL Editor as a privileged role:
-
-1. `supabase/auth_layers_v3.sql`
-2. `supabase/test_auth_layers_v3.sql`
-
-## Expected outcomes
-
-- `AuthV3` policies are present in `pg_policies`.
-- RLS is enabled on `profiles`, `groups`, `members`, `contributions`, `payouts`, `platform_fees`.
-- Visibility checks print role-specific counts in `NOTICE` output.
+Generate the dashboard bundle with `supabase/scripts/generate_consolidated_schema.ps1`; do not paste the individual files by hand.
 
 ## Notes
 
-- This script drops permissive legacy policies listed in `auth_layers_v3.sql`.
-- Apply first in a staging project, then production.
-
+- `is_group_admin` recognises the primary `groups.admin_user_id` and extra admins who are group members with the `group_admin` role.
+- Apply schema changes to an existing tier only through a dated `online/SYNC_DELTA_<date>.sql`.

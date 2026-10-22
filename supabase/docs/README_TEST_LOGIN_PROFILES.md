@@ -1,55 +1,17 @@
-# Test Login Profiles
+# Test login profiles
 
-This setup creates deterministic login users for role-based auth testing:
+The former `13_CREATE_TEST_LOGIN_PROFILES.sql` / `14_…VERIFY…` / `15_…CLEANUP…` scripts are no longer part of this repository.
 
-- Platform Admin
-- Group Admin
-- Members
+Login personas now come from the master seed (`MASTER_SEED_DATA.sql`, bundled into `SEED_ALL_DATA.sql`). The authoritative list of accounts, roles, and group assignments is **`QA_LOGIN_CREDENTIALS.md`** at the repository root.
 
-## Files
+## Local setup
 
-- `supabase/13_CREATE_TEST_LOGIN_PROFILES.sql`
-- `supabase/14_VERIFY_TEST_LOGIN_PROFILES.sql`
-- `supabase/15_CLEANUP_TEST_LOGIN_PROFILES.sql`
+```powershell
+npx supabase db reset      # applies SEED_ALL_DATA.sql, including all personas
+```
 
-## Prerequisites
+## Rules
 
-1. `supabase/01_DATABASE_SCHEMA.sql`
-2. `supabase/03_PLATFORM_ADMIN_SETUP.sql`
-3. `supabase/11_SEED_TEST_DATA_10_GROUPS_100_MEMBERS.sql`
-
-## Run Order
-
-1. Run `supabase/13_CREATE_TEST_LOGIN_PROFILES.sql`
-2. Run `supabase/14_VERIFY_TEST_LOGIN_PROFILES.sql`
-
-## Teardown / Cleanup
-
-When QA is done, run:
-
-- `supabase/15_CLEANUP_TEST_LOGIN_PROFILES.sql`
-
-This removes the test group-admin + seeded-member auth users and unlinks seeded members from `members.user_id`.
-
-## Test Credentials
-
-> Test-only credentials. Do not use in production.
-
-- Platform Admin
-  - Email: `torrymsimango@gmail.com`
-  - Password: see `PLATFORM_ADMIN_PASSWORD` in `local.properties` (not tracked)
-
-- Group Admin
-  - Email: `test.groupadmin@example.com`
-  - Password: `Test@12345`
-
-- Members (10 users from first seeded group)
-  - Email pattern: `seed.member.XX.YY@example.com`
-  - Password (all): `Test@12345`
-
-## Notes
-
-- The script links member auth users to existing seeded members (`members.user_id`) so member login flows map to real member records.
-- The script assigns the first `SEED-G%` group to the test group admin for realistic admin dashboard testing.
-- Re-running the script refreshes passwords/metadata and is safe for repeated QA cycles.
-
+- Personas are local-development fixtures; never seed them into the cloud tier.
+- The shared QA password is intentional for test personas; do not "harden" it in seed data.
+- When adding or renaming a persona, update `MASTER_SEED_DATA.sql` and `QA_LOGIN_CREDENTIALS.md` together, then regenerate `SEED_ALL_DATA.sql`.

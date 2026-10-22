@@ -24,9 +24,10 @@ This file gives coding agents fast, high-signal project context so edits stay co
 - Member status transitions must follow explicit allowed-transition map
 
 ## SQL Alignment
-- Schema baseline: `supabase/01_DATABASE_SCHEMA.sql`
-- Existing-env constraint aligner: `supabase/29_ALIGN_VALIDATION_CONSTRAINTS_WITH_APP.sql`
-- E2E verification pack: `supabase/25_SEED_FULL_APP_E2E.sql` + `supabase/26_VERIFY_FULL_APP_E2E.sql`
+- Canonical sources: `supabase/01_DATABASE_SCHEMA.sql` (tables) and `supabase/02_FUNCTIONS_AND_TRIGGERS.sql` (RPCs and triggers); `03_SECURITY_AND_RLS.sql` for policies and grants.
+- Generated copies (never hand-edit): `supabase/migrations/00000000000000_GROUND_ZERO.sql`, `supabase/CONSOLIDATED_SCHEMA_FOR_DASHBOARD.sql`, `supabase/online/000_CONSOLIDATED_ONLINE_SYNC.sql`, `supabase/SEED_ALL_DATA.sql`; regenerate with the four `supabase/scripts/generate_*.ps1` scripts in README order.
+- Existing environments: add a new dated `supabase/online/SYNC_DELTA_<date>.sql` with a read-only pre-flight and expected body fingerprints. `20261014`, `20261021`, and `20261022` are applied on both tiers and must never be rewritten.
+- Balance invariant: `groups.balance` is `NUMERIC(12,2) NOT NULL DEFAULT 0`, derived from `group_ledger`; spend guards use `COALESCE(v_group.balance, 0)` and raise on insufficiency.
 
 ## High-Value Files For Logic Changes
 - `domain/src/main/java/com/sanibonani/save/domain/usecase/`

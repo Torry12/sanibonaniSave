@@ -20,7 +20,7 @@ SanibonaniSave is a specialized South African Savings Groups Administration Plat
 
 ## 🔑 Critical Logic Rules
 1. **Enum Serialization**: All enums (`GroupType`, `MemberStatus`, `ContributionStatus`) must be serialized as **snake_case** for Supabase.
-2. **Financial Atomicity**: Use the `record_contribution_v2` RPC for all payment entries and `approve_and_disburse_loan_v2` for loan payouts to keep `members.total_paid` and `groups.balance` in sync.
+2. **Financial Atomicity**: Use the `record_contribution_v2` RPC for all payment entries and `approve_and_disburse_loan_v2` / `complete_payout_v2` for outflows to keep `members.total_paid` and `groups.balance` in sync.
 3. **Offline-First**: Use the `observeAndSync` pattern in repositories. The UI always observes the local Room database, which is updated by background network fetches.
 4. **Member Lifecycle**: Members start as `PENDING_PAYMENT`, move to `PROBATION` after joining fee, then to `ACTIVE` after the probation period (default 3 months).
 5. **Specialized Insights**: Each group type (ROSCA, Stokvel, Investment Club) has a dedicated intelligence module in the domain layer to calculate rotations, NAV valuations, and payout projections.
@@ -54,11 +54,14 @@ SanibonaniSave is a specialized South African Savings Groups Administration Plat
 6. `05_PERFORMANCE_VIEWS.sql`: Reporting/dashboard views.
 7. `07_RESET_DATABASE.sql`: Full teardown for a clean rebuild.
 8. `11…31`: Seed and scenario data (test data, payout requests, escalations, integrity checks).
-9. `MASTER_SEED_DATA.sql` / `SEED_ALL_DATA.sql`: Consolidated seed entry points.
+9. `MASTER_SEED_DATA.sql` / `SEED_ALL_DATA.sql`: Consolidated seed entry points (local development only).
+10. `online/SYNC_DELTA_<date>.sql`: The only change path for an existing tier. `20261014`, `20261021`, and `20261022` are applied history; never rewrite one; add a new dated delta with bumped fingerprints.
+
+Regenerate generated SQL with `supabase/scripts/generate_ground_zero.ps1` → `generate_consolidated_schema.ps1` → `generate_online_sync.ps1`, then `generate_integrated_seed.ps1` for the seed bundle.
 
 ---
 
 ## ⚠️ Known Gotchas
 - **Map<String, Any>**: Do NOT use `Any` in serializable models (triggers "Serializer not found"). Use `String` or `JsonObject`.
 - **JWT Latency**: After sign-up, the `profiles` table is populated via trigger. Allow 500ms for propagation before querying the profile.
-- **Balance Consistency**: Never update `groups.balance` directly from the app; always use a database function to avoid race conditions.
+- **Balance Consistency**: `groups.balance` is a cached figure derived from `group_ledger`, is `NOT NULL DEFAULT 0` (since `SYNC_DELTA_20261022`), and is never written directly by the app. Spend guards must treat a missing balance as zero and fail closed (`COALESCE(v_group.balance, 0)`).

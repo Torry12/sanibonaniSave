@@ -13,6 +13,7 @@ For in-depth information, please refer to the following compiled guides:
 1. **[AGENTS.md](AGENTS.md)**: **AI Coding Reference.** Engineering principles, precision-safe patterns, and ML-readiness.
 2. **[APPLICATION.md](APPLICATION.md)**: **Complete Application Reference.** Primary manual for maintenance, architecture, and diagnostics.
 3. **[DESIGN.md](DESIGN.md)**: Visual identity and UI component specifications.
+4. **[SQL_DOCUMENTATION.md](supabase/SQL_DOCUMENTATION.md)**: Database schema, RPCs, balance invariants, and the dated delta workflow.
 
 ---
 

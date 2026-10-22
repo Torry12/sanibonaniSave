@@ -1,6 +1,6 @@
 # 🏦 SanibonaniSave — SQL Database Documentation
 
-**Version**: 7.1 (August 2026 - Financial Precision & SQL Sync)
+**Version**: 7.2 (October 2026 - Applied Sync Deltas & Balance Invariants)
 **Platform**: Supabase (PostgreSQL) / Room (SQLite)
 
 This document provides a comprehensive overview of the SanibonaniSave database schema, including tables, key fields, and core business logic. The local Room database mirrors this schema for offline-first capabilities.
@@ -25,7 +25,7 @@ The central container for all cooperative activities.
 - `id` (UUID): Unique group identifier.
 - `name` (TEXT): Group name.
 - `type` (TEXT): `burial_society`, `stokvel`, `rosca`, `investment_club`, `emergency_fund`, `tontine`.
-- `balance` (NUMERIC): Atomic balance tracking (Precision: 2 decimals).
+- `balance` (NUMERIC(12,2) NOT NULL DEFAULT 0): Cached balance derived from `group_ledger`. `NOT NULL` since `SYNC_DELTA_20261022`; never write it directly.
 - `joining_fee` (NUMERIC): One-time entry fee.
 - `monthly_contribution` (NUMERIC): Recurring obligation.
 - `late_fee` (NUMERIC): Penalty for missed deadlines.
@@ -170,15 +170,28 @@ Pricing tiers for different group types.
 ## ⚙️ Business Logic (Supabase RPCs)
 
 ### Atomic Balance Helpers
-- **`increment_group_balance`**: Updates `groups.balance` and inserts into `group_ledger`.
+- **`increment_group_balance`**: Updates `groups.balance` and inserts into `group_ledger`. `p_member_id` is optional (`DEFAULT NULL`) for non-member adjustments.
+- **`recompute_ledger_running_balances_v2`** / **`audit_and_fix_group_balance_v1`**: Set-based ledger rebuild and audit-and-repair helpers; prefer these over ad-hoc balance `UPDATE`s.
 
 ### Core RPCs
 - **`record_contribution_v2`**: Atomically records payment, updates balance, and logs to ledger.
-- **`approve_and_disburse_loan_v1`**: Validates solvency, updates loan status, and subtracts from balance.
+- **`record_loan_repayment_v1`**: Applies a repayment and syncs loan totals.
+- **`pay_platform_fee_v2`**: Splits a member payment between platform revenue and group balance.
+- **`approve_and_disburse_loan_v2`**: Validates solvency, updates loan status, and subtracts from balance. The spend guard treats a NULL cached balance as zero and fails closed.
+- **`complete_payout_v2`**: Completes a payout with the same fail-closed balance guard.
+- **`process_complex_payment_v4`**: Multi-leg payment orchestration.
+- **`process_rosca_payout_v2` / `_v3`**: ROSCA pot disbursement with loan offsets.
+- **`reconcile_bank_transaction_v1`**: Matches a bank line to internal ledger state.
+
+### Applied Sync Deltas
+- **`online/SYNC_DELTA_20261014.sql`**, **`SYNC_DELTA_20261021.sql`**, **`SYNC_DELTA_20261022.sql`** are applied on both tiers. Deltas are append-only history: never rewrite one; add a new dated file with bumped expected fingerprints.
+- `SYNC_DELTA_20261022` repaired NULL cached balances from the ledger, set `groups.balance` to `NOT NULL`, and replaced both spend guards with `COALESCE(v_group.balance, 0)` checks that raise on insufficient funds.
+- Canonical RPC source lives in `02_FUNCTIONS_AND_TRIGGERS.sql`; the generated masters (`migrations/00000000000000_GROUND_ZERO.sql`, `CONSOLIDATED_SCHEMA_FOR_DASHBOARD.sql`, `online/000_CONSOLIDATED_ONLINE_SYNC.sql`) are regenerated, never hand-edited.
 
 ---
 
 ## 🔐 Security
 
 - **Row Level Security (RLS)**: Enforced on all tables based on `group_id` and `user_id`.
+- **Function Hardening**: Every `SECURITY DEFINER` function pins `search_path`; a new RPC without a pin is a review blocker.
 - **Financial Integrity**: `Double` is forbidden for currency. All math is performed using `NUMERIC` in Postgres and `Money` (BigDecimal) in Kotlin.

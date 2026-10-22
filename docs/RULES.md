@@ -60,7 +60,7 @@ This document defines the strict engineering standards for the SanibonaniSave pr
 ## 💰 4. Financial Engineering (The Ledger)
 
 ### Immutable Ledger
-- **No Direct Mutations**: Never update a group's `balance` or member's `total_paid` directly in code.
+- **No Direct Mutations**: Never update a group's `balance` or member's `total_paid` directly in code. `groups.balance` is a `NOT NULL` cache of `group_ledger`, and SQL spend guards must treat a missing balance as zero and fail closed.
 - **Ledger Entries**: Every balance change must be accompanied by a `LedgerEntry`.
 - **Precision & Serialization**: Use the `Money` (BigDecimal) class for all currency values. Floating-point math is strictly forbidden in financial paths. Use `amount.toPlainString()` when passing monetary values to Supabase RPCs.
 

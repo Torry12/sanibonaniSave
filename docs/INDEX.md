@@ -23,6 +23,7 @@ Welcome to the SanibonaniSave documentation portal. This index organizes all pro
 - **[KYC_DOCUMENTS.md](KYC_DOCUMENTS.md)**: Identity verification requirements and document handling.
 - **[AUTOMATED_DOCUMENTS.md](AUTOMATED_DOCUMENTS.md)**: Contract and constitution generation.
 - **[BACKEND_ORGANIZATION.md](BACKEND_ORGANIZATION.md)**: Supabase structure, RLS policies, and database schema organization.
+- **[SQL_DOCUMENTATION.md](../supabase/SQL_DOCUMENTATION.md)**: Tables, core RPCs, balance invariants, and the dated `SYNC_DELTA` workflow.
 - **[IMPERSONATION_FLOW.md](IMPERSONATION_FLOW.md)**: Technical guide for Platform Admin impersonation features for support.
 - **[FINANCIAL_ARCHITECTURE_REFACTOR_2026.md](FINANCIAL_ARCHITECTURE_REFACTOR_2026.md)**: Detailed report of the August 2026 reorganization.
 

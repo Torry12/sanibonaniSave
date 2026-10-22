@@ -1,48 +1,19 @@
-# Group Voting + Multi-Admin SQL
+# Group voting + multi-admin
 
-This SQL pack enables group-level voting and upgrades group-admin authorization to support extra admins who are members of the group.
+Group polls and multi-admin authorization are part of the canonical schema; the former `32_GROUP_VOTING_AND_MULTI_ADMIN.sql` pack is no longer a separate file.
 
-## Files
+## Where it lives
 
-- `supabase/32_GROUP_VOTING_AND_MULTI_ADMIN.sql`
-- `supabase/migrations/20260515000200_group_voting_and_multi_admin.sql`
+- `supabase/01_DATABASE_SCHEMA.sql` — `group_polls`, `group_poll_options`, `group_poll_votes`.
+- `supabase/02_FUNCTIONS_AND_TRIGGERS.sql` — `is_group_admin(group_id)` (primary admin + extra group admins who are group members), poll vote-count and status triggers.
+- `supabase/03_SECURITY_AND_RLS.sql` — RLS for polls, options, and votes.
 
-## What it adds
+## Behaviour
 
-1. Updates `public.is_group_admin(group_id)`:
-   - Primary admin (`groups.admin_user_id`) is admin
-   - Extra admins are also admin when:
-     - `profiles.role = 'group_admin'`
-     - and they are a `members` row in that group
+1. `groups.admin_user_id` is always an admin.
+2. A member with `user_profiles.role = 'group_admin'` who has a `members` row in that group is also an admin.
+3. Group members/admins can read polls, options, and votes; admins manage polls; members cast or update only their own vote while the poll is open.
 
-2. Creates voting tables:
-   - `public.group_polls`
-   - `public.group_poll_options`
-   - `public.group_poll_votes`
+## Apply
 
-3. Adds RLS policies:
-   - Group members/admins can view polls/options/votes
-   - Group admins can create/manage polls and options
-   - Members can cast/update only their own vote while poll is open
-
-## Apply order (manual SQL editor)
-
-```sql
--- after core setup
--- 01_DATABASE_SCHEMA.sql
--- 02_SECURITY_AND_RLS.sql
--- 03_PLATFORM_ADMIN_SETUP.sql
-
--- feature migration
--- 32_GROUP_VOTING_AND_MULTI_ADMIN.sql
-```
-
-## Local CLI
-
-```powershell
-cd "C:\Users\CRISS\AndroidStudioProjects\SanibonaniSave_Full"
-supabase db reset --local --no-seed --yes
-```
-
-The local migration chain auto-applies `20260515000200_group_voting_and_multi_admin.sql`.
-
+Apply through the normal workflow: edit the canonical sources, regenerate the four artifacts, and for an existing tier add a dated `online/SYNC_DELTA_<date>.sql`. Do not run a feature script against an existing database.

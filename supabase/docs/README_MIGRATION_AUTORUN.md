@@ -1,56 +1,40 @@
-# Supabase Local Migration Auto-Apply
-
-This guide runs all SQL migrations under `supabase/migrations/` against your local Supabase stack.
+# Local migration auto-apply
 
 ## Prerequisites
 
-- Docker Desktop running (Linux engine enabled)
+- Docker Desktop running with the Linux engine
 - Supabase CLI installed
-- Project root opened at `SanibonaniSave_Full`
+- Repository root: `SanibonaniSave_Full`
 
-## Auto-Apply Migrations (No Seed)
+## Apply migrations
 
 ```powershell
-cd "C:\Users\CRISS\AndroidStudioProjects\SanibonaniSave_Full"
-supabase --version
-supabase start
-supabase db reset --local --no-seed --yes
+npx supabase start
+npx supabase db reset          # baseline + migrations + SEED_ALL_DATA.sql
 ```
 
-## Auto-Apply + Optional Seed
+`supabase/config.toml` has `[db.seed]` enabled with `sql_paths = ["./SEED_ALL_DATA.sql"]`. To skip the seed:
 
 ```powershell
-cd "C:\Users\CRISS\AndroidStudioProjects\SanibonaniSave_Full"
-supabase db reset --local --no-seed --yes
-supabase db query --local --file .\supabase\22_SEED_TEST_DATA_10_GROUPS_100_MEMBERS_SAFE.sql
+npx supabase db reset --no-seed
 ```
 
-## Verify Applied Migrations
+## Current migration set
+
+- `migrations/00000000000000_GROUND_ZERO.sql` — generated baseline
+- `migrations/43_platform_fee_payment_idempotency.sql`
+- `migrations/44_loan_repayment_idempotency.sql`
+- `migrations/45_increment_group_balance_idempotency.sql`
+
+## Verify
 
 ```powershell
-cd "C:\Users\CRISS\AndroidStudioProjects\SanibonaniSave_Full"
-supabase migration list
-```
-
-## One-Command Helper Script
-
-Use:
-
-```powershell
-cd "C:\Users\CRISS\AndroidStudioProjects\SanibonaniSave_Full"
-.\scripts\run-supabase-local-reset.ps1 -NoSeed
-```
-
-With seed:
-
-```powershell
-cd "C:\Users\CRISS\AndroidStudioProjects\SanibonaniSave_Full"
-.\scripts\run-supabase-local-reset.ps1 -SeedFile ".\supabase\22_SEED_TEST_DATA_10_GROUPS_100_MEMBERS_SAFE.sql"
+npx supabase migration list --local
 ```
 
 ## Notes
 
-- If Docker is not running, local commands fail with pipe/engine errors.
-- Migration order is timestamp-based from `supabase/migrations/`.
-- Keep top-level SQL files and migration copies aligned when changing constraints.
-
+- `db reset` is destructive to the **local** database only.
+- Migration order is timestamp-based under `supabase/migrations/`.
+- The full-rebuild path for local development is `supabase/00_REBUILD_ALL.sql`; the CLI path above is equivalent for schema + seed.
+- Never push a full rebuild to an existing cloud tier; use a dated `online/SYNC_DELTA_<date>.sql`.

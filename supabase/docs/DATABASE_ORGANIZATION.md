@@ -28,11 +28,12 @@ After changing a source module, run these scripts from the repository root:
 
 They update the ground-zero migration baseline, dashboard bundle, online full-rebuild bundle, and integrated local seed respectively. Do not hand-edit those generated copies.
 
-For an existing cloud database, review an additive migration such as `online/SYNC_DELTA_20261014.sql`. Do not use a full-rebuild script to synchronize an existing tier. Its section G.0 is a manual RPC fingerprint gate: inspect that report first, skip G.1 when all fingerprints match, and stop for review if any function body differs. Take a backup before applying database changes.
+For an existing cloud database, use the dated additive deltas in `online/` (`SYNC_DELTA_20261014.sql`, `20261021`, `20261022`). Do not use a full-rebuild script to synchronize an existing tier, and never rewrite or re-run an applied delta. Each delta carries a read-only pre-flight and a fingerprint gate: compare the reported hashes with the ones recorded in the file, and stop for review if any body differs. Take a backup before applying database changes.
 
 ## Integrity requirements
 
 - Store financial amounts in exact PostgreSQL numeric types and keep them aligned with the Kotlin `Money` model.
+- `public.groups.balance` is a `NUMERIC(12,2) NOT NULL DEFAULT 0` cache of `group_ledger`; spend guards must treat a missing balance as zero and raise rather than pass.
 - Use `TEXT` for external ledger transaction references that may not be UUIDs.
 - Use idempotency keys and atomic RPCs for ledger-affecting writes.
 - Keep member counts and derived financial totals maintained by server-side triggers.

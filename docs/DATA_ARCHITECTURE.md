@@ -129,6 +129,8 @@ fun <T, E> observeAndSync(
 ### Backend Enforcement (Supabase RPCs):
 Critical financial operations are performed via **Postgres Functions (RPCs)** to ensure atomicity.
 - **`record_contribution_v2`**: Atomically creates a contribution, updates group balance, and creates a ledger entry. If any step fails, the whole transaction rolls back.
+- **`approve_and_disburse_loan_v2` / `complete_payout_v2`**: Outflows post through these RPCs; their spend guards treat a NULL cached balance as zero and raise on insufficient funds.
+- **`groups.balance`**: `NUMERIC(12,2) NOT NULL DEFAULT 0`, a cache of `group_ledger` — never the authority, and never written directly.
 
 ### Frontend Validation (`ValidationUtils`):
 - **SA ID Number**: Validated via Luhn Algorithm.

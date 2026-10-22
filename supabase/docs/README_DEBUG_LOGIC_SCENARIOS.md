@@ -1,77 +1,17 @@
-# Debug Logic Scenario Seed
+# Debug logic scenarios
 
-Focused deterministic seed data for debugging SanibonaniSave business rules and programmatic flow logic.
+The former `DBG-*` scenario pack (`17_SEED_DEBUG_LOGIC_SCENARIOS.sql` and its verify/cleanup/orchestrator companions) is not part of this repository.
 
-## Files
+## Current debug paths
 
-- `supabase/17_SEED_DEBUG_LOGIC_SCENARIOS.sql`
-  - Creates 4 scenario groups (`DBG-*`) with deterministic edge cases
-  - Includes members, contributions, payments, loans, payouts, burial claims, ledger entries, and audit markers
-  - Idempotent for debug data (`DBG-*` only)
-- `supabase/18_VERIFY_DEBUG_LOGIC_SCENARIOS.sql`
-  - Verification queries by scenario, status, and risk profile
-- `supabase/19_CLEANUP_DEBUG_LOGIC_SCENARIOS.sql`
-  - Removes `DBG-*` groups and `DBG_%` debug markers only
-- `supabase/20_RUN_DEBUG_LOGIC_SEED_AND_VERIFY.sql`
-  - One-command orchestrator for `16` + `17` + `18` (psql include mode)
-- `supabase/21_RUN_DEBUG_LOGIC_CLEANUP.sql`
-  - One-command orchestrator for `19` (psql include mode)
-- `supabase/16_PLATFORM_MEMBER_BEHAVIOR_INSIGHTS.sql` (recommended)
-  - Enables server-backed member risk insight view used by platform admin portal
+- `supabase/SEED_ALL_DATA.sql` — integrated local seed with all group types, mixed statuses, 12 months of ledger history, and claim/escalation fixtures.
+- `supabase/31_REAL_LIFE_INTEGRITY_SEEDS.sql` — deliberate forensic and fraud fixtures, scoped to `LIGHT-Stokvel`. Do not "repair" the intended drift.
+- `supabase/scripts/LIVE_SIMULATION_DEBUG.sql` — live backend simulation and integrity debug harness.
+- `supabase/scripts/TOTAL_INTEGRITY_AUDIT.sql` — full-system integrity audit report.
+- The `:simulation` module — `gradlew :simulation:run` for offline financial-flow scenarios.
 
-## Scenarios Included
+## Principles
 
-1. `DBG-G01 Healthy Flow`
-   - Mostly clean contributions and manageable disbursement workload
-2. `DBG-G02 Loan Stress`
-   - Mixed loan statuses (`pending`, `approved`, `active`, `overdue`, `rejected`)
-3. `DBG-G03 Burial Escalation`
-   - Escalated + approved + rejected burial payout claims
-4. `DBG-G04 Suspension Edge`
-   - Suspended fee posture, lower balance, pending/high-risk loan signals
-
-## Prerequisites
-
-1. `supabase/01_DATABASE_SCHEMA.sql`
-2. `supabase/03_PLATFORM_ADMIN_SETUP.sql`
-3. `supabase/04_MIGRATIONS_AND_UPDATES.sql`
-4. (Recommended) `supabase/16_PLATFORM_MEMBER_BEHAVIOR_INSIGHTS.sql`
-
-## Run Order (Supabase SQL Editor)
-
-1. Run `supabase/17_SEED_DEBUG_LOGIC_SCENARIOS.sql`
-2. Run `supabase/18_VERIFY_DEBUG_LOGIC_SCENARIOS.sql`
-
-## One-Command Mode (psql / shell)
-
-Use these if you prefer a single command flow:
-
-- `supabase/20_RUN_DEBUG_LOGIC_SEED_AND_VERIFY.sql`
-- `supabase/21_RUN_DEBUG_LOGIC_CLEANUP.sql`
-
-Example:
-
-```powershell
-psql "$env:DATABASE_URL" -f "supabase/20_RUN_DEBUG_LOGIC_SEED_AND_VERIFY.sql"
-psql "$env:DATABASE_URL" -f "supabase/21_RUN_DEBUG_LOGIC_CLEANUP.sql"
-```
-
-## Expected Debug Footprint
-
-- 4 `DBG-*` groups
-- 24 debug members
-- Deterministic loan/payout/claim statuses for reproducible logic tests
-- `DBG_*` audit log markers for quick traceability
-
-## Teardown / Cleanup
-
-Run when you are done with debugging:
-
-- `supabase/19_CLEANUP_DEBUG_LOGIC_SCENARIOS.sql`
-
-## Notes
-
-- This script does **not** delete non-debug production/test records.
-- Re-running is safe and only refreshes debug-tagged records.
-- Use alongside platform admin portal filters and loan risk insights for triage debugging.
-
+- Debug data must be scoped by a deterministic prefix (`SEED-`, `LIGHT-`, `SIM-FLOWS-`, `DBG-`) so cleanup is safe.
+- Never load debug fixtures into the cloud tier; production changes go through dated deltas.
+- When a scenario exposes a bug, fix the canonical source or RPC, regenerate artifacts, and record the expected fingerprints in a new delta.

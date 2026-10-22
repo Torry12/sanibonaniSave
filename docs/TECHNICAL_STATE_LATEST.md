@@ -48,6 +48,12 @@ We have eliminated unsafe unboxing assertions across the presentation, domain, a
 - Fully consolidated schema (`01_DATABASE_SCHEMA.sql`, `GROUND_ZERO.sql`, and `SEED_ALL_DATA.sql`) with automated migration runners (`supabase db reset --local` and linked online sync).
 - Master seed data pre-populates 8 authoritative group types, 24 persona members, 12 months of ledger history, and **15 valid simulation burial claims**.
 
+### 4.2 Financial SQL Hardening (October 2026)
+- Deltas `SYNC_DELTA_20261014.sql`, `SYNC_DELTA_20261021.sql`, and `SYNC_DELTA_20261022.sql` are applied on both tiers. Local was verified with the read-only K.4/L.4 probes; cloud is user-run (K.4 reported green, and L.4.d measured `guard_fails_closed=true` for both guards).
+- `groups.balance` is `NUMERIC(12,2) NOT NULL DEFAULT 0`. The 20261022 delta repaired every NULL from that group's own ledger, set the constraint, and wrapped both spend guards (`approve_and_disburse_loan_v2`, `complete_payout_v2`) in `COALESCE(v_group.balance, 0)` so a missing balance can no longer skip the liquidity check.
+- The 20261021 delta hardened the core RPCs: groups-first `FOR UPDATE` lock ordering, advisory-lock idempotency for platform revenue, a set-based running-balance recompute, real `discrepancy_found` reporting in `recalculate_all_group_financials_v3`, eight hot-path indexes, and pinned `search_path` on the remaining unpinned `SECURITY DEFINER` functions (18 updated; post-check `targets_unpinned=0`).
+- Changes to an existing tier go through a new dated delta only; applied deltas are frozen so their stored `prosrc` fingerprints stay verifiable.
+
 ---
 
 ## 5. ✅ Test Coverage Summary

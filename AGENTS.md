@@ -1,7 +1,7 @@
 # AGENTS.md — SanibonaniSave AI Coding Reference
 
-**Last Updated**: August 31, 2026
-**Version**: 8.0 (Refactored & Solidified)
+**Last Updated**: October 22, 2026
+**Version**: 8.1 (Refactored, Solidified & Delta-Synced)
 
 ---
 
@@ -67,7 +67,7 @@ val plain = amount.toPlainString() // Safe serialization
 - `ConsolidationReport` — ledger reconstruction result.
 
 **Best Practices**:
-- **Atomic updates**: Always use RPCs like `increment_group_balance` which require `p_member_id`.
+- **Atomic updates**: Always use RPCs like `increment_group_balance`; `p_member_id` is optional (`DEFAULT NULL`) and only needed for member-attributed entries.
 - **Ratio/Division**: Use `money.ratio(other)` for percentages and `money.dividedBy(Int|Double)` for allocation.
 - **Serialization**: `MoneySerializer` handles standard conversion; use `.toPlainString()` for DB/API.
 
@@ -135,6 +135,16 @@ any version below.
 3. **Credit**: `LoanRepository` (Lifecycle management).
 4. **Disbursement**: `PayoutRepository`, `BeneficiaryClaimRepository`.
 5. **Dynamics**: `ActuarialRepository` (Viability), `BehaviorTrackingRepository` (ML/Fraud).
+
+---
+
+## 🗄️ Database Change Workflow
+
+- **Canonical sources**: `supabase/01_DATABASE_SCHEMA.sql`, `02_FUNCTIONS_AND_TRIGGERS.sql`, `03_SECURITY_AND_RLS.sql`, `04_PLATFORM_ADMIN_SETUP.sql`, `05_PERFORMANCE_VIEWS.sql`, `30_STORAGE_RLS.sql`. Never edit generated copies by hand.
+- **Regenerate** in this order after a source change: `generate_ground_zero.ps1` → `generate_consolidated_schema.ps1` → `generate_online_sync.ps1` → `generate_integrated_seed.ps1`. Do not use the superseded `scripts/generate_consolidated.ps1`.
+- **Existing tiers** change only through a new dated `supabase/online/SYNC_DELTA_<date>.sql` containing a read-only pre-flight, the write sections, and expected body fingerprints. `20261014`, `20261021`, and `20261022` are applied; never rewrite them.
+- **Balance invariant**: `groups.balance` is `NUMERIC(12,2) NOT NULL DEFAULT 0` and ledger-derived. Spend guards use `COALESCE(v_group.balance, 0)` and `RAISE` on insufficiency.
+- **Verification** is always read-only first: body hashes, `groups_null_balance`, `balance_nullable`, and behavioural guard probes.
 
 ---
 

@@ -1,39 +1,32 @@
-# Local Supabase Setup
+# Local Supabase setup
 
-This repository is now initialized for Supabase local development.
+The repository is configured for Supabase local development through Docker.
 
-## What was added
-- `supabase/config.toml`
-- `supabase/migrations/`
-- `supabase/README_FULL_APP_E2E.md`
-- `supabase/29_ALIGN_VALIDATION_CONSTRAINTS_WITH_APP.sql`
-- `supabase/30_CONSOLIDATED_RLS_ALIGNMENT.sql`
+## Files
 
-## Current migration set
-The local migration folder includes the project’s schema, security, admin, and alignment history:
-- `20260514000100_initial_schema.sql`
-- `20260514000200_security_and_rls.sql`
-- `20260514000300_platform_admin_setup.sql`
-- `20260514000400_migrations_and_updates.sql`
-- `20260514000500_platform_admin_auth_alignment.sql`
-- `20260514000600_platform_admin_rls_hotfix.sql`
-- `20260514000700_add_rosca_rotation_method.sql`
-- `20260514000800_architecture_model_schema_templates.sql`
-- `20260514000900_align_validation_constraints_with_app.sql`
-- `20260515000000_consolidated_rls_alignment.sql`
-- `20260515000100_atomic_balance_updates.sql`
-- `20260515000200_group_voting_and_multi_admin.sql`
+- `supabase/config.toml` — project configuration. `[db.seed]` is enabled and `sql_paths` points at `./SEED_ALL_DATA.sql`.
+- `supabase/migrations/00000000000000_GROUND_ZERO.sql` — generated baseline.
+- `supabase/migrations/43_platform_fee_payment_idempotency.sql`, `44_loan_repayment_idempotency.sql`, `45_increment_group_balance_idempotency.sql` — idempotency migrations applied after the baseline.
+- `supabase/SEED_ALL_DATA.sql` — generated integrated development seed (local only).
+- `supabase/00_REBUILD_ALL.sql` — canonical rebuild order for the numbered source modules.
 
-## How to apply locally
-Once Docker Desktop is running and the Linux engine is available:
+## Apply locally
 
 ```powershell
-cd "C:\Users\CRISS\AndroidStudioProjects\SanibonaniSave_Full"
-supabase db reset --local --no-seed --yes
+npx supabase start
+npx supabase db reset          # destructive to the LOCAL database only
+```
+
+`db reset` applies the baseline, the migrations, and `SEED_ALL_DATA.sql`.
+
+To re-run the seed without a full reset:
+
+```powershell
+npx supabase db query --local --file "supabase/SEED_ALL_DATA.sql"
 ```
 
 ## Notes
-- `db.seed.enabled` is disabled in `config.toml` so reset will not require `seed.sql`.
-- If the CLI reports that `dockerDesktopLinuxEngine` is missing, restart Docker Desktop and wait until the engine is ready.
-- The reset command applies the migration history to the local database.
 
+- Never run `db reset`, `00_REBUILD_ALL.sql`, or the online full rebuild against an existing cloud tier. Cloud changes go through `supabase/online/SYNC_DELTA_<date>.sql`.
+- If the CLI reports `dockerDesktopLinuxEngine` is missing, restart Docker Desktop and wait for the engine.
+- After changing any seed module, regenerate `SEED_ALL_DATA.sql` with `supabase/scripts/generate_integrated_seed.ps1`.

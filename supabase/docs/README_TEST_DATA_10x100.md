@@ -1,37 +1,24 @@
-# Test Data Seed (10 Groups / 100 Members)
+# Test data seed (10 groups / 100 members)
 
-This seed creates a realistic QA dataset for business-logic testing in SanibonaniSave.
+`supabase/11_SEED_TEST_DATA_10_GROUPS_100_MEMBERS.sql` creates a realistic QA dataset: 10 groups, 100 members, contributions, payments, notifications, loans, loan repayments, platform fees, actuarial metrics, beneficiaries, claims, payouts, audit logs, and ledger rows.
 
-## Files
+## Run
 
-- `supabase/11_SEED_TEST_DATA_10_GROUPS_100_MEMBERS.sql`
-  - Idempotent seed script for 10 groups and 100 members
-  - Also creates linked data (contributions, payments, notifications, loans, loan repayments, platform fees, actuarial metrics, burial beneficiaries/claims, payouts, audit logs)
-- `supabase/12_VERIFY_TEST_DATA_10_GROUPS_100_MEMBERS.sql`
-  - Verification queries for quick sanity checks
+```powershell
+npx supabase db query --local --file "supabase/11_SEED_TEST_DATA_10_GROUPS_100_MEMBERS.sql"
+```
 
-## Prerequisites
+It is safe to re-run: the cleanup block deletes the ten `SEED-*` groups and the `seed.member.%@example.com` auth users before recreating them.
 
-1. Base schema applied (`supabase/01_DATABASE_SCHEMA.sql`)
-2. Platform admin exists from `supabase/03_PLATFORM_ADMIN_SETUP.sql` with email:
-   - `torrymsimango@gmail.com`
+## Verify
 
-## Run in Supabase SQL Editor
-
-1. Execute:
-   - `supabase/11_SEED_TEST_DATA_10_GROUPS_100_MEMBERS.sql`
-2. Then execute:
-   - `supabase/12_VERIFY_TEST_DATA_10_GROUPS_100_MEMBERS.sql`
-
-## Expected minimum outcomes
-
-- `groups`: `10` (`name LIKE 'SEED-G%'`)
-- `members`: `100` (`email LIKE 'seed.member.%@example.com'`)
-- Linked records across contributions, payments, loans, claims, notifications, and ledgers for business-flow testing
+```sql
+SELECT count(*) FROM public.groups WHERE name LIKE 'SEED-%';        -- 10
+SELECT count(*) FROM public.members WHERE email LIKE 'seed.member.%@example.com'; -- 100
+```
 
 ## Notes
 
-- The script only cleans/replaces old seed records where group name starts with `SEED-G`.
-- Existing non-seed data remains untouched.
-- Group ownership is assigned to the existing platform admin so admin dashboard and impersonation flows can be tested immediately.
-
+- Group ownership is assigned to `platform.admin@master.example.com` so admin dashboard and impersonation flows work immediately.
+- The full local dataset also includes `MASTER_SEED_DATA.sql`, the escalation/claims packs, and 12 months of history; `SEED_ALL_DATA.sql` bundles everything.
+- Local development only. Never apply this seed to the cloud tier.

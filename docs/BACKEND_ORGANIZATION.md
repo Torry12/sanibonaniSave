@@ -35,12 +35,13 @@ From the repository root, regenerate in this order:
 .\supabase\scripts\generate_integrated_seed.ps1
 ```
 
-For an existing online database, use a reviewed additive migration such as `online/SYNC_DELTA_20261014.sql`; do not run either full rebuild against an existing tier. Its section G.0 is a manual RPC fingerprint gate: inspect that report first, skip G.1 when all fingerprints match, and stop for review if any function body differs. Back up the database and inspect the SQL before applying it.
+For an existing online database, use the dated additive deltas in `online/` (`SYNC_DELTA_20261014.sql`, `20261021`, `20261022`); do not run either full rebuild against an existing tier, and never rewrite or re-run an applied delta. Each delta carries a read-only pre-flight and a fingerprint gate: compare the reported hashes with the ones recorded in the file, and stop for review if any body differs. Back up the database and inspect the SQL before applying it.
 
 ## Consistency rules
 
 - Keep PostgreSQL structures aligned with the Room entities and migrations in `:data`.
 - Keep ledger transaction identifiers as `TEXT` where external payment references may be non-UUID values.
 - Preserve cent-accurate numeric types for financial amounts.
+- Treat `public.groups.balance` as a `NUMERIC(12,2) NOT NULL DEFAULT 0` cache of `group_ledger`; spend guards raise on a missing or insufficient balance instead of passing.
 - Maintain server-side invariants through idempotent RPCs and triggers.
 - Keep RLS policies and storage policies synchronized with the schema and application access patterns.
