@@ -119,7 +119,7 @@ fun MemberListSection(
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                items(filteredMembers) { member ->
+                items(filteredMembers, key = { it.id ?: it.hashCode().toString() }) { member ->
                     val calculation = state.memberCalculations[member.id ?: ""]
                     MemberItem(
                         member = member,

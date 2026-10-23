@@ -141,7 +141,7 @@ fun LedgerListSection(
         if (state.unreconciledBankTx.isNotEmpty()) {
             Text("Unreconciled Bank Transactions", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
             LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                items(items = state.unreconciledBankTx) { tx ->
+                items(items = state.unreconciledBankTx, key = { it.id ?: it.hashCode().toString() }) { tx ->
                     Card(
                         modifier = Modifier.width(260.dp).clickable { selectedBankTx = tx },
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
@@ -181,7 +181,7 @@ fun LedgerListSection(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
                 contentPadding = PaddingValues(bottom = 80.dp)
             ) {
-                items(items = state.ledger) { entry ->
+                items(items = state.ledger, key = { it.id ?: it.hashCode().toString() }) { entry ->
                     LedgerEntryItem(entry) { onEntryClick(entry) }
                 }
             }
@@ -211,7 +211,7 @@ fun LedgerListSection(
                                 )
                             }
                         } else {
-                            items(candidates) { entry ->
+                            items(candidates, key = { it.id ?: it.hashCode().toString() }) { entry ->
                                 ListItem(
                                     headlineContent = { Text(entry.description) },
                                     supportingContent = { Text("${formatDate(entry.createdAt)} • ${formatZAR(entry.amount)}") },

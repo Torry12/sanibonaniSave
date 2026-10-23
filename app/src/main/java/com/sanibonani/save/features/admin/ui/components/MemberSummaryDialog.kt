@@ -66,7 +66,7 @@ fun MemberSummaryDialog(
             item {
                 SummarySection(title = "Personal Details", icon = Icons.Default.Person) {
                     InfoRow("ID Number", summary.member.idNumber ?: "N/A")
-                    InfoRow("Phone", summary.member.phone ?: "N/A")
+                    InfoRow("Phone", summary.member.phone.ifBlank { "N/A" })
                     InfoRow("Email", summary.member.email ?: "N/A")
                     InfoRow("Address", "${summary.member.street}, ${summary.member.suburb}, ${summary.member.city}")
                 }
@@ -110,7 +110,7 @@ fun MemberSummaryDialog(
                     Text("No recent loans found.", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
                 }
             } else {
-                items(summary.recentLoans) { loan ->
+                items(summary.recentLoans, key = { it.id ?: it.hashCode().toString() }) { loan ->
                     LoanHistoryItem(loan)
                 }
             }

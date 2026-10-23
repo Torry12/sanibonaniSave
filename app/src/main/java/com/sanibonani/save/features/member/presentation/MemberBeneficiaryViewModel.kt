@@ -5,9 +5,8 @@ import com.sanibonani.save.domain.repository.member.BeneficiaryClaimRepository
 import com.sanibonani.save.domain.repository.member.BeneficiaryRepository
 import com.sanibonani.save.domain.service.FileStorageService
 import com.sanibonani.save.domain.usecase.member.ValidateBurialClaimEligibilityUseCase
-import com.sanibonani.save.domain.validation.InputValidator
-import com.sanibonani.save.domain.validation.ValidationResult
 import com.sanibonani.save.features.common.presentation.UIEvent
+import com.sanibonani.save.features.common.validation.BeneficiaryForm
 import com.sanibonani.save.features.member.presentation.state.MemberUiState
 import com.sanibonani.save.features.common.presentation.BaseViewModel
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -33,29 +32,24 @@ class MemberBeneficiaryViewModel @Inject constructor(
     fun addBeneficiary(name: String, idNumber: String, relationship: String, dateOfBirth: String, isOver65: Boolean) {
         val member = uiState.value.member ?: return
         val memberId = member.id.serverIdOrReport("member") ?: return
-        val cleanedName = name.trim()
-        if (cleanedName.isBlank()) {
-            sendEvent(UIEvent.ShowError("Add the beneficiary's full name before saving."))
-            return
-        }
-
-        // A beneficiary is the record a future burial or emergency claim is settled against, so
-        // the same brain that checks a member's ID checks this one before anything is queued.
-        val cleanedId = idNumber.trim()
-        val idError = when {
-            cleanedId.isBlank() -> "Add the beneficiary's SA ID number before saving."
-            InputValidator.validateSAIdNumber(cleanedId) !is ValidationResult.Valid ->
-                "Add a valid 13-digit SA ID number for the beneficiary."
-            else -> null
-        }
-        if (idError != null) {
-            sendEvent(UIEvent.ShowError(idError))
-            return
-        }
 
         // beneficiaries.group_id is a NOT NULL uuid with a FK to groups, so the model default of
         // "" is not an omission the server fills in - PostgREST rejects it and the row never lands.
         val groupId = member.groupId.ifBlank { uiState.value.group?.id.orEmpty() }
+        val record = when (val validation = BeneficiaryForm.validate(
+            template = Beneficiary(groupId = groupId, memberId = memberId),
+            name = name,
+            idNumber = idNumber,
+            relationship = relationship,
+            dateOfBirth = dateOfBirth,
+            isOver65 = isOver65
+        )) {
+            is BeneficiaryForm.Validation.Invalid -> {
+                sendEvent(UIEvent.ShowError(validation.message))
+                return
+            }
+            is BeneficiaryForm.Validation.Valid -> validation.record
+        }
         if (groupId.isBlank()) {
             sendEvent(UIEvent.ShowError("No group is loaded for this member, so the beneficiary cannot be saved. Sync and try again."))
             return
@@ -63,16 +57,7 @@ class MemberBeneficiaryViewModel @Inject constructor(
 
         launchJob("add_beneficiary") {
             updateState { it.copy(isLoading = true) }
-            val beneficiary = Beneficiary(
-                groupId = groupId,
-                memberId = memberId,
-                fullName = cleanedName,
-                idNumber = cleanedId,
-                relationship = relationship.trim().ifBlank { null },
-                dateOfBirth = dateOfBirth.trim().ifBlank { null },
-                isOver65 = isOver65
-            )
-            beneficiaryRepo.addBeneficiary(beneficiary).onSuccess {
+            beneficiaryRepo.addBeneficiary(record).onSuccess {
                 updateState { s -> s.copy(isLoading = false) }
                 showMessage("Beneficiary added successfully")
             }.onFailure {
@@ -90,40 +75,31 @@ class MemberBeneficiaryViewModel @Inject constructor(
         dateOfBirth: String,
         isOver65: Boolean
     ) {
-        val cleanedName = name.trim()
-        if (cleanedName.isBlank()) {
-            sendEvent(UIEvent.ShowError("Add the beneficiary's full name before saving."))
-            return
-        }
-        val cleanedId = idNumber.trim()
-        val idError = when {
-            cleanedId.isBlank() -> "Add the beneficiary's SA ID number before saving."
-            InputValidator.validateSAIdNumber(cleanedId) !is ValidationResult.Valid ->
-                "Add a valid 13-digit SA ID number for the beneficiary."
-            else -> null
-        }
-        if (idError != null) {
-            sendEvent(UIEvent.ShowError(idError))
-            return
+        val record = when (val validation = BeneficiaryForm.validate(
+            template = beneficiary,
+            name = name,
+            idNumber = idNumber,
+            relationship = relationship,
+            dateOfBirth = dateOfBirth,
+            isOver65 = isOver65
+        )) {
+            is BeneficiaryForm.Validation.Invalid -> {
+                sendEvent(UIEvent.ShowError(validation.message))
+                return
+            }
+            is BeneficiaryForm.Validation.Valid -> validation.record
         }
 
         launchJob("update_beneficiary") {
             updateState { it.copy(isLoading = true) }
-            beneficiaryRepo.updateBeneficiary(
-                beneficiary.copy(
-                    fullName = cleanedName,
-                    idNumber = cleanedId,
-                    relationship = relationship.trim().ifBlank { null },
-                    dateOfBirth = dateOfBirth.trim().ifBlank { null },
-                    isOver65 = isOver65
-                )
-            ).onSuccess {
-                updateState { it.copy(isLoading = false) }
-                showMessage("Beneficiary updated successfully")
-            }.onFailure {
-                updateState { it.copy(isLoading = false) }
-                handleError(it)
-            }
+            beneficiaryRepo.updateBeneficiary(record)
+                .onSuccess {
+                    updateState { it.copy(isLoading = false) }
+                    showMessage("Beneficiary updated successfully")
+                }.onFailure {
+                    updateState { it.copy(isLoading = false) }
+                    handleError(it)
+                }
         }
     }
 
@@ -195,13 +171,20 @@ class MemberBeneficiaryViewModel @Inject constructor(
                 val currentBeneficiaries = uiState.value.beneficiaries.ifEmpty {
                     beneficiaryRepo.observeBeneficiaries(memberId).first().getOrNull() ?: emptyList()
                 }
-                val b = currentBeneficiaries.find { it.id == beneficiaryId }
-                if (b != null) {
-                    val updated = b.copy(documentUrl = url)
-                    beneficiaryRepo.updateBeneficiary(updated)
+                val target = currentBeneficiaries.find { it.id == beneficiaryId }
+                val persisted = target?.let { beneficiaryRepo.updateBeneficiary(it.copy(documentUrl = url)) }
+                    ?: Result.failure(
+                        IllegalStateException(
+                            "The document uploaded, but the beneficiary could not be found. Sync and try again."
+                        )
+                    )
+                persisted.onSuccess {
+                    updateState { it.copy(isLoading = false) }
+                    showMessage("Document uploaded successfully")
+                }.onFailure { error ->
+                    updateState { it.copy(isLoading = false) }
+                    handleError(error)
                 }
-                updateState { it.copy(isLoading = false) }
-                showMessage("Document uploaded successfully")
             }.onFailure { error ->
                 updateState { it.copy(isLoading = false) }
                 handleError(error)

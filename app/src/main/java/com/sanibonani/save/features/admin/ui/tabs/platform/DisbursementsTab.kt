@@ -121,7 +121,7 @@ fun DisbursementsTab(
                                 )
                             }
                             if (isExp) {
-                                items(payouts) { payout ->
+                                items(payouts, key = { it.id ?: it.hashCode().toString() }) { payout ->
                                     PayoutCard(
                                         payout = payout,
                                         groupName = state.groupNames[payout.groupId] ?: "Unknown Group",
@@ -167,7 +167,7 @@ fun DisbursementsTab(
                                 )
                             }
                             if (isExp) {
-                                items(loans) { loan ->
+                                items(loans, key = { it.id ?: it.hashCode().toString() }) { loan ->
                                     LoanRequestCard(
                                         loan = loan,
                                         memberName = state.loanMemberNames[loan.memberId] ?: "Member ${loan.memberId.takeLast(4)}",
@@ -214,7 +214,7 @@ fun DisbursementsTab(
                                 )
                             }
                             if (isExp) {
-                                items(claims) { claim ->
+                                items(claims, key = { it.id ?: it.hashCode().toString() }) { claim ->
                                     BurialClaimCard(
                                         claim = claim,
                                         groupName = state.groupNames[claim.groupId] ?: "Unknown Group",
@@ -248,7 +248,7 @@ fun DisbursementsTab(
                     if (state.behaviorInsights.isEmpty()) {
                         item { EmptyStateSmall("No behavior insights available.") }
                     } else {
-                        items(state.behaviorInsights) { insight ->
+                        items(state.behaviorInsights, key = { "${it.groupId}_${it.memberId}" }) { insight ->
                             BehaviorInsightCard(
                                 insight = insight,
                                 onClick = { onNavigateToBehaviorTracking(insight.memberId) }

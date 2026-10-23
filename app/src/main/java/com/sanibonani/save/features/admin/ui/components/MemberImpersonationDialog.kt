@@ -81,7 +81,10 @@ fun MemberImpersonationDialog(
                             leadingIcon = { Icon(Icons.Default.Search, null) }
                         )
                         LazyColumn(Modifier.heightIn(max = 300.dp)) {
-                            items(groups.filter { it.name.contains(groupQuery, ignoreCase = true) }) { group ->
+                            items(
+                                groups.filter { it.name.contains(groupQuery, ignoreCase = true) },
+                                key = { it.id ?: it.name }
+                            ) { group ->
                                 DropdownMenuItem(
                                     text = { Text(group.name) },
                                     onClick = {
@@ -109,7 +112,10 @@ fun MemberImpersonationDialog(
                                 leadingIcon = { Icon(Icons.Default.Search, null) }
                             )
                             LazyColumn(Modifier.heightIn(max = 300.dp)) {
-                                items(state.impersonationMembers.filter { it.fullName.contains(memberQuery, ignoreCase = true) }) { member ->
+                                items(
+                                    state.impersonationMembers.filter { it.fullName.contains(memberQuery, ignoreCase = true) },
+                                    key = { it.id ?: it.fullName }
+                                ) { member ->
                                     DropdownMenuItem(
                                         text = {
                                             Column {
@@ -141,7 +147,7 @@ fun MemberImpersonationDialog(
 
                     if (state.searchQuery.length >= 3) {
                         LazyColumn(Modifier.heightIn(max = 300.dp)) {
-                            items(state.memberBehaviorInsights) { insight ->
+                            items(state.memberBehaviorInsights, key = { "${it.groupId}_${it.memberId}" }) { insight ->
                                 DropdownMenuItem(
                                     text = {
                                         Column {

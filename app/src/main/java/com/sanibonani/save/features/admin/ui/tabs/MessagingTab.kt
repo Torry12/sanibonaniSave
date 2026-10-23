@@ -134,7 +134,7 @@ fun MessagingTab(state: AdminOverviewUiState, vm: AdminOverviewViewModel) {
                 )
             }
         } else {
-            items(state.memberMessages) { msg ->
+            items(state.memberMessages, key = { it.id ?: it.hashCode().toString() }) { msg ->
                 Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f))) {
                     Column(Modifier.padding(12.dp)) {
                         Text(msg.message, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)

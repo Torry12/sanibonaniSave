@@ -36,7 +36,7 @@ fun QuickActionGrid(
             .fillMaxWidth(),
         userScrollEnabled = false // Usually embedded in a parent LazyColumn
     ) {
-        items(actions) { action ->
+        items(actions, key = { it.label }) { action ->
             ActionButton(
                 icon = action.icon,
                 label = action.label,

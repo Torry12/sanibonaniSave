@@ -92,7 +92,7 @@ fun MemberFinanceTab(
                     onAction = handleApplyClick
                 )
             }
-            else items(items = loans) { loan: Loan ->
+            else items(items = loans, key = { it.id ?: it.hashCode().toString() }) { loan: Loan ->
                 LoanItem(
                     loan = loan,
                     onDownloadContract = {

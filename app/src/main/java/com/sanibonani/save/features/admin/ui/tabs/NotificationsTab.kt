@@ -106,7 +106,7 @@ fun NotificationsTab(state: AdminOverviewUiState) {
                 }
             }
         } else {
-            items(notifications) { notif ->
+            items(notifications, key = { it.id ?: it.hashCode().toString() }) { notif ->
                 val isFinancial = notif.message.contains("payment", true) || notif.message.contains("payout", true) || notif.message.contains("loan", true)
                 Card(
                     modifier = Modifier.fillMaxWidth(),
@@ -140,7 +140,7 @@ fun NotificationsTab(state: AdminOverviewUiState) {
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
-                                    text = notif.triggerEvent?.name?.replace("_", " ") ?: "Group Event",
+                                    text = notif.triggerEvent.name.replace("_", " "),
                                     style = MaterialTheme.typography.labelSmall,
                                     fontWeight = FontWeight.Bold,
                                     color = MaterialTheme.colorScheme.primary

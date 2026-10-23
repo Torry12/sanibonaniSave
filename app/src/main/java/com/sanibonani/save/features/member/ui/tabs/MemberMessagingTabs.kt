@@ -131,7 +131,7 @@ fun MemberNotificationsTab(notifications: List<AppNotification>) {
                 }
             }
         } else {
-            items(items = filteredNotifications) { n: AppNotification ->
+            items(items = filteredNotifications, key = { it.id ?: it.hashCode().toString() }) { n: AppNotification ->
                 NotificationItem(n)
             }
         }
@@ -194,7 +194,7 @@ fun MemberMessagesTab(
                 EmptyState(icon = "✉️", title = "No messages", description = "Admins haven't sent any messages yet.")
             }
         } else {
-            items(items = messages) { m: AppNotification ->
+            items(items = messages, key = { it.id ?: it.hashCode().toString() }) { m: AppNotification ->
                 MessageItem(m)
             }
         }

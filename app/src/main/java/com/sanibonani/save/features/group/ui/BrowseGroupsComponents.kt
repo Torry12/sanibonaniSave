@@ -82,7 +82,7 @@ fun LocationDetailBottomSheet(
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                items(groups) { group ->
+                items(groups, key = { it.id ?: "${it.name}_${it.city}" }) { group ->
                     val isExpanded = expandedGroupId == group.id
 
                     Card(

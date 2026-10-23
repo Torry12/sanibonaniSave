@@ -47,7 +47,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.sanibonani.save.R
 import com.sanibonani.save.domain.model.LedgerEntry
-import com.sanibonani.save.domain.model.Money
 import com.sanibonani.save.domain.model.ReconciliationStatus
 import com.sanibonani.save.features.admin.presentation.PlatformLedgerViewModel
 import com.sanibonani.save.features.admin.presentation.state.PlatformAnalyticsUiState
@@ -241,7 +240,7 @@ fun PlatformLedgerTab(
                 }
 
                 if (isExpanded) {
-                    items(entries) { entry ->
+                    items(entries, key = { it.id ?: it.hashCode().toString() }) { entry ->
                         LedgerEntryItem(
                             entry = entry,
                             groupName = groupNames[entry.groupId] ?: "Platform Internal",
@@ -337,7 +336,7 @@ fun LedgerEntryDetailDialog(entry: LedgerEntry, groupName: String, onDismiss: ()
                 DetailRow(stringResource(R.string.ui_group), groupName)
                 DetailRow(stringResource(R.string.ui_reference), entry.transactionId ?: "System Internal")
                 DetailRow(stringResource(R.string.ui_claim_amount), com.sanibonani.save.ui.utils.formatZAR(entry.amount))
-                DetailRow(stringResource(R.string.ui_balance_after), com.sanibonani.save.ui.utils.formatZAR(entry.balanceAfter ?: Money.ZERO))
+                DetailRow(stringResource(R.string.ui_balance_after), com.sanibonani.save.ui.utils.formatZAR(entry.balanceAfter))
                 DetailRow(stringResource(R.string.ui_category), entry.category)
                 DetailRow("Date", entry.createdAt ?: "N/A")
                 DetailRow(stringResource(R.string.ui_description), entry.description)

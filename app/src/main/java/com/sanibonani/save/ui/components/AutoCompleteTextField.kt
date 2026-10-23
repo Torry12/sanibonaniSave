@@ -66,7 +66,7 @@ fun AutoCompleteTextField(
                 elevation = CardDefaults.cardElevation(8.dp)
             ) {
                 LazyColumn(modifier = Modifier.heightIn(max = 200.dp)) {
-                    items(suggestions) { suggestion ->
+                    items(suggestions, key = { it.formatted }) { suggestion ->
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()

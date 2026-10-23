@@ -27,6 +27,8 @@ import com.sanibonani.save.features.admin.presentation.state.AdminFinancialUiSta
 @Composable
 fun PayoutTab(state: AdminFinancialUiState, vm: AdminFinancialViewModel) {
     val group = state.group ?: return
+    val payouts = remember(state.payouts) { state.payouts.sortedByDescending { it.createdAt ?: "" } }
+    val burialClaims = remember(state.burialClaims) { state.burialClaims.sortedByDescending { it.createdAt ?: "" } }
 
     LazyColumn(
         Modifier.fillMaxSize(),
@@ -91,7 +93,7 @@ fun PayoutTab(state: AdminFinancialUiState, vm: AdminFinancialViewModel) {
                     )
                 }
             } else {
-                items(items = state.payouts.sortedByDescending { it.createdAt ?: "" }) { payout ->
+                items(items = payouts, key = { it.id ?: it.hashCode().toString() }) { payout ->
                     PayoutHistoryItem(
                         payout = payout,
                         members = state.members,
@@ -118,7 +120,7 @@ fun PayoutTab(state: AdminFinancialUiState, vm: AdminFinancialViewModel) {
                     )
                 }
             } else {
-                items(items = state.burialClaims.sortedByDescending { it.createdAt ?: "" }) { claim ->
+                items(items = burialClaims, key = { it.id ?: it.hashCode().toString() }) { claim ->
                     ClaimAdminCard(
                         claim = claim,
                         onVerify = { vm.selectClaim(claim) },

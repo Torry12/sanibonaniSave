@@ -110,7 +110,7 @@ fun MemberBeneficiaryTab(
                 )
             }
         } else {
-            items(items = beneficiaries) { b: Beneficiary ->
+            items(items = beneficiaries, key = { it.id ?: it.hashCode().toString() }) { b: Beneficiary ->
                 var showEdit by remember { mutableStateOf(false) }
                 var showClaim by remember { mutableStateOf(false) }
                 BeneficiaryItem(

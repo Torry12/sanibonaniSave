@@ -18,11 +18,10 @@ import com.sanibonani.save.domain.usecase.member.VerifyMemberDocumentUseCase
 import com.sanibonani.save.domain.usecase.member.VerifyRelationalDocumentUseCase
 import com.sanibonani.save.domain.usecase.system.SendNotificationUseCase
 import com.sanibonani.save.domain.utils.PaymentCalculator
-import com.sanibonani.save.domain.validation.InputValidator
-import com.sanibonani.save.domain.validation.ValidationResult
 import com.sanibonani.save.features.admin.presentation.state.AdminMemberUiState
 import com.sanibonani.save.features.common.presentation.BaseViewModel
 import com.sanibonani.save.features.common.presentation.UIEvent
+import com.sanibonani.save.features.common.validation.BeneficiaryForm
 import com.sanibonani.save.service.AdminGroupContextCacheService
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -226,33 +225,23 @@ class AdminMemberViewModel @Inject constructor(
         dateOfBirth: String,
         isOver65: Boolean
     ) {
-        val cleanedName = name.trim()
-        if (cleanedName.isBlank()) {
-            sendEvent(UIEvent.ShowError("Add the beneficiary's full name before saving."))
-            return
-        }
-        val cleanedId = idNumber.trim()
-        val idError = when {
-            cleanedId.isBlank() -> "Add the beneficiary's SA ID number before saving."
-            InputValidator.validateSAIdNumber(cleanedId) !is ValidationResult.Valid ->
-                "Add a valid 13-digit SA ID number for the beneficiary."
-            else -> null
-        }
-        if (idError != null) {
-            sendEvent(UIEvent.ShowError(idError))
-            return
+        val record = when (val validation = BeneficiaryForm.validate(
+            template = beneficiary,
+            name = name,
+            idNumber = idNumber,
+            relationship = relationship,
+            dateOfBirth = dateOfBirth,
+            isOver65 = isOver65
+        )) {
+            is BeneficiaryForm.Validation.Invalid -> {
+                sendEvent(UIEvent.ShowError(validation.message))
+                return
+            }
+            is BeneficiaryForm.Validation.Valid -> validation.record
         }
 
         launchJob("update_beneficiary") {
-            beneficiaryRepo.updateBeneficiary(
-                beneficiary.copy(
-                    fullName = cleanedName,
-                    idNumber = cleanedId,
-                    relationship = relationship.trim().ifBlank { null },
-                    dateOfBirth = dateOfBirth.trim().ifBlank { null },
-                    isOver65 = isOver65
-                )
-            )
+            beneficiaryRepo.updateBeneficiary(record)
                 .onSuccess { showMessage("Beneficiary updated") }
                 .onFailure { handleError(it) }
         }
