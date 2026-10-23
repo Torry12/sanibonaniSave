@@ -82,6 +82,80 @@ class MemberBeneficiaryViewModel @Inject constructor(
         }
     }
 
+    fun updateBeneficiary(
+        beneficiary: Beneficiary,
+        name: String,
+        idNumber: String,
+        relationship: String,
+        dateOfBirth: String,
+        isOver65: Boolean
+    ) {
+        val cleanedName = name.trim()
+        if (cleanedName.isBlank()) {
+            sendEvent(UIEvent.ShowError("Add the beneficiary's full name before saving."))
+            return
+        }
+        val cleanedId = idNumber.trim()
+        val idError = when {
+            cleanedId.isBlank() -> "Add the beneficiary's SA ID number before saving."
+            InputValidator.validateSAIdNumber(cleanedId) !is ValidationResult.Valid ->
+                "Add a valid 13-digit SA ID number for the beneficiary."
+            else -> null
+        }
+        if (idError != null) {
+            sendEvent(UIEvent.ShowError(idError))
+            return
+        }
+
+        launchJob("update_beneficiary") {
+            updateState { it.copy(isLoading = true) }
+            beneficiaryRepo.updateBeneficiary(
+                beneficiary.copy(
+                    fullName = cleanedName,
+                    idNumber = cleanedId,
+                    relationship = relationship.trim().ifBlank { null },
+                    dateOfBirth = dateOfBirth.trim().ifBlank { null },
+                    isOver65 = isOver65
+                )
+            ).onSuccess {
+                updateState { it.copy(isLoading = false) }
+                showMessage("Beneficiary updated successfully")
+            }.onFailure {
+                updateState { it.copy(isLoading = false) }
+                handleError(it)
+            }
+        }
+    }
+
+    fun deleteBeneficiary(beneficiary: Beneficiary) {
+        val id = beneficiary.id
+        if (id == null) {
+            sendEvent(UIEvent.ShowError("This beneficiary is not saved on the server yet. Sync and try again."))
+            return
+        }
+        val memberId = beneficiary.memberId.ifBlank { uiState.value.member?.id.orEmpty() }
+        val groupId = beneficiary.groupId.ifBlank {
+            uiState.value.member?.groupId?.ifBlank { null } ?: uiState.value.group?.id.orEmpty()
+        }
+        if (memberId.isBlank() || groupId.isBlank()) {
+            sendEvent(UIEvent.ShowError("No member or group is loaded, so the beneficiary cannot be removed. Sync and try again."))
+            return
+        }
+
+        launchJob("delete_beneficiary") {
+            updateState { it.copy(isLoading = true) }
+            beneficiaryRepo.deleteBeneficiary(groupId, memberId, id)
+                .onSuccess {
+                    updateState { it.copy(isLoading = false) }
+                    showMessage("Beneficiary removed")
+                }
+                .onFailure {
+                    updateState { it.copy(isLoading = false) }
+                    handleError(it)
+                }
+        }
+    }
+
     fun submitClaim(claim: BeneficiaryPayoutClaim) {
         launchJob("submit_claim") {
             updateState { it.copy(isSubmittingClaim = true) }

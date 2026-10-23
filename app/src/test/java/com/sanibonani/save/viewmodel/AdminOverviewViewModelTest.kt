@@ -29,6 +29,7 @@ import com.sanibonani.save.features.admin.presentation.coordination.AdminMessagi
 import com.sanibonani.save.features.admin.presentation.coordination.AdminPlatformFeeCoordinator
 import com.sanibonani.save.features.admin.presentation.coordination.AdminReportingCoordinator
 import com.sanibonani.save.features.admin.presentation.coordination.AdminViabilityCoordinator
+import com.sanibonani.save.features.common.presentation.UIEvent
 import com.sanibonani.save.service.AdminGroupContextCacheService
 import com.sanibonani.save.service.CachedAdminGroupContext
 import io.mockk.*
@@ -37,6 +38,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
@@ -299,7 +301,9 @@ class AdminOverviewViewModelTest {
         viewModel.payPlatformFees()
         advanceUntilIdle()
 
-        assertEquals("Platform fees paid successfully.", viewModel.state.value.successMessage)
+        val event = viewModel.events.first()
+        assertTrue(event is UIEvent.ShowMessage)
+        assertEquals("Platform fees paid successfully.", (event as UIEvent.ShowMessage).message)
         assertEquals(false, viewModel.state.value.isPayingPlatformFee)
         verify { adminContextCacheService.warmUpGroup("g-1", force = true) }
     }
@@ -312,7 +316,9 @@ class AdminOverviewViewModelTest {
         viewModel.executeRoscaPayout()
         advanceUntilIdle()
 
-        assertEquals("ROSCA Payout Processed: R500.00 to Thabo", viewModel.state.value.successMessage)
+        val event = viewModel.events.first()
+        assertTrue(event is UIEvent.ShowMessage)
+        assertEquals("ROSCA Payout Processed: R500.00 to Thabo", (event as UIEvent.ShowMessage).message)
     }
 
     @Test

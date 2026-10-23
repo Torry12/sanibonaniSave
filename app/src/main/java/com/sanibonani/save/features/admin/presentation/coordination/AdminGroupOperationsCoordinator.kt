@@ -3,6 +3,7 @@ package com.sanibonani.save.features.admin.presentation.coordination
 import com.sanibonani.save.domain.repository.member.MemberRepository
 import com.sanibonani.save.domain.repository.treasury.LedgerRepository
 import com.sanibonani.save.domain.usecase.disbursement.ExecuteRoscaPayoutUseCase
+import com.sanibonani.save.features.common.presentation.UIEvent
 import com.sanibonani.save.service.AdminGroupContextCacheService
 import javax.inject.Inject
 
@@ -39,9 +40,8 @@ class AdminGroupOperationsCoordinator @Inject constructor(
                 ledgerRepo.consolidateGroupLedger(groupId)
                     .onSuccess {
                         refreshMembers(host)
-                        host.updateAdminState {
-                            it.copy(isLoading = false, successMessage = "Audit trail repaired.")
-                        }
+                        host.updateAdminState { it.copy(isLoading = false) }
+                        host.sendUiEvent(UIEvent.ShowMessage("Audit trail repaired."))
                     }
                     .onFailure { e ->
                         host.updateAdminState { it.copy(isLoading = false) }
@@ -57,9 +57,8 @@ class AdminGroupOperationsCoordinator @Inject constructor(
             host.updateAdminState { it.copy(isLoading = true) }
             executeRoscaPayoutUseCase(groupId)
                 .onSuccess { msg ->
-                    host.updateAdminState {
-                        it.copy(isLoading = false, successMessage = "ROSCA Payout Processed: $msg")
-                    }
+                    host.updateAdminState { it.copy(isLoading = false) }
+                    host.sendUiEvent(UIEvent.ShowMessage("ROSCA Payout Processed: $msg"))
                     adminContextCacheService.warmUpGroup(groupId)
                 }
                 .onFailure { e ->

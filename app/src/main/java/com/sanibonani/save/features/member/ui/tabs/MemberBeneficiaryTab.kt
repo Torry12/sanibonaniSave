@@ -42,6 +42,7 @@ fun MemberBeneficiaryTab(
     val context = LocalContext.current
 
     var showAddDialog by remember { mutableStateOf(false) }
+    var beneficiaryToDelete by remember { mutableStateOf<Beneficiary?>(null) }
     val isBurial = group?.type == GroupType.BURIAL_SOCIETY
     val limit = group?.maxBeneficiaries ?: 0
     val count = beneficiaries.size
@@ -116,7 +117,7 @@ fun MemberBeneficiaryTab(
                     beneficiary = b,
                     isBurial = isBurial,
                     onEdit = { showEdit = true },
-                    onDelete = { /* vm.deleteBeneficiary(it) */ },
+                    onDelete = { beneficiaryToDelete = b },
                     onUpload = { bytes, name -> b.id?.let { vm.uploadBeneficiaryDocument(it, bytes, name) } },
                     onClaim = { showClaim = true },
                     onDownload = { url, label ->
@@ -126,7 +127,10 @@ fun MemberBeneficiaryTab(
                         onFileAction(url, fileName, headers)
                     }
                 )
-                if (showEdit) AddBeneficiaryDialog(b, { showEdit = false }, { n, id, r, d, i -> /* b.id?.let { vm.updateBeneficiary(it, n, id, r, d, i) } */; showEdit = false })
+                if (showEdit) AddBeneficiaryDialog(b, { showEdit = false }, { n, id, r, d, i ->
+                    vm.updateBeneficiary(b, n, id, r, d, i)
+                    showEdit = false
+                })
                 if (showClaim) {
                     ClaimBeneficiaryDialog(
                         beneficiary = b,
@@ -144,6 +148,33 @@ fun MemberBeneficiaryTab(
     }
 
     if (showAddDialog) AddBeneficiaryDialog(null, { showAddDialog = false }, { n, id, r, d, i -> vm.addBeneficiary(n, id, r, d, i); showAddDialog = false })
+
+    beneficiaryToDelete?.let { beneficiary ->
+        AlertDialog(
+            onDismissRequest = { beneficiaryToDelete = null },
+            title = { Text("Remove Beneficiary?") },
+            text = {
+                Text(
+                    "This removes ${beneficiary.fullName} from your beneficiary list. " +
+                        "Any claim already linked to them stays on record. This cannot be undone."
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        vm.deleteBeneficiary(beneficiary)
+                        beneficiaryToDelete = null
+                    },
+                    colors = ButtonDefaults.textButtonColors(contentColor = ErrorRed)
+                ) { Text("Remove") }
+            },
+            dismissButton = {
+                TextButton(onClick = { beneficiaryToDelete = null }) {
+                    Text(stringResource(R.string.ui_cancel))
+                }
+            }
+        )
+    }
 }
 
 @Composable

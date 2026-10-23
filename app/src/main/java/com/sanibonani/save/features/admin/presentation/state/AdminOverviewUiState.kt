@@ -17,7 +17,6 @@ data class AdminOverviewUiState(
     val memberMessages: List<AppNotification> = emptyList(),
     val isLoading: Boolean = false,
     val error: String? = null,
-    val successMessage: String? = null,
     val selectedTab: Int = 0,
     val verificationResult: VerificationResult = VerificationResult.Valid,
     val isSystemOnline: Boolean = true,
