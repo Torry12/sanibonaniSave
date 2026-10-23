@@ -16,7 +16,6 @@ data class AdminMemberUiState(
     val loanIneligibilityReason: String? = null,
     val isLoading: Boolean = false,
     val error: String? = null,
-    val successMessage: String? = null,
     val isExporting: Boolean = false,
     val exportFile: File? = null,
     val messageText: String = "",

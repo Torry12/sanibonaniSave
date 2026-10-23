@@ -1,36 +1,27 @@
 package com.sanibonani.save.features.admin.ui.components
 
-import androidx.compose.ui.res.stringResource
-import com.sanibonani.save.R
-
-import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.*
-import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.automirrored.filled.Login
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import com.sanibonani.save.ui.utils.formatZAR
+import com.sanibonani.save.R
 import com.sanibonani.save.domain.model.*
 import com.sanibonani.save.domain.utils.PaymentCalculation
-import com.sanibonani.save.ui.components.*
-import com.sanibonani.save.ui.theme.*
+import com.sanibonani.save.ui.components.InitialsAvatar
+import com.sanibonani.save.ui.theme.Navy
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MemberDetailDialog(
     member: Member,
@@ -62,7 +53,6 @@ fun MemberDetailDialog(
     onFileAction: (String, String, Map<String, String>) -> Unit = { _, _, _ -> },
     onSaveBankingDetails: (String, String, String) -> Unit = { _, _, _ -> }
 ) {
-    val context = LocalContext.current
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false)
@@ -107,328 +97,54 @@ fun MemberDetailDialog(
                         .padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    // Status Overview
-                    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
-                        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                                Text(stringResource(R.string.ui_financial_summary), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    IconButton(
-                                        onClick = { onExportMemberStatement(member, false) },
-                                        modifier = Modifier.size(24.dp),
-                                        enabled = !isExporting
-                                    ) {
-                                        Icon(Icons.AutoMirrored.Filled.List, "Export CSV", tint = Navy)
-                                    }
-                                    Spacer(Modifier.width(8.dp))
-                                    IconButton(
-                                        onClick = { onExportMemberStatement(member, true) },
-                                        modifier = Modifier.size(24.dp),
-                                        enabled = !isExporting
-                                    ) {
-                                        if (isExporting) {
-                                            CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.size(16.dp))
-                                        } else {
-                                            Icon(Icons.Default.PictureAsPdf, "Export PDF", tint = Navy)
-                                        }
-                                    }
-                                }
-                            }
-                            DetailRow("Status", member.status.displayName, isBold = true, color = if (member.status == MemberStatus.SUSPENDED) ErrorRed else Navy)
-                            DetailRow("Total Paid", formatZAR(member.totalPaid))
-                            calculation?.let {
-                                DetailRow("Shortfall", formatZAR(it.shortfall), color = if (it.isOverdue) ErrorRed else Navy)
-                                DetailRow("Overpayment", formatZAR(it.overpayment), color = SuccessGreen)
-                                DetailRow("Next Due", it.nextDueDate)
-                                if (it.isOverdue) {
-                                    DetailRow("Total Due Now", formatZAR(it.totalDueNow), isBold = true, color = ErrorRed)
-                                }
-                            }
+                    MemberSummaryCard(
+                        member = member,
+                        calculation = calculation,
+                        isEligibleForLoan = isEligibleForLoan,
+                        loanIneligibilityReason = loanIneligibilityReason,
+                        isExporting = isExporting,
+                        onExportMemberStatement = onExportMemberStatement
+                    )
 
-                            HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp), color = Navy.copy(0.1f))
+                    MemberPersonalInfoSection(member)
 
-                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                                Text(stringResource(R.string.ui_loan_eligibility), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
-                                val (color, text) = if (isEligibleForLoan) {
-                                    Navy to "✅ QUALIFIED"
-                                } else {
-                                    ErrorRed to "❌ NOT QUALIFIED"
-                                }
-                                Text(text, color = color, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodySmall)
-                            }
-                            loanIneligibilityReason?.let { reason ->
-                                Text(reason, style = MaterialTheme.typography.labelSmall, color = ErrorRed, textAlign = TextAlign.End, modifier = Modifier.fillMaxWidth())
-                            }
-                        }
-                    }
+                    MemberBankingSection(
+                        member = member,
+                        onSaveBankingDetails = onSaveBankingDetails
+                    )
 
-                    DetailSection("Personal Information") {
-                        DetailRow("ID Number", member.idNumber?.takeIf { it.isNotBlank() } ?: "Not captured")
-                        DetailRow("Phone", member.phone.ifBlank { "Not captured" })
-                        DetailRow("Joined", member.joinedAt?.substringBefore("T") ?: "N/A")
+                    MemberBeneficiariesSection(
+                        beneficiaries = beneficiaries,
+                        getDownloadParams = getDownloadParams,
+                        onEditBeneficiary = onEditBeneficiary,
+                        onFileAction = onFileAction
+                    )
 
-                        val addressParts = listOfNotNull(
-                            member.street?.takeIf { it.isNotBlank() },
-                            member.suburb?.takeIf { it.isNotBlank() },
-                            member.city?.takeIf { it.isNotBlank() },
-                            member.province?.takeIf { it.isNotBlank() }
-                        )
-                        DetailRow("Address", if (addressParts.isEmpty()) "Not captured" else addressParts.joinToString(", "))
-                    }
+                    MemberBurialClaimsSection(
+                        burialClaims = burialClaims,
+                        onVerifyClaim = onVerifyClaim,
+                        onEscalateClaim = onEscalateClaim
+                    )
 
-                    // Banking Details
-                    var isEditingBanking by remember { mutableStateOf(false) }
-                    var bankName by remember(member.bankName) { mutableStateOf(member.bankName ?: "") }
-                    var accountNo by remember(member.accountNo) { mutableStateOf(member.accountNo ?: "") }
-                    var branchCode by remember(member.branchCode) { mutableStateOf(member.branchCode ?: "") }
+                    MemberDocumentsSection(
+                        member = member,
+                        documents = documents,
+                        onVerifyDoc = onVerifyDoc,
+                        onVerifyRelDoc = onVerifyRelDoc,
+                        downloadMemberDocument = downloadMemberDocument,
+                        onFileAction = onFileAction
+                    )
 
-                    DetailSection("Banking Details") {
-                        if (isEditingBanking) {
-                            OutlinedTextField(
-                                value = bankName,
-                                onValueChange = { bankName = it },
-                                label = { Text("Bank Name") },
-                                modifier = Modifier.fillMaxWidth()
-                            )
-                            Spacer(Modifier.height(8.dp))
-                            OutlinedTextField(
-                                value = accountNo,
-                                onValueChange = { accountNo = it },
-                                label = { Text("Account Number") },
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                modifier = Modifier.fillMaxWidth()
-                            )
-                            Spacer(Modifier.height(8.dp))
-                            OutlinedTextField(
-                                value = branchCode,
-                                onValueChange = { branchCode = it },
-                                label = { Text("Branch Code") },
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                modifier = Modifier.fillMaxWidth()
-                            )
-                            Spacer(Modifier.height(16.dp))
-                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                                TextButton(onClick = { isEditingBanking = false }) { Text("Cancel") }
-                                Spacer(Modifier.width(8.dp))
-                                Button(onClick = {
-                                    onSaveBankingDetails(bankName, accountNo, branchCode)
-                                    isEditingBanking = false
-                                }) { Text("Save") }
-                            }
-                        } else {
-                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                                Column {
-                                    DetailRow("Bank", member.bankName?.takeIf { it.isNotBlank() } ?: "Not captured")
-                                    DetailRow("Account No", member.accountNo?.takeIf { it.isNotBlank() } ?: "Not captured")
-                                    DetailRow("Branch", member.branchCode?.takeIf { it.isNotBlank() } ?: "Not captured")
-                                }
-                                IconButton(onClick = { isEditingBanking = true }) {
-                                    Icon(Icons.Default.Edit, "Edit Banking Details", tint = Navy, modifier = Modifier.size(20.dp))
-                                }
-                            }
-                        }
-                    }
-
-                    // Beneficiaries
-                    DetailSection("Beneficiaries (${beneficiaries.size})") {
-                        beneficiaries.forEach { b ->
-                            Surface(
-                                onClick = { onEditBeneficiary(b) },
-                                shape = RoundedCornerShape(8.dp),
-                                color = Navy.copy(0.05f),
-                                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
-                            ) {
-                                Row(Modifier.padding(12.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(b.fullName, fontWeight = FontWeight.Bold)
-                                        Text("${b.relationship} • ${b.idNumber ?: "N/A"}", style = MaterialTheme.typography.labelSmall)
-
-                                        if (b.documentUrl != null) {
-                                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
-                                                Icon(Icons.Default.CheckCircle, null, tint = Navy, modifier = Modifier.size(12.dp))
-                                                Spacer(Modifier.width(4.dp))
-                                                Text(stringResource(R.string.ui_id_document_uploaded), style = MaterialTheme.typography.labelSmall, color = Navy)
-                                            }
-                                        }
-                                    }
-
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                            if (b.documentUrl != null) {
-                                            IconButton(onClick = {
-                                                val url = b.documentUrl ?: return@IconButton
-                                                val headers = getDownloadParams(url)
-                                                val ext = url.substringAfterLast(".", "pdf").substringBefore("?")
-                                                val fileName = "Beneficiary_ID_${b.fullName.replace(" ", "_")}_${System.currentTimeMillis()}.$ext"
-                                                onFileAction(url, fileName, headers)
-                                            }) {
-                                                Icon(Icons.Default.PictureAsPdf, "Download ID", tint = Navy)
-                                            }
-                                        }
-                                        Icon(Icons.Default.Edit, null, tint = Navy, modifier = Modifier.size(16.dp))
-                                    }
-                                }
-                            }
-                        }
-                        if (beneficiaries.isEmpty()) {
-                            Text(stringResource(R.string.ui_no_beneficiaries_registered), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
-                        }
-                    }
-
-                    // Burial Claims
-                    if (burialClaims.isNotEmpty()) {
-                        DetailSection("Burial Claims (${burialClaims.size})") {
-                            burialClaims.forEach { claim ->
-                                ClaimAdminCard(
-                                    claim = claim,
-                                    onVerify = { approve: Boolean -> claim.id?.let { onVerifyClaim(it, approve) } },
-                                    onEscalate = { claim.id?.let { onEscalateClaim(it) } }
-                                )
-                            }
-                        }
-                    }
-
-                    // Documents
-                    DetailSection("Documents") {
-                        var hasAnyDoc = false
-                        // Core KYC Documents (Indexed 1-4)
-                        for (i in 1..4) {
-                            val url = when(i) {
-                                1 -> member.document1Url; 2 -> member.document2Url; 3 -> member.document3Url; 4 -> member.document4Url; else -> null
-                            }
-                            val status = when(i) {
-                                1 -> member.document1Status; 2 -> member.document2Status; 3 -> member.document3Status; 4 -> member.document4Status; else -> DocumentStatus.PENDING
-                            }
-                            val label = when(i) {
-                                1 -> "Identity Document (ID)"
-                                2 -> "Proof of Residence"
-                                3 -> "Beneficiary Form / Documents"
-                                4 -> "Marriage Certificate"
-                                else -> ""
-                            }
-
-                            if (url != null) {
-                                hasAnyDoc = true
-                                DocumentAdminCard(
-                                    label = label,
-                                    url = url,
-                                    status = status,
-                                    onVerify = { approve ->
-                                        onVerifyDoc(i, approve)
-                                    },
-                                    onDownload = { dUrl, dLabel ->
-                                        val (dlUrl, headers) = downloadMemberDocument(dUrl, dLabel)
-                                        val extension = dlUrl.substringAfterLast(".", "pdf")
-                                        val fileName = "${dLabel.replace(" ", "_")}_${System.currentTimeMillis()}.$extension"
-                                        onFileAction(dlUrl, fileName, headers)
-                                    }
-                                )
-                            }
-                        }
-
-                        // New Relational Documents
-                        documents.forEach { doc ->
-                            val docId = doc.id
-                            if (docId != null) {
-                                hasAnyDoc = true
-                                DocumentAdminCard(
-                                    label = doc.label,
-                                    url = doc.documentUrl,
-                                    status = doc.status,
-                                    onVerify = { approve -> onVerifyRelDoc(docId, approve) },
-                                    onDownload = { dUrl, dLabel ->
-                                        val (dlUrl, headers) = downloadMemberDocument(dUrl, dLabel)
-                                        val extension = dlUrl.substringAfterLast(".", "pdf")
-                                        val fileName = "${dLabel.replace(" ", "_")}_${System.currentTimeMillis()}.$extension"
-                                        onFileAction(dlUrl, fileName, headers)
-                                    }
-                                )
-                            }
-                        }
-
-                        if (!hasAnyDoc) {
-                            Text(stringResource(R.string.ui_no_documents_uploaded_yet), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
-                        }
-                    }
-
-                    // Direct Message
-                    DetailSection("Send Direct Message") {
-                        SanibonaniTextField(
-                            value = messageText,
-                            onValueChange = onMessageChange,
-                            label = stringResource(R.string.ui_message_text),
-                            singleLine = false,
-                            modifier = Modifier.height(100.dp)
-                        )
-
-                        Text(
-                            "Send Via:",
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-
-                        FlowRow(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            NotifChannel.entries.forEach { channel ->
-                                val isSelected = selectedNotifChannel == channel
-                                val (label, icon) = when (channel) {
-                                    NotifChannel.PUSH -> "In-App" to Icons.Default.NotificationsActive
-                                    NotifChannel.EMAIL -> "Email" to Icons.Default.Email
-                                    NotifChannel.SMS -> "SMS" to Icons.Default.Sms
-                                    NotifChannel.WHATSAPP -> "WhatsApp" to Icons.AutoMirrored.Filled.Chat
-                                    NotifChannel.BOTH -> "Both" to Icons.Default.AllInclusive
-                                }
-
-                                FilterChip(
-                                    selected = isSelected,
-                                    onClick = { onNotifChannelChange(channel) },
-                                    label = { Text(label, style = MaterialTheme.typography.labelSmall) },
-                                    leadingIcon = {
-                                        Icon(
-                                            imageVector = icon,
-                                            contentDescription = null,
-                                            modifier = Modifier.size(16.dp)
-                                        )
-                                    },
-                                    colors = FilterChipDefaults.filterChipColors(
-                                        selectedContainerColor = MaterialTheme.colorScheme.primary,
-                                        selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
-                                        selectedLeadingIconColor = MaterialTheme.colorScheme.onPrimary,
-                                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                                        labelColor = MaterialTheme.colorScheme.onSurfaceVariant
-                                    ),
-                                    border = FilterChipDefaults.filterChipBorder(
-                                        enabled = true,
-                                        selected = isSelected,
-                                        borderColor = Color.Transparent,
-                                        selectedBorderColor = Color.Transparent
-                                    ),
-                                    shape = RoundedCornerShape(12.dp)
-                                )
-                            }
-                        }
-
-                        if (messageSuccess) {
-                            InfoBox("Message sent successfully!", type = InfoType.SUCCESS)
-                        }
-
-                        Spacer(Modifier.height(4.dp))
-
-                        SanibonaniButton(
-                            text = "Send Message",
-                            onClick = {
-                                member.id?.let { id ->
-                                    onSendMessage(messageText, id)
-                                }
-                            },
-                            isLoading = isSending,
-                            enabled = messageText.isNotBlank() && !isSending,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    }
+                    MemberMessageSection(
+                        member = member,
+                        messageText = messageText,
+                        onMessageChange = onMessageChange,
+                        selectedNotifChannel = selectedNotifChannel,
+                        onNotifChannelChange = onNotifChannelChange,
+                        isSending = isSending,
+                        messageSuccess = messageSuccess,
+                        onSendMessage = onSendMessage
+                    )
                 }
             }
         }

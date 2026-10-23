@@ -1,5 +1,6 @@
 package com.sanibonani.save.features.admin.presentation
 
+import com.sanibonani.save.domain.model.Beneficiary
 import com.sanibonani.save.domain.model.Contribution
 import com.sanibonani.save.domain.model.Group
 import com.sanibonani.save.domain.model.Member
@@ -17,12 +18,15 @@ import com.sanibonani.save.domain.usecase.member.VerifyMemberDocumentUseCase
 import com.sanibonani.save.domain.usecase.member.VerifyRelationalDocumentUseCase
 import com.sanibonani.save.domain.usecase.system.SendNotificationUseCase
 import com.sanibonani.save.domain.utils.PaymentCalculator
+import com.sanibonani.save.domain.validation.InputValidator
+import com.sanibonani.save.domain.validation.ValidationResult
 import com.sanibonani.save.features.admin.presentation.state.AdminMemberUiState
 import com.sanibonani.save.features.common.presentation.BaseViewModel
 import com.sanibonani.save.features.common.presentation.UIEvent
 import com.sanibonani.save.service.AdminGroupContextCacheService
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.collectLatest
@@ -99,7 +103,14 @@ class AdminMemberViewModel @Inject constructor(
     }
 
     fun selectMember(member: Member?) {
-        updateState { s -> s.copy(selectedMember = member, selectedMemberCalculation = member?.id?.let { uiState.value.memberCalculations[it] }) }
+        updateState { s ->
+            s.copy(
+                selectedMember = member,
+                selectedMemberCalculation = member?.id?.let { uiState.value.memberCalculations[it] },
+                messageText = "",
+                messageSentSuccess = false
+            )
+        }
         if (member != null) loadMemberDetails(member)
     }
 
@@ -126,24 +137,43 @@ class AdminMemberViewModel @Inject constructor(
     fun updateMemberStatus(memberId: String, status: MemberStatus) {
         launchJob("member_status_update") {
             updateMemberStatusUseCase(memberId, status).onSuccess {
-                updateState { it.copy(successMessage = "Status updated") }
+                showMessage("Status updated")
                 adminContextCacheService.warmUpGroup(uiState.value.group?.id ?: "", force = true)
             }.onFailure { handleError(it) }
         }
     }
 
     fun verifyDocument(memberId: String, docIndex: Int, approve: Boolean) {
-        launchJob("verify_document") { verifyMemberDocumentUseCase(memberId, docIndex, approve).onSuccess { updateState { it.copy(successMessage = "Document verified") } } }
+        launchJob("verify_document") {
+            verifyMemberDocumentUseCase(memberId, docIndex, approve)
+                .onSuccess { showMessage("Document verified") }
+                .onFailure { handleError(it) }
+        }
     }
 
     fun verifyRelationalDocument(docId: String, approve: Boolean) {
         val doc = uiState.value.selectedMemberDocuments.find { it.id == docId } ?: return
-        launchJob("verify_relational_document") { verifyRelationalDocumentUseCase(doc, approve).onSuccess { updateState { it.copy(successMessage = "Document verified") } } }
+        launchJob("verify_relational_document") {
+            verifyRelationalDocumentUseCase(doc, approve)
+                .onSuccess { showMessage("Document verified") }
+                .onFailure { handleError(it) }
+        }
     }
 
     fun sendMessage(message: String, memberId: String) {
         val groupId = adminContextCacheService.selectedGroupId.value ?: return
-        launchJob("send_message") { sendNotificationUseCase(groupId, message, memberId, uiState.value.selectedNotifChannel).onSuccess { updateState { it.copy(messageSentSuccess = true, messageText = "") } } }
+        launchJob("send_message") {
+            updateState { it.copy(isSendingMessage = true, messageSentSuccess = false) }
+            try {
+                sendNotificationUseCase(groupId, message, memberId, uiState.value.selectedNotifChannel)
+                    .onSuccess {
+                        updateState { it.copy(messageSentSuccess = true, messageText = "") }
+                    }
+                    .onFailure { handleError(it) }
+            } finally {
+                updateState { it.copy(isSendingMessage = false) }
+            }
+        }
     }
 
     fun updateMessageText(text: String) { updateState { it.copy(messageText = text) } }
@@ -157,9 +187,21 @@ class AdminMemberViewModel @Inject constructor(
 
         launchJob("export_member_statement") {
             updateState { it.copy(isExporting = true) }
-            contributionRepo.observeMemberContributions(memberId, groupId).first().onSuccess { list ->
-                val res = if (pdf) exportRepo.exportContributionsToPdf(group, member, list) else exportRepo.exportContributionsToCsv(group, member, list)
-                res.onSuccess { file -> updateState { it.copy(isExporting = false, exportFile = file) }; sendEvent(UIEvent.OpenFile(file, if (pdf) "application/pdf" else "text/csv", "Statement")) }
+            try {
+                val list = contributionRepo.observeMemberContributions(memberId, groupId).first().getOrThrow()
+                val file = if (pdf) {
+                    exportRepo.exportContributionsToPdf(group, member, list).getOrThrow()
+                } else {
+                    exportRepo.exportContributionsToCsv(group, member, list).getOrThrow()
+                }
+                updateState { it.copy(exportFile = file) }
+                sendEvent(UIEvent.OpenFile(file, if (pdf) "application/pdf" else "text/csv", "Statement"))
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                handleError(e)
+            } finally {
+                updateState { it.copy(isExporting = false) }
             }
         }
     }
@@ -169,7 +211,51 @@ class AdminMemberViewModel @Inject constructor(
     fun downloadMemberDocument(url: String, label: String): Pair<String, Map<String, String>> = url to getDownloadParams(url)
 
     fun updateBankingDetails(memberId: String, bank: String, acc: String, branch: String) {
-        launchJob("update_banking_details") { memberRepo.updateMemberBankingDetails(memberId, bank, acc, branch).onSuccess { updateState { it.copy(successMessage = "Details updated") } } }
+        launchJob("update_banking_details") {
+            memberRepo.updateMemberBankingDetails(memberId, bank, acc, branch)
+                .onSuccess { showMessage("Details updated") }
+                .onFailure { handleError(it) }
+        }
+    }
+
+    fun updateBeneficiary(
+        beneficiary: Beneficiary,
+        name: String,
+        idNumber: String,
+        relationship: String,
+        dateOfBirth: String,
+        isOver65: Boolean
+    ) {
+        val cleanedName = name.trim()
+        if (cleanedName.isBlank()) {
+            sendEvent(UIEvent.ShowError("Add the beneficiary's full name before saving."))
+            return
+        }
+        val cleanedId = idNumber.trim()
+        val idError = when {
+            cleanedId.isBlank() -> "Add the beneficiary's SA ID number before saving."
+            InputValidator.validateSAIdNumber(cleanedId) !is ValidationResult.Valid ->
+                "Add a valid 13-digit SA ID number for the beneficiary."
+            else -> null
+        }
+        if (idError != null) {
+            sendEvent(UIEvent.ShowError(idError))
+            return
+        }
+
+        launchJob("update_beneficiary") {
+            beneficiaryRepo.updateBeneficiary(
+                beneficiary.copy(
+                    fullName = cleanedName,
+                    idNumber = cleanedId,
+                    relationship = relationship.trim().ifBlank { null },
+                    dateOfBirth = dateOfBirth.trim().ifBlank { null },
+                    isOver65 = isOver65
+                )
+            )
+                .onSuccess { showMessage("Beneficiary updated") }
+                .onFailure { handleError(it) }
+        }
     }
 
     fun clearError() { updateState { it.copy(error = null) } }

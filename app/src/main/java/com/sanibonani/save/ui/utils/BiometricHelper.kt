@@ -12,26 +12,26 @@ import androidx.fragment.app.FragmentActivity
  */
 object BiometricHelper {
 
-  private val allowedAuthenticators: Int =
-    // BIOMETRIC_WEAK includes common face/fingerprint implementations across devices.
-    BiometricManager.Authenticators.BIOMETRIC_WEAK or
-        BiometricManager.Authenticators.DEVICE_CREDENTIAL
+    private val allowedAuthenticators: Int =
+        // BIOMETRIC_WEAK includes common face/fingerprint implementations across devices.
+        BiometricManager.Authenticators.BIOMETRIC_WEAK or
+            BiometricManager.Authenticators.DEVICE_CREDENTIAL
 
-  private fun findFragmentActivity(context: Context): FragmentActivity? {
-    var ctx = context
-    while (ctx is ContextWrapper) {
-      if (ctx is FragmentActivity) return ctx
-      ctx = ctx.baseContext
+    private fun findFragmentActivity(context: Context): FragmentActivity? {
+        var ctx = context
+        while (ctx is ContextWrapper) {
+            if (ctx is FragmentActivity) return ctx
+            ctx = ctx.baseContext
+        }
+        return null
     }
-    return null
-  }
 
     /**
      * Checks if the device supports and has biometric enrollment.
      */
     fun canAuthenticate(context: Context): Boolean {
         val biometricManager = BiometricManager.from(context)
-		return biometricManager.canAuthenticate(allowedAuthenticators) == BiometricManager.BIOMETRIC_SUCCESS
+        return biometricManager.canAuthenticate(allowedAuthenticators) == BiometricManager.BIOMETRIC_SUCCESS
     }
 
     /**
@@ -45,14 +45,14 @@ object BiometricHelper {
         onSuccess: (BiometricPrompt.AuthenticationResult) -> Unit,
         onError: (Int, CharSequence) -> Unit
     ) {
-		val activity = findFragmentActivity(context)
-		if (activity == null) {
-			onError(
-				BiometricPrompt.ERROR_HW_UNAVAILABLE,
-				"Biometric authentication is not available. Please log in with your password."
-			)
-			return
-		}
+        val activity = findFragmentActivity(context)
+        if (activity == null) {
+            onError(
+                BiometricPrompt.ERROR_HW_UNAVAILABLE,
+                "Biometric authentication is not available. Please log in with your password."
+            )
+            return
+        }
 
         val executor = ContextCompat.getMainExecutor(activity)
         val biometricPrompt = BiometricPrompt(activity, executor,

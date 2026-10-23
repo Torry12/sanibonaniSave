@@ -23,6 +23,7 @@ import com.sanibonani.save.ui.theme.*
 import com.sanibonani.save.ui.utils.formatZAR
 import com.sanibonani.save.features.admin.presentation.*
 import com.sanibonani.save.features.admin.presentation.state.*
+import com.sanibonani.save.features.member.ui.AddBeneficiaryDialog
 import androidx.compose.foundation.lazy.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.filled.Search
@@ -45,6 +46,7 @@ fun AdminDashboardDialogs(
 ) {
     var showFileActionDialog by remember { mutableStateOf<Triple<String, String, Map<String, String>>?>(null) }
     var viewFileData by remember { mutableStateOf<Triple<String, String, Map<String, String>>?>(null) }
+    var beneficiaryToEdit by remember { mutableStateOf<Beneficiary?>(null) }
 
     memberState.selectedMember?.let { member ->
         MemberDetailDialog(
@@ -73,7 +75,7 @@ fun AdminDashboardDialogs(
             onNotifChannelChange = { memberVm.updateNotifChannel(it) },
             isSending = memberState.isSendingMessage,
             messageSuccess = memberState.messageSentSuccess,
-            onEditBeneficiary = {},
+            onEditBeneficiary = { beneficiaryToEdit = it },
             onExportMemberStatement = { m, pdf -> memberVm.exportMemberStatement(m, pdf) },
             getDownloadParams = { memberVm.getDownloadParams(it) },
             downloadMemberDocument = { url, label -> memberVm.downloadMemberDocument(url, label) },
@@ -82,6 +84,17 @@ fun AdminDashboardDialogs(
                 member.id?.let { memberVm.updateBankingDetails(it, bankName, accountNo, branchCode) }
             }
         )
+
+        beneficiaryToEdit?.let { beneficiary ->
+            AddBeneficiaryDialog(
+                beneficiary = beneficiary,
+                onDismiss = { beneficiaryToEdit = null },
+                onConfirm = { name, idNumber, relationship, dateOfBirth, isOver65 ->
+                    memberVm.updateBeneficiary(beneficiary, name, idNumber, relationship, dateOfBirth, isOver65)
+                    beneficiaryToEdit = null
+                }
+            )
+        }
     }
 
     financialState.selectedClaim?.let { claim ->

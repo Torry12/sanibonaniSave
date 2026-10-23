@@ -30,7 +30,6 @@ class StartupDataViewModel @Inject constructor(
     }
 
     override fun onCleared() {
-        super.onCleared()
         preloaded = false
     }
 }

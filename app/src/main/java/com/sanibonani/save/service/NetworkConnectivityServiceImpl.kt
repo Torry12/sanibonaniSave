@@ -1,11 +1,15 @@
 package com.sanibonani.save.service
 
+import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import android.provider.Settings
+import androidx.core.content.ContextCompat
 import com.sanibonani.save.domain.service.NetworkConnectivityService
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.channels.awaitClose
@@ -59,14 +63,19 @@ class NetworkConnectivityServiceImpl @Inject constructor(
         }
 
     override val isAirplaneModeActive: Flow<Boolean> = callbackFlow {
-        val receiver = object : android.content.BroadcastReceiver() {
-            override fun onReceive(context: Context, intent: android.content.Intent) {
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context, intent: Intent) {
                 val isActive = Settings.Global.getInt(context.contentResolver, Settings.Global.AIRPLANE_MODE_ON, 0) != 0
                 trySend(isActive)
             }
         }
-        val filter = android.content.IntentFilter(android.content.Intent.ACTION_AIRPLANE_MODE_CHANGED)
-        context.registerReceiver(receiver, filter)
+        val filter = IntentFilter(Intent.ACTION_AIRPLANE_MODE_CHANGED)
+        ContextCompat.registerReceiver(
+            context,
+            receiver,
+            filter,
+            ContextCompat.RECEIVER_NOT_EXPORTED
+        )
 
         trySend(Settings.Global.getInt(context.contentResolver, Settings.Global.AIRPLANE_MODE_ON, 0) != 0)
 

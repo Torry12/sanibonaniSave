@@ -77,7 +77,6 @@ abstract class BaseViewModel<S>(protected val initialState: S) : ViewModel() {
     }
 
     override fun onCleared() {
-        super.onCleared()
         jobRegistry.values.forEach { it.cancel() }
         jobRegistry.clear()
     }
