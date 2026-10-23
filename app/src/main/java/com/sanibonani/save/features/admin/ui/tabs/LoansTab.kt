@@ -35,53 +35,11 @@ fun LoansTab(state: AdminFinancialUiState, vm: AdminFinancialViewModel) {
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
-        // Status Filter Chips
-        LazyRow(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            item {
-                FilterChip(
-                    selected = selectedFilter == null,
-                    onClick = { selectedFilter = null },
-                    label = { Text("All (${state.groupLoans.size})") }
-                )
-            }
-            item {
-                val pendingCount = state.groupLoans.count { it.status == LoanStatus.PENDING }
-                FilterChip(
-                    selected = selectedFilter == LoanStatus.PENDING,
-                    onClick = { selectedFilter = LoanStatus.PENDING },
-                    label = { Text("Pending ($pendingCount)") }
-                )
-            }
-            item {
-                val activeCount = state.groupLoans.count { it.status == LoanStatus.ACTIVE || it.status == LoanStatus.PARTIALLY_PAID }
-                FilterChip(
-                    selected = selectedFilter == LoanStatus.ACTIVE,
-                    onClick = { selectedFilter = LoanStatus.ACTIVE },
-                    label = { Text("Active ($activeCount)") }
-                )
-            }
-            item {
-                val rejectedCount = state.groupLoans.count { it.status == LoanStatus.REJECTED }
-                FilterChip(
-                    selected = selectedFilter == LoanStatus.REJECTED,
-                    onClick = { selectedFilter = LoanStatus.REJECTED },
-                    label = { Text("Rejected ($rejectedCount)") }
-                )
-            }
-            item {
-                val completedCount = state.groupLoans.count { it.status == LoanStatus.COMPLETED }
-                FilterChip(
-                    selected = selectedFilter == LoanStatus.COMPLETED,
-                    onClick = { selectedFilter = LoanStatus.COMPLETED },
-                    label = { Text("Completed ($completedCount)") }
-                )
-            }
-        }
+        LoansFilterBar(
+            loans = state.groupLoans,
+            selectedFilter = selectedFilter,
+            onSelectFilter = { selectedFilter = it }
+        )
 
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
@@ -121,56 +79,123 @@ fun LoansTab(state: AdminFinancialUiState, vm: AdminFinancialViewModel) {
         }
     }
 
-    // Rejection Dialog
-    if (loanToReject != null) {
-        AlertDialog(
-            onDismissRequest = {
+    loanToReject?.let { loan ->
+        RejectLoanDialog(
+            loan = loan,
+            reason = rejectionReasonText,
+            onReasonChange = { rejectionReasonText = it },
+            onDismiss = {
                 loanToReject = null
                 rejectionReasonText = ""
             },
-            title = { Text("Reject Loan Request") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text(
-                        "Are you sure you want to decline the loan request of ${formatZAR(loanToReject?.amount ?: Money.ZERO)}?",
-                        style = MaterialTheme.typography.bodyMedium
-                    )
-                    OutlinedTextField(
-                        value = rejectionReasonText,
-                        onValueChange = { rejectionReasonText = it },
-                        label = { Text("Rejection Reason (Optional)") },
-                        placeholder = { Text("e.g. Insufficient savings / Existing unpaid loan") },
-                        modifier = Modifier.fillMaxWidth(),
-                        maxLines = 3
-                    )
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        val targetId = loanToReject?.id
-                        if (targetId != null) {
-                            val reason = rejectionReasonText.ifBlank { "Declined by group administrator" }
-                            vm.rejectLoan(targetId, reason)
-                        }
-                        loanToReject = null
-                        rejectionReasonText = ""
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
-                ) {
-                    Text("Decline Request")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = {
-                    loanToReject = null
-                    rejectionReasonText = ""
-                }) {
-                    Text("Cancel")
-                }
+            onConfirm = { reason ->
+                val finalReason = reason.ifBlank { "Declined by group administrator" }
+                loan.id?.let { vm.rejectLoan(it, finalReason) }
+                loanToReject = null
+                rejectionReasonText = ""
             }
         )
     }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun LoansFilterBar(
+    loans: List<Loan>,
+    selectedFilter: LoanStatus?,
+    onSelectFilter: (LoanStatus?) -> Unit
+) {
+    // Status Filter Chips
+    LazyRow(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        item {
+            FilterChip(
+                selected = selectedFilter == null,
+                onClick = { onSelectFilter(null) },
+                label = { Text("All (${loans.size})") }
+            )
+        }
+        item {
+            val pendingCount = loans.count { it.status == LoanStatus.PENDING }
+            FilterChip(
+                selected = selectedFilter == LoanStatus.PENDING,
+                onClick = { onSelectFilter(LoanStatus.PENDING) },
+                label = { Text("Pending ($pendingCount)") }
+            )
+        }
+        item {
+            val activeCount = loans.count { it.status == LoanStatus.ACTIVE || it.status == LoanStatus.PARTIALLY_PAID }
+            FilterChip(
+                selected = selectedFilter == LoanStatus.ACTIVE,
+                onClick = { onSelectFilter(LoanStatus.ACTIVE) },
+                label = { Text("Active ($activeCount)") }
+            )
+        }
+        item {
+            val rejectedCount = loans.count { it.status == LoanStatus.REJECTED }
+            FilterChip(
+                selected = selectedFilter == LoanStatus.REJECTED,
+                onClick = { onSelectFilter(LoanStatus.REJECTED) },
+                label = { Text("Rejected ($rejectedCount)") }
+            )
+        }
+        item {
+            val completedCount = loans.count { it.status == LoanStatus.COMPLETED }
+            FilterChip(
+                selected = selectedFilter == LoanStatus.COMPLETED,
+                onClick = { onSelectFilter(LoanStatus.COMPLETED) },
+                label = { Text("Completed ($completedCount)") }
+            )
+        }
+    }
+}
+
+@Composable
+private fun RejectLoanDialog(
+    loan: Loan,
+    reason: String,
+    onReasonChange: (String) -> Unit,
+    onDismiss: () -> Unit,
+    onConfirm: (String) -> Unit
+) {
+    // Rejection Dialog
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Reject Loan Request") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(
+                    "Are you sure you want to decline the loan request of ${formatZAR(loan.amount)}?",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                OutlinedTextField(
+                    value = reason,
+                    onValueChange = onReasonChange,
+                    label = { Text("Rejection Reason (Optional)") },
+                    placeholder = { Text("e.g. Insufficient savings / Existing unpaid loan") },
+                    modifier = Modifier.fillMaxWidth(),
+                    maxLines = 3
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { onConfirm(reason) },
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+            ) {
+                Text("Decline Request")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
+    )
 }
 
 @Composable
@@ -198,217 +223,267 @@ private fun LoanAdminDetailCard(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            // ── Section 1: Member Header & Status ────────────────────────────
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(
-                    modifier = Modifier.weight(1f),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(42.dp)
-                            .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.primaryContainer),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = applicantName.take(1).uppercase(),
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer
-                        )
-                    }
-                    Column(modifier = Modifier.weight(1f)) {
-                        AutoFitText(
-                            text = applicantName,
-                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                            color = MaterialTheme.colorScheme.onSurface,
-                            maxLines = 1
-                        )
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            val isKycVerified = applicant?.document1Status == DocumentStatus.VERIFIED || !applicant?.idNumber.isNullOrBlank()
-
-                            Text(
-                                text = if (isKycVerified) "KYC Verified ✅" else "Unverified KYC ⚠️",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = if (isKycVerified) Color(0xFF2E7D32) else Color(0xFFE65100),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f, fill = false)
-                            )
-
-                            Text("•", style = MaterialTheme.typography.labelSmall)
-
-                            Text(
-                                text = "Joined ${applicant?.joinedAt?.take(10) ?: "N/A"}",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f, fill = false)
-                            )
-                        }
-                    }
-                }
-
-                Spacer(Modifier.width(8.dp))
-
-                // Loan Status Badge
-                StatusBadge(status = loan.status)
-            }
+            LoanApplicantHeader(
+                applicant = applicant,
+                applicantName = applicantName,
+                status = loan.status
+            )
 
             HorizontalDivider()
 
-            // ── Section 2: Loan Parameters Grid (2x2 Grid) ───────────────────
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(
-                    text = "Loan Request Details",
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary
-                )
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    Box(modifier = Modifier.weight(1f)) {
-                        LoanParameterItem(label = "Requested Amount", value = formatZAR(loan.amount), isHighlight = true)
-                    }
-                    Box(modifier = Modifier.weight(1f)) {
-                        LoanParameterItem(label = "Total to Repay", value = formatZAR(loan.totalToRepay))
-                    }
-                }
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    Box(modifier = Modifier.weight(1f)) {
-                        LoanParameterItem(label = "Monthly Instalment", value = formatZAR(loan.monthlyRepayment))
-                    }
-                    Box(modifier = Modifier.weight(1f)) {
-                        LoanParameterItem(label = "Interest Rate", value = "${loan.interestRate}%")
-                    }
-                }
-
-                if (!loan.purpose.isNullOrBlank()) {
-                    Spacer(Modifier.height(2.dp))
-                    Text(
-                        text = "Stated Purpose: ${loan.purpose}",
-                        style = MaterialTheme.typography.bodySmall,
-                        fontWeight = FontWeight.Medium,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                }
-            }
+            LoanRequestDetails(loan = loan)
 
             HorizontalDivider()
 
-            // ── Section 3: Admin Determination Context (2x2 Grid) ────────────
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(8.dp),
-                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-            ) {
-                Column(
-                    modifier = Modifier.padding(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Text(
-                        text = "Admin Assessment Context",
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+            LoanAdminAssessment(
+                applicant = applicant,
+                applicantSavings = applicantSavings,
+                coverageRatio = coverageRatio,
+                activeDebtCount = activeDebtCount,
+                totalActiveDebt = totalActiveDebt
+            )
 
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("Member Total Savings", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Text(formatZAR(applicantSavings), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
-                        }
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("Savings Coverage", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            val formattedRatio = String.format(java.util.Locale.US, "%.1f", coverageRatio)
-                            val coverageText = if (coverageRatio >= 1.0) "🟢 ${formattedRatio}x (Covered)" else "🟠 ${formattedRatio}x (Unsecured)"
-                            Text(coverageText, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
-                        }
-                    }
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("Active Loans / Debt", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            val debtText = if (activeDebtCount == 0) "None ✅" else "$activeDebtCount active (${formatZAR(totalActiveDebt)})"
-                            Text(debtText, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
-                        }
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("Bank Details", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            val bankText = if (!applicant?.bankName.isNullOrBlank()) "${applicant.bankName} (****${applicant.accountNo?.takeLast(4) ?: ""})" else "No bank info ⚠️"
-                            Text(bankText, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
-                        }
-                    }
-                }
-            }
-
-            // Rejection reason if rejected
             if (loan.status == LoanStatus.REJECTED && !loan.rejectionReason.isNullOrBlank()) {
-                Surface(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(8.dp),
-                    color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.4f)
-                ) {
-                    Text(
-                        text = "Rejection Reason: ${loan.rejectionReason}",
-                        modifier = Modifier.padding(10.dp),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onErrorContainer
-                    )
-                }
+                LoanRejectionReason(reason = loan.rejectionReason.orEmpty())
             }
 
             // ── Section 4: Action Buttons for PENDING Loans ──────────────────
             if (loan.status == LoanStatus.PENDING) {
+                LoanPendingActions(
+                    isProcessing = isProcessing,
+                    canAct = loan.id != null && !isProcessing,
+                    onApprove = onApprove,
+                    onRejectClick = onRejectClick
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun LoanApplicantHeader(applicant: Member?, applicantName: String, status: LoanStatus) {
+    // ── Section 1: Member Header & Status ────────────────────────────────
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Row(
+            modifier = Modifier.weight(1f),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(42.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.primaryContainer),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = applicantName.take(1).uppercase(),
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                )
+            }
+            Column(modifier = Modifier.weight(1f)) {
+                AutoFitText(
+                    text = applicantName,
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1
+                )
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    OutlinedButton(
-                        onClick = onRejectClick,
-                        modifier = Modifier.weight(1f),
-                        enabled = loan.id != null && !isProcessing,
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
-                    ) {
-                        Text("Decline", fontWeight = FontWeight.SemiBold)
-                    }
+                    val isKycVerified = applicant?.document1Status == DocumentStatus.VERIFIED || !applicant?.idNumber.isNullOrBlank()
 
-                    Button(
-                        onClick = onApprove,
-                        modifier = Modifier.weight(1f),
-                        enabled = loan.id != null && !isProcessing,
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32))
-                    ) {
-                        if (isProcessing) {
-                            CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = Color.White)
-                        } else {
-                            Text("Approve", fontWeight = FontWeight.SemiBold)
-                        }
-                    }
+                    Text(
+                        text = if (isKycVerified) "KYC Verified ✅" else "Unverified KYC ⚠️",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (isKycVerified) Color(0xFF2E7D32) else Color(0xFFE65100),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false)
+                    )
+
+                    Text("•", style = MaterialTheme.typography.labelSmall)
+
+                    Text(
+                        text = "Joined ${applicant?.joinedAt?.take(10) ?: "N/A"}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false)
+                    )
                 }
+            }
+        }
+
+        Spacer(Modifier.width(8.dp))
+
+        // Loan Status Badge
+        StatusBadge(status = status)
+    }
+}
+
+@Composable
+private fun LoanRequestDetails(loan: Loan) {
+    // ── Section 2: Loan Parameters Grid (2x2 Grid) ───────────────────────
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(
+            text = "Loan Request Details",
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.primary
+        )
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Box(modifier = Modifier.weight(1f)) {
+                LoanParameterItem(label = "Requested Amount", value = formatZAR(loan.amount), isHighlight = true)
+            }
+            Box(modifier = Modifier.weight(1f)) {
+                LoanParameterItem(label = "Total to Repay", value = formatZAR(loan.totalToRepay))
+            }
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Box(modifier = Modifier.weight(1f)) {
+                LoanParameterItem(label = "Monthly Instalment", value = formatZAR(loan.monthlyRepayment))
+            }
+            Box(modifier = Modifier.weight(1f)) {
+                LoanParameterItem(label = "Interest Rate", value = "${loan.interestRate}%")
+            }
+        }
+
+        if (!loan.purpose.isNullOrBlank()) {
+            Spacer(Modifier.height(2.dp))
+            Text(
+                text = "Stated Purpose: ${loan.purpose}",
+                style = MaterialTheme.typography.bodySmall,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+        }
+    }
+}
+
+@Composable
+private fun LoanAdminAssessment(
+    applicant: Member?,
+    applicantSavings: Money,
+    coverageRatio: Double,
+    activeDebtCount: Int,
+    totalActiveDebt: Money
+) {
+    // ── Section 3: Admin Determination Context (2x2 Grid) ────────────────
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(8.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Text(
+                text = "Admin Assessment Context",
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Member Total Savings", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(formatZAR(applicantSavings), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+                }
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Savings Coverage", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    val formattedRatio = String.format(java.util.Locale.US, "%.1f", coverageRatio)
+                    val coverageText = if (coverageRatio >= 1.0) "🟢 ${formattedRatio}x (Covered)" else "🟠 ${formattedRatio}x (Unsecured)"
+                    Text(coverageText, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+                }
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Active Loans / Debt", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    val debtText = if (activeDebtCount == 0) "None ✅" else "$activeDebtCount active (${formatZAR(totalActiveDebt)})"
+                    Text(debtText, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                }
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Bank Details", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    val bankText = if (!applicant?.bankName.isNullOrBlank()) "${applicant.bankName} (****${applicant.accountNo?.takeLast(4) ?: ""})" else "No bank info ⚠️"
+                    Text(bankText, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun LoanRejectionReason(reason: String) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(8.dp),
+        color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.4f)
+    ) {
+        Text(
+            text = "Rejection Reason: $reason",
+            modifier = Modifier.padding(10.dp),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onErrorContainer
+        )
+    }
+}
+
+@Composable
+private fun LoanPendingActions(
+    isProcessing: Boolean,
+    canAct: Boolean,
+    onApprove: () -> Unit,
+    onRejectClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        OutlinedButton(
+            onClick = onRejectClick,
+            modifier = Modifier.weight(1f),
+            enabled = canAct,
+            colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
+        ) {
+            Text("Decline", fontWeight = FontWeight.SemiBold)
+        }
+
+        Button(
+            onClick = onApprove,
+            modifier = Modifier.weight(1f),
+            enabled = canAct,
+            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32))
+        ) {
+            if (isProcessing) {
+                CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = Color.White)
+            } else {
+                Text("Approve", fontWeight = FontWeight.SemiBold)
             }
         }
     }

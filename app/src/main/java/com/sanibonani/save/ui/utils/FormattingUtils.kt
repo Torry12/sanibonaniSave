@@ -13,20 +13,10 @@ private val zarFormatter = NumberFormat.getCurrencyInstance(Locale.forLanguageTa
     maximumFractionDigits = 2
 }
 
-fun formatZAR(amount: Double): String = zarFormatter.format(amount)
 fun formatZAR(amount: BigDecimal): String = zarFormatter.format(amount)
 fun formatZAR(amount: Money): String = amount.format()
 
 fun formatPct(value: Double): String = "${String.format(Locale.US, "%.1f", value)}%"
-
-fun formatZARShort(amount: Double): String {
-    val absAmount = Math.abs(amount)
-    return when {
-        absAmount >= 1_000_000 -> "R${String.format(Locale.US, "%.1fM", amount / 1_000_000)}"
-        absAmount >= 1_000 -> "R${String.format(Locale.US, "%.1fK", amount / 1_000)}"
-        else -> formatZAR(amount)
-    }
-}
 
 fun formatZARShort(amount: Money): String = amount.formatShort()
 

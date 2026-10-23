@@ -3,8 +3,8 @@ package com.sanibonani.save.features.member.presentation
 import com.sanibonani.save.domain.model.*
 import com.sanibonani.save.domain.repository.member.BeneficiaryClaimRepository
 import com.sanibonani.save.domain.repository.member.BeneficiaryRepository
-import com.sanibonani.save.domain.repository.member.MemberRepository
 import com.sanibonani.save.domain.service.FileStorageService
+import com.sanibonani.save.domain.usecase.member.ValidateBurialClaimEligibilityUseCase
 import com.sanibonani.save.domain.validation.InputValidator
 import com.sanibonani.save.domain.validation.ValidationResult
 import com.sanibonani.save.features.common.presentation.UIEvent
@@ -20,8 +20,8 @@ import javax.inject.Inject
 class MemberBeneficiaryViewModel @Inject constructor(
     private val beneficiaryRepo: BeneficiaryRepository,
     private val claimRepo: BeneficiaryClaimRepository,
-    private val memberRepo: MemberRepository,
-    private val fileStorageService: FileStorageService
+    private val fileStorageService: FileStorageService,
+    private val validateClaimEligibility: ValidateBurialClaimEligibilityUseCase
 ) : BaseViewModel<MemberUiState>(MemberUiState()) {
 
     val state: StateFlow<MemberUiState> = uiState
@@ -99,11 +99,10 @@ class MemberBeneficiaryViewModel @Inject constructor(
         updateState { it.copy(isSubmittingClaim = false) }
     }
 
-    fun checkEligibility(cause: String, date: String): com.sanibonani.save.domain.usecase.member.ValidateBurialClaimEligibilityUseCase.EligibilityResult? {
+    fun checkEligibility(cause: String, date: String): ValidateBurialClaimEligibilityUseCase.EligibilityResult? {
         val member = uiState.value.member ?: return null
         val group = uiState.value.group ?: return null
-        val useCase = com.sanibonani.save.domain.usecase.member.ValidateBurialClaimEligibilityUseCase()
-        return useCase(member, group, cause, date)
+        return validateClaimEligibility(member, group, cause, date)
     }
     suspend fun uploadClaimDocument(fileName: String, data: ByteArray): Result<String> {
         val claimId = UUID.randomUUID().toString()

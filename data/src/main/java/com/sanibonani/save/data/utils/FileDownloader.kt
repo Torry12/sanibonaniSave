@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import android.os.Environment
 import android.widget.Toast
+import com.sanibonani.save.domain.utils.toUserMessage
 
 object FileDownloader {
 
@@ -46,7 +47,7 @@ object FileDownloader {
             downloadId
         } catch (e: Exception) {
             android.util.Log.e("FileDownloader", "Download failed: ${e.message}", e)
-            Toast.makeText(context, "Download failed: ${e.message}", Toast.LENGTH_LONG).show()
+            Toast.makeText(context, e.toUserMessage(), Toast.LENGTH_LONG).show()
             -1L
         }
     }

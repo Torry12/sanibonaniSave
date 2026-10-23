@@ -191,6 +191,8 @@ class NotificationRepositoryImpl @Inject constructor(
             }
             try {
                 edgeFunctionGateway.invoke("send-whatsapp", feeDuePayload).getOrThrow()
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 AppLogger.w("NotificationRepository", "platform_fee_due WhatsApp template not sent; notification still recorded locally.")
             }

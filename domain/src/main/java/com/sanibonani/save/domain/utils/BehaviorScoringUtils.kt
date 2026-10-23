@@ -255,12 +255,12 @@ object BehaviorScoringUtils {
         newTransaction: Map<String, Any>,
         timeWindowMinutes: Int = 60
     ): Boolean {
-        val newAmount = (newTransaction["amount"] as? Number)?.let { Money.fromDouble(it.toDouble()) } ?: return false
+        val newAmount = (newTransaction["amount"] as? Number)?.toMoney() ?: return false
         val newTime = newTransaction["timestamp"] as? Long ?: return false
         val newMemberId = newTransaction["member_id"] as? String ?: return false
 
         return transactions.any { tx ->
-            val txAmount = (tx["amount"] as? Number)?.let { Money.fromDouble(it.toDouble()) } ?: return@any false
+            val txAmount = (tx["amount"] as? Number)?.toMoney() ?: return@any false
             val txTime = tx["timestamp"] as? Long ?: return@any false
             val txMemberId = tx["member_id"] as? String ?: return@any false
 
@@ -307,7 +307,7 @@ object BehaviorScoringUtils {
 
         if (memberContributions.size < 5) return false
 
-        val amounts = memberContributions.mapNotNull { (it["amount"] as? Number)?.let { value -> Money.fromDouble(value.toDouble()) } }
+        val amounts = memberContributions.mapNotNull { (it["amount"] as? Number)?.toMoney() }
         if (amounts.size < 5) return false
 
         val recentAmount = amounts.first()
@@ -361,6 +361,13 @@ object BehaviorScoringUtils {
                track.loanDefaultCount >= 3 ||
                (track.overdueCount >= 5 && track.behaviorScore < 30) ||
                track.multipleAccountsDetected && track.velocityCheckFailed
+    }
+
+    /** Keeps exact decimal payloads out of Double; only genuinely floating-point inputs round. */
+    private fun Number.toMoney(): Money = when (this) {
+        is java.math.BigDecimal -> Money(this)
+        is Double, is Float -> Money.fromDouble(toDouble())
+        else -> Money(toLong().toString())
     }
 }
 

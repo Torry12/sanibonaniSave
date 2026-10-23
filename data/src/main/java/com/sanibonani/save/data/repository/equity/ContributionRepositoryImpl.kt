@@ -6,17 +6,14 @@ import com.sanibonani.save.domain.event.EventBus
 import com.sanibonani.save.domain.event.PaymentProcessedEvent
 import com.sanibonani.save.domain.model.*
 import com.sanibonani.save.domain.repository.equity.ContributionRepository
-import com.sanibonani.save.domain.repository.member.MemberRepository
 import kotlinx.coroutines.flow.Flow
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import javax.inject.Inject
-import javax.inject.Provider
 
 class ContributionRepositoryImpl @Inject constructor(
     private val remoteSource: RemoteContributionDataSource,
     private val localSource: LocalContributionDataSource,
-    private val memberRepo: Provider<MemberRepository>,
     private val groupDao: com.sanibonani.save.data.local.GroupDao,
     private val json: Json,
     private val pendingOpDao: com.sanibonani.save.data.local.PendingOperationDao

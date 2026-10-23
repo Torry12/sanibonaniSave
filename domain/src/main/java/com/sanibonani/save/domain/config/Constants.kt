@@ -17,7 +17,13 @@ object MemberValidation {
     
     const val PHONE_MIN_LENGTH = 10
     const val PHONE_MAX_LENGTH = 15
-    
+
+    // SA mobile prefixes only: 060-069, 071-074, 076-079 and 081-084, national or +27 form.
+    // 086/087 are service numbers and 01-05 are landlines; neither can receive an OTP.
+    const val SA_MOBILE_REGEX = "^(?:\\+27|0)(?:6[0-9]|7[1-4]|7[6-9]|8[1-4])[0-9]{7}$"
+
+    const val PASSWORD_MIN_LENGTH = 10
+
     const val EMAIL_REGEX = "^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$"
 }
 

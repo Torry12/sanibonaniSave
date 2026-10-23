@@ -81,9 +81,17 @@ class ValidationUtilsTest {
     }
 
     @Test
-    fun `validatePhoneNumber - non-07-or-06 prefix fails`() {
-        val invalidPrefix = "0825555555" // Starts with 08
-        assertFalse("08xx prefix should fail", ValidationUtils.isValidPhoneNumber(invalidPrefix))
+    fun `validatePhoneNumber - 081 to 084 mobile prefixes pass`() {
+        assertTrue("082 Vodacom prefix should pass", ValidationUtils.isValidPhoneNumber("0825555555"))
+        assertTrue("083 MTN prefix should pass", ValidationUtils.isValidPhoneNumber("0835555555"))
+        assertTrue("084 Cell C prefix should pass", ValidationUtils.isValidPhoneNumber("0845555555"))
+    }
+
+    @Test
+    fun `validatePhoneNumber - service numbers and landlines fail`() {
+        assertFalse("086 service number should fail", ValidationUtils.isValidPhoneNumber("0865555555"))
+        assertFalse("087 service number should fail", ValidationUtils.isValidPhoneNumber("0875555555"))
+        assertFalse("011 landline should fail", ValidationUtils.isValidPhoneNumber("0115555555"))
     }
 
     @Test

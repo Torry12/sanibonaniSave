@@ -1,31 +1,30 @@
 package com.sanibonani.save.features.admin.presentation
 
 import com.sanibonani.save.domain.model.*
-import com.sanibonani.save.domain.repository.equity.GroupFinancialRepository
-import com.sanibonani.save.domain.repository.treasury.LedgerRepository
-import com.sanibonani.save.domain.repository.admin.*
-import com.sanibonani.save.domain.repository.system.*
+import com.sanibonani.save.domain.repository.admin.HealthScoreRepository
 import com.sanibonani.save.domain.repository.auth.SupabaseRepository
-import com.sanibonani.save.domain.repository.member.MemberRepository
+import com.sanibonani.save.domain.repository.treasury.LedgerRepository
+import com.sanibonani.save.domain.service.NetworkConnectivityService
 import com.sanibonani.save.domain.usecase.group.GetManagedGroupsUseCase
-import com.sanibonani.save.domain.usecase.actuarial.ApplyViabilityPlanUseCase
-import com.sanibonani.save.domain.usecase.system.SendNotificationUseCase
 import com.sanibonani.save.domain.usecase.group.GetGroupBusinessInsightsUseCase
-import com.sanibonani.save.domain.usecase.disbursement.ExecuteRoscaPayoutUseCase
-import com.sanibonani.save.domain.usecase.payment.ProcessGroupPlatformFeePaymentUseCase
-import com.sanibonani.save.domain.usecase.actuarial.CalculateViabilityUseCase
-import com.sanibonani.save.domain.usecase.actuarial.ViabilityUtils
-import com.sanibonani.save.domain.service.*
+import com.sanibonani.save.domain.utils.toUserMessage
 import com.sanibonani.save.data.utils.DevSettings
 import com.sanibonani.save.domain.logging.AppLogger
 import com.sanibonani.save.data.sync.RealtimeSyncManager
 import com.sanibonani.save.service.AdminGroupContextCacheService
-import com.sanibonani.save.domain.utils.toUserMessage
 import com.sanibonani.save.features.common.presentation.BaseViewModel
 import com.sanibonani.save.features.common.presentation.UIEvent
+import com.sanibonani.save.features.admin.presentation.coordination.AdminActionHost
+import com.sanibonani.save.features.admin.presentation.coordination.AdminGroupOperationsCoordinator
+import com.sanibonani.save.features.admin.presentation.coordination.AdminMessagingCoordinator
+import com.sanibonani.save.features.admin.presentation.coordination.AdminPlatformFeeCoordinator
+import com.sanibonani.save.features.admin.presentation.coordination.AdminReportingCoordinator
+import com.sanibonani.save.features.admin.presentation.coordination.AdminViabilityCoordinator
 import com.sanibonani.save.features.admin.presentation.state.AdminGroupContext
 import com.sanibonani.save.features.admin.presentation.state.AdminOverviewUiState
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
@@ -39,50 +38,58 @@ import kotlin.time.Duration.Companion.seconds
 class AdminOverviewViewModel @Inject constructor(
     private val adminContextCacheService: AdminGroupContextCacheService,
     private val getManagedGroupsUseCase: GetManagedGroupsUseCase,
-    private val auditRepo: AuditRepository,
     private val getGroupBusinessInsightsUseCase: GetGroupBusinessInsightsUseCase,
     private val healthScoreRepo: HealthScoreRepository,
-    private val calculateViabilityUseCase: CalculateViabilityUseCase,
-    private val applyViabilityPlanUseCase: ApplyViabilityPlanUseCase,
-    private val sendNotificationUseCase: SendNotificationUseCase,
     private val supabaseRepo: SupabaseRepository,
-    private val memberRepo: MemberRepository,
     private val ledgerRepo: LedgerRepository,
-    private val exportRepo: ExportRepository,
-    private val verificationService: DataVerificationService,
-    private val executeRoscaPayoutUseCase: ExecuteRoscaPayoutUseCase,
-    private val processPlatformFeePaymentUseCase: ProcessGroupPlatformFeePaymentUseCase,
-    private val platformRepo: PlatformRepository,
-    private val financialRepo: GroupFinancialRepository,
     private val devSettings: DevSettings,
     private val syncManager: RealtimeSyncManager,
-    private val feeService: PlatformFeeService,
+    private val viabilityCoordinator: AdminViabilityCoordinator,
+    private val messagingCoordinator: AdminMessagingCoordinator,
+    private val platformFeeCoordinator: AdminPlatformFeeCoordinator,
+    private val reportingCoordinator: AdminReportingCoordinator,
+    private val groupOperationsCoordinator: AdminGroupOperationsCoordinator,
     networkService: NetworkConnectivityService,
 ) : BaseViewModel<AdminOverviewUiState>(AdminOverviewUiState()) {
 
     val state: StateFlow<AdminOverviewUiState> = uiState
 
+    private val host: AdminActionHost = object : AdminActionHost {
+        override val adminState: StateFlow<AdminOverviewUiState> get() = state
+
+        override fun updateAdminState(reducer: (AdminOverviewUiState) -> AdminOverviewUiState) {
+            updateState(reducer)
+        }
+
+        override fun launchAdminJob(key: String, block: suspend CoroutineScope.() -> Unit): Job =
+            launchJob(key, block)
+
+        override fun launchAdminSafeJob(
+            key: String,
+            errorPrefix: String?,
+            block: suspend CoroutineScope.() -> Unit
+        ): Job = launchSafeJob(key, errorPrefix, block = block)
+
+        override fun cancelAdminJob(key: String) = cancelJob(key)
+
+        override suspend fun <T> runWithLoading(block: suspend () -> T): T = withLoading(block)
+
+        override fun sendUiEvent(event: UIEvent) = sendEvent(event)
+
+        override fun reportError(throwable: Throwable) = handleError(throwable)
+    }
+
     init {
-        updateState { it.copy(
-            currentUserId = supabaseRepo.currentUserId,
-            platformRegistrationFee = feeService.getRegistrationFee()
-        ) }
+        updateState { it.copy(currentUserId = supabaseRepo.currentUserId) }
+        platformFeeCoordinator.applyRegistrationFee(host)
         observeContext()
         loadManagedGroups()
-        loadPlatformBankDetails()
+        platformFeeCoordinator.loadBankDetails(host)
         observeNetwork(networkService) { s, online, airplane ->
             s.copy(isSystemOnline = online, isAirplaneMode = airplane)
         }
         observeSettings()
         observeSyncMetrics()
-    }
-
-    private fun loadPlatformBankDetails() {
-        launchSafeJob("platform_bank_loading", "Failed to load platform settings") {
-            platformRepo.getPlatformSettings().onSuccess { config ->
-                updateState { it.copy(platformBankDetails = config) }
-            }
-        }
     }
 
     fun setSupportMode(enabled: Boolean) {
@@ -161,9 +168,9 @@ class AdminOverviewViewModel @Inject constructor(
                 if (context.isFullyHydrated) {
                     startGroupObservation(pkg.group)
                     val groupId = pkg.group.id
-            if (groupId != null) {
-                loadOutstandingPlatformFees(groupId)
-            }
+                    if (groupId != null) {
+                        platformFeeCoordinator.loadOutstanding(host, groupId)
+                    }
                 }
             }
         }
@@ -204,8 +211,7 @@ class AdminOverviewViewModel @Inject constructor(
                     .flowOn(kotlinx.coroutines.Dispatchers.Default)
                     .collect { res ->
                         val ledger = res.getOrDefault(emptyList())
-                        val verification = verificationService.verifyGroupAdminData(group, uiState.value.members, ledger)
-                        updateState { it.copy(verificationResult = verification) }
+                        reportingCoordinator.verify(host, group, uiState.value.members, ledger)
                     }
             }
         }
@@ -252,201 +258,35 @@ class AdminOverviewViewModel @Inject constructor(
         loadGroupAuditReport()
     }
 
-    fun loadGroupAuditReport() {
-        val groupId = uiState.value.group?.id ?: return
-        AppLogger.i("AdminOverview", "Loading Group Audit Report for ID: $groupId")
-        launchSafeJob("audit_report_loading", "Failed to load audit report") {
-            updateState { it.copy(groupAuditReport = AsyncResult.Loading) }
-            auditRepo.triggerGroupAudit(groupId)
-                .onSuccess { report ->
-                    updateState { it.copy(groupAuditReport = AsyncResult.Success(report)) }
-                }
-                .onFailure { e ->
-                    updateState { it.copy(groupAuditReport = AsyncResult.Error(e.toUserMessage(), e.javaClass.simpleName)) }
-                }
-        }
-    }
+    fun loadGroupAuditReport() = reportingCoordinator.loadAuditReport(host)
 
-    fun consolidateLedger() {
-        val groupId = uiState.value.group?.id ?: return
-        launchSafeJob("ledger_consolidation", "Failed to consolidate ledger") {
-            updateState { it.copy(isLoading = true) }
-            withLoading {
-                ledgerRepo.consolidateGroupLedger(groupId)
-                    .onSuccess {
-                        refreshMembers()
-                        updateState { it.copy(isLoading = false, successMessage = "Audit trail repaired.") }
-                    }
-                    .onFailure { e ->
-                        updateState { it.copy(isLoading = false) }
-                        handleError(e)
-                    }
-            }
-        }
-    }
+    fun consolidateLedger() = groupOperationsCoordinator.consolidateLedger(host)
 
-    fun refreshMembers() {
-        val groupId = uiState.value.group?.id ?: return
-        launchSafeJob("refresh_members", "Failed to sync members") {
-            updateState { it.copy(isLoading = true) }
-            withLoading {
-                memberRepo.syncGroupMembers(groupId)
-                    .onSuccess {
-                        adminContextCacheService.warmUpGroup(groupId, force = true)
-                        updateState { it.copy(isLoading = false) }
-                    }
-                    .onFailure { e ->
-                        updateState { it.copy(isLoading = false) }
-                        handleError(e)
-                    }
-            }
-        }
-    }
+    fun refreshMembers() = groupOperationsCoordinator.refreshMembers(host)
 
     fun setTab(index: Int) { updateState { it.copy(selectedTab = index) } }
 
-    fun downloadGroupStatement() {
-        val group = uiState.value.group ?: return
-        val groupId = group.id ?: return
-        launchSafeJob("download_statement", "Failed to download statement") {
-            updateState { it.copy(isLoading = true) }
-            ledgerRepo.getGroupLedger(groupId).onSuccess { entries ->
-                exportRepo.exportLedgerToPdf(group, entries).onSuccess { file ->
-                    updateState { it.copy(isLoading = false) }
-                    sendEvent(UIEvent.OpenFile(file, "application/pdf", "Group Statement"))
-                }.onFailure { e ->
-                    updateState { it.copy(isLoading = false) }
-                    handleError(e)
-                }
-            }.onFailure { e ->
-                updateState { it.copy(isLoading = false) }
-                handleError(e)
-            }
-        }
-    }
+    fun downloadGroupStatement() = reportingCoordinator.downloadStatement(host)
 
-    fun downloadGroupConstitution() {
-        val group = uiState.value.group ?: return
-        launchSafeJob("download_constitution", "Failed to download constitution") {
-            updateState { it.copy(isLoading = true) }
-            withLoading {
-                exportRepo.exportGroupConstitution(group).onSuccess { file ->
-                    updateState { it.copy(isLoading = false) }
-                    sendEvent(UIEvent.OpenFile(file, "application/pdf", "Group Constitution"))
-                }.onFailure { e ->
-                    updateState { it.copy(isLoading = false) }
-                    handleError(e)
-                }
-            }
-        }
-    }
+    fun downloadGroupConstitution() = reportingCoordinator.downloadConstitution(host)
 
     fun calculateViability(
         goalAmount: String,
         periodMonths: String,
         actuarialSettings: ActuarialSettings = ActuarialSettings()
-    ) {
-        val group = uiState.value.group ?: return
-        val groupId = group.id ?: return
-        val months = periodMonths.toIntOrNull()?.takeIf { it > 0 } ?: ViabilityUtils.computeDefaultPeriod(group)
+    ) = viabilityCoordinator.calculate(host, goalAmount, periodMonths, actuarialSettings)
 
-        val parsedAmount = goalAmount.takeIf { it.isNotBlank() && it.toBigDecimalOrNull() != null }?.let { Money(it) }
-        val effectiveGoal = if (parsedAmount != null && parsedAmount.isPositive) {
-            parsedAmount
-        } else {
-            ViabilityUtils.computeDefaultGoal(group)
-        }
+    fun applyViabilityPlan() = viabilityCoordinator.apply(host)
 
-        launchSafeJob("calculate_viability", "Failed to calculate viability") {
-            updateState { it.copy(isCalculatingViability = true) }
-            withLoading {
-                calculateViabilityUseCase(groupId, effectiveGoal, months, actuarialSettings).onSuccess { plan ->
-                    updateState { it.copy(isCalculatingViability = false, viabilityPlan = plan) }
-                }.onFailure { e ->
-                    updateState { it.copy(isCalculatingViability = false) }
-                    handleError(e)
-                }
-            }
-        }
-    }
+    fun updateMessageText(text: String) = messagingCoordinator.updateText(host, text)
 
-    fun applyViabilityPlan() {
-        val groupId = uiState.value.group?.id ?: return
-        val plan = uiState.value.viabilityPlan ?: return
+    fun updateNotifChannel(channel: NotifChannel) = messagingCoordinator.selectChannel(host, channel)
 
-        launchSafeJob("apply_viability", "Failed to apply viability plan") {
-            updateState { it.copy(isLoading = true) }
-            withLoading {
-                applyViabilityPlanUseCase(groupId, plan).onSuccess {
-                    updateState { it.copy(isLoading = false, viabilityPlan = null) }
-                }.onFailure { e ->
-                    updateState { it.copy(isLoading = false) }
-                    handleError(e)
-                }
-            }
-        }
-    }
+    fun broadcastMessage() = messagingCoordinator.broadcast(host)
 
-    fun updateMessageText(text: String) { updateState { it.copy(messageText = text) } }
+    fun payPlatformFees() = platformFeeCoordinator.pay(host)
 
-    fun updateNotifChannel(channel: NotifChannel) { updateState { it.copy(selectedNotifChannel = channel) } }
-
-    fun broadcastMessage() {
-        val groupId = uiState.value.group?.id ?: return
-        val message = uiState.value.messageText
-        val channel = uiState.value.selectedNotifChannel
-        if (message.isBlank()) return
-
-        launchSafeJob("broadcast_message", "Failed to send message") {
-            updateState { it.copy(isSendingMessage = true, messageSentSuccess = false) }
-            withLoading {
-                sendNotificationUseCase(groupId, message, memberId = null, channel = channel).onSuccess {
-                    updateState { it.copy(isSendingMessage = false, messageSentSuccess = true, messageText = "") }
-                }.onFailure { e ->
-                    updateState { it.copy(isSendingMessage = false) }
-                    handleError(e)
-                }
-            }
-        }
-    }
-
-    private fun loadOutstandingPlatformFees(groupId: String) {
-        launchJob("platform_fees_loading") {
-            financialRepo.getOutstandingPlatformFees(groupId)
-                .onSuccess { fees -> updateState { it.copy(outstandingPlatformFees = fees) } }
-        }
-    }
-
-    fun payPlatformFees() {
-        val groupId = uiState.value.group?.id ?: return
-        launchSafeJob("pay_platform_fees", "Failed to pay platform fees") {
-            updateState { it.copy(isPayingPlatformFee = true) }
-            processPlatformFeePaymentUseCase(groupId)
-                .onSuccess {
-                    updateState { it.copy(isPayingPlatformFee = false, successMessage = "Platform fees paid successfully.") }
-                    loadOutstandingPlatformFees(groupId)
-                    adminContextCacheService.warmUpGroup(groupId, force = true)
-                }
-                .onFailure { e ->
-                    updateState { it.copy(isPayingPlatformFee = false) }
-                    handleError(e)
-                }
-        }
-    }
-
-    fun executeRoscaPayout() {
-        val groupId = uiState.value.group?.id ?: return
-        launchSafeJob("execute_rosca_payout", "Failed to process ROSCA payout") {
-            updateState { it.copy(isLoading = true) }
-            executeRoscaPayoutUseCase(groupId).onSuccess { msg ->
-                updateState { it.copy(isLoading = false, successMessage = "ROSCA Payout Processed: $msg") }
-                adminContextCacheService.warmUpGroup(groupId)
-            }.onFailure { e ->
-                updateState { it.copy(isLoading = false) }
-                handleError(e)
-            }
-        }
-    }
+    fun executeRoscaPayout() = groupOperationsCoordinator.executeRoscaPayout(host)
 
     fun setActive(active: Boolean) {
         if (active) {

@@ -2,9 +2,7 @@ package com.sanibonani.save.features.admin.presentation
 
 import com.sanibonani.save.domain.utils.safeRunCatching
 import com.sanibonani.save.domain.model.*
-import com.sanibonani.save.domain.repository.group.GroupRepository
 import com.sanibonani.save.domain.usecase.group.UpdateGroupSettingsUseCase
-import com.sanibonani.save.domain.usecase.group.GenerateStandardConstitutionUseCase
 import com.sanibonani.save.service.AdminGroupContextCacheService
 import com.sanibonani.save.features.common.presentation.BaseViewModel
 import com.sanibonani.save.features.common.presentation.UIEvent
@@ -16,11 +14,9 @@ import com.sanibonani.save.features.admin.presentation.state.AdminSettingsState
 @HiltViewModel
 class AdminSettingsViewModel @Inject constructor(
     private val adminContextCacheService: AdminGroupContextCacheService,
-    private val groupRepo: GroupRepository,
     private val bankRepo: com.sanibonani.save.domain.repository.payment.BankRepository,
     private val linkBankAccountUseCase: com.sanibonani.save.domain.usecase.payment.LinkBankAccountUseCase,
     private val updateGroupSettingsUseCase: UpdateGroupSettingsUseCase,
-    private val generateStandardConstitutionUseCase: GenerateStandardConstitutionUseCase,
     private val syncRepo: com.sanibonani.save.domain.repository.system.SyncRepository,
     private val supabaseRepo: com.sanibonani.save.domain.repository.auth.SupabaseRepository
 ) : BaseViewModel<AdminSettingsState>(AdminSettingsState()) {

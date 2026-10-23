@@ -23,6 +23,7 @@ import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.sanibonani.save.domain.logging.AppLogger
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -127,6 +128,8 @@ fun PdfViewer(url: String, headers: Map<String, String>) {
                 page.close()
                 renderer.close()
                 isLoading = false
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 AppLogger.e("PdfViewer", "Failed to render PDF", e)
                 isLoading = false

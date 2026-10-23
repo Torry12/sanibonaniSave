@@ -11,8 +11,6 @@ import java.util.Calendar
  */
 object ValidationUtils {
 
-    private val strictSaPhoneRegex = "^0(6|7)[0-9]{8}$".toRegex()
-
     // ──────────────────────────────────────────────────────────────────────────
     // EMAIL VALIDATION
     // ──────────────────────────────────────────────────────────────────────────
@@ -21,15 +19,7 @@ object ValidationUtils {
     // ──────────────────────────────────────────────────────────────────────────
     // PASSWORD VALIDATION
     // ──────────────────────────────────────────────────────────────────────────
-    fun isValidPassword(password: String): Boolean {
-        if (password.isBlank()) return false
-        if (password.length < 10) return false
-        if (!password.any { it.isUpperCase() }) return false
-        if (!password.any { it.isLowerCase() }) return false
-        if (!password.any { it.isDigit() }) return false
-        if (!password.any { !it.isLetterOrDigit() }) return false
-        return true
-    }
+    fun isValidPassword(password: String): Boolean = InputValidator.isValidPassword(password)
 
     // ──────────────────────────────────────────────────────────────────────────
     // MEMBER VALIDATION
@@ -41,12 +31,7 @@ object ValidationUtils {
      */
     fun isValidSAIdNumber(idNumber: String): Boolean = InputValidator.isValidSAIdNumber(idNumber)
 
-    // Only the 06x/07x mobile ranges are accepted today; 081-085 are also live SA mobile
-    // prefixes, so widening this is an open product decision (see task: phone prefix policy).
-    fun isValidPhoneNumber(phoneNumber: String): Boolean {
-        val cleaned = phoneNumber.trim()
-        return cleaned.matches(strictSaPhoneRegex)
-    }
+    fun isValidPhoneNumber(phoneNumber: String): Boolean = InputValidator.isValidPhone(phoneNumber)
 
     fun isValidBankAccount(accountNumber: String): Boolean =
         InputValidator.validateAccountNumber(accountNumber, "").isValid()

@@ -49,7 +49,7 @@ fun MfaChallengeDialog(
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 Text(
-                    "This high-value disbursement exceeds R10,000 and requires an active 2FA session.",
+                    "This high-value disbursement is R10,000 or more and requires an active 2FA session.",
                     style = MaterialTheme.typography.bodyMedium,
                     textAlign = TextAlign.Center,
                     color = MaterialTheme.colorScheme.onSurfaceVariant

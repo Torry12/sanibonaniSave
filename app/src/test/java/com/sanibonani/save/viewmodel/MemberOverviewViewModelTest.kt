@@ -2,6 +2,7 @@ package com.sanibonani.save.viewmodel
 
 import android.util.Log
 import androidx.arch.core.executor.testing.InstantTaskExecutorRule
+import androidx.lifecycle.viewModelScope
 import com.sanibonani.save.domain.model.*
 import com.sanibonani.save.domain.repository.admin.*
 import com.sanibonani.save.domain.repository.auth.*
@@ -15,9 +16,12 @@ import com.sanibonani.save.domain.utils.PaymentCalculator
 import com.sanibonani.save.service.MemberGroupContextCacheService
 import com.sanibonani.save.domain.usecase.group.GetGroupBusinessInsightsUseCase
 import com.sanibonani.save.features.member.presentation.MemberOverviewViewModel
+import com.sanibonani.save.features.member.presentation.coordination.MemberDocumentCoordinator
+import com.sanibonani.save.features.member.presentation.coordination.MemberMessagingCoordinator
 import io.mockk.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.*
@@ -51,6 +55,22 @@ class MemberOverviewViewModelTest {
 
     private lateinit var viewModel: MemberOverviewViewModel
     private val testDispatcher = StandardTestDispatcher()
+    private val createdViewModels = mutableListOf<MemberOverviewViewModel>()
+
+    private fun createViewModel(): MemberOverviewViewModel = MemberOverviewViewModel(
+        memberContextCacheService,
+        memberRepo,
+        contributionRepo,
+        groupRepo,
+        ledgerRepo,
+        supabaseRepo,
+        loanRepo,
+        getGroupBusinessInsightsUseCase,
+        paymentCalculator,
+        MemberMessagingCoordinator(notifRepo),
+        MemberDocumentCoordinator(exportRepo, ledgerRepo, auditRepo),
+        networkService
+    ).also { createdViewModels += it }
 
     @Before
     fun setup() {
@@ -75,25 +95,15 @@ class MemberOverviewViewModelTest {
         every { networkService.isOnline } returns flowOf(true)
         every { networkService.isAirplaneModeActive } returns flowOf(false)
 
-        viewModel = MemberOverviewViewModel(
-            memberContextCacheService,
-            memberRepo,
-            contributionRepo,
-            groupRepo,
-            ledgerRepo,
-            exportRepo,
-            supabaseRepo,
-            loanRepo,
-            auditRepo,
-            notifRepo,
-            getGroupBusinessInsightsUseCase,
-            paymentCalculator,
-            networkService
-        )
+        viewModel = createViewModel()
     }
 
     @After
     fun tearDown() {
+        // Cancel every ViewModel scope while Main is still set, otherwise a coroutine on
+        // Dispatchers.Default resumes after resetMain() and fails the *next* test.
+        createdViewModels.forEach { it.viewModelScope.cancel() }
+        testDispatcher.scheduler.advanceUntilIdle()
         Dispatchers.resetMain()
         unmockkAll()
     }
@@ -115,21 +125,7 @@ class MemberOverviewViewModelTest {
         every { memberRepo.observeMemberships("user_123") } returns flowOf(Result.success<List<Member>>(memberships))
 
         // Re-creating to capture the every stub
-        viewModel = MemberOverviewViewModel(
-            memberContextCacheService,
-            memberRepo,
-            contributionRepo,
-            groupRepo,
-            ledgerRepo,
-            exportRepo,
-            supabaseRepo,
-            loanRepo,
-            auditRepo,
-            notifRepo,
-            getGroupBusinessInsightsUseCase,
-            paymentCalculator,
-            networkService
-        )
+        viewModel = createViewModel()
         advanceUntilIdle()
 
         assertEquals("g1", viewModel.state.value.selectedGroupId)

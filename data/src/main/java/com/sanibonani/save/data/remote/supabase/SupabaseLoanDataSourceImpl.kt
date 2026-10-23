@@ -18,9 +18,6 @@ class SupabaseLoanDataSourceImpl @Inject constructor(
     private val client: SupabaseClient
 ) : RemoteLoanDataSource {
 
-    private val LOAN_COLUMNS = "id,member_id,group_id,amount,interest_rate,total_to_repay,total_repaid,monthly_repayment,start_date,end_date,next_payment_date,status,purpose,created_at"
-    private val REPAYMENT_COLUMNS = "id,loan_id,member_id,group_id,amount,paid_at,payment_method,transaction_id,created_at"
-
     override suspend fun requestLoan(loan: Loan): Result<String> = safeRunCatching {
         client.postgrest["loans"].upsert(loan) { onConflict = "id"; select() }.decodeSingle<Loan>().id.requirePersistedId("loan")
     }

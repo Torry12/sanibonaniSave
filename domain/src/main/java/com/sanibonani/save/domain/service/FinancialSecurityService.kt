@@ -20,6 +20,12 @@ class FinancialSecurityService @Inject constructor(
         /**
          * Single source of truth for the high-value AAL2 threshold (R10,000.00).
          * Callers and UI must read this rather than hardcoding an amount.
+         *
+         * It is deliberately lower than [DUAL_CONTROL_THRESHOLD] in nothing: the two floors are
+         * independent controls. R5,000 changes *who* may complete a payout (maker-checker);
+         * R10,000 additionally requires the completing admin to hold an AAL2 session. A payout
+         * at or above R10,000 satisfies both, and the stricter control is never silently
+         * downgraded by the other.
          */
         val MFA_THRESHOLD = Money("10000.00")
 

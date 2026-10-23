@@ -403,21 +403,3 @@ private fun RiskIndicator(level: Int) {
         )
     }
 }
-
-@Composable
-private fun DistributionRow(label: String, count: Int, pct: Float, color: Color) {
-    Column(Modifier.padding(vertical = 4.dp)) {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-            Text(label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.weight(1f))
-            Spacer(Modifier.width(8.dp))
-            Text("$count (${(pct * 100).toInt()}%)", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
-        }
-        Spacer(Modifier.height(4.dp))
-        LinearProgressIndicator(
-            progress = { pct },
-            modifier = Modifier.fillMaxWidth().height(4.dp).clip(CircleShape),
-            color = color,
-            trackColor = color.copy(alpha = 0.1f)
-        )
-    }
-}

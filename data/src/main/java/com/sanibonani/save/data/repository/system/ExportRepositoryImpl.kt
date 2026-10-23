@@ -5,7 +5,6 @@ import com.sanibonani.save.domain.repository.system.ExportRepository
 import android.content.Context
 import android.os.Environment
 import com.sanibonani.save.domain.model.*
-import com.sanibonani.save.domain.repository.auth.SupabaseRepository
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
 import java.io.FileWriter
@@ -18,8 +17,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 class ExportRepositoryImpl @Inject constructor(
-    @ApplicationContext private val context: Context,
-    private val supabaseRepo: SupabaseRepository
+    @ApplicationContext private val context: Context
 ) : ExportRepository {
 
     // Statements write whole documents to storage: off the caller's dispatcher or a large export

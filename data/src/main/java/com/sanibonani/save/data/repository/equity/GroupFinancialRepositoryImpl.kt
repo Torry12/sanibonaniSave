@@ -6,7 +6,6 @@ import com.sanibonani.save.domain.event.LedgerEntryCreatedEvent
 import com.sanibonani.save.domain.model.*
 import com.sanibonani.save.domain.repository.equity.GroupFinancialRepository
 import javax.inject.Inject
-import com.sanibonani.save.domain.utils.safeRunCatching
 
 class GroupFinancialRepositoryImpl @Inject constructor(
     private val remoteGroupSource: RemoteGroupDataSource,
@@ -50,7 +49,7 @@ class GroupFinancialRepositoryImpl @Inject constructor(
 
     override suspend fun getVerifiedBalance(groupId: String): Result<Money> = remoteFinSource.getVerifiedBalance(groupId)
 
-    override suspend fun repairGroupData(groupId: String): Result<Unit> = safeRunCatching {
+    override suspend fun repairGroupData(groupId: String): Result<Unit> = authoritativeCall("repair_group_data") {
         remoteFinSource.repairGroupData(groupId).getOrThrow()
     }
 }

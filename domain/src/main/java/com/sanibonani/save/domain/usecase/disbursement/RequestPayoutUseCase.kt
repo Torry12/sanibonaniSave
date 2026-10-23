@@ -4,6 +4,7 @@ import com.sanibonani.save.domain.repository.group.*
 import com.sanibonani.save.domain.repository.member.*
 import com.sanibonani.save.domain.repository.disbursement.PayoutRepository
 import com.sanibonani.save.domain.service.PayoutGuard
+import com.sanibonani.save.domain.validation.InputValidator
 import javax.inject.Inject
 import com.sanibonani.save.domain.usecase.financialResult
 /**
@@ -87,20 +88,20 @@ class RequestPayoutUseCase @Inject constructor(
         payoutGuard.validateRequest(group, member, amountToPay, payoutType).getOrThrow()
 
         if (bankName.isNullOrBlank()) throw Exception("Bank name required.")
-        if (accountNo.isNullOrBlank() || !ACCOUNT_NO_REGEX.matches(accountNo.trim())) {
-            throw Exception("Invalid account number.")
-        }
-        if (branchCode.isNullOrBlank() || !BRANCH_CODE_REGEX.matches(branchCode.trim())) {
-            throw Exception("Invalid branch code.")
-        }
+        val validAccountNo = accountNo?.trim().orEmpty()
+        val validBranchCode = branchCode?.trim().orEmpty()
+        InputValidator.validateAccountNumber(validAccountNo, bankName)
+            .getErrorMessage()?.let { throw Exception(it) }
+        InputValidator.validateBranchCode(validBranchCode)
+            .getErrorMessage()?.let { throw Exception(it) }
 
         val request = PayoutRequest(
             groupId = groupId,
             memberId = member?.id,
             amount = amountToPay,
             bankName = bankName.trim(),
-            accountNo = accountNo.trim(),
-            branchCode = branchCode.trim(),
+            accountNo = validAccountNo,
+            branchCode = validBranchCode,
             status = PayoutStatus.PENDING,
             type = payoutType,
             metadata = null
@@ -128,9 +129,4 @@ class RequestPayoutUseCase @Inject constructor(
 
     private inline fun String?.ifBlankOrNull(default: () -> String?): String? =
         if (isNullOrBlank()) default() else this
-
-    companion object {
-        private val ACCOUNT_NO_REGEX = Regex("^\\d{7,13}$")
-        private val BRANCH_CODE_REGEX = Regex("^\\d{6}$")
-    }
 }

@@ -95,17 +95,49 @@ object InputValidator {
     }
 
     // ── Phone Number Validation ────────────────────────────────────────────
+    // Members are contacted by OTP and WhatsApp, so only SA mobile ranges are accepted.
+    // Landlines and 086/087 service numbers are rejected at every capture point.
+    fun normalizePhone(phone: String): String =
+        phone.trim().replace(Regex("[\\s()-]"), "")
+
     fun isValidPhone(phone: String): Boolean {
-        if (phone.isBlank()) return false
-        val cleaned = phone.replace(Regex("[^0-9+]"), "")
-        return cleaned.length in MemberValidation.PHONE_MIN_LENGTH..MemberValidation.PHONE_MAX_LENGTH
+        val cleaned = normalizePhone(phone)
+        if (cleaned.isBlank()) return false
+        return cleaned.matches(Regex(MemberValidation.SA_MOBILE_REGEX))
     }
     
     fun validatePhone(phone: String): ValidationResult {
         return when {
             phone.isBlank() -> ValidationResult.Error("Phone number is required")
-            !isValidPhone(phone) -> 
-                ValidationResult.Error("Phone must be ${MemberValidation.PHONE_MIN_LENGTH}-${MemberValidation.PHONE_MAX_LENGTH} digits (format: +27XXXXXXXXX or 0XXXXXXXXX)")
+            !isValidPhone(phone) ->
+                ValidationResult.Error("Enter a South African mobile number (e.g. 0821234567 or +27821234567)")
+            else -> ValidationResult.Valid
+        }
+    }
+
+    // ── Password Validation ────────────────────────────────────────────────
+    fun isValidPassword(password: String): Boolean {
+        if (password.length < MemberValidation.PASSWORD_MIN_LENGTH) return false
+        if (!password.any { it.isUpperCase() }) return false
+        if (!password.any { it.isLowerCase() }) return false
+        if (!password.any { it.isDigit() }) return false
+        if (!password.any { !it.isLetterOrDigit() }) return false
+        return true
+    }
+
+    fun validatePassword(password: String): ValidationResult {
+        return when {
+            password.isBlank() -> ValidationResult.Error("Password is required")
+            password.length < MemberValidation.PASSWORD_MIN_LENGTH ->
+                ValidationResult.Error("Password must be at least ${MemberValidation.PASSWORD_MIN_LENGTH} characters")
+            !password.any { it.isUpperCase() } ->
+                ValidationResult.Error("Password must contain an uppercase letter")
+            !password.any { it.isLowerCase() } ->
+                ValidationResult.Error("Password must contain a lowercase letter")
+            !password.any { it.isDigit() } ->
+                ValidationResult.Error("Password must contain a number")
+            !password.any { !it.isLetterOrDigit() } ->
+                ValidationResult.Error("Password must contain a special character")
             else -> ValidationResult.Valid
         }
     }

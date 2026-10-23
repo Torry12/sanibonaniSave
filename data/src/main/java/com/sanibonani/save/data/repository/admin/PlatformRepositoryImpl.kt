@@ -121,7 +121,7 @@ class PlatformRepositoryImpl @Inject constructor(
         groups
     }
 
-    override suspend fun updateGlobalFees(config: PlatformConfig): Result<Unit> = retryWithExponentialBackoff {
+    override suspend fun updateGlobalFees(config: PlatformConfig): Result<Unit> = authoritativeCall("updateGlobalFees") {
         val allSettings = listOf(
             "monthly_member_fee" to config.monthlyMemberFee.amount.toPlainString(),
             "monthly_per_member" to config.monthlyMemberFee.amount.toPlainString(),
@@ -145,13 +145,11 @@ class PlatformRepositoryImpl @Inject constructor(
         )
 
         allSettings.forEach { (key, value) ->
-            safeRunCatching {
-                supabase.postgrest["platform_settings"].upsert(buildJsonObject {
-                    put("key", key)
-                    put("value", value)
-                    put("value_text", value)
-                }) { onConflict = "key"; select() }
-            }.getOrThrow()
+            supabase.postgrest["platform_settings"].upsert(buildJsonObject {
+                put("key", key)
+                put("value", value)
+                put("value_text", value)
+            }) { onConflict = "key"; select() }
         }
     }
 

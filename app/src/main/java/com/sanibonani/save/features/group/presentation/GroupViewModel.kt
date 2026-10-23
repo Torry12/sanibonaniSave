@@ -1,9 +1,7 @@
 package com.sanibonani.save.features.group.presentation
 
 import com.sanibonani.save.domain.model.*
-import com.sanibonani.save.domain.service.LocationService
 import com.sanibonani.save.domain.repository.group.GroupRepository
-import com.sanibonani.save.domain.repository.system.ExportRepository
 import com.sanibonani.save.domain.utils.toUserMessage
 import com.sanibonani.save.domain.usecase.group.GetPublicGroupsUseCase
 import com.sanibonani.save.features.common.presentation.BaseViewModel
@@ -28,9 +26,7 @@ data class GroupUiState(
 @HiltViewModel
 class GroupViewModel @Inject constructor(
     private val groupRepo: GroupRepository,
-    private val exportRepo: ExportRepository,
-    private val getPublicGroupsUseCase: GetPublicGroupsUseCase,
-    private val locationService: LocationService
+    private val getPublicGroupsUseCase: GetPublicGroupsUseCase
 ) : BaseViewModel<GroupUiState>(GroupUiState()) {
 
     val state: StateFlow<GroupUiState> = uiState

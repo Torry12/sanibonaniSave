@@ -66,6 +66,16 @@ class DataPayloadFactory @Inject constructor() {
         }
     }
 
+    fun createPaymentPayload(payment: com.sanibonani.save.domain.model.Payment): JsonObject {
+        return buildJsonObject {
+            put("amount", payment.amount.amount.toPlainString())
+            put("payment_type", payment.paymentType.name)
+            put("payment_method", payment.paymentMethod.name)
+            put("transaction_id", payment.transactionId ?: "")
+            put("status", payment.status.name)
+        }
+    }
+
     fun createAuditLogPayload(log: com.sanibonani.save.domain.model.AuditLog): JsonObject {
         return buildJsonObject {
             put("action", log.action)

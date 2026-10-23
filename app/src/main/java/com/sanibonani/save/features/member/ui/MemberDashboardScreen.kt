@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
@@ -29,6 +30,7 @@ import com.sanibonani.save.R
 import com.sanibonani.save.domain.model.*
 import com.sanibonani.save.ui.components.*
 import com.sanibonani.save.ui.theme.*
+import com.sanibonani.save.ui.utils.ClickDebouncer
 import com.sanibonani.save.ui.utils.ToastUtils
 import com.sanibonani.save.ui.utils.rememberClickDebouncer
 import com.sanibonani.save.ui.utils.formatPct
@@ -38,6 +40,7 @@ import com.sanibonani.save.features.member.presentation.MemberFinanceViewModel
 import com.sanibonani.save.features.member.presentation.MemberBeneficiaryViewModel
 import com.sanibonani.save.features.member.presentation.MemberProfileViewModel
 import com.sanibonani.save.features.member.presentation.MemberOverviewViewModel
+import com.sanibonani.save.features.member.presentation.state.MemberUiState
 import com.sanibonani.save.features.admin.ui.tabs.platform.LedgerEntryDetailDialog
 import com.sanibonani.save.features.member.presentation.state.MemberEvent
 import com.sanibonani.save.features.common.presentation.UIEvent
@@ -191,240 +194,50 @@ fun MemberDashboardScreen(
         ) {
             Scaffold(
                 topBar = {
-                    Column {
-                        DashboardHeaderWithNotif(
-                            title = if (overviewState.isImpersonating) "Support: ${overviewState.member?.fullName}" else stringResource(R.string.ui_member_portal),
-                            subtitle = if (overviewState.isImpersonating) stringResource(R.string.ui_viewing_as_administrator) else (overviewState.member?.fullName ?: "Loading..."),
-                            notifCount = overviewState.notifications.size,
-                            onProfileClick = { overviewVm.selectTab(10) },
-                            onNotifClick = { overviewVm.selectTab(9) },
-                            profileImageUrl = overviewState.member?.profilePhotoUrl,
-                            profileImageVersion = overviewState.profileImageVersion,
-                            onLogoutClick = {
-                                if (overviewState.isImpersonating) {
-                                    overviewVm.clearImpersonation { onExitSupport() }
-                                } else {
-                                    clickDebouncer.processClick(onLogout)
-                                }
-                            },
-                            onSwitchPortal = { clickDebouncer.processClick(onNavigateAdmin) },
-                            isPortalSwitchable = !overviewState.isImpersonating,
-                        )
-
-                        // ⚡ Non-blocking visual feedback for refreshes
-                        SoftLoadingOverlay(
-                            isLoading = overviewState.isLoading || isPrivacyLocked,
-                            message = if (isPrivacyLocked) stringResource(R.string.ui_hydrating_support_data) else stringResource(R.string.ui_refreshing_your_data)
-                        )
-
-                        if (overviewState.isImpersonating && !overviewState.isImpersonationBannerDismissed) {
-                            Surface(
-                                modifier = Modifier.fillMaxWidth(),
-                                color = WarningBg,
-                                contentColor = WarningAmber
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Icon(Icons.Default.SupportAgent, contentDescription = null, modifier = Modifier.size(16.dp))
-                                    Spacer(Modifier.width(12.dp))
-                                    Text(
-                                        stringResource(R.string.ui_support_mode_active_all_actions_are_logged),
-                                        style = MaterialTheme.typography.labelSmall,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                    Spacer(Modifier.weight(1f))
-                                    Icon(
-                                        imageVector = Icons.Default.Close,
-                                        contentDescription = "Dismiss",
-                                        modifier = Modifier
-                                            .size(16.dp)
-                                            .clickable { overviewVm.dismissImpersonationBanner() }
-                                    )
-                                }
-                            }
-                        }
-
-                        if (overviewState.isAirplaneMode) {
-                            Surface(
-                                modifier = Modifier.fillMaxWidth(),
-                                color = ErrorBg,
-                                contentColor = ErrorRed
-                            ) {
-                                Row(Modifier.padding(horizontal = 20.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(Icons.Default.AirplanemodeActive, null, modifier = Modifier.size(16.dp))
-                                    Spacer(Modifier.width(12.dp))
-                                    Text(stringResource(R.string.ui_airplane_mode_active_syncing_is_paused), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
-                                }
-                            }
-                        } else if (!overviewState.isSystemOnline) {
-                            Surface(
-                                modifier = Modifier.fillMaxWidth(),
-                                color = WarningBg,
-                                contentColor = WarningAmber
-                            ) {
-                                Row(Modifier.padding(horizontal = 20.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(Icons.Default.CloudOff, null, modifier = Modifier.size(16.dp))
-                                    Spacer(Modifier.width(12.dp))
-                                    Text(stringResource(R.string.ui_offline_mode_using_cached_data), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
-                                }
-                            }
-                        }
-
-                        if (overviewState.memberships.size > 1) {
-                            var showMenu by remember { mutableStateOf(false) }
-                            Box(modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)) {
-                                OutlinedButton(
-                                    onClick = { showMenu = true },
-                                    modifier = Modifier.fillMaxWidth(),
-                                    shape = RoundedCornerShape(12.dp),
-                                    border = BorderStroke(1.dp, Navy.copy(0.3f)),
-                                    colors = ButtonDefaults.outlinedButtonColors(containerColor = MaterialTheme.colorScheme.surface)
-                                ) {
-                                    Column(modifier = Modifier.fillMaxWidth()) {
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.SpaceBetween,
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                                GroupIcon(
-                                                    logoEmoji = overviewState.group?.logoEmoji,
-                                                    size = 24.dp,
-                                                    modifier = Modifier.padding(end = 8.dp)
-                                                )
-                                                Text(stringResource(R.string.ui_switch_group_label, overviewState.group?.name ?: "..."), color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
-                                            }
-                                            Icon(Icons.Default.ArrowDropDown, null, tint = Navy)
-                                        }
-                                        val currentSync = overviewState.cacheLastSyncByGroup[overviewState.selectedGroupId ?: ""]
-                                        Text(
-                                            text = formatRelativeSyncTime(currentSync),
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                                }
-
-                                DropdownMenu(
-                                    expanded = showMenu,
-                                    onDismissRequest = { showMenu = false },
-                                    modifier = Modifier.fillMaxWidth(0.9f).background(MaterialTheme.colorScheme.surface)
-                                ) {
-                                    overviewState.memberships.forEach { membership ->
-                                        DropdownMenuItem(
-                                            text = {
-                                                Column {
-                                                    Text(membership.fullName,
-                                                        fontWeight = if (membership.groupId == overviewState.selectedGroupId) FontWeight.Bold else FontWeight.Normal)
-                                                    Text(membership.status.displayName, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                                }
-                                            },
-                                            onClick = {
-                                                overviewVm.switchGroup(membership.groupId)
-                                                showMenu = false
-                                            },
-                                            leadingIcon = {
-                                                if (membership.groupId == overviewState.selectedGroupId) {
-                                                    Icon(Icons.Default.CheckCircle, null, tint = Navy, modifier = Modifier.size(20.dp))
-                                                } else {
-                                                    GroupIcon(logoEmoji = null, size = 20.dp) // Fallback since we don't have group emojis in memberships list
-                                                }
-                                            }
-                                        )
-                                    }
-                                }
-                            }
-                        }
-
-                        if (overviewState.isUploading) {
-                            LinearProgressIndicator(
-                                progress = { overviewState.uploadProgress?.toFloat() ?: 0f },
-                                modifier = Modifier.fillMaxWidth(),
-                                color = MaterialTheme.colorScheme.primary,
-                                trackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)
-                            )
-                        }
-
-                        if (windowSizeClass.widthSizeClass == WindowWidthSizeClass.Compact) {
-                            val scope = rememberCoroutineScope()
-                            SecondaryScrollableTabRow(
-                                selectedTabIndex = pagerState.currentPage,
-                                containerColor = MaterialTheme.colorScheme.surface,
-                                edgePadding = 0.dp,
-                                contentColor = MaterialTheme.colorScheme.primary,
-                            ) {
-                                tabs.forEachIndexed { i, t ->
-                                    Tab(
-                                        selected = pagerState.currentPage == i,
-                                        onClick = {
-                                            scope.launch {
-                                                pagerState.animateScrollToPage(i)
-                                                overviewVm.selectTab(i)
-                                            }
-                                        },
-                                        text = { Text(t.title, style = MaterialTheme.typography.labelSmall) }
-                                    )
-                                }
-                            }
-                        }
-                    }
+                    MemberDashboardTopBar(
+                        overviewState = overviewState,
+                        tabs = tabs,
+                        pagerState = pagerState,
+                        windowSizeClass = windowSizeClass,
+                        isPrivacyLocked = isPrivacyLocked,
+                        clickDebouncer = clickDebouncer,
+                        overviewVm = overviewVm,
+                        onNavigateAdmin = onNavigateAdmin,
+                        onLogout = onLogout,
+                        onExitSupport = onExitSupport
+                    )
                 },
                 containerColor = MaterialTheme.colorScheme.background
             ) { padding ->
                 Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(padding)) {
                     if (overviewState.member == null && overviewState.error != null) {
-                        Column(Modifier.fillMaxSize().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-                            Text("⚠️", fontSize = 48.sp)
-                            Text(stringResource(R.string.ui_could_not_load_membership), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                            Spacer(Modifier.height(8.dp))
-                            InfoBox(overviewState.error ?: "Unknown error", type = InfoType.ERROR)
-                            Spacer(Modifier.height(24.dp))
-                            Button(onClick = { overviewVm.refreshData() }, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)) {
-                                Text(stringResource(R.string.ui_retry))
-                            }
-                        }
+                        MemberLoadErrorContent(
+                            message = overviewState.error ?: "Unknown error",
+                            onRetry = { overviewVm.refreshData() }
+                        )
                     } else if (overviewState.member != null) {
-                        VerificationSummary(overviewState.verificationResult)
-
-                        MemberStatCards(overviewState)
-
-                        Box(Modifier.weight(1f)) {
-                            PullToRefreshBox(
-                                isRefreshing = overviewState.isLoading,
-                                onRefresh = { overviewVm.refreshData() },
-                                modifier = Modifier.fillMaxSize()
-                            ) {
-                                HorizontalPager(
-                                    state = pagerState,
-                                    modifier = Modifier.fillMaxSize(),
-                                    userScrollEnabled = true,
-                                    beyondViewportPageCount = 1
-                                ) { page ->
-                                    MemberTabContent(
-                                        page = page,
-                                        state = overviewState,
-                                        windowSizeClass = windowSizeClass,
-                                        onNavigatePayment = onNavigatePayment,
-                                        onNavigateAdmin = onNavigateAdmin,
-                                        overviewVm = overviewVm,
-                                        financeVm = financeVm,
-                                        profileVm = profileVm,
-                                        beneficiaryVm = beneficiaryVm,
-                                        onEntryClick = { selectedLedgerEntry = it },
-                                        onFileAction = { u, n, h -> showFileActionDialog = Triple(u, n, h) },
-                                        onLogout = {
-                                            if (overviewState.isImpersonating) {
-                                                overviewVm.clearImpersonation { onExitSupport() }
-                                            } else {
-                                                onLogout()
-                                            }
-                                        }
-                                    )
+                        MemberDashboardContent(
+                            modifier = Modifier.weight(1f),
+                            overviewState = overviewState,
+                            pagerState = pagerState,
+                            windowSizeClass = windowSizeClass,
+                            overviewVm = overviewVm,
+                            financeVm = financeVm,
+                            profileVm = profileVm,
+                            beneficiaryVm = beneficiaryVm,
+                            onNavigatePayment = onNavigatePayment,
+                            onNavigateAdmin = onNavigateAdmin,
+                            onRefresh = { overviewVm.refreshData() },
+                            onEntryClick = { selectedLedgerEntry = it },
+                            onFileAction = { u, n, h -> showFileActionDialog = Triple(u, n, h) },
+                            onLogout = {
+                                if (overviewState.isImpersonating) {
+                                    overviewVm.clearImpersonation { onExitSupport() }
+                                } else {
+                                    onLogout()
                                 }
                             }
-                        }
+                        )
                     }
                 }
             }
@@ -462,6 +275,306 @@ fun MemberDashboardScreen(
                     fileName = fileName,
                     headers = headers,
                     onDismiss = { viewFileData = null }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun MemberDashboardTopBar(
+    overviewState: MemberUiState,
+    tabs: List<DashboardTabSpec>,
+    pagerState: PagerState,
+    windowSizeClass: WindowSizeClass,
+    isPrivacyLocked: Boolean,
+    clickDebouncer: ClickDebouncer,
+    overviewVm: MemberOverviewViewModel,
+    onNavigateAdmin: () -> Unit,
+    onLogout: () -> Unit,
+    onExitSupport: () -> Unit
+) {
+    Column {
+        DashboardHeaderWithNotif(
+            title = if (overviewState.isImpersonating) "Support: ${overviewState.member?.fullName}" else stringResource(R.string.ui_member_portal),
+            subtitle = if (overviewState.isImpersonating) stringResource(R.string.ui_viewing_as_administrator) else (overviewState.member?.fullName ?: "Loading..."),
+            notifCount = overviewState.notifications.size,
+            onProfileClick = { overviewVm.selectTab(10) },
+            onNotifClick = { overviewVm.selectTab(9) },
+            profileImageUrl = overviewState.member?.profilePhotoUrl,
+            profileImageVersion = overviewState.profileImageVersion,
+            onLogoutClick = {
+                if (overviewState.isImpersonating) {
+                    overviewVm.clearImpersonation { onExitSupport() }
+                } else {
+                    clickDebouncer.processClick(onLogout)
+                }
+            },
+            onSwitchPortal = { clickDebouncer.processClick(onNavigateAdmin) },
+            isPortalSwitchable = !overviewState.isImpersonating,
+        )
+
+        // ⚡ Non-blocking visual feedback for refreshes
+        SoftLoadingOverlay(
+            isLoading = (overviewState.isLoading || isPrivacyLocked) && !overviewState.isExiting,
+            message = if (isPrivacyLocked) stringResource(R.string.ui_hydrating_support_data) else stringResource(R.string.ui_refreshing_your_data)
+        )
+
+        if (overviewState.isImpersonating && !overviewState.isImpersonationBannerDismissed) {
+            SupportModeBanner(onDismiss = { overviewVm.dismissImpersonationBanner() })
+        }
+
+        MemberConnectivityBanner(
+            isAirplaneMode = overviewState.isAirplaneMode,
+            isSystemOnline = overviewState.isSystemOnline
+        )
+
+        if (overviewState.memberships.size > 1) {
+            MemberGroupSwitcher(
+                overviewState = overviewState,
+                onSwitchGroup = { overviewVm.switchGroup(it) }
+            )
+        }
+
+        if (overviewState.isUploading) {
+            LinearProgressIndicator(
+                progress = { overviewState.uploadProgress?.toFloat() ?: 0f },
+                modifier = Modifier.fillMaxWidth(),
+                color = MaterialTheme.colorScheme.primary,
+                trackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)
+            )
+        }
+
+        if (windowSizeClass.widthSizeClass == WindowWidthSizeClass.Compact) {
+            MemberCompactTabs(
+                tabs = tabs,
+                pagerState = pagerState,
+                onSelectTab = { overviewVm.selectTab(it) }
+            )
+        }
+    }
+}
+
+@Composable
+private fun SupportModeBanner(onDismiss: () -> Unit) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = WarningBg,
+        contentColor = WarningAmber
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(Icons.Default.SupportAgent, contentDescription = null, modifier = Modifier.size(16.dp))
+            Spacer(Modifier.width(12.dp))
+            Text(
+                stringResource(R.string.ui_support_mode_active_all_actions_are_logged),
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Bold
+            )
+            Spacer(Modifier.weight(1f))
+            Icon(
+                imageVector = Icons.Default.Close,
+                contentDescription = "Dismiss",
+                modifier = Modifier
+                    .size(16.dp)
+                    .clickable { onDismiss() }
+            )
+        }
+    }
+}
+
+@Composable
+private fun MemberConnectivityBanner(isAirplaneMode: Boolean, isSystemOnline: Boolean) {
+    if (isAirplaneMode) {
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            color = ErrorBg,
+            contentColor = ErrorRed
+        ) {
+            Row(Modifier.padding(horizontal = 20.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.AirplanemodeActive, null, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(12.dp))
+                Text(stringResource(R.string.ui_airplane_mode_active_syncing_is_paused), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+            }
+        }
+    } else if (!isSystemOnline) {
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            color = WarningBg,
+            contentColor = WarningAmber
+        ) {
+            Row(Modifier.padding(horizontal = 20.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.CloudOff, null, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(12.dp))
+                Text(stringResource(R.string.ui_offline_mode_using_cached_data), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+            }
+        }
+    }
+}
+
+@Composable
+private fun MemberGroupSwitcher(
+    overviewState: MemberUiState,
+    onSwitchGroup: (String) -> Unit
+) {
+    var showMenu by remember { mutableStateOf(false) }
+    Box(modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)) {
+        OutlinedButton(
+            onClick = { showMenu = true },
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(12.dp),
+            border = BorderStroke(1.dp, Navy.copy(0.3f)),
+            colors = ButtonDefaults.outlinedButtonColors(containerColor = MaterialTheme.colorScheme.surface)
+        ) {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        GroupIcon(
+                            logoEmoji = overviewState.group?.logoEmoji,
+                            size = 24.dp,
+                            modifier = Modifier.padding(end = 8.dp)
+                        )
+                        Text(stringResource(R.string.ui_switch_group_label, overviewState.group?.name ?: "..."), color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
+                    }
+                    Icon(Icons.Default.ArrowDropDown, null, tint = Navy)
+                }
+                val currentSync = overviewState.cacheLastSyncByGroup[overviewState.selectedGroupId ?: ""]
+                Text(
+                    text = formatRelativeSyncTime(currentSync),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+
+        DropdownMenu(
+            expanded = showMenu,
+            onDismissRequest = { showMenu = false },
+            modifier = Modifier.fillMaxWidth(0.9f).background(MaterialTheme.colorScheme.surface)
+        ) {
+            overviewState.memberships.forEach { membership ->
+                DropdownMenuItem(
+                    text = {
+                        Column {
+                            Text(membership.fullName,
+                                fontWeight = if (membership.groupId == overviewState.selectedGroupId) FontWeight.Bold else FontWeight.Normal)
+                            Text(membership.status.displayName, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    },
+                    onClick = {
+                        onSwitchGroup(membership.groupId)
+                        showMenu = false
+                    },
+                    leadingIcon = {
+                        if (membership.groupId == overviewState.selectedGroupId) {
+                            Icon(Icons.Default.CheckCircle, null, tint = Navy, modifier = Modifier.size(20.dp))
+                        } else {
+                            GroupIcon(logoEmoji = null, size = 20.dp) // Fallback since we don't have group emojis in memberships list
+                        }
+                    }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun MemberCompactTabs(
+    tabs: List<DashboardTabSpec>,
+    pagerState: PagerState,
+    onSelectTab: (Int) -> Unit
+) {
+    val scope = rememberCoroutineScope()
+    SecondaryScrollableTabRow(
+        selectedTabIndex = pagerState.currentPage,
+        containerColor = MaterialTheme.colorScheme.surface,
+        edgePadding = 0.dp,
+        contentColor = MaterialTheme.colorScheme.primary,
+    ) {
+        tabs.forEachIndexed { i, t ->
+            Tab(
+                selected = pagerState.currentPage == i,
+                onClick = {
+                    scope.launch {
+                        pagerState.animateScrollToPage(i)
+                        onSelectTab(i)
+                    }
+                },
+                text = { Text(t.title, style = MaterialTheme.typography.labelSmall) }
+            )
+        }
+    }
+}
+
+@Composable
+private fun MemberLoadErrorContent(
+    message: String,
+    onRetry: () -> Unit
+) {
+    Column(Modifier.fillMaxSize().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+        Text("⚠️", fontSize = 48.sp)
+        Text(stringResource(R.string.ui_could_not_load_membership), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        Spacer(Modifier.height(8.dp))
+        InfoBox(message, type = InfoType.ERROR)
+        Spacer(Modifier.height(24.dp))
+        Button(onClick = onRetry, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)) {
+            Text(stringResource(R.string.ui_retry))
+        }
+    }
+}
+
+@Composable
+private fun MemberDashboardContent(
+    modifier: Modifier,
+    overviewState: MemberUiState,
+    pagerState: PagerState,
+    windowSizeClass: WindowSizeClass,
+    overviewVm: MemberOverviewViewModel,
+    financeVm: MemberFinanceViewModel,
+    profileVm: MemberProfileViewModel,
+    beneficiaryVm: MemberBeneficiaryViewModel,
+    onNavigatePayment: (type: String, amount: Money, groupId: String) -> Unit,
+    onNavigateAdmin: () -> Unit,
+    onRefresh: () -> Unit,
+    onEntryClick: (LedgerEntry) -> Unit,
+    onFileAction: (String, String, Map<String, String>) -> Unit,
+    onLogout: () -> Unit
+) {
+    Column(modifier) {
+        VerificationSummary(overviewState.verificationResult)
+
+        MemberStatCards(overviewState)
+
+        PullToRefreshBox(
+            isRefreshing = overviewState.isLoading,
+            onRefresh = onRefresh,
+            modifier = Modifier.fillMaxWidth().weight(1f)
+        ) {
+            HorizontalPager(
+                state = pagerState,
+                modifier = Modifier.fillMaxSize(),
+                userScrollEnabled = true,
+                beyondViewportPageCount = 1
+            ) { page ->
+                MemberTabContent(
+                    page = page,
+                    state = overviewState,
+                    windowSizeClass = windowSizeClass,
+                    onNavigatePayment = onNavigatePayment,
+                    onNavigateAdmin = onNavigateAdmin,
+                    overviewVm = overviewVm,
+                    financeVm = financeVm,
+                    profileVm = profileVm,
+                    beneficiaryVm = beneficiaryVm,
+                    onEntryClick = onEntryClick,
+                    onFileAction = onFileAction,
+                    onLogout = onLogout
                 )
             }
         }

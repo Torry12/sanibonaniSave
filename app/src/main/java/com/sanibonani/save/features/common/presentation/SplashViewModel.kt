@@ -8,6 +8,7 @@ import com.sanibonani.save.data.BuildConfig
 import com.sanibonani.save.domain.repository.auth.SupabaseRepository
 import com.sanibonani.save.domain.repository.system.SyncRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -74,6 +75,8 @@ class SplashViewModel @Inject constructor(
                         socket.connect(InetSocketAddress(host, port), 3000)
                     }
                     true
+                } catch (e: CancellationException) {
+                    throw e
                 } catch (e: Exception) {
                     AppLogger.w("SplashViewModel", "Connectivity check skipped/failed: ${e.message}")
                     hasAuthenticatedSession

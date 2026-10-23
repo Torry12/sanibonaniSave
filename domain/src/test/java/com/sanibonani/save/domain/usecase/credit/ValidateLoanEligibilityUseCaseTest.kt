@@ -2,7 +2,6 @@ package com.sanibonani.save.domain.usecase.credit
 import com.sanibonani.save.domain.model.*
 import com.sanibonani.save.domain.repository.equity.ContributionRepository
 import com.sanibonani.save.domain.repository.credit.LoanRepository
-import com.sanibonani.save.domain.repository.admin.BehaviorTrackingRepository
 import com.sanibonani.save.domain.utils.DateProvider
 import io.mockk.*
 import kotlinx.coroutines.flow.flowOf
@@ -18,7 +17,6 @@ class ValidateLoanEligibilityUseCaseTest {
 
     private val contributionRepository = mockk<ContributionRepository>()
     private val loanRepository = mockk<LoanRepository>()
-    private val behaviorRepo = mockk<BehaviorTrackingRepository>()
     private lateinit var useCase: ValidateLoanEligibilityUseCase
     private val fixedNow = LocalDate.of(2026, 4, 29)
 
@@ -29,11 +27,10 @@ class ValidateLoanEligibilityUseCaseTest {
         every { feeService.getShortfallRecoveryFee() } returns Money.ZERO
 
         val paymentCalculator = com.sanibonani.save.domain.utils.PaymentCalculator(feeService)
-        useCase = ValidateLoanEligibilityUseCase(contributionRepository, loanRepository, behaviorRepo, paymentCalculator)
+        useCase = ValidateLoanEligibilityUseCase(contributionRepository, loanRepository, paymentCalculator)
         mockkObject(DateProvider)
         every { DateProvider.getCurrentDate() } returns fixedNow
         every { loanRepository.getMemberLoans(any()) } returns flowOf(Result.success(emptyList()))
-        coEvery { behaviorRepo.getMemberBehavior(any()) } returns Result.success(mockk(relaxed = true))
     }
 
     @After

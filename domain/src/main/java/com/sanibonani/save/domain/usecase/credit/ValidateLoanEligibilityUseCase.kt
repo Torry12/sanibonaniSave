@@ -2,7 +2,6 @@ package com.sanibonani.save.domain.usecase.credit
 import com.sanibonani.save.domain.utils.DateProvider
 import com.sanibonani.save.domain.utils.PaymentCalculator
 import com.sanibonani.save.domain.model.*
-import com.sanibonani.save.domain.repository.admin.BehaviorTrackingRepository
 import com.sanibonani.save.domain.repository.credit.LoanRepository
 import com.sanibonani.save.domain.repository.equity.ContributionRepository
 import java.time.LocalDate
@@ -13,7 +12,6 @@ import com.sanibonani.save.domain.utils.safeRunCatching
 class ValidateLoanEligibilityUseCase @Inject constructor(
     private val contributionRepository: ContributionRepository,
     private val loanRepository: LoanRepository,
-    private val behaviorRepo: BehaviorTrackingRepository,
     private val paymentCalculator: PaymentCalculator
 ) {
     sealed class EligibilityResult {

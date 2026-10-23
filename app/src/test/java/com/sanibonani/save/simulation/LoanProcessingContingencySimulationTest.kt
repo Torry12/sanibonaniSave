@@ -1,7 +1,6 @@
 package com.sanibonani.save.simulation
 
 import com.sanibonani.save.domain.model.*
-import com.sanibonani.save.domain.repository.admin.BehaviorTrackingRepository
 import com.sanibonani.save.domain.repository.equity.ContributionRepository
 import com.sanibonani.save.domain.repository.credit.LoanRepository
 import com.sanibonani.save.domain.service.PlatformFeeService
@@ -22,7 +21,6 @@ class LoanProcessingContingencySimulationTest {
 
     private val contributionRepo = mockk<ContributionRepository>()
     private val loanRepo = mockk<LoanRepository>()
-    private val behaviorRepo = mockk<BehaviorTrackingRepository>()
     private val feeService = mockk<PlatformFeeService>()
 
     private lateinit var validateEligibility: ValidateLoanEligibilityUseCase
@@ -36,7 +34,7 @@ class LoanProcessingContingencySimulationTest {
         every { feeService.getShortfallRecoveryFee() } returns Money.ZERO
         val paymentCalculator = PaymentCalculator(feeService)
 
-        validateEligibility = ValidateLoanEligibilityUseCase(contributionRepo, loanRepo, behaviorRepo, paymentCalculator)
+        validateEligibility = ValidateLoanEligibilityUseCase(contributionRepo, loanRepo, paymentCalculator)
         mockkObject(DateProvider)
         every { DateProvider.getCurrentDate() } returns fixedNow
     }
@@ -78,7 +76,6 @@ class LoanProcessingContingencySimulationTest {
         )
         every { contributionRepo.observeMemberContributions("m1", "g1") } returns flowOf(Result.success(contributions))
         every { loanRepo.getMemberLoans("m1") } returns flowOf(Result.success(emptyList()))
-        coEvery { behaviorRepo.getMemberBehavior("m1") } returns Result.success(mockk(relaxed = true))
 
         // Attempting to borrow R2,500 (> R150 max borrowing power)
         val result = validateEligibility(member, group, Money("2500.0"), 2)

@@ -41,7 +41,7 @@ class HealthScoreRepositoryImpl @Inject constructor(
         }
     }
 
-    override suspend fun saveHealthScore(score: GroupHealthScore): Result<Unit> = retryWithExponentialBackoff {
+    override suspend fun saveHealthScore(score: GroupHealthScore): Result<Unit> = authoritativeCall("saveHealthScore") {
         supabase.postgrest["group_health_scores"].upsert(score) {
             onConflict = "group_id"
         }

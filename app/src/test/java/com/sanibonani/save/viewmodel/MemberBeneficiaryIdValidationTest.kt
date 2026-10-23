@@ -8,8 +8,8 @@ import com.sanibonani.save.domain.model.Member
 import com.sanibonani.save.domain.model.MemberStatus
 import com.sanibonani.save.domain.repository.member.BeneficiaryClaimRepository
 import com.sanibonani.save.domain.repository.member.BeneficiaryRepository
-import com.sanibonani.save.domain.repository.member.MemberRepository
 import com.sanibonani.save.domain.service.FileStorageService
+import com.sanibonani.save.domain.usecase.member.ValidateBurialClaimEligibilityUseCase
 import com.sanibonani.save.features.common.presentation.UIEvent
 import com.sanibonani.save.features.member.presentation.MemberBeneficiaryViewModel
 import io.mockk.coEvery
@@ -49,7 +49,6 @@ class MemberBeneficiaryIdValidationTest {
 
     private val beneficiaryRepo = mockk<BeneficiaryRepository>(relaxed = true)
     private val claimRepo = mockk<BeneficiaryClaimRepository>(relaxed = true)
-    private val memberRepo = mockk<MemberRepository>(relaxed = true)
     private val fileStorageService = mockk<FileStorageService>(relaxed = true)
 
     private val testDispatcher = StandardTestDispatcher()
@@ -75,7 +74,12 @@ class MemberBeneficiaryIdValidationTest {
 
         Dispatchers.setMain(testDispatcher)
 
-        viewModel = MemberBeneficiaryViewModel(beneficiaryRepo, claimRepo, memberRepo, fileStorageService)
+        viewModel = MemberBeneficiaryViewModel(
+            beneficiaryRepo,
+            claimRepo,
+            fileStorageService,
+            ValidateBurialClaimEligibilityUseCase()
+        )
 
         viewModel.setImpersonationContext(
             Member(id = "m1", groupId = "g1", fullName = "Alpha Member", status = MemberStatus.ACTIVE),

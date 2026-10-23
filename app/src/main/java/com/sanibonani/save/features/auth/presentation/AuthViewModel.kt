@@ -10,6 +10,7 @@ import com.sanibonani.save.domain.repository.auth.SupabaseRepository
 import com.sanibonani.save.domain.repository.auth.UserProfileRepository
 import com.sanibonani.save.domain.utils.UserRoleMapper
 import com.sanibonani.save.domain.utils.toUserMessage
+import com.sanibonani.save.domain.validation.InputValidator
 import com.sanibonani.save.domain.validation.ValidationUtils
 import com.sanibonani.save.service.AdminGroupContextCacheService
 import com.sanibonani.save.service.MemberGroupContextCacheService
@@ -67,7 +68,7 @@ class AuthViewModel @Inject constructor(
                     userProfileRepo.getProfile(userId).onSuccess { profile ->
                         profile?.let { userProfileCache.save(it.fullName ?: "", it.email ?: "") }
                         loadQueue.completeStep("User Profile")
-                    }.onFailure { loadQueue.failStep("User Profile", it.message ?: "Profile load failed") }
+                    }.onFailure { loadQueue.failStep("User Profile", it.toUserMessage()) }
 
                     // Step 2: Resolve User Role
                     loadQueue.startStep("Security Permissions")
@@ -186,8 +187,8 @@ class AuthViewModel @Inject constructor(
             updateState { it.copy(error = "Please enter a valid email address") }
             return
         }
-        if (password.length < 6) {
-            updateState { it.copy(error = "Password must be at least 6 characters") }
+        InputValidator.validatePassword(password).getErrorMessage()?.let { message ->
+            updateState { it.copy(error = message) }
             return
         }
         if (password != s.confirmPw) {

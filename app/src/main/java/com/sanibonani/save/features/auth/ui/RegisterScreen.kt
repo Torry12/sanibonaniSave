@@ -29,6 +29,7 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.sanibonani.save.R
+import com.sanibonani.save.domain.validation.InputValidator
 import com.sanibonani.save.ui.components.*
 import com.sanibonani.save.ui.theme.*
 import com.sanibonani.save.ui.utils.KeyboardAwareScrollColumn
@@ -62,7 +63,7 @@ fun RegisterScreen(
     val passwordsMatch = state.password.isNotEmpty() && state.password == state.confirmPw
     val isFormValid = state.fullName.length >= 3 &&
             state.email.isNotBlank() &&
-            state.password.length >= 6 &&
+            InputValidator.isValidPassword(state.password) &&
             passwordsMatch
 
     if (state.isLoading) {

@@ -39,12 +39,6 @@ class PdfGenerator(
         isAntiAlias = true
     }
 
-    private val subPaint = Paint().apply {
-        textSize = 9f
-        isAntiAlias = true
-        alpha = 180
-    }
-
     fun startNewPage() {
         finishPage()
         val pageInfo = PdfDocument.PageInfo.Builder(pageWidth, pageHeight, pageNumber++).create()

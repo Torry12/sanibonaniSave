@@ -285,7 +285,7 @@ class GroupRegistrationViewModel @Inject constructor(
 
         val groupRes = RegisterGroupValidator.toGroupDraft(s)
         if (groupRes.isFailure) {
-            updateState { it.copy(error = groupRes.exceptionOrNull()?.message ?: "Validation failed. Please check all fields.") }
+            updateState { it.copy(error = groupRes.exceptionOrNull()?.toUserMessage() ?: "Validation failed. Please check all fields.") }
             return
         }
         val group = groupRes.getOrThrow()

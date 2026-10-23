@@ -27,7 +27,6 @@ import java.util.concurrent.TimeUnit
 class LedgerConsistencyWorker @AssistedInject constructor(
     @Assisted appContext: Context,
     @Assisted workerParams: WorkerParameters,
-    private val groupRepo: GroupRepository,
     private val reconciliationService: ReconciliationService,
     private val platformRepo: PlatformRepository
 ) : CoroutineWorker(appContext, workerParams) {

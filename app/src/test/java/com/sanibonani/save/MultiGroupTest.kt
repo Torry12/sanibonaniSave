@@ -26,6 +26,11 @@ import com.sanibonani.save.service.AdminGroupContextCacheService
 import com.sanibonani.save.service.CachedAdminGroupContext
 import com.sanibonani.save.data.sync.RealtimeSyncManager
 import com.sanibonani.save.features.admin.presentation.AdminOverviewViewModel
+import com.sanibonani.save.features.admin.presentation.coordination.AdminGroupOperationsCoordinator
+import com.sanibonani.save.features.admin.presentation.coordination.AdminMessagingCoordinator
+import com.sanibonani.save.features.admin.presentation.coordination.AdminPlatformFeeCoordinator
+import com.sanibonani.save.features.admin.presentation.coordination.AdminReportingCoordinator
+import com.sanibonani.save.features.admin.presentation.coordination.AdminViabilityCoordinator
 import com.sanibonani.save.features.group.presentation.GroupFormEvent
 import com.sanibonani.save.features.group.presentation.GroupRegistrationViewModel
 import io.mockk.*
@@ -202,24 +207,28 @@ class MultiGroupTest {
             AdminOverviewViewModel(
                 adminContextCacheService,
                 getManagedGroupsUseCase,
-                auditRepo,
                 getGroupBusinessInsightsUseCase,
                 healthScoreRepo,
-                calculateViabilityUseCase,
-                applyViabilityPlanUseCase,
-                sendNotificationUseCase,
                 supabaseRepo,
-                memberRepo,
                 ledgerRepo,
-                exportRepo,
-                verificationService,
-                executeRoscaPayoutUseCase,
-                processPlatformFeePaymentUseCase,
-                platformRepo,
-                financialRepo,
                 devSettings,
                 syncManager,
-                feeService,
+                AdminViabilityCoordinator(calculateViabilityUseCase, applyViabilityPlanUseCase),
+                AdminMessagingCoordinator(sendNotificationUseCase),
+                AdminPlatformFeeCoordinator(
+                    platformRepo,
+                    financialRepo,
+                    processPlatformFeePaymentUseCase,
+                    feeService,
+                    adminContextCacheService
+                ),
+                AdminReportingCoordinator(auditRepo, ledgerRepo, exportRepo, verificationService),
+                AdminGroupOperationsCoordinator(
+                    memberRepo,
+                    ledgerRepo,
+                    executeRoscaPayoutUseCase,
+                    adminContextCacheService
+                ),
                 networkService
             )
         )

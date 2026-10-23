@@ -20,6 +20,7 @@ import com.sanibonani.save.domain.architecture.policy.LargeAmountDualApprovalRul
 import com.sanibonani.save.domain.architecture.policy.PolicyRouter
 import com.sanibonani.save.domain.architecture.policy.SuspendedGroupBlockRule
 import com.sanibonani.save.domain.model.Money
+import com.sanibonani.save.domain.service.FinancialSecurityService
 import com.sanibonani.save.domain.repository.system.DataConnectionProtocol
 import dagger.Module
 import dagger.Provides
@@ -125,7 +126,7 @@ object AppModule {
     fun providePolicyRouter(): PolicyRouter {
         return InMemoryPolicyRouter(
             rules = listOf(
-                LargeAmountDualApprovalRule(threshold = Money("5000.0")),
+                LargeAmountDualApprovalRule(threshold = FinancialSecurityService.DUAL_CONTROL_THRESHOLD),
                 SuspendedGroupBlockRule()
             )
         )

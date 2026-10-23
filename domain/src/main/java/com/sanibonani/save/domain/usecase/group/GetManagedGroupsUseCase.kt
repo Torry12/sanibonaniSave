@@ -2,6 +2,7 @@ package com.sanibonani.save.domain.usecase.group
 import com.sanibonani.save.domain.model.Group
 import com.sanibonani.save.domain.repository.group.GroupRepository
 import com.sanibonani.save.domain.repository.member.MemberRepository
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
@@ -38,6 +39,8 @@ class GetManagedGroupsUseCase @Inject constructor(
                 }
                 Result.success(groups)
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Result.failure(e)
         }

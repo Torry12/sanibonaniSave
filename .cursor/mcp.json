@@ -2,6 +2,9 @@
     "mcpServers": {
         "mcp-code-intel": {
             "url": "http://127.0.0.1:17532/mcp"
+        },
+        "supabase": {
+            "url": "http://127.0.0.1:45421/mcp"
         }
     }
 }

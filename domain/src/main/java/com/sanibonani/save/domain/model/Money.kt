@@ -117,7 +117,7 @@ object MoneySerializer : KSerializer<Money> {
     override val descriptor: SerialDescriptor = PrimitiveSerialDescriptor("Money", PrimitiveKind.STRING)
 
     override fun serialize(encoder: Encoder, value: Money) {
-        encoder.encodeString(value.amount.toPlainString())
+        encoder.encodeString(value.toPlainString())
     }
 
     /**

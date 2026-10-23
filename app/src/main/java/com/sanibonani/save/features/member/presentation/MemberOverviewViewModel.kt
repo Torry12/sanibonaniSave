@@ -1,35 +1,35 @@
 package com.sanibonani.save.features.member.presentation
 
-import com.sanibonani.save.domain.model.AppNotification
-import com.sanibonani.save.domain.model.AsyncResult
 import com.sanibonani.save.domain.model.Group
-import com.sanibonani.save.domain.model.NotifEvent
-import com.sanibonani.save.domain.repository.admin.AuditRepository
+import com.sanibonani.save.domain.model.UserRole
+import com.sanibonani.save.domain.logging.AppLogger
 import com.sanibonani.save.domain.repository.auth.SupabaseRepository
 import com.sanibonani.save.domain.repository.equity.ContributionRepository
 import com.sanibonani.save.domain.repository.treasury.LedgerRepository
 import com.sanibonani.save.domain.repository.credit.LoanRepository
 import com.sanibonani.save.domain.repository.group.GroupRepository
 import com.sanibonani.save.domain.repository.member.MemberRepository
-import com.sanibonani.save.domain.repository.system.ExportRepository
-import com.sanibonani.save.domain.repository.system.NotificationRepository
 import com.sanibonani.save.domain.service.NetworkConnectivityService
 import com.sanibonani.save.domain.usecase.group.GetGroupBusinessInsightsUseCase
 import com.sanibonani.save.domain.utils.PaymentCalculation
 import com.sanibonani.save.domain.utils.PaymentCalculator
+import com.sanibonani.save.domain.utils.safeRunCatching
 import com.sanibonani.save.domain.utils.toUserMessage
 import com.sanibonani.save.features.common.presentation.BaseViewModel
 import com.sanibonani.save.features.common.presentation.UIEvent
+import com.sanibonani.save.features.member.presentation.coordination.MemberActionHost
+import com.sanibonani.save.features.member.presentation.coordination.MemberDocumentCoordinator
+import com.sanibonani.save.features.member.presentation.coordination.MemberMessagingCoordinator
 import com.sanibonani.save.features.member.presentation.state.MemberContextPackage
 import com.sanibonani.save.features.member.presentation.state.MemberUiState
 import com.sanibonani.save.service.MemberGroupContextCacheService
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
-import kotlin.time.Duration.Companion.milliseconds
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.firstOrNull
@@ -44,17 +44,35 @@ class MemberOverviewViewModel @Inject constructor(
     private val contributionRepo: ContributionRepository,
     private val groupRepo: GroupRepository,
     private val ledgerRepo: LedgerRepository,
-    private val exportRepo: ExportRepository,
     private val supabaseRepo: SupabaseRepository,
     private val loanRepo: LoanRepository,
-    private val auditRepo: AuditRepository,
-    private val notifRepo: NotificationRepository,
     private val getGroupBusinessInsightsUseCase: GetGroupBusinessInsightsUseCase,
     private val paymentCalculator: PaymentCalculator,
+    private val messagingCoordinator: MemberMessagingCoordinator,
+    private val documentCoordinator: MemberDocumentCoordinator,
     networkService: NetworkConnectivityService,
 ) : BaseViewModel<MemberUiState>(MemberUiState()) {
 
     val state: StateFlow<MemberUiState> = uiState
+
+    private val host = object : MemberActionHost {
+        override val memberState: StateFlow<MemberUiState> get() = uiState
+
+        override fun updateMemberState(reducer: (MemberUiState) -> MemberUiState) = updateState(reducer)
+
+        override fun launchMemberJob(key: String, block: suspend CoroutineScope.() -> Unit): Job =
+            launchJob(key, block)
+
+        override fun launchMemberSafeJob(
+            key: String,
+            errorPrefix: String?,
+            block: suspend CoroutineScope.() -> Unit
+        ): Job = launchSafeJob(key, errorPrefix, block = block)
+
+        override fun sendUiEvent(event: UIEvent) = sendEvent(event)
+
+        override fun reportError(throwable: Throwable, userMessage: String?) = handleError(throwable, userMessage)
+    }
 
     init {
         observeNetwork(networkService) { s, online, airplane ->
@@ -183,30 +201,43 @@ class MemberOverviewViewModel @Inject constructor(
 
     fun setPortalContext(memberId: String?, groupId: String?) {
         launchJob("portal_context_transition") {
-            if (!memberId.isNullOrBlank() && !groupId.isNullOrBlank()) {
+            val targetMemberId = memberId?.takeIf { it.isNotBlank() }
+            val targetGroupId = groupId?.takeIf { it.isNotBlank() }
+            // Defense in depth: the route is the only way into Support Mode, so it is also the
+            // place an unauthorised deep link would arrive. A member id is honoured only for a
+            // platform admin or an admin of that exact group.
+            val canImpersonate = targetMemberId != null && isSupportOperator(targetGroupId)
+            if (targetMemberId != null && !canImpersonate) {
+                AppLogger.w(
+                    "MemberOverviewViewModel",
+                    "Refusing support-mode entry: the signed-in user does not administer group $targetGroupId."
+                )
+            }
+
+            if (canImpersonate && targetMemberId != null && targetGroupId != null) {
                 updateState { it.clearGroupContext().copy(
                     isImpersonating = true,
                     impersonatorId = supabaseRepo.currentUserId,
-                    targetMemberId = memberId,
-                    selectedGroupId = groupId,
+                    targetMemberId = targetMemberId,
+                    selectedGroupId = targetGroupId,
                     isExiting = false,
                     isLoading = true
                 ) }
-                memberContextCacheService.impersonateMember(memberId, groupId)
+                memberContextCacheService.impersonateMember(targetMemberId, targetGroupId)
                     .onSuccess { cachedCtx ->
-                        val realMemberId = cachedCtx.member?.id ?: memberId
+                        val realMemberId = cachedCtx.member?.id ?: targetMemberId
                         updateState { it.copy(targetMemberId = realMemberId, isLoading = false) }
                     }
                     .onFailure { e ->
                         updateState { it.copy(isLoading = false, error = e.toUserMessage()) }
                         handleError(e)
                     }
-            } else if (!groupId.isNullOrBlank()) {
+            } else if (targetGroupId != null) {
                 updateState { it.clearGroupContext().copy(
                     isImpersonating = false,
                     impersonatorId = null,
                     targetMemberId = null,
-                    selectedGroupId = groupId,
+                    selectedGroupId = targetGroupId,
                     isExiting = false,
                     isLoading = true
                 ) }
@@ -221,6 +252,16 @@ class MemberOverviewViewModel @Inject constructor(
                 ) }
             }
         }
+    }
+
+    private suspend fun isSupportOperator(groupId: String?): Boolean {
+        if (groupId.isNullOrBlank()) return false
+        // Fail closed: an unreadable role is never treated as administrative.
+        val role = safeRunCatching { supabaseRepo.getUserRole() }.getOrDefault(UserRole.MEMBER)
+        if (role == UserRole.PLATFORM_ADMIN) return true
+        val userId = supabaseRepo.currentUserId ?: return false
+        val group = groupRepo.getGroupById(groupId).getOrNull() ?: return false
+        return group.adminUserId == userId
     }
 
     fun selectGroup(groupId: String) = setPortalContext(null, groupId)
@@ -258,39 +299,13 @@ class MemberOverviewViewModel @Inject constructor(
 
     fun selectTab(index: Int) { updateState { it.copy(selectedTab = index) } }
 
-    fun updateMessageText(text: String) { updateState { it.copy(messageText = text) } }
+    fun updateMessageText(text: String) = messagingCoordinator.updateText(host, text)
 
-    fun sendMessageToAdmin() {
-        val s = uiState.value
-        val msg = s.messageText
-        if (msg.isBlank()) return
-        val groupId = s.selectedGroupId ?: return
-        launchJob("sending_message") {
-            updateState { it.copy(isSendingMessage = true) }
-            val n = AppNotification(groupId = groupId, memberId = s.member?.id, message = msg, triggerEvent = NotifEvent.MEMBER_MESSAGE)
-            notifRepo.sendNotification(n).onSuccess {
-                updateState { it.copy(isSendingMessage = false, messageSentSuccess = true, messageText = "") }
-                delay(2000.milliseconds)
-                updateState { it.copy(messageSentSuccess = false) }
-            }.onFailure { handleError(it) }
-        }
-    }
+    fun sendMessageToAdmin() = messagingCoordinator.sendToAdmin(host)
 
     fun dismissImpersonationBanner() { updateState { it.copy(isImpersonationBannerDismissed = true) } }
 
-    fun loadMemberAuditReport() {
-        val memberId = uiState.value.member?.id ?: return
-        launchSafeJob("audit_report", "Failed to load audit report") {
-            updateState { it.copy(memberAuditReport = AsyncResult.Loading) }
-            auditRepo.triggerMemberAudit(memberId)
-                .onSuccess { report ->
-                    updateState { it.copy(memberAuditReport = AsyncResult.Success(report)) }
-                }
-                .onFailure { e ->
-                    updateState { it.copy(memberAuditReport = AsyncResult.Error(e.toUserMessage(), e.javaClass.simpleName)) }
-                }
-        }
-    }
+    fun loadMemberAuditReport() = documentCoordinator.loadAuditReport(host)
 
     fun setActive(active: Boolean) {
         if (active) {
@@ -301,84 +316,15 @@ class MemberOverviewViewModel @Inject constructor(
         }
     }
 
-    fun downloadMembershipContract() {
-        val s = uiState.value
-        val member = s.member ?: return
-        val group = s.group ?: return
-        launchSafeJob("download_contract", "Failed to download contract") {
-            updateState { it.copy(isExporting = true) }
-            exportRepo.exportMembershipContract(member, group).onSuccess { file ->
-                updateState { it.copy(isExporting = false) }
-                sendEvent(UIEvent.OpenFile(file, "application/pdf", "Membership Certificate"))
-            }.onFailure {
-                updateState { it.copy(isExporting = false) }
-                handleError(it)
-            }
-        }
-    }
+    fun downloadMembershipContract() = documentCoordinator.downloadMembershipContract(host)
 
-    fun downloadPdfStatement() {
-        val s = uiState.value
-        val group = s.group ?: return
-        val ledger = s.memberLedger
-        launchSafeJob("download_statement", "Failed to download statement") {
-            updateState { it.copy(isExporting = true) }
-            exportRepo.exportLedgerToPdf(group, ledger).onSuccess { file ->
-                updateState { it.copy(isExporting = false) }
-                sendEvent(UIEvent.OpenFile(file, "application/pdf", "Statement"))
-            }.onFailure {
-                updateState { it.copy(isExporting = false) }
-                handleError(it)
-            }
-        }
-    }
+    fun downloadPdfStatement() = documentCoordinator.downloadPdfStatement(host)
 
-    fun downloadCsvStatement() {
-        val s = uiState.value
-        val group = s.group ?: return
-        val ledger = s.memberLedger
-        launchSafeJob("download_csv_statement", "Failed to export statement") {
-            updateState { it.copy(isExporting = true) }
-            exportRepo.exportLedgerToCsv(group, ledger).onSuccess { file ->
-                updateState { it.copy(isExporting = false) }
-                sendEvent(UIEvent.OpenFile(file, "text/csv", "Statement"))
-            }.onFailure {
-                updateState { it.copy(isExporting = false) }
-                handleError(it)
-            }
-        }
-    }
+    fun downloadCsvStatement() = documentCoordinator.downloadCsvStatement(host)
 
-    fun downloadGroupStatement() {
-        val group = uiState.value.group ?: return
-        val groupId = group.id.serverIdOrReport("group") ?: return
-        launchSafeJob("download_group_ledger", "Failed to download group ledger") {
-            updateState { it.copy(isExporting = true) }
-            ledgerRepo.getGroupLedger(groupId).onSuccess { entries ->
-                exportRepo.exportLedgerToPdf(group, entries).onSuccess { file ->
-                    updateState { it.copy(isExporting = false) }
-                    sendEvent(UIEvent.OpenFile(file, "application/pdf", "Group Ledger"))
-                }
-            }.onFailure {
-                updateState { it.copy(isExporting = false) }
-                handleError(it)
-            }
-        }
-    }
+    fun downloadGroupStatement() = documentCoordinator.downloadGroupStatement(host)
 
-    fun downloadGroupConstitution() {
-        val group = uiState.value.group ?: return
-        launchSafeJob("download_constitution", "Failed to download constitution") {
-            updateState { it.copy(isLoading = true) }
-            exportRepo.exportGroupConstitution(group).onSuccess { file ->
-                updateState { it.copy(isLoading = false) }
-                sendEvent(UIEvent.OpenFile(file, "application/pdf", "Constitution"))
-            }.onFailure {
-                updateState { it.copy(isLoading = false) }
-                handleError(it)
-            }
-        }
-    }
+    fun downloadGroupConstitution() = documentCoordinator.downloadGroupConstitution(host)
 
     fun getDownloadParams(): Map<String, String> = supabaseRepo.accessToken?.let { mapOf("Authorization" to "Bearer $it") } ?: emptyMap()
 }
