@@ -1,0 +1,4 @@
+- [ ] Implement `FinancialFlowSimulationRunner.kt` JVM test
+- [ ] Run the simulation test via Gradle
+- [ ] Verify financial integrity (balance, ledger, status)
+- [ ] Create walkthrough summary

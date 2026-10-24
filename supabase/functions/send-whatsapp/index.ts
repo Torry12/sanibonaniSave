@@ -77,8 +77,26 @@ serve(async (req) => {
   // Public recovery is allowed only for the password_reset template.
   const authHeader = req.headers.get("Authorization");
   const isPasswordResetTemplate = body.template?.name === "password_reset";
-  if (!authHeader?.startsWith("Bearer ") && !isPasswordResetTemplate) {
-    return json({ error: "Unauthorized" }, 401);
+  
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+    console.error("Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY.");
+    return json({ error: "Server misconfiguration." }, 500);
+  }
+
+  const serviceClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+
+  if (!isPasswordResetTemplate) {
+    if (!authHeader?.startsWith("Bearer ")) {
+      return json({ error: "Unauthorized" }, 401);
+    }
+    const jwt = authHeader.replace("Bearer ", "");
+    const { data: { user }, error: authError } = await serviceClient.auth.getUser(jwt);
+    if (authError || !user) {
+      console.error("JWT Verification failed:", authError?.message);
+      return json({ error: "Unauthorized" }, 401);
+    }
   }
 
   // ── Normalise phone number to E.164 (digits only, SA starts with 27) ────
@@ -88,15 +106,6 @@ serve(async (req) => {
 
   // ── Password Reset Link Generation ──────────────────────────────────────
   if (isPasswordResetTemplate) {
-    if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
-      console.error("Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY for password reset lookup.");
-      return json({ error: "Password recovery is temporarily unavailable. Please try again later." }, 500);
-    }
-
-    const serviceClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
-      auth: { persistSession: false, autoRefreshToken: false },
-    });
-
     console.log(`Generating password reset link for phone: ${normalised}`);
 
     // 1. Find the user by phone number in the members table to get their email.

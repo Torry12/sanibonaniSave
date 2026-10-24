@@ -1,6 +1,6 @@
 package com.sanibonani.save.di
 
-import com.jakewharton.retrofit2.converter.kotlinx.serialization.asConverterFactory
+import retrofit2.converter.kotlinx.serialization.asConverterFactory
 import com.sanibonani.save.BuildConfig
 import com.sanibonani.save.data.remote.GeoapifyService
 import dagger.Module
@@ -87,7 +87,7 @@ object NetworkModule {
                     level = LogLevel.HEADERS
                     logger = object : io.ktor.client.plugins.logging.Logger {
                         override fun log(message: String) {
-                            android.util.Log.d("HttpClient", message)
+                            com.sanibonani.save.domain.logging.AppLogger.d("HttpClient", message)
                         }
                     }
                 }

@@ -1,5 +1,5 @@
 // SanibonaniSave — root build file
-// Android Studio Panda (2024.2.1) / AGP 8.7.3 / Gradle 8.12.1
+// Android Studio Ladybug (2026.1.2) / AGP 9.3.1 / Gradle 9.0
 plugins {
     alias(libs.plugins.android.application)   apply false
     alias(libs.plugins.android.library)       apply false

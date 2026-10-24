@@ -1,0 +1,28 @@
+package com.sanibonani.save.domain.model
+
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
+
+/**
+ * Result of AI-based ID document extraction.
+ */
+@Serializable
+data class IdDocumentExtraction(
+    @SerialName("full_name") val fullName: String? = null,
+    @SerialName("id_number") val idNumber: String? = null,
+    @SerialName("date_of_birth") val dateOfBirth: String? = null,
+    @SerialName("document_type") val documentType: String? = null,
+    @SerialName("confidence_score") val confidenceScore: Double = 0.0,
+    @SerialName("is_authentic") val isAuthentic: Boolean = false,
+    @SerialName("extraction_raw") val extractionRaw: String? = null
+)
+
+/**
+ * Result of facial recognition match between ID and Selfie.
+ */
+@Serializable
+data class FaceMatchResult(
+    @SerialName("is_match") val isMatch: Boolean = false,
+    @SerialName("confidence_score") val confidenceScore: Double = 0.0,
+    @SerialName("match_status") val matchStatus: String = "PENDING"
+)

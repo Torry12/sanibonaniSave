@@ -1,8 +1,8 @@
 package com.sanibonani.save.analytics
 
 import android.os.Bundle
-import android.util.Log
 import com.google.firebase.analytics.FirebaseAnalytics
+import com.sanibonani.save.domain.logging.AppLogger
 
 object AppAnalytics {
     private var firebaseAnalytics: FirebaseAnalytics? = null
@@ -19,6 +19,6 @@ object AppAnalytics {
             }
         }
         analytics.logEvent(event, bundle)
-        Log.d("AppAnalytics", "event=$event params=$params")
+        AppLogger.d("AppAnalytics", "event=$event params=$params")
     }
 }

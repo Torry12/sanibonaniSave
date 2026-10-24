@@ -31,10 +31,6 @@ class UserProfileCacheService @Inject constructor(
         }
     }
 
-    fun updatePhone(phone: String) {
-        prefs.edit { putString(KEY_PHONE, phone.trim()) }
-    }
-
     fun clear() {
         prefs.edit {
             remove(KEY_FULL_NAME)

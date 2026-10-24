@@ -11,5 +11,6 @@ val PayoutStatus.uiLabel: String
         PayoutStatus.COMPLETED -> "Completed"
         PayoutStatus.FAILED -> "Failed"
         PayoutStatus.CANCELLED -> "Cancelled"
+        PayoutStatus.REJECTED -> "Rejected by Group"
     }
 

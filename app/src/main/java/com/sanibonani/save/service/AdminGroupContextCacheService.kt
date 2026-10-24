@@ -1,5 +1,6 @@
 package com.sanibonani.save.service
 
+import com.sanibonani.save.domain.utils.safeRunCatching
 import com.sanibonani.save.domain.model.ActuarialMetrics
 import com.sanibonani.save.domain.model.AdminFeeState
 import com.sanibonani.save.domain.model.AppNotification
@@ -7,11 +8,11 @@ import com.sanibonani.save.domain.model.Group
 import com.sanibonani.save.domain.model.Member
 import com.sanibonani.save.domain.model.NotifEvent
 import com.sanibonani.save.domain.model.PayoutRequest
-import com.sanibonani.save.domain.repository.ActuarialRepository
-import com.sanibonani.save.domain.repository.GroupRepository
-import com.sanibonani.save.domain.repository.MemberRepository
-import com.sanibonani.save.domain.repository.NotificationRepository
-import com.sanibonani.save.domain.repository.PayoutRepository
+import com.sanibonani.save.domain.repository.admin.ActuarialRepository
+import com.sanibonani.save.domain.repository.disbursement.PayoutRepository
+import com.sanibonani.save.domain.repository.group.GroupRepository
+import com.sanibonani.save.domain.repository.member.MemberRepository
+import com.sanibonani.save.domain.repository.system.NotificationRepository
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
@@ -39,8 +40,11 @@ class AdminGroupContextCacheService @Inject constructor(
     private val _contexts = MutableStateFlow<Map<String, CachedAdminGroupContext>>(emptyMap())
     val contexts: StateFlow<Map<String, CachedAdminGroupContext>> = _contexts.asStateFlow()
 
+    private val _selectedGroupId = MutableStateFlow<String?>(null)
+    val selectedGroupId: StateFlow<String?> = _selectedGroupId.asStateFlow()
+
     private var cachedUserId: String? = null
-    private val warmupJobs = mutableMapOf<String, Job>()
+    private val warmupJobs = java.util.concurrent.ConcurrentHashMap<String, Job>()
 
     fun getContext(groupId: String): CachedAdminGroupContext? = _contexts.value[groupId]
 
@@ -75,6 +79,37 @@ class AdminGroupContextCacheService @Inject constructor(
         warmManagedGroupsInBackground(userId, groups)
     }
 
+    /** Selects the active admin group context. */
+    fun selectGroup(groupId: String) {
+        if (groupId.isBlank()) return
+        _selectedGroupId.value = groupId
+        warmUpGroup(groupId)
+    }
+
+    /**
+     * Warms a single group context on demand.
+     *
+     * @param force re-hydrates an already-hydrated context and cancels any in-flight
+     *   warmup so the freshest data wins.
+     */
+    fun warmUpGroup(groupId: String, force: Boolean = false) {
+        if (groupId.isBlank()) return
+
+        if (force) {
+            warmupJobs.remove(groupId)?.cancel()
+        } else {
+            if (_contexts.value[groupId]?.isFullyHydrated == true) return
+            if (warmupJobs[groupId]?.isActive == true) return
+        }
+
+        warmupJobs[groupId] = scope.launch {
+            val group = _contexts.value[groupId]?.group
+                ?: safeRunCatching { groupRepo.getGroupById(groupId).getOrNull() }.getOrNull()
+                ?: return@launch
+            warmGroupContext(group)
+        }
+    }
+
     fun updateContext(
         groupId: String,
         reducer: (CachedAdminGroupContext) -> CachedAdminGroupContext
@@ -90,7 +125,7 @@ class AdminGroupContextCacheService @Inject constructor(
 
         val members = memberRepo.getGroupMembers(groupId).first().getOrElse { emptyList() }
 
-        val notifications = runCatching {
+        val notifications = safeRunCatching {
             notificationRepo.syncNotifications(groupId)
             notificationRepo.observeNotifications(groupId).first().getOrElse { emptyList() }
         }.getOrElse { emptyList() }
@@ -119,6 +154,7 @@ class AdminGroupContextCacheService @Inject constructor(
     private fun clearForUser(userId: String?) {
         cachedUserId = userId
         _contexts.value = emptyMap()
+        _selectedGroupId.value = null
         warmupJobs.values.forEach { it.cancel() }
         warmupJobs.clear()
     }

@@ -1,0 +1,16 @@
+Task completed: Refactored "Register Now" button to navigate to onboarding process, and upgraded seed data SQL files.
+
+Changes made:
+1. LoginScreen.kt:76 - Changed onNavigateRegister to navigate to Screen.NewUserOnboarding.route
+2. NewUserOnboardingScreen.kt - Refactored with group type selection step (8 group types)
+3. GroupTypeChip.kt - New composable for selecting group types with emoji icons
+4. GroupRegistrationScreen.kt - Added initialGroupType parameter to pre-select group type
+5. NavAuthRoutes.kt - Updated navigation to pass groupType argument through routes
+6. NavGraph.kt - Updated RegisterGroupScreen composable to accept groupType argument
+
+Seed Data SQL Upgrades:
+7. MASTER_SEED_DATA.sql - Version 3.0, Money-precise amounts, updated RPC calls
+8. 11_SEED_TEST_DATA_10_GROUPS_100_MEMBERS.sql - Version 6.0, added Hybrid Savings Group
+9. 31_REAL_LIFE_INTEGRITY_SEEDS.sql - Version 2.0, Money-precise contributions and balances
+
+All seed data now uses Money.toPlainString() format compatible with the domain model and RPC functions.

@@ -1,10 +1,7 @@
+@file:OptIn(ExperimentalSerializationApi::class)
 package com.sanibonani.save.domain.model
 
-import android.os.Parcelable
-import kotlinx.parcelize.Parcelize
-import kotlinx.serialization.Serializable
-import kotlinx.serialization.SerialName
-import kotlinx.serialization.EncodeDefault
+import kotlinx.serialization.*
 
 // ─────────────────────────────────────────────────────────────────────────────
 // BEHAVIOR SCORE MODELS
@@ -47,7 +44,6 @@ enum class BehaviorStatus {
  * Indexed by member ID number for efficient lookups
  */
 @Serializable
-@Parcelize
 data class MemberBehaviorTrack(
     @EncodeDefault(EncodeDefault.Mode.NEVER)
     val id: String? = null,
@@ -72,10 +68,10 @@ data class MemberBehaviorTrack(
     @SerialName("has_broken_streak_recently") val hasBrokenStreakRecently: Boolean = false,
 
     // Financial Metrics
-    @SerialName("total_amount_contributed") val totalAmountContributed: Double = 0.0,
-    @SerialName("total_late_fees_paid") val totalLateFeesPaid: Double = 0.0,
-    @SerialName("pending_late_fees") val pendingLateFees: Double = 0.0,
-    @SerialName("total_outstanding_amount") val totalOutstandingAmount: Double = 0.0,
+    @SerialName("total_amount_contributed") val totalAmountContributed: Money = Money.ZERO,
+    @SerialName("total_late_fees_paid") val totalLateFeesPaid: Money = Money.ZERO,
+    @SerialName("pending_late_fees") val pendingLateFees: Money = Money.ZERO,
+    @SerialName("total_outstanding_amount") val totalOutstandingAmount: Money = Money.ZERO,
 
     // Loan Metrics
     @SerialName("total_loans_requested") val totalLoansRequested: Int = 0,
@@ -121,13 +117,12 @@ data class MemberBehaviorTrack(
     @SerialName("created_at") val createdAt: String? = null,
     @EncodeDefault(EncodeDefault.Mode.NEVER)
     @SerialName("updated_at") val updatedAt: String? = null
-) : Parcelable
+)
 
 /**
  * Detailed fraud detection event for audit trail
  */
 @Serializable
-@Parcelize
 data class FraudDetectionEvent(
     @EncodeDefault(EncodeDefault.Mode.NEVER)
     val id: String? = null,
@@ -144,13 +139,12 @@ data class FraudDetectionEvent(
     @SerialName("created_at") val createdAt: String? = null,
     @EncodeDefault(EncodeDefault.Mode.NEVER)
     @SerialName("updated_at") val updatedAt: String? = null
-) : Parcelable
+)
 
 /**
  * Behavior analytics summary for dashboard/reporting
  */
 @Serializable
-@Parcelize
 data class BehaviorAnalyticsSummary(
     @SerialName("group_id") val groupId: String = "",
     @SerialName("total_members_tracked") val totalMembersTracked: Int = 0,
@@ -167,5 +161,4 @@ data class BehaviorAnalyticsSummary(
     @SerialName("loan_default_rate") val loanDefaultRate: Double = 0.0, // Percentage
     @EncodeDefault(EncodeDefault.Mode.NEVER)
     @SerialName("calculated_at") val calculatedAt: String? = null
-) : Parcelable
-
+)

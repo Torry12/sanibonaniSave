@@ -1,0 +1,16 @@
+- `[x]` Final App Refactor & Polish
+    - `[x]` Refine `Money.kt` formatting logic (handle negative values)
+    - `[x]` Migrate UI collection to `collectAsStateWithLifecycle()`
+        - `[x]` `MainActivity.kt`
+        - `[x]` `DevSettingsOverlay.kt`
+        - `[x]` `GlobalLoadingOverlay.kt`
+        - `[x]` `CreatePlatformAdminScreen.kt`
+        - `[x]` `PaymentSandboxScreen.kt`
+        - `[x]` `PasswordRecoveryScreen.kt`
+        - `[x]` `GroupVotingScreen.kt`
+        - `[x]` `KycCaptureScreen.kt`
+    - `[x]` Standardize `PlatformAdminViewModel.kt` (cleanup & errors)
+    - `[x]` Update `TestAppModule.kt` logging to `AppLogger`
+- `[ ]` Verify Polish Pass
+    - `[x]` Build app
+    - `[ ]` Run all tests

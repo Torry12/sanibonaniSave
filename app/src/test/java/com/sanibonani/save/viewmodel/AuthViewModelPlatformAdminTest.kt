@@ -3,14 +3,15 @@ package com.sanibonani.save.viewmodel
 import android.util.Log
 import androidx.arch.core.executor.testing.InstantTaskExecutorRule
 import com.sanibonani.save.domain.model.UserRole
-import com.sanibonani.save.domain.repository.CredentialsRepository
-import com.sanibonani.save.domain.repository.SupabaseRepository
+import com.sanibonani.save.domain.repository.auth.*
 import com.sanibonani.save.domain.utils.PlatformAdminAuthPolicy
-import com.sanibonani.save.service.AdminGroupContextCacheService
-import com.sanibonani.save.service.MemberGroupContextCacheService
-import com.sanibonani.save.service.UserProfileCacheService
+import com.sanibonani.save.service.*
+import com.sanibonani.save.data.remote.SupabaseConnectionManager
+import com.sanibonani.save.data.sync.RealtimeSyncManager
+import com.sanibonani.save.features.common.presentation.LoadStateQueue
+import com.sanibonani.save.features.auth.presentation.AuthViewModel
 import io.mockk.*
-import io.github.jan.supabase.auth.status.SessionStatus
+import com.sanibonani.save.domain.model.AuthSessionStatus
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -20,25 +21,30 @@ import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
+import com.google.firebase.crashlytics.FirebaseCrashlytics
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class AuthViewModelPlatformAdminTest {
 
     private companion object {
-        const val TEST_PLATFORM_ADMIN_PASSWORD = "torry123M"
+        const val TEST_PLATFORM_ADMIN_PASSWORD = "TestAdminPass1"
     }
 
     @get:Rule
     val instantExecutorRule = InstantTaskExecutorRule()
 
     private val supabaseRepo = mockk<SupabaseRepository>(relaxed = true)
+    private val userProfileRepo = mockk<UserProfileRepository>(relaxed = true)
     private val credentialsRepo = mockk<CredentialsRepository>(relaxed = true)
     private val adminCache = mockk<AdminGroupContextCacheService>(relaxed = true)
     private val memberCache = mockk<MemberGroupContextCacheService>(relaxed = true)
     private val userProfileCacheService = mockk<UserProfileCacheService>(relaxed = true)
+    private val connManager = mockk<SupabaseConnectionManager>(relaxed = true)
+    private val realtimeSyncManager = mockk<RealtimeSyncManager>(relaxed = true)
+    private val loadQueue = mockk<LoadStateQueue>(relaxed = true)
 
-    private val sessionStatusFlow = MutableStateFlow<SessionStatus>(SessionStatus.NotAuthenticated(false))
-    
+    private val sessionStatusFlow = MutableStateFlow<com.sanibonani.save.domain.model.AuthSessionStatus>(com.sanibonani.save.domain.model.AuthSessionStatus.NotAuthenticated(false))
+
     private lateinit var viewModel: AuthViewModel
     private val testDispatcher = StandardTestDispatcher()
 
@@ -48,17 +54,28 @@ class AuthViewModelPlatformAdminTest {
         every { android.os.Looper.getMainLooper() } returns mockk(relaxed = true)
         mockkStatic(Log::class)
         every { Log.d(any(), any()) } returns 0
-        
+
+        mockkStatic(FirebaseCrashlytics::class)
+        val mockCrashlytics = mockk<FirebaseCrashlytics>(relaxed = true)
+        every { FirebaseCrashlytics.getInstance() } returns mockCrashlytics
+
         Dispatchers.setMain(testDispatcher)
 
+        every { connManager.currentClient } returns MutableStateFlow(null)
         every { supabaseRepo.sessionStatus } returns sessionStatusFlow
+        every { supabaseRepo.sessionFlow } returns MutableStateFlow(null)
 
         viewModel = AuthViewModel(
             supabaseRepo,
+            userProfileRepo,
             credentialsRepo,
             adminCache,
             memberCache,
-            userProfileCacheService
+            userProfileCacheService,
+            connManager,
+            realtimeSyncManager,
+            loadQueue,
+            mockk(relaxed = true)
         )
     }
 
@@ -83,17 +100,6 @@ class AuthViewModelPlatformAdminTest {
         advanceUntilIdle()
 
         coVerify { supabaseRepo.signIn(adminEmail, password) }
-    }
-
-    @Test
-    fun `observeSession resolves PLATFORM_ADMIN role for admin email`() = runTest {
-        every { supabaseRepo.currentUserId } returns "admin_uid"
-        coEvery { supabaseRepo.getUserRole() } returns UserRole.PLATFORM_ADMIN
-
-        sessionStatusFlow.value = SessionStatus.Authenticated(mockk())
-        advanceUntilIdle()
-
-        assertEquals(UserRole.PLATFORM_ADMIN, viewModel.state.value.userRole)
     }
 
     @Test

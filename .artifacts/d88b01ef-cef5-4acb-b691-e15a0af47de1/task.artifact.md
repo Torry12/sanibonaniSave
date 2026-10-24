@@ -1,0 +1,5 @@
+- [x] Refactor `DataVerificationServiceImpl.kt` to filter contribution types
+- [x] Remove redundant integrity check from `MemberOverviewViewModel.kt`
+- [x] Remove `dataIntegrityMessage` from `MemberUiState.kt`
+- [x] Remove redundant `DataIntegrityAlert` from `MemberDashboardScreen.kt`
+- [x] Verify fix by running the app/simulation

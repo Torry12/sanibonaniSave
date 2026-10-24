@@ -24,6 +24,9 @@ Write-Host "Connected devices:"
 Write-Host "Installing $apk..."
 & $adb install -r $apk
 
+Write-Host "Setting up reverse port forwarding for Supabase (127.0.0.1:45421)..."
+& $adb reverse tcp:45421 tcp:45421
+
 Write-Host "Launching $PackageName..."
 & $adb shell monkey -p $PackageName -c android.intent.category.LAUNCHER 1
 

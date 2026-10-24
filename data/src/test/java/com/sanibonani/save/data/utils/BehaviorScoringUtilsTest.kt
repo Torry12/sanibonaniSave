@@ -2,6 +2,7 @@ package com.sanibonani.save.data.utils
 
 import com.sanibonani.save.domain.model.FraudRiskLevel
 import com.sanibonani.save.domain.model.MemberBehaviorTrack
+import com.sanibonani.save.domain.utils.BehaviorScoringUtils
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue

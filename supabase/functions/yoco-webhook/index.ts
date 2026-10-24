@@ -42,31 +42,43 @@ serve(async (req) => {
 
       console.log(`Processing ${paymentType} for group: ${groupId}`);
 
-      if (paymentType === "registration") {
-        // Activate the group
-        const { error } = await supabase
-          .from("groups")
-          .update({
-            registration_paid: true,
-            fee_status: "due",
-            is_public: true
-          })
-          .eq("id", groupId);
+      const amount = paymentData.amount / 100; // Yoco amounts are in cents
+      const txId = paymentData.id;
 
-        if (error) throw error;
+      if (paymentType === "registration") {
+        // Activate the group via the official RPC pattern
+        const { error: rpcError } = await supabase.rpc("activate_group_v4", {
+          p_group_id: groupId,
+          p_tx_id: txId
+        });
+
+        if (rpcError) {
+          console.warn("activate_group_v4 failed, trying direct update fallback", rpcError);
+          const { error } = await supabase
+            .from("groups")
+            .update({
+              registration_paid: true,
+              fee_status: "due",
+              is_public: true
+            })
+            .eq("id", groupId);
+          if (error) throw error;
+        }
       } else if (paymentType === "contribution") {
-        // Handle member contribution
         const memberId = metadata?.memberId;
-        const { error } = await supabase
-          .from("contributions")
-          .update({
-            status: "paid",
-            paid_at: new Date().toISOString(),
-            yoco_transaction_id: paymentData.id
-          })
-          .eq("group_id", groupId)
-          .eq("member_id", memberId)
-          .eq("status", "due"); // Update the most recent due one
+        const dueDate = metadata?.dueDate ?? new Date().toISOString().split('T')[0];
+
+        // 🛡️ Data Integrity: Use the RPC to ensure ledger and balance synchronization
+        const { error } = await supabase.rpc("record_contribution_v2", {
+            p_member_id: memberId,
+            p_group_id: groupId,
+            p_amount: amount,
+            p_due_date: dueDate,
+            p_paid_at: new Date().toISOString(),
+            p_status: "paid",
+            p_tx_id: txId,
+            p_type: "contribution"
+        });
 
         if (error) throw error;
       }

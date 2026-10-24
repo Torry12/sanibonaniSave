@@ -1,21 +1,9 @@
 package com.sanibonani.save.domain.config
 
 /**
- * Central constants for the SanibonaniSave platform.
- * Eliminates magic numbers and provides single source of truth for fees, defaults, and limits.
+ * Central constants for the SanibonaniSave platform: identity/bank validation shapes
+ * and upload limits.
  */
-
-// ── Platform Fees ──────────────────────────────────────────────────────────
-// PlatformFees moved to com.sanibonani.save.domain.model.Models.kt to break circular dependency
-
-// ── Group Defaults ─────────────────────────────────────────────────────────
-object GroupDefaults {
-    const val PROBATION_MONTHS = 3
-    const val PAYMENT_DUE_DAY = 28
-    const val MAX_MEMBERS = 50
-    const val AUTO_SUSPEND_AFTER_DAYS = 2
-    const val LATE_FEE_GRACE_DAYS = 5
-}
 
 // ── Member Validation ──────────────────────────────────────────────────────
 object MemberValidation {
@@ -29,7 +17,13 @@ object MemberValidation {
     
     const val PHONE_MIN_LENGTH = 10
     const val PHONE_MAX_LENGTH = 15
-    
+
+    // SA mobile prefixes only: 060-069, 071-074, 076-079 and 081-084, national or +27 form.
+    // 086/087 are service numbers and 01-05 are landlines; neither can receive an OTP.
+    const val SA_MOBILE_REGEX = "^(?:\\+27|0)(?:6[0-9]|7[1-4]|7[6-9]|8[1-4])[0-9]{7}$"
+
+    const val PASSWORD_MIN_LENGTH = 10
+
     const val EMAIL_REGEX = "^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$"
 }
 
@@ -53,46 +47,6 @@ object BankAccountValidation {
     // Branch code is exactly 6 digits in SA
     const val BRANCH_CODE_LENGTH = 6
     const val BRANCH_CODE_REGEX = "^[0-9]{6}$"
-}
-
-// ── Actuarial Defaults ────────────────────────────────────────────────────
-object ActuarialDefaults {
-    const val DEFAULT_SAFETY_LOADING_PCT = 35.0      // 35% loading above pure premium
-    const val DEFAULT_MORTALITY_RATE_PCT = 0.82      // 0.82% annual mortality (SA typical)
-    const val RESERVE_ADEQUACY_MONTHS = 6            // 6 months emergency reserve
-    const val ANNUAL_DISCOUNT_RATE_PCT = 8.5         // 8.5% discount rate for APV
-    
-    // Risk score weighting
-    const val RESERVE_ADEQUACY_WEIGHT = 0.3
-    const val CONTRIBUTION_SUFFICIENCY_WEIGHT = 0.4
-    const val PAYMENT_RATE_WEIGHT = 0.3
-}
-
-// ── Notification Channels ──────────────────────────────────────────────────
-object NotificationDefaults {
-    const val DEFAULT_CHANNEL = "both"  // WhatsApp + Email by default
-}
-
-// ── Database ───────────────────────────────────────────────────────────────
-object DatabaseConfig {
-    const val DATABASE_NAME = "sanibonani.db"
-    const val SCHEMA_VERSION = 41
-    
-    // Stale cache threshold: 24 hours
-    const val STALE_CACHE_THRESHOLD_MS = 24 * 60 * 60 * 1000L
-}
-
-// ── API Pagination ────────────────────────────────────────────────────────
-object PaginationDefaults {
-    const val PAGE_SIZE = 100
-    const val INITIAL_LOAD_SIZE = 100
-}
-
-// ── Timeout (milliseconds) ────────────────────────────────────────────────
-object TimeoutDefaults {
-    const val SUPABASE_QUERY_TIMEOUT_MS = 10_000L      // 10 seconds
-    const val SIGN_IN_RETRY_DELAY_MS = 400L            // 400ms between retries
-    const val SIGN_IN_RETRY_ATTEMPTS = 3
 }
 
 // ── File Upload Limits ─────────────────────────────────────────────────────

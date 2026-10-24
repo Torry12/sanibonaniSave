@@ -3,86 +3,76 @@ package com.sanibonani.save.ui.theme
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.sp
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  BRAND COLOURS
+//  TYPOGRAPHY IS DEFINED IN Type.kt
 // ─────────────────────────────────────────────────────────────────────────────
-val Forest       = Color(0xFF1E3A1A)
-val ForestMid    = Color(0xFF345A2D)
-val ForestLight  = Color(0xFF56854A)
-val Gold         = Color(0xFFE19E00)
-val GoldLight    = Color(0xFFFFD54F)
-val Terra        = Color(0xFFD35400)
-val Cream        = Color(0xFFFDF5E6)
-val Cream2       = Color(0xFFFAF0DC)
-val Charcoal     = Color(0xFF332D2D)
-val MidGray      = Color(0xFF7D746D)
-val LightGray    = Color(0xFFE5DED0)
-
-val SuccessGreen = Color(0xFF16A34A)
-val SuccessBg    = Color(0xFFD1FAE5)
-val WarningYellow = Color(0xFFFFB300) // Vibrant Warning Yellow
-val WarningAmber = Color(0xFFD97706)
-val WarningBg    = Color(0xFFFEF3C7)
-val ErrorRed     = Color(0xFFDC2626)
-val ErrorBg      = Color(0xFFFEE2E2)
-val InfoBlue     = Color(0xFF2563EB)
-val InfoBg       = Color(0xFFDBEAFE)
-
-// ─────────────────────────────────────────────────────────────────────────────
-//  TYPOGRAPHY
-//  Using FontFamily.Serif (Playfair-like) and SansSerif (Nunito-like)
-//  To use actual downloaded fonts, drop .ttf files in res/font/ and use Font()
-// ─────────────────────────────────────────────────────────────────────────────
-val DisplayFont = FontFamily.Serif
-val BodyFont    = FontFamily.SansSerif
-
-val SanibonaniTypography = Typography(
-    displayLarge   = TextStyle(fontFamily = DisplayFont, fontWeight = FontWeight.Black,    fontSize = 48.sp, lineHeight = 56.sp),
-    displayMedium  = TextStyle(fontFamily = DisplayFont, fontWeight = FontWeight.Bold,     fontSize = 36.sp, lineHeight = 44.sp),
-    displaySmall   = TextStyle(fontFamily = DisplayFont, fontWeight = FontWeight.Bold,     fontSize = 28.sp, lineHeight = 36.sp),
-    headlineLarge  = TextStyle(fontFamily = DisplayFont, fontWeight = FontWeight.SemiBold, fontSize = 24.sp, lineHeight = 32.sp),
-    headlineMedium = TextStyle(fontFamily = DisplayFont, fontWeight = FontWeight.SemiBold, fontSize = 20.sp, lineHeight = 28.sp),
-    headlineSmall  = TextStyle(fontFamily = DisplayFont, fontWeight = FontWeight.SemiBold, fontSize = 18.sp, lineHeight = 24.sp),
-    titleLarge     = TextStyle(fontFamily = BodyFont,    fontWeight = FontWeight.ExtraBold,fontSize = 18.sp),
-    titleMedium    = TextStyle(fontFamily = BodyFont,    fontWeight = FontWeight.Bold,     fontSize = 16.sp),
-    titleSmall     = TextStyle(fontFamily = BodyFont,    fontWeight = FontWeight.Bold,     fontSize = 14.sp),
-    bodyLarge      = TextStyle(fontFamily = BodyFont,    fontWeight = FontWeight.Normal,   fontSize = 16.sp, lineHeight = 24.sp),
-    bodyMedium     = TextStyle(fontFamily = BodyFont,    fontWeight = FontWeight.Normal,   fontSize = 14.sp, lineHeight = 20.sp),
-    bodySmall      = TextStyle(fontFamily = BodyFont,    fontWeight = FontWeight.Normal,   fontSize = 12.sp, lineHeight = 16.sp),
-    labelLarge     = TextStyle(fontFamily = BodyFont,    fontWeight = FontWeight.Bold,     fontSize = 14.sp, letterSpacing = 0.1.sp),
-    labelMedium    = TextStyle(fontFamily = BodyFont,    fontWeight = FontWeight.SemiBold, fontSize = 12.sp, letterSpacing = 0.5.sp),
-    labelSmall     = TextStyle(fontFamily = BodyFont,    fontWeight = FontWeight.SemiBold, fontSize = 11.sp, letterSpacing = 0.5.sp),
-)
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  COLOUR SCHEMES
 // ─────────────────────────────────────────────────────────────────────────────
 private val LightColorScheme = lightColorScheme(
-    primary              = Forest,
-    onPrimary            = Cream,
-    primaryContainer     = ForestLight,
-    onPrimaryContainer   = Cream,
-    secondary            = Gold,
-    onSecondary          = Forest,
-    secondaryContainer   = GoldLight,
-    onSecondaryContainer = Forest,
-    tertiary             = Terra,
-    onTertiary           = Cream,
-    background           = Cream,
-    onBackground         = Charcoal,
-    surface              = Cream,
-    onSurface            = Charcoal,
-    surfaceVariant       = Cream2,
-    onSurfaceVariant     = MidGray,
-    outline              = LightGray,
-    error                = ErrorRed,
-    onError              = Cream,
+    primary = md_theme_light_primary,
+    onPrimary = md_theme_light_onPrimary,
+    primaryContainer = md_theme_light_primaryContainer,
+    onPrimaryContainer = md_theme_light_onPrimaryContainer,
+    secondary = md_theme_light_secondary,
+    onSecondary = md_theme_light_onSecondary,
+    secondaryContainer = md_theme_light_secondaryContainer,
+    onSecondaryContainer = md_theme_light_onSecondaryContainer,
+    tertiary = md_theme_light_tertiary,
+    onTertiary = md_theme_light_onTertiary,
+    tertiaryContainer = md_theme_light_tertiaryContainer,
+    onTertiaryContainer = md_theme_light_onTertiaryContainer,
+    error = md_theme_light_error,
+    errorContainer = md_theme_light_errorContainer,
+    onError = md_theme_light_onError,
+    onErrorContainer = md_theme_light_onErrorContainer,
+    background = md_theme_light_background,
+    onBackground = md_theme_light_onBackground,
+    surface = md_theme_light_surface,
+    onSurface = md_theme_light_onSurface,
+    surfaceVariant = md_theme_light_surfaceVariant,
+    onSurfaceVariant = md_theme_light_onSurfaceVariant,
+    outline = md_theme_light_outline,
+    inverseOnSurface = md_theme_light_inverseOnSurface,
+    inverseSurface = md_theme_light_inverseSurface,
+    inversePrimary = md_theme_light_inversePrimary,
+    surfaceTint = md_theme_light_surfaceTint,
+    outlineVariant = md_theme_light_outlineVariant,
+    scrim = md_theme_light_scrim,
+)
+
+private val DarkColorScheme = darkColorScheme(
+    primary = md_theme_dark_primary,
+    onPrimary = md_theme_dark_onPrimary,
+    primaryContainer = md_theme_dark_primaryContainer,
+    onPrimaryContainer = md_theme_dark_onPrimaryContainer,
+    secondary = md_theme_dark_secondary,
+    onSecondary = md_theme_dark_onSecondary,
+    secondaryContainer = md_theme_dark_secondaryContainer,
+    onSecondaryContainer = md_theme_dark_onSecondaryContainer,
+    tertiary = md_theme_dark_tertiary,
+    onTertiary = md_theme_dark_onTertiary,
+    tertiaryContainer = md_theme_dark_tertiaryContainer,
+    onTertiaryContainer = md_theme_dark_onTertiaryContainer,
+    error = md_theme_dark_error,
+    errorContainer = md_theme_dark_errorContainer,
+    onError = md_theme_dark_onError,
+    onErrorContainer = md_theme_dark_onErrorContainer,
+    background = md_theme_dark_background,
+    onBackground = md_theme_dark_onBackground,
+    surface = md_theme_dark_surface,
+    onSurface = md_theme_dark_onSurface,
+    surfaceVariant = md_theme_dark_surfaceVariant,
+    onSurfaceVariant = md_theme_dark_onSurfaceVariant,
+    outline = md_theme_dark_outline,
+    inverseOnSurface = md_theme_dark_inverseOnSurface,
+    inverseSurface = md_theme_dark_inverseSurface,
+    inversePrimary = md_theme_dark_inversePrimary,
+    surfaceTint = md_theme_dark_surfaceTint,
+    outlineVariant = md_theme_dark_outlineVariant,
+    scrim = md_theme_dark_scrim,
 )
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -93,8 +83,14 @@ fun SanibonaniTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     content: @Composable () -> Unit
 ) {
+    val colorScheme = if (darkTheme) {
+        DarkColorScheme
+    } else {
+        LightColorScheme
+    }
+
     MaterialTheme(
-        colorScheme = LightColorScheme,   // Dark theme: add DarkColorScheme and toggle here
+        colorScheme = colorScheme,
         typography  = SanibonaniTypography,
         content     = content
     )
