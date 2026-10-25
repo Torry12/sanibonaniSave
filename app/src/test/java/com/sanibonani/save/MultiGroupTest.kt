@@ -307,6 +307,8 @@ class MultiGroupTest {
         groupViewModel.onEvent(GroupFormEvent.AdminFullNameChanged("Admin Name"))
         groupViewModel.onEvent(GroupFormEvent.AdminIdNumberChanged("9001015000085"))
         groupViewModel.onEvent(GroupFormEvent.AdminPhoneChanged("0712345678"))
+        groupViewModel.onEvent(GroupFormEvent.CityChanged("Johannesburg"))
+        groupViewModel.onEvent(GroupFormEvent.ProvinceSelected("Gauteng"))
         groupViewModel.onEvent(GroupFormEvent.TermsAcceptedToggled(true))
 
         // Submit group first

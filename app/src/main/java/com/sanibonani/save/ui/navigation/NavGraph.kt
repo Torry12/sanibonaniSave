@@ -4,7 +4,10 @@ import androidx.compose.material3.windowsizeclass.WindowSizeClass
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.foundation.layout.Box
@@ -109,6 +112,25 @@ val globalSpinnerActive by globalLoadingViewModel.showSpinner.collectAsStateWith
          }
     }
 
+    // Group creation finishes after the role has been elevated server-side, but the auth state
+    // still holds the pre-creation role. Waiting for the refreshed role keeps the creator out of
+    // a group-less dashboard that the route guard would immediately bounce them from.
+    var createdGroupId by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(createdGroupId, authState.userRole) {
+        val groupId = createdGroupId ?: return@LaunchedEffect
+        if (authState.userRole == UserRole.MEMBER) {
+            // A failed or slow role lookup must not strand the user on the success screen;
+            // fall through to the member dashboard still scoped to the new group.
+            delay(3_000)
+        }
+        createdGroupId = null
+        val destination = NavigationUtils.destinationAfterGroupCreation(authState.userRole, groupId)
+        navController.navigateSingleTop(destination, restoreState = false) {
+            popUpTo(navController.graph.findStartDestination().id) { inclusive = true }
+        }
+    }
+
     Box(modifier = Modifier.fillMaxSize()) {
         NavHost(
             navController = navController,
@@ -148,11 +170,9 @@ val globalSpinnerActive by globalLoadingViewModel.showSpinner.collectAsStateWith
                 // An unknown type name from a deep link must not crash the wizard via valueOf().
                 val groupType = GroupType.entries.firstOrNull { it.name == groupTypeString }
                 GroupRegistrationScreen(
-                    onSuccess = {
-                        val dest = NavigationUtils.destinationForUserRole(authState.userRole)
-                        navController.navigateSingleTop(dest, restoreState = false) {
-                            popUpTo(navController.graph.findStartDestination().id) { inclusive = true }
-                        }
+                    onSuccess = { groupId ->
+                        createdGroupId = groupId
+                        authViewModel.refreshUserRole()
                     },
                     onBack = { navController.popBackStack() },
                     initialGroupType = groupType

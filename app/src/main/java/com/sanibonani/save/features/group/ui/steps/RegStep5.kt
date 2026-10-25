@@ -80,7 +80,9 @@ fun RegStep5(s: GroupRegistrationState, vm: GroupRegistrationViewModel) {
             value = s.adminEmail,
             onValueChange = { vm.onEvent(GroupFormEvent.AdminEmailChanged(it)) },
             label = stringResource(R.string.ui_admin_email_primary_login),
-            enabled = !s.isLoggedIn,
+            // Read-only while it is the signed-in account's email; a blank value must still be
+            // editable or the required field could never be satisfied.
+            enabled = !s.isLoggedIn || s.adminEmail.isBlank(),
             isError = s.fieldErrors.containsKey("adminEmail"),
             supportingText = s.fieldErrors["adminEmail"]
         )
@@ -110,8 +112,14 @@ fun RegStep5(s: GroupRegistrationState, vm: GroupRegistrationViewModel) {
         }
 
         InfoBox(
-            "As the group creator, you will automatically be registered as the first member. " +
-                "Your ${s.platformRegistrationFee.format()} platform registration fee will be credited as your first contribution.", type = InfoType.INFO
+            if (s.platformRegistrationFee.isPositive) {
+                "As the group creator, you will automatically be registered as the first member. " +
+                    "The ${s.platformRegistrationFee.format()} platform registration fee activates the group and is not added to group savings."
+            } else {
+                "As the group creator, you will automatically be registered as the first member. " +
+                    "No platform registration fee applies, so your group is activated as soon as you finish."
+            },
+            type = InfoType.INFO
         )
 
         Spacer(Modifier.height(8.dp))
@@ -156,13 +164,17 @@ fun RegStep5(s: GroupRegistrationState, vm: GroupRegistrationViewModel) {
                         )
                         Spacer(Modifier.height(4.dp))
                         Text(
-                            stringResource(R.string.ui_this_is_a_onceoff_fee_to_activate_your_g),
+                            if (s.platformRegistrationFee.isPositive) {
+                                stringResource(R.string.ui_this_is_a_onceoff_fee_to_activate_your_g)
+                            } else {
+                                "No registration fee applies during this promotion."
+                            },
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                     Text(
-                        s.platformRegistrationFee.format(),
+                        if (s.platformRegistrationFee.isPositive) s.platformRegistrationFee.format() else "Free",
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Black,
                         color = MaterialTheme.colorScheme.primary

@@ -179,5 +179,13 @@ fun RegStep2(s: GroupRegistrationState, vm: GroupRegistrationViewModel) {
                 )
             }
         }
+
+        s.fieldErrors["province"]?.let { message ->
+            Text(
+                message,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error
+            )
+        }
     }
 }

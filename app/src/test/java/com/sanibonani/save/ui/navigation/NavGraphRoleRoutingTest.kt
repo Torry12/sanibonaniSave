@@ -215,4 +215,33 @@ class NavGraphRoleRoutingTest {
             )
         )
     }
+
+    // ── Group creation finish line ──────────────────────────────────────────
+    // Routing on the pre-creation role sent a brand-new creator (still MEMBER in state)
+    // to the member dashboard with no group context, and the role guard then bounced
+    // every attempt to open the group they had just created.
+
+    @Test
+    fun groupCreationDestination_groupAdmin_opensTheCreatedGroup() {
+        assertEquals(
+            Screen.AdminDashboard.withId("group_123"),
+            NavigationUtils.destinationAfterGroupCreation(UserRole.GROUP_ADMIN, "group_123")
+        )
+    }
+
+    @Test
+    fun groupCreationDestination_platformAdmin_opensTheCreatedGroupInSupportMode() {
+        assertEquals(
+            Screen.AdminDashboard.withId("group_123", supportMode = true),
+            NavigationUtils.destinationAfterGroupCreation(UserRole.PLATFORM_ADMIN, "group_123")
+        )
+    }
+
+    @Test
+    fun groupCreationDestination_staleMemberRole_staysInTheCreatedGroupContext() {
+        assertEquals(
+            Screen.MemberDashboard.withTab(0, "group_123"),
+            NavigationUtils.destinationAfterGroupCreation(UserRole.MEMBER, "group_123")
+        )
+    }
 }

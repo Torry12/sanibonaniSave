@@ -196,6 +196,23 @@ class CreateGroupUseCaseTest {
     }
 
     @Test
+    fun `role is not elevated when the creator member record fails`() = runBlocking {
+        val userId = "user-rollback"
+        val groupId = "group-rollback"
+
+        coEvery { supabaseRepository.currentUserId } returns userId
+        coEvery { groupRepository.createGroup(any()) } returns Result.success(groupId)
+        coEvery { memberRepository.upsertMember(any()) } returns Result.failure(Exception("network down"))
+        coEvery { groupRepository.deleteGroup(groupId) } returns Result.success(Unit)
+
+        val result = createGroupUseCase(Group(name = "Rolled Back Group", probationMonths = 3))
+
+        assertTrue(result.isFailure)
+        // A role granted for a group that never survived would leave an admin with no group.
+        coVerify(exactly = 0) { supabaseRepository.updateUserRole(any(), any(), any()) }
+    }
+
+    @Test
     fun `invoke with whitespace email and whitespace password should not sign up and should fall back to session email`() = runBlocking {
         // Given
         val group = Group(name = "Whitespace Credentials Group", province = "Limpopo", city = "Polokwane", probationMonths = 3)

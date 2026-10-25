@@ -78,7 +78,9 @@ fun RegStep3(s: GroupRegistrationState, vm: GroupRegistrationViewModel) {
                 label = "Total Savings Goal (R)",
                 placeholder = "e.g. 50000",
                 prefix = { Text("R ", color = MaterialTheme.colorScheme.onSurface) },
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal)
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                isError = s.fieldErrors.containsKey("goalAmount"),
+                supportingText = s.fieldErrors["goalAmount"]
             )
 
             SanibonaniTextField(
@@ -87,7 +89,9 @@ fun RegStep3(s: GroupRegistrationState, vm: GroupRegistrationViewModel) {
                 label = "Savings Period (Months)",
                 placeholder = "e.g. 12",
                 suffix = { Text("Months", color = MaterialTheme.colorScheme.onSurface) },
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                isError = s.fieldErrors.containsKey("periodMonths"),
+                supportingText = s.fieldErrors["periodMonths"]
             )
         }
 
@@ -100,7 +104,9 @@ fun RegStep3(s: GroupRegistrationState, vm: GroupRegistrationViewModel) {
                 label = "Maximum Members",
                 placeholder = "e.g. 50",
                 suffix = { Text("Members", color = MaterialTheme.colorScheme.onSurface) },
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                isError = s.fieldErrors.containsKey("maxMembers"),
+                supportingText = s.fieldErrors["maxMembers"]
             )
         }
 
@@ -110,7 +116,9 @@ fun RegStep3(s: GroupRegistrationState, vm: GroupRegistrationViewModel) {
             label = "Late Payment Fine (R)",
             placeholder = "e.g. 50",
             prefix = { Text("R ", color = MaterialTheme.colorScheme.onSurface) },
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal)
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+            isError = s.fieldErrors.containsKey("lateFee"),
+            supportingText = s.fieldErrors["lateFee"]
         )
 
         SanibonaniTextField(
@@ -119,7 +127,9 @@ fun RegStep3(s: GroupRegistrationState, vm: GroupRegistrationViewModel) {
             label = "Grace Period (Days)",
             placeholder = "e.g. 5",
             suffix = { Text("Days", color = MaterialTheme.colorScheme.onSurface) },
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            isError = s.fieldErrors.containsKey("lateFeeGraceDays"),
+            supportingText = s.fieldErrors["lateFeeGraceDays"]
         )
 
         SanibonaniTextField(
@@ -128,14 +138,18 @@ fun RegStep3(s: GroupRegistrationState, vm: GroupRegistrationViewModel) {
             label = "Probation Period (Months)",
             placeholder = "e.g. 1",
             suffix = { Text("Months", color = MaterialTheme.colorScheme.onSurface) },
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            isError = s.fieldErrors.containsKey("probationMonths"),
+            supportingText = s.fieldErrors["probationMonths"]
         )
 
         SanibonaniTextField(
             value = s.paymentDueDay,
             onValueChange = { vm.onEvent(GroupFormEvent.PaymentDueDayChanged(it.filter { c -> c.isDigit() })) },
             label = stringResource(R.string.ui_payment_due_day_of_month),
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            isError = s.fieldErrors.containsKey("paymentDueDay"),
+            supportingText = s.fieldErrors["paymentDueDay"]
         )
 
         if (s.type == GroupType.ROSCA) {
@@ -167,14 +181,18 @@ fun RegStep3(s: GroupRegistrationState, vm: GroupRegistrationViewModel) {
                 value = s.maxBeneficiaries,
                 onValueChange = { vm.onEvent(GroupFormEvent.MaxBeneficiariesChanged(it.filter { c -> c.isDigit() })) },
                 label = stringResource(R.string.ui_max_beneficiaries_per_member_1),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                isError = s.fieldErrors.containsKey("maxBeneficiaries"),
+                supportingText = s.fieldErrors["maxBeneficiaries"]
             )
 
             SanibonaniTextField(
                 value = s.beneficiaryIncreasePct,
                 onValueChange = { if (it.isEmpty() || it.toBigDecimalOrNull() != null || it.endsWith(".")) vm.onEvent(GroupFormEvent.BeneficiaryIncreasePctChanged(it)) },
                 label = stringResource(R.string.ui_monthly_increase_per_extra_beneficiary),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal)
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                isError = s.fieldErrors.containsKey("beneficiaryIncreasePct"),
+                supportingText = s.fieldErrors["beneficiaryIncreasePct"]
             )
         }
 
@@ -220,6 +238,15 @@ fun RegStep3(s: GroupRegistrationState, vm: GroupRegistrationViewModel) {
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+
+                s.fieldErrors["termsAccepted"]?.let { message ->
+                    Text(
+                        message,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(start = 8.dp)
                     )
                 }
             }

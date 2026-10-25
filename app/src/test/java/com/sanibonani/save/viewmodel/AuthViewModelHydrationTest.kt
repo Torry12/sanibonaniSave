@@ -157,4 +157,21 @@ class AuthViewModelHydrationTest {
         assertTrue(viewModel.state.value.isLoggedIn)
         assertEquals(UserRole.MEMBER, viewModel.state.value.userRole)
     }
+
+    @Test
+    fun `refreshUserRole picks up an out-of-band elevation without a new session event`() = runTest {
+        sessions.value = AuthSession(userId = "u1", email = "creator@example.com", accessToken = "token")
+        coEvery { supabaseRepo.getUserRole() } returns UserRole.MEMBER
+        advanceUntilIdle()
+        assertEquals(UserRole.MEMBER, viewModel.state.value.userRole)
+
+        // Creating a group elevates the creator server-side; the session object itself does
+        // not change, so routing used to stay on the pre-creation MEMBER role.
+        coEvery { supabaseRepo.getUserRole() } returns UserRole.GROUP_ADMIN
+        viewModel.refreshUserRole()
+        advanceUntilIdle()
+
+        assertEquals(UserRole.GROUP_ADMIN, viewModel.state.value.userRole)
+        assertTrue(viewModel.state.value.isLoggedIn)
+    }
 }
