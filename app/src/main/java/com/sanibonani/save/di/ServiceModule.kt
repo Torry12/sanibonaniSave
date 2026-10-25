@@ -55,10 +55,6 @@ abstract class ServiceModule {
 
     @Binds
     @Singleton
-    abstract fun bindUserRoleService(impl: UserRoleServiceImpl): UserRoleService
-
-    @Binds
-    @Singleton
     abstract fun bindPayoutGuard(impl: PayoutGuardImpl): PayoutGuard
 
     @Binds
