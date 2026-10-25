@@ -106,8 +106,9 @@ fun GroupRegistrationScreen(
             val gid = state.createdGroupId
             if (gid != null) {
                 Toast.makeText(context, "Group registered successfully!", Toast.LENGTH_LONG).show()
+                // Keep the success state on screen: the caller re-resolves the creator's role
+                // before navigating, and resetting here would flash the empty form while waiting.
                 onSuccess(gid)
-                vm.resetNavigation()
             }
         }
     }
@@ -282,7 +283,7 @@ fun GroupRegistrationScreen(
                             }
                         }
                         SanibonaniButton(
-                            text = if (state.currentStep == 6) "Pay Registration Fee" else "Next",
+                            text = state.summaryActionLabel,
                             onClick = {
                                 clickDebouncer.processClick {
                                     if (state.currentStep == 6) vm.submitGroup() else vm.nextStep()

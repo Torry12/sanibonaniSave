@@ -86,6 +86,8 @@ class RegistrationLifecycleTest {
         viewModel.onEvent(GroupFormEvent.AdminFullNameChanged("Audit Admin"))
         viewModel.onEvent(GroupFormEvent.AdminPhoneChanged("0712345678"))
         viewModel.onEvent(GroupFormEvent.AdminIdNumberChanged("9001015000085"))
+        viewModel.onEvent(GroupFormEvent.CityChanged("Johannesburg"))
+        viewModel.onEvent(GroupFormEvent.ProvinceSelected("Gauteng"))
         viewModel.onEvent(GroupFormEvent.JoiningFeeChanged("50.0"))
         viewModel.onEvent(GroupFormEvent.TermsAcceptedToggled(true))
 
@@ -178,6 +180,8 @@ class RegistrationLifecycleTest {
         viewModel.onEvent(GroupFormEvent.AdminEmailChanged("fail@test.com"))
         viewModel.onEvent(GroupFormEvent.AdminPasswordChanged("password123"))
         viewModel.onEvent(GroupFormEvent.AdminPhoneChanged("0712345678"))
+        viewModel.onEvent(GroupFormEvent.CityChanged("Johannesburg"))
+        viewModel.onEvent(GroupFormEvent.ProvinceSelected("Gauteng"))
         viewModel.onEvent(GroupFormEvent.TermsAcceptedToggled(true))
         viewModel.submitGroup()
 
@@ -211,6 +215,8 @@ class RegistrationLifecycleTest {
         vm.onEvent(GroupFormEvent.AdminEmailChanged("free@test.com"))
         vm.onEvent(GroupFormEvent.AdminPasswordChanged("password123"))
         vm.onEvent(GroupFormEvent.AdminPhoneChanged("0712345678"))
+        vm.onEvent(GroupFormEvent.CityChanged("Soweto"))
+        vm.onEvent(GroupFormEvent.ProvinceSelected("Gauteng"))
         vm.onEvent(GroupFormEvent.TermsAcceptedToggled(true))
     }
 
@@ -298,6 +304,8 @@ class RegistrationLifecycleTest {
         viewModel.onEvent(GroupFormEvent.AdminEmailChanged("dismiss@test.com"))
         viewModel.onEvent(GroupFormEvent.AdminPasswordChanged("password123"))
         viewModel.onEvent(GroupFormEvent.AdminPhoneChanged("0712345678"))
+        viewModel.onEvent(GroupFormEvent.CityChanged("Soweto"))
+        viewModel.onEvent(GroupFormEvent.ProvinceSelected("Gauteng"))
         viewModel.onEvent(GroupFormEvent.TermsAcceptedToggled(true))
         viewModel.submitGroup()
         assertTrue(viewModel.state.value.needsPayment)

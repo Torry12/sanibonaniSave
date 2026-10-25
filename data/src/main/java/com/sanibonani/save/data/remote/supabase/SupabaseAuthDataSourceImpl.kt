@@ -171,15 +171,21 @@ class SupabaseAuthDataSourceImpl @Inject constructor(
 
     override suspend fun updateUserRole(userId: String, role: UserRole, groupId: String?): Result<Unit> = safeRunCatching {
         if (currentUserId == userId) {
+            val storageRole = UserRoleMapper.toStorageValue(role)
             val existingMeta = rawSession?.user?.userMetadata ?: buildJsonObject {}
             val updatedMeta = buildJsonObject {
                 existingMeta.forEach { (k, v) -> put(k, v) }
-                put("role", UserRoleMapper.toStorageValue(role))
+                put("role", storageRole)
                 if (role == UserRole.GROUP_ADMIN && groupId != null) {
                     val currentGroups = (existingMeta["admin_for_groups"]?.jsonArray?.mapNotNull { it.jsonPrimitive.contentOrNull } ?: emptyList()).toMutableSet()
                     currentGroups.add(groupId)
                     put("admin_for_groups", JsonArray(currentGroups.map { JsonPrimitive(it) }))
                 }
+            }
+            // [getUserRole] trusts profiles.role above the user metadata, so updating the token
+            // claims alone leaves the account on its old role (and a new group admin stranded).
+            client.postgrest["profiles"].update(mapOf("role" to storageRole)) {
+                filter { eq("id", userId) }
             }
             client.auth.updateUser { data = updatedMeta }
         } else {

@@ -79,20 +79,7 @@ class CreateGroupUseCase @Inject constructor(
             val groupId = groupRepository.createGroup(groupToCreate).getOrThrow()
             AppLogger.d(tag, "✅ Group created with ID: $groupId")
 
-            // Elevate user role to group admin for this group.
-            val roleUpdate = supabaseRepository.updateUserRole(userId, UserRole.GROUP_ADMIN, groupId)
-            if (roleUpdate.isFailure) {
-                // Role elevation failure is non-fatal for group creation, but it must not be
-                // silent: without the claim the admin loses access to the group they just made.
-                AppLogger.w(
-                    tag,
-                    "Failed to elevate $userId to GROUP_ADMIN for $groupId: ${roleUpdate.exceptionOrNull()?.message}"
-                )
-            } else {
-                AppLogger.d(tag, "Updated user claims to include new group admin role for $groupId")
-            }
-
-            // The row is committed from here on, so a later failure can roll it back.
+            // The row is committed from here on, so a later failure must roll it back.
             committedGroupId = groupId
 
             // Look up existing member profile if details were not explicitly provided
@@ -187,6 +174,21 @@ class CreateGroupUseCase @Inject constructor(
             }
 
             AppLogger.d(tag, "✅ Admin creator onboarded as member successfully: $groupId")
+
+            // Elevate only once the membership exists. A failed upsert rolls the group back, and
+            // a role pointing at a deleted group would lock the account out of every destination.
+            val roleUpdate = supabaseRepository.updateUserRole(userId, UserRole.GROUP_ADMIN, groupId)
+            if (roleUpdate.isFailure) {
+                // Role elevation failure is non-fatal for group creation, but it must not be
+                // silent: without the claim the admin loses access to the group they just made.
+                AppLogger.w(
+                    tag,
+                    "Failed to elevate $userId to GROUP_ADMIN for $groupId: ${roleUpdate.exceptionOrNull()?.message}"
+                )
+            } else {
+                AppLogger.d(tag, "Updated user claims to include new group admin role for $groupId")
+            }
+
             groupId
         }.onFailure { e ->
             if (committedGroupId != null) {
