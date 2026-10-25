@@ -72,9 +72,15 @@ class RequestPayoutUseCase @Inject constructor(
         accountNoOverride: String?,
         branchCodeOverride: String?
     ): String {
-        val bankName = bankNameOverride.ifBlankOrNull { member?.bankName ?: group.bankName }
-        val accountNo = accountNoOverride.ifBlankOrNull { member?.accountNo ?: group.accountNumber }
-        val branchCode = branchCodeOverride.ifBlankOrNull { member?.branchCode ?: group.branchCode }
+        val bankName = bankNameOverride.ifBlankOrNull {
+            if (member != null) member.bankName else group.bankName
+        }
+        val accountNo = accountNoOverride.ifBlankOrNull {
+            if (member != null) member.accountNo else group.accountNumber
+        }
+        val branchCode = branchCodeOverride.ifBlankOrNull {
+            if (member != null) member.branchCode else group.branchCode
+        }
         val amountToPay = resolveAmount(group, member, roster, requestedAmount)
             ?.takeIf { it.isPositive }
             ?: throw Exception("Amount required.")
@@ -84,6 +90,9 @@ class RequestPayoutUseCase @Inject constructor(
         // Apply Guards
         payoutGuard.validateRequest(group, member, amountToPay, payoutType).getOrThrow()
 
+        if (member != null && bankName.isNullOrBlank()) {
+            throw Exception("Member banking details are required for a member payout.")
+        }
         if (bankName.isNullOrBlank()) throw Exception("Bank name required.")
         val validAccountNo = accountNo?.trim().orEmpty()
         val validBranchCode = branchCode?.trim().orEmpty()
@@ -118,8 +127,9 @@ class RequestPayoutUseCase @Inject constructor(
             group.type == GroupType.STOKVEL -> calculateStokvelPayoutsUseCase(group, roster, member)
             group.type == GroupType.INVESTMENT_CLUB -> calculateInvestmentClubValuationUseCase(
                 group,
-                listOf(member)
-            ).getOrNull()?.memberValuations?.firstOrNull()?.marketValue ?: Money.ZERO
+                roster
+            ).getOrNull()?.memberValuations?.firstOrNull { it.memberId == member.id }?.marketValue
+                ?: Money.ZERO
             else -> requestedAmount
         }
     }

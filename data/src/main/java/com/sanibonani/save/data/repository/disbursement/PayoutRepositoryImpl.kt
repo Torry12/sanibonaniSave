@@ -86,14 +86,6 @@ class PayoutRepositoryImpl @Inject constructor(
         remote
     }
 
-    override fun observePendingPayouts(): Flow<Result<List<PayoutRequest>>> = observeAndSync(
-        dbFlow = localSource.observePendingPayouts(),
-        mapper = { it },
-        toEntity = { it },
-        networkFetch = { remoteSource.getPendingPayouts().getOrThrow() },
-        cacheSync = { localSource.savePayouts(it) }
-    )
-
     override suspend fun getPayoutById(payoutId: String): Result<PayoutRequest> = safeRunCatching {
         val remote = remoteSource.getPayoutById(payoutId).getOrThrow()
         localSource.savePayout(remote)
@@ -118,6 +110,8 @@ class PayoutRepositoryImpl @Inject constructor(
         }),
         dao = pendingOpDao
     ) {
+        // Read the row before writing so the audit line names the status it actually left.
+        val previous = remoteSource.getPayoutById(payoutId).getOrThrow()
         remoteSource.updatePayoutStatus(payoutId, status, payoutReference, processedBy = actorId, metadata = metadata).getOrThrow()
         val updated = remoteSource.getPayoutById(payoutId).getOrThrow()
         localSource.savePayout(updated)
@@ -132,7 +126,7 @@ class PayoutRepositoryImpl @Inject constructor(
                 action = "PAYOUT_STATUS_CHANGED",
                 details = buildJsonObject {
                     put("payout_id", payoutId)
-                    put("old_status", "UNKNOWN") // Ideally fetch current first
+                    put("old_status", previous.status.name)
                     put("new_status", status.name)
                     payoutReference?.let { put("reference", it) }
                     metadata?.let { put("metadata", it) }
@@ -165,16 +159,21 @@ class PayoutRepositoryImpl @Inject constructor(
             )
         )
 
-        EventBus.emit(PaymentProcessedEvent(Payment(
-            memberId = updated.processedBy ?: "",
-            groupId = updated.groupId,
-            amount = updated.amount,
-            paymentType = PaymentType.CLAIM,
-            paymentMethod = PaymentMethod.BANK,
-            transactionId = updated.payoutReference ?: updated.id,
-            status = PaymentStatus.COMPLETED,
-            processedAt = updated.processedAt
-        )))
+        // The payment event drives member notifications and behavior scoring, so it must name the
+        // member being paid. A group-level payout has no member to score or notify: attribute it
+        // to the admin and the next behavior recalculation would credit the wrong person.
+        updated.memberId?.let { memberId ->
+            EventBus.emit(PaymentProcessedEvent(Payment(
+                memberId = memberId,
+                groupId = updated.groupId,
+                amount = updated.amount,
+                paymentType = PaymentType.CLAIM,
+                paymentMethod = PaymentMethod.BANK,
+                transactionId = updated.payoutReference ?: updated.id,
+                status = PaymentStatus.COMPLETED,
+                processedAt = updated.processedAt
+            )))
+        }
     }
 
     override suspend fun verifyPayoutDocument(payoutId: String, status: DocumentStatus): Result<Unit> =

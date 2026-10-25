@@ -40,19 +40,27 @@ class PlatformDisbursementsViewModel @Inject constructor(
     fun load() {
         launchJob("load_disbursements") {
             coroutineScope {
-                val claimsDeferred = async { claimRepo.getEscalatedClaimsSync().getOrNull() ?: emptyList() }
-                val payoutsDeferred = async { payoutRepo.getPendingPayouts().getOrNull() ?: emptyList() }
-                val loansDeferred = async { loanRepo.getAllPendingLoansSync().getOrNull() ?: emptyList() }
+                val claimsDeferred = async { claimRepo.getEscalatedClaimsSync() }
+                val payoutsDeferred = async { payoutRepo.getPendingPayouts() }
+                val loansDeferred = async { loanRepo.getAllPendingLoansSync() }
 
-                val claims = claimsDeferred.await()
-                val payouts = payoutsDeferred.await()
-                val loans = loansDeferred.await()
+                val claimsResult = claimsDeferred.await()
+                val payoutsResult = payoutsDeferred.await()
+                val loansResult = loansDeferred.await()
 
                 updateState { it.copy(
-                    escalatedClaims = claims,
-                    payouts = payouts,
-                    loanRequestsByGroup = loans.groupBy { it.groupId }
+                    escalatedClaims = claimsResult.getOrElse { emptyList() },
+                    payouts = payoutsResult.getOrElse { emptyList() },
+                    loanRequestsByGroup = loansResult.getOrElse { emptyList() }.groupBy { it.groupId }
                 ) }
+
+                // An empty queue and a failed fetch are different answers. Dropping the failure
+                // made an offline device look like a platform with nothing left to pay out.
+                (claimsResult.exceptionOrNull()
+                    ?: payoutsResult.exceptionOrNull()
+                    ?: loansResult.exceptionOrNull())?.let {
+                    handleError(it, "Some disbursement data could not be refreshed.")
+                }
             }
         }
     }

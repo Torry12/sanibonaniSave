@@ -94,19 +94,27 @@ class SupabasePayoutDataSourceImpl @Inject constructor(
     override suspend fun processRoscaPayout(groupId: String, memberId: String, totalPot: Money, loanDeductions: JsonArray, payoutAmount: Money, payoutData: JsonObject, period: String): Result<String?> = safeRunCatching {
         AppLogger.d(tag, "Processing ROSCA payout for member $memberId in group $groupId for period $period")
         val element = client.postgrest.rpc(ROSCA_PAYOUT_RPC, buildRoscaPayoutRpcParams(groupId, memberId, totalPot, loanDeductions, payoutAmount, payoutData, period)).decodeAs<JsonElement>()
-        val obj = when (element) {
-            is JsonObject -> element
-            is JsonArray -> element.firstOrNull()?.jsonObject ?: buildJsonObject {}
-            else -> buildJsonObject {}
-        }
-        // A rotation whose offsets absorb the whole pot creates no payouts row, and a period the
-        // server has already executed reports the same. Inventing an id here would put a payout
-        // that does not exist into the audit trail.
-        obj["payout_id"]?.jsonPrimitive?.contentOrNull
+        parseRoscaPayoutId(element)
     }
 
     companion object {
         const val ROSCA_PAYOUT_RPC = "process_rosca_payout_v3"
+
+        /**
+         * The id of the payout this call created, or null when it created none. A rotation whose
+         * offsets absorb the whole pot creates no row. A period the server already executed comes
+         * back with the earlier payout's id and `duplicate: true`; reporting that id would announce
+         * and audit a second initiation for money that is not new.
+         */
+        internal fun parseRoscaPayoutId(element: JsonElement): String? {
+            val obj = when (element) {
+                is JsonObject -> element
+                is JsonArray -> element.firstOrNull() as? JsonObject
+                else -> null
+            } ?: return null
+            if (obj["duplicate"]?.jsonPrimitive?.booleanOrNull == true) return null
+            return obj["payout_id"]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() }
+        }
 
         fun buildRoscaPayoutRpcParams(
             groupId: String,

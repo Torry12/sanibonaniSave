@@ -30,7 +30,6 @@ interface PayoutRepository {
     ): Result<Unit>
 
     fun observePayouts(groupId: String): Flow<Result<List<PayoutRequest>>>
-    fun observePendingPayouts(): Flow<Result<List<PayoutRequest>>>
     fun observePayoutsForMember(memberId: String): Flow<Result<List<PayoutRequest>>>
 
     /**

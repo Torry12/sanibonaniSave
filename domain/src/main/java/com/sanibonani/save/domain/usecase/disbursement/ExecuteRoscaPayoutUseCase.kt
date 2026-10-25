@@ -168,13 +168,12 @@ class ExecuteRoscaPayoutUseCase @Inject constructor(
                 },
                 period = currentMonth
             ).onSuccess { payoutId ->
-                platformRepository.logAuditEvent(AuditLog(actorId = "system_rosca", targetGroupId = groupId, targetMemberId = currentMember.id, action = "ROSCA_PAYOUT_INITIATED", details = buildJsonObject { put("payoutId", payoutId); put("totalPot", actualCollectedPot.amount.toPlainString()); put("period", currentMonth) }))
-
                 // The server answers with no payout id when it created no payouts row: the offsets
-                // absorbed the whole pot, or this period was already executed. Announce only a request
-                // that exists, and announce it as a request - a COMPLETED event tells the member funds
-                // are on their way and broadcasts the same claim to the group.
+                // absorbed the whole pot, or this period was already executed. Announce and audit
+                // only a request that exists - a COMPLETED event tells the member funds are on
+                // their way, and an initiation line without an id cannot be reconciled.
                 if (payoutId != null) {
+                    platformRepository.logAuditEvent(AuditLog(actorId = "system_rosca", targetGroupId = groupId, targetMemberId = currentMember.id, action = "ROSCA_PAYOUT_INITIATED", details = buildJsonObject { put("payoutId", payoutId); put("totalPot", actualCollectedPot.amount.toPlainString()); put("period", currentMonth) }))
                     EventBus.emit(PayoutProcessedEvent(
                         payout = PayoutRequest(
                             id = payoutId,
@@ -189,9 +188,11 @@ class ExecuteRoscaPayoutUseCase @Inject constructor(
                         ),
                         status = PayoutStatus.PENDING
                     ))
+                    results.add("✅ Created payout for ${currentMember.fullName} (Net: ${remainingPot.format()})")
+                } else {
+                    results.add("ℹ️ No payout for ${currentMember.fullName}: this period was already executed or the pot was fully offset.")
                 }
             }.getOrThrow()
-            results.add("✅ Created payout for ${currentMember.fullName} (Net: ${remainingPot.format()})")
         }
         results.joinToString("\n")
     }

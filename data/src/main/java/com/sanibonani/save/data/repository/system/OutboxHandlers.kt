@@ -10,15 +10,18 @@ import com.sanibonani.save.domain.model.PayoutStatus
 import com.sanibonani.save.domain.model.PendingOperation
 import com.sanibonani.save.domain.model.Money
 import com.sanibonani.save.domain.model.BeneficiaryPayoutClaim
+import com.sanibonani.save.domain.model.canTransitionTo
 import com.sanibonani.save.domain.repository.admin.AuditLogRepository
 import com.sanibonani.save.domain.repository.member.BeneficiaryClaimRepository
 import com.sanibonani.save.domain.repository.equity.ContributionRepository
 import com.sanibonani.save.domain.repository.credit.LoanRepository
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
 import javax.inject.Inject
 import com.sanibonani.save.domain.utils.safeRunCatching
 
@@ -120,6 +123,27 @@ class PayoutStatusUpdateOutboxHandler @Inject constructor(
         val reference = request["reference"]?.jsonPrimitive?.contentOrNull
         val metadata = request["metadata"] as? JsonObject
         val actorId = request["actor_id"]?.jsonPrimitive?.contentOrNull
+
+        // The payout may have moved while this decision sat in the outbox. Replaying it against a
+        // settlement that already happened would reopen settled money, so the lane ends here.
+        val current = remoteSource.getPayoutById(payoutId).getOrThrow()
+        if (current.status == status) return@safeRunCatching
+        if (!current.status.canTransitionTo(status)) {
+            auditLogRepo.logEvent(
+                AuditLog(
+                    actorId = actorId ?: current.processedBy ?: current.groupId,
+                    targetGroupId = current.groupId,
+                    targetMemberId = current.memberId,
+                    action = "PAYOUT_STATUS_SUPERSEDED",
+                    details = buildJsonObject {
+                        put("payout_id", payoutId)
+                        put("from_status", current.status.name)
+                        put("requested_status", status.name)
+                    }
+                )
+            )
+            return@safeRunCatching
+        }
 
         remoteSource.updatePayoutStatus(payoutId, status, reference, processedBy = actorId, metadata = metadata).getOrThrow()
         val updated = remoteSource.getPayoutById(payoutId).getOrThrow()

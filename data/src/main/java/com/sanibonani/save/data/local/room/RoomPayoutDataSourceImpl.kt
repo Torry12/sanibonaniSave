@@ -21,9 +21,6 @@ class RoomPayoutDataSourceImpl @Inject constructor(
     override fun observePayoutsForMember(memberId: String): Flow<List<PayoutRequest>> =
         payoutDao.observePayoutsForMember(memberId).map { list -> list.map { it.toModel() } }
 
-    override fun observePendingPayouts(): Flow<List<PayoutRequest>> =
-        payoutDao.observePendingPayouts().map { list -> list.map { it.toModel() } }
-
     override suspend fun savePayouts(payouts: List<PayoutRequest>) {
         payoutDao.upsertPayouts(payouts.map { it.toEntity() })
     }

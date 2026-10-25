@@ -13,11 +13,13 @@ import com.sanibonani.save.domain.usecase.credit.ProcessLoanDecisionUseCase
 import com.sanibonani.save.domain.usecase.credit.ProcessLoanDisbursementUseCase
 import com.sanibonani.save.domain.usecase.member.ProcessBurialClaimUseCase
 import com.sanibonani.save.features.admin.presentation.PlatformDisbursementsViewModel
+import com.sanibonani.save.features.common.presentation.UIEvent
 import com.sanibonani.save.domain.model.AuthSession
 import io.mockk.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.*
 import org.junit.After
 import org.junit.Assert.*
@@ -88,6 +90,52 @@ class PlatformDisbursementsViewModelTest {
     fun tearDown() {
         Dispatchers.resetMain()
         unmockkAll()
+    }
+
+    @Test
+    fun `load surfaces a failed payout fetch instead of showing an empty queue`() = runTest {
+        coEvery { payoutRepo.getPendingPayouts() } returns Result.failure(Exception("offline"))
+        val errors = mutableListOf<UIEvent>()
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+            viewModel.events.collect { errors.add(it) }
+        }
+
+        viewModel.load()
+        advanceUntilIdle()
+
+        assertTrue(errors.filterIsInstance<UIEvent.ShowError>().isNotEmpty())
+        assertTrue(viewModel.state.value.payouts.isEmpty())
+    }
+
+    @Test
+    fun `rejecting a failed payout requests the rejected state`() = runTest {
+        val failed = PayoutRequest(
+            id = "p1",
+            groupId = "g1",
+            amount = Money("1000.0"),
+            status = PayoutStatus.FAILED,
+            bankName = "FNB",
+            accountNo = "123456789",
+            branchCode = "250655"
+        )
+        coEvery { payoutRepo.getPendingPayouts() } returns Result.success(listOf(failed))
+        coEvery {
+            processDisbursementUseCase(any(), any(), any(), any())
+        } returns Result.success(failed.copy(status = PayoutStatus.REJECTED))
+
+        viewModel.load()
+        advanceUntilIdle()
+        viewModel.rejectPayout("p1", "g1")
+        advanceUntilIdle()
+
+        coVerify {
+            processDisbursementUseCase(
+                payoutId = "p1",
+                groupId = "g1",
+                status = PayoutStatus.REJECTED,
+                adminId = "platform_admin"
+            )
+        }
     }
 
     @Test

@@ -27,9 +27,17 @@ class AdminPayoutActions @Inject constructor(
     fun submitPayoutRequest(host: AdminFinancialActionHost) {
         val s = host.actionState
         val groupId = adminContextCacheService.selectedGroupId.value ?: return
-        val moneyAmount = if (s.payoutAmount.isBlank()) null else Money(s.payoutAmount)
 
         host.launchAction("submit_payout_request") {
+            // Parsing on the UI thread before the coroutine turned a typo into a crash. The
+            // amount is validated next to the call that spends it and reported like any other
+            // action failure.
+            val moneyAmount = try {
+                if (s.payoutAmount.isBlank()) null else Money(s.payoutAmount.trim())
+            } catch (e: NumberFormatException) {
+                host.reportError(IllegalArgumentException("Enter a valid payout amount."))
+                return@launchAction
+            }
             host.updateActionState { it.copy(isRequestingPayout = true, error = null) }
             requestPayoutUseCase(
                 groupId = groupId,

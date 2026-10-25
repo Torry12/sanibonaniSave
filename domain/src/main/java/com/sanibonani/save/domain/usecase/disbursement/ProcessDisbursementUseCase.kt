@@ -5,6 +5,7 @@ import com.sanibonani.save.domain.logging.AppLogger
 import com.sanibonani.save.domain.model.Money
 import com.sanibonani.save.domain.model.PayoutRequest
 import com.sanibonani.save.domain.model.PayoutStatus
+import com.sanibonani.save.domain.model.canTransitionTo
 import com.sanibonani.save.domain.repository.disbursement.PayoutRepository
 import com.sanibonani.save.domain.service.FinancialSecurityService
 import kotlinx.serialization.json.JsonObject
@@ -46,17 +47,21 @@ class ProcessDisbursementUseCase @Inject constructor(
 
         // 3. Security and Liquidity Check
         if (status in listOf(PayoutStatus.GROUP_APPROVED, PayoutStatus.PROCESSING, PayoutStatus.COMPLETED)) {
+            // The payout's own group is the treasury the money leaves. A caller-supplied context
+            // can point at another group (support mode, a stale screen), so it is never trusted
+            // for the balance check.
+            val treasuryGroupId = payout.groupId
             // Calculate effective liquidity by subtracting already committed payouts. An
             // unreadable queue is not an empty one: treating it as empty would let a payout
             // pass the balance check while other approved payouts are still outstanding.
             val allPending = payoutRepository.getPendingPayouts().getOrThrow()
             val committedAmount = allPending.filter {
-                it.groupId == groupId &&
+                it.groupId == treasuryGroupId &&
                 it.id != payoutId &&
                 it.status in listOf(PayoutStatus.GROUP_APPROVED, PayoutStatus.PROCESSING)
             }.fold(Money.ZERO) { acc, p -> acc + p.amount }
 
-            securityService.validateLiquidity(groupId, payout.amount + committedAmount).getOrThrow()
+            securityService.validateLiquidity(treasuryGroupId, payout.amount + committedAmount).getOrThrow()
         }
 
         // MAKER-CHECKER DUAL CONTROL
@@ -93,22 +98,9 @@ class ProcessDisbursementUseCase @Inject constructor(
     }
 
     private fun validateTransition(current: PayoutStatus, next: PayoutStatus): Result<Unit> {
+        // Re-applying the current status is idempotent on the online path.
         if (current == next) return Result.success(Unit)
-
-        // Terminal states cannot be moved from
-        if (current in listOf(PayoutStatus.COMPLETED, PayoutStatus.CANCELLED, PayoutStatus.REJECTED)) {
-            return Result.failure(IllegalStateException("Cannot transition from terminal state $current"))
-        }
-
-        val allowed = when (current) {
-            PayoutStatus.PENDING -> listOf(PayoutStatus.GROUP_APPROVED, PayoutStatus.CANCELLED, PayoutStatus.REJECTED)
-            PayoutStatus.GROUP_APPROVED -> listOf(PayoutStatus.PROCESSING, PayoutStatus.CANCELLED, PayoutStatus.REJECTED)
-            PayoutStatus.PROCESSING -> listOf(PayoutStatus.COMPLETED, PayoutStatus.FAILED, PayoutStatus.CANCELLED)
-            PayoutStatus.FAILED -> listOf(PayoutStatus.PROCESSING, PayoutStatus.CANCELLED)
-            else -> emptyList()
-        }
-
-        if (next !in allowed) {
+        if (!current.canTransitionTo(next)) {
             return Result.failure(IllegalStateException("Transition from $current to $next is not permitted"))
         }
         return Result.success(Unit)

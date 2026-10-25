@@ -68,9 +68,6 @@ interface PayoutDao {
     @Query("DELETE FROM payouts WHERE id = :id")
     suspend fun deletePayout(id: String)
 
-    @Query("SELECT * FROM payouts WHERE status = 'group_approved' ORDER BY created_at DESC")
-    fun observePendingPayouts(): Flow<List<PayoutEntity>>
-
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertAllPayouts(payouts: List<PayoutEntity>)
 }

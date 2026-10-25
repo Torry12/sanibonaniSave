@@ -70,7 +70,10 @@ class PayoutStatusUpdateOutboxHandlerTest {
         coEvery {
             remoteSource.updatePayoutStatus("p-1", PayoutStatus.GROUP_APPROVED, "REF-77", metadata = null)
         } returns Result.success(Unit)
-        coEvery { remoteSource.getPayoutById("p-1") } returns Result.success(payout(PayoutStatus.GROUP_APPROVED))
+        coEvery { remoteSource.getPayoutById("p-1") } returnsMany listOf(
+            Result.success(payout(PayoutStatus.PENDING)),
+            Result.success(payout(PayoutStatus.GROUP_APPROVED))
+        )
 
         val outcome = handler.handle(operation(payload))
 
@@ -89,7 +92,10 @@ class PayoutStatusUpdateOutboxHandlerTest {
         coEvery {
             remoteSource.updatePayoutStatus(any(), any(), any(), metadata = any())
         } returns Result.success(Unit)
-        coEvery { remoteSource.getPayoutById("p-1") } returns Result.success(payout(PayoutStatus.PROCESSING))
+        coEvery { remoteSource.getPayoutById("p-1") } returnsMany listOf(
+            Result.success(payout(PayoutStatus.GROUP_APPROVED)),
+            Result.success(payout(PayoutStatus.PROCESSING))
+        )
 
         assertTrue(handler.handle(operation(stored.toString())).isSuccess)
 
@@ -113,7 +119,10 @@ class PayoutStatusUpdateOutboxHandlerTest {
         coEvery {
             remoteSource.updatePayoutStatus("p-1", PayoutStatus.PROCESSING, null, "admin-2", null, null)
         } returns Result.success(Unit)
-        coEvery { remoteSource.getPayoutById("p-1") } returns Result.success(payout(PayoutStatus.PROCESSING))
+        coEvery { remoteSource.getPayoutById("p-1") } returnsMany listOf(
+            Result.success(payout(PayoutStatus.GROUP_APPROVED)),
+            Result.success(payout(PayoutStatus.PROCESSING))
+        )
 
         assertTrue(handler.handle(operation(payload)).isSuccess)
 
@@ -124,6 +133,7 @@ class PayoutStatusUpdateOutboxHandlerTest {
 
     @Test
     fun `a server rejection leaves the cache and the audit trail untouched`() = runBlocking {
+        coEvery { remoteSource.getPayoutById("p-1") } returns Result.success(payout(PayoutStatus.PENDING))
         coEvery {
             remoteSource.updatePayoutStatus(any(), any(), any(), metadata = any())
         } returns Result.failure(IOException("HTTP 500 Internal Server Error"))
@@ -162,7 +172,10 @@ class PayoutStatusUpdateOutboxHandlerTest {
         coEvery {
             remoteSource.updatePayoutStatus(any(), any(), any(), metadata = any())
         } returns Result.success(Unit)
-        coEvery { remoteSource.getPayoutById("p-1") } returns Result.success(payout(PayoutStatus.REJECTED))
+        coEvery { remoteSource.getPayoutById("p-1") } returnsMany listOf(
+            Result.success(payout(PayoutStatus.PENDING)),
+            Result.success(payout(PayoutStatus.REJECTED))
+        )
         coEvery { auditLogRepo.logEvent(capture(captured)) } just Runs
 
         handler.handle(operation("""{"payout_id":"p-1","status":"REJECTED"}"""))
@@ -172,5 +185,52 @@ class PayoutStatusUpdateOutboxHandlerTest {
         assertEquals("member-1", captured.captured.targetMemberId)
         val details = captured.captured.details as? JsonObject
         assertEquals("REJECTED", details?.get("status")?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun `a replay that lost the race is acknowledged without touching the payout`() = runBlocking {
+        // Another admin completed the payout while this decision sat in the outbox. Replaying it
+        // would reopen settled money, so the lane records that it was superseded and moves on.
+        coEvery { remoteSource.getPayoutById("p-1") } returns Result.success(payout(PayoutStatus.COMPLETED))
+
+        val outcome = handler.handle(operation("""{"payout_id":"p-1","status":"PROCESSING"}"""))
+
+        assertTrue(outcome.isSuccess)
+        coVerify(exactly = 0) { remoteSource.updatePayoutStatus(any(), any(), any(), metadata = any()) }
+        coVerify(exactly = 0) { localSource.savePayout(any()) }
+        coVerify(exactly = 1) { auditLogRepo.logEvent(match { it.action == "PAYOUT_STATUS_SUPERSEDED" }) }
+    }
+
+    @Test
+    fun `replaying the status the payout already has is a silent no-op`() = runBlocking {
+        coEvery { remoteSource.getPayoutById("p-1") } returns Result.success(payout(PayoutStatus.GROUP_APPROVED))
+
+        val outcome = handler.handle(operation("""{"payout_id":"p-1","status":"GROUP_APPROVED"}"""))
+
+        assertTrue(outcome.isSuccess)
+        coVerify(exactly = 0) { remoteSource.updatePayoutStatus(any(), any(), any(), metadata = any()) }
+        coVerify(exactly = 0) { auditLogRepo.logEvent(any()) }
+    }
+
+    @Test
+    fun `a replay that would skip the approval chain is superseded`() = runBlocking {
+        coEvery { remoteSource.getPayoutById("p-1") } returns Result.success(payout(PayoutStatus.PENDING))
+
+        val outcome = handler.handle(operation("""{"payout_id":"p-1","status":"COMPLETED"}"""))
+
+        assertTrue(outcome.isSuccess)
+        coVerify(exactly = 0) { remoteSource.updatePayoutStatus(any(), any(), any(), metadata = any()) }
+        coVerify(exactly = 1) { auditLogRepo.logEvent(match { it.action == "PAYOUT_STATUS_SUPERSEDED" }) }
+    }
+
+    @Test
+    fun `an unreadable payout state halts the lane instead of writing blind`() = runBlocking {
+        coEvery { remoteSource.getPayoutById("p-1") } returns Result.failure(IOException("offline"))
+
+        val outcome = handler.handle(operation("""{"payout_id":"p-1","status":"PROCESSING"}"""))
+
+        assertTrue(outcome.isFailure)
+        coVerify(exactly = 0) { remoteSource.updatePayoutStatus(any(), any(), any(), metadata = any()) }
+        coVerify(exactly = 0) { auditLogRepo.logEvent(any()) }
     }
 }

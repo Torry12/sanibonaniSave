@@ -22,6 +22,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -262,5 +263,20 @@ class ExecuteRoscaPayoutSecurityTest {
         }
         assertTrue(netAmount.captured.isZero)
         assertTrue(received.filterIsInstance<PayoutProcessedEvent>().isEmpty())
+    }
+
+    @Test
+    fun `a rotation that creates no payout row does not claim a payout was created`() = runBlocking {
+        coEvery { payoutRepository.processRoscaPayout(any(), any(), any(), any(), any(), any(), any()) } returns
+            Result.success<String?>(null)
+
+        val result = useCase("g1")
+
+        assertTrue(result.isSuccess)
+        val message = result.getOrNull().orEmpty()
+        assertFalse(message.contains("Created payout"))
+        assertTrue(message.contains("No payout"))
+        // No payout row exists, so there is nothing to announce and no initiation to audit.
+        coVerify(exactly = 0) { platformRepository.logAuditEvent(any()) }
     }
 }

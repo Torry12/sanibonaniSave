@@ -34,7 +34,6 @@ interface RemotePayoutDataSource {
 interface LocalPayoutDataSource {
     fun observePayouts(groupId: String): Flow<List<PayoutRequest>>
     fun observePayoutsForMember(memberId: String): Flow<List<PayoutRequest>>
-    fun observePendingPayouts(): Flow<List<PayoutRequest>>
     suspend fun savePayouts(payouts: List<PayoutRequest>)
     suspend fun savePayout(payout: PayoutRequest)
     suspend fun syncPayouts(groupId: String, payouts: List<PayoutRequest>)

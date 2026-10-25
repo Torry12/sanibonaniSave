@@ -253,6 +253,68 @@ class ProcessDisbursementUseCaseTest {
         }
     }
 
+    @Test
+    fun `liquidity is checked against the payout's own group, not the caller's context`() = runBlocking {
+        val payout = pendingPayout(Money("40000.0")).copy(groupId = "g-real")
+        coEvery { payoutRepository.getPayoutById("p1") } returns Result.success(payout)
+        coEvery { payoutRepository.updatePayoutStatus(any(), any(), any(), any(), any()) } returns Result.success(Unit)
+
+        val result = useCase("p1", "g-other", PayoutStatus.GROUP_APPROVED, "admin1")
+
+        assertTrue(result.isSuccess)
+        coVerify { financialRepository.getVerifiedBalance("g-real") }
+        coVerify(exactly = 0) { financialRepository.getVerifiedBalance("g-other") }
+    }
+
+    @Test
+    fun `committed payouts in another group do not consume this payout's liquidity`() = runBlocking {
+        val payout = pendingPayout(Money("40000.0")).copy(groupId = "g-real")
+        coEvery { payoutRepository.getPayoutById("p1") } returns Result.success(payout)
+        coEvery { payoutRepository.getPendingPayouts() } returns Result.success(
+            listOf(
+                pendingPayout(Money("20000.0"), id = "p2", status = PayoutStatus.GROUP_APPROVED)
+                    .copy(groupId = "g-other")
+            )
+        )
+        coEvery { payoutRepository.updatePayoutStatus(any(), any(), any(), any(), any()) } returns Result.success(Unit)
+
+        val result = useCase("p1", "g-other", PayoutStatus.GROUP_APPROVED, "admin1")
+
+        assertTrue(result.isSuccess)
+    }
+
+    @Test
+    fun `committed payouts in the payout's own group still consume its liquidity`() = runBlocking {
+        val payout = pendingPayout(Money("40000.0")).copy(groupId = "g-real")
+        coEvery { payoutRepository.getPayoutById("p1") } returns Result.success(payout)
+        coEvery { payoutRepository.getPendingPayouts() } returns Result.success(
+            listOf(
+                pendingPayout(Money("20000.0"), id = "p2", status = PayoutStatus.GROUP_APPROVED)
+                    .copy(groupId = "g-real")
+            )
+        )
+
+        val result = useCase("p1", "g-other", PayoutStatus.GROUP_APPROVED, "admin1")
+
+        assertTrue(result.isFailure)
+        assertTrue(result.exceptionOrNull()?.message?.contains("INSUFFICIENT_LIQUIDITY") == true)
+        coVerify(exactly = 0) { payoutRepository.updatePayoutStatus(any(), any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `a failed payout can be rejected instead of remaining stuck`() = runBlocking {
+        coEvery { payoutRepository.getPayoutById("p1") } returns
+            Result.success(pendingPayout(Money("100.0"), status = PayoutStatus.FAILED))
+        coEvery { payoutRepository.updatePayoutStatus(any(), any(), any(), any(), any()) } returns Result.success(Unit)
+
+        val result = useCase("p1", "g1", PayoutStatus.REJECTED, "admin1")
+
+        assertTrue(result.isSuccess)
+        coVerify(exactly = 1) {
+            payoutRepository.updatePayoutStatus("p1", PayoutStatus.REJECTED, null, null, "admin1")
+        }
+    }
+
     private fun pendingPayout(amount: Money, id: String = "p1", status: PayoutStatus = PayoutStatus.PENDING) =
         PayoutRequest(
             id = id,

@@ -38,6 +38,43 @@ enum class PayoutStatus {
     @SerialName("cancelled") CANCELLED
 }
 
+/**
+ * The single state machine for payout status movement, shared by the online admin path and the
+ * offline replay lane. Terminal states accept nothing, and a status is never a transition from
+ * itself: callers that want idempotency handle equality before consulting this.
+ */
+fun PayoutStatus.canTransitionTo(next: PayoutStatus): Boolean {
+    if (this == next) return false
+    val allowed = when (this) {
+        PayoutStatus.PENDING -> listOf(
+            PayoutStatus.GROUP_APPROVED,
+            PayoutStatus.CANCELLED,
+            PayoutStatus.REJECTED
+        )
+        PayoutStatus.GROUP_APPROVED -> listOf(
+            PayoutStatus.PROCESSING,
+            PayoutStatus.CANCELLED,
+            PayoutStatus.REJECTED
+        )
+        PayoutStatus.PROCESSING -> listOf(
+            PayoutStatus.COMPLETED,
+            PayoutStatus.FAILED,
+            PayoutStatus.CANCELLED
+        )
+        // A failed transfer is abandoned through either terminal state: the platform screen
+        // offers Reject on a failed payout, so the state machine must accept it.
+        PayoutStatus.FAILED -> listOf(
+            PayoutStatus.PROCESSING,
+            PayoutStatus.CANCELLED,
+            PayoutStatus.REJECTED
+        )
+        PayoutStatus.COMPLETED,
+        PayoutStatus.CANCELLED,
+        PayoutStatus.REJECTED -> emptyList()
+    }
+    return next in allowed
+}
+
 @Serializable
 enum class PayoutType {
     @SerialName("standard") STANDARD,
