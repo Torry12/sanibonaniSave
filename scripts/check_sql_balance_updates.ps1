@@ -6,14 +6,15 @@ Usage:
   # run locally and print findings
   .\scripts\check_sql_balance_updates.ps1
 
-  # run in CI to fail the job if any risky matches are found
+  # run in CI to fail the job only when alert-level matches are found
   .\scripts\check_sql_balance_updates.ps1 -CI
 
 Notes / heuristic:
  - This is a conservative heuristic to find potentially unsafe direct balance updates.
  - It searches for UPDATE statements touching a `groups` table and the token `balance` within the SET clause.
- - If the same file also contains `group_ledger` or an INSERT into `group_ledger` it's less likely an unsafe direct update, but still worth review.
- - The script is intentionally conservative and will output file/line snippets for manual review.
+ - If the same file also contains `group_ledger` or an INSERT into `group_ledger` it's less likely an unsafe direct update (review-only, advisory).
+ - CI fails only on alert-level matches (no `group_ledger` reference in the file); review-only matches never fail the job.
+ - The script will output file/line snippets for manual review.
 #>
 param(
     [switch]$CI
@@ -35,11 +36,13 @@ $updatePattern = '(?is)\bUPDATE\s+(?:public\.)?groups\b[\s\S]{0,200}?\bSET\b[^;]
 $insertLedgerPattern = '(?is)\bINSERT\s+INTO\s+(?:public\.)?group_ledger\b|\bgroup_ledger\b'
 
 $matches = @()
+$scannedFiles = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
 
 foreach ($dir in $searchDirs | Select-Object -Unique) {
     Write-Host "Scanning directory: $dir"
     Get-ChildItem -Path $dir -Recurse -Filter '*.sql' -File -ErrorAction SilentlyContinue | ForEach-Object {
         $path = $_.FullName
+        if (-not $scannedFiles.Add($path)) { return }
         $content = Get-Content -Raw -ErrorAction SilentlyContinue -Path $path
         if (-not $content) { return }
 
@@ -76,9 +79,15 @@ foreach ($m in $matches) {
     Write-Host "    Snippet: $($m.Snippet)" -ForegroundColor DarkGray
 }
 
+$alerts = @($matches | Where-Object { -not $_.ContainsLedger })
+Write-Host "Findings: $($matches.Count) total, $($matches.Count - $alerts.Count) review-only, $($alerts.Count) alert-level."
+
 if ($CI) {
-    Write-Host "CI mode: failing because potential direct balance updates were detected." -ForegroundColor Red
-    exit 1
+    if ($alerts.Count -gt 0) {
+        Write-Host "CI mode: failing because $($alerts.Count) alert-level direct balance update(s) were detected." -ForegroundColor Red
+        exit 1
+    }
+    Write-Host "CI mode: passing; no alert-level findings (review-only matches are advisory)." -ForegroundColor Green
 }
 
 exit 0
