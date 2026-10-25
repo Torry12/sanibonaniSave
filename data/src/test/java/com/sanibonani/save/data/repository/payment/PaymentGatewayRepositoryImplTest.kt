@@ -6,6 +6,7 @@ import com.sanibonani.save.domain.model.Money
 import com.sanibonani.save.domain.model.PaymentMethod
 import com.sanibonani.save.domain.model.PaymentType
 import com.sanibonani.save.domain.repository.payment.PaymentInitiationResult
+import com.sanibonani.save.domain.repository.payment.PaymentStatusResult
 import io.ktor.client.HttpClient
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -30,7 +31,15 @@ class PaymentGatewayRepositoryImplTest {
     @Before
     fun setUp() {
         every { simulation.bank } returns bankModule
-        repository = PaymentGatewayRepositoryImpl(httpClient, simulation, edgeAdapter)
+        repository = PaymentGatewayRepositoryImpl(
+            mapOf(
+                PaymentMethod.SIMULATED_BANK to SimulatedBankProvider(simulation),
+                PaymentMethod.STITCH to StitchPaymentProvider(httpClient),
+                PaymentMethod.PAYFAST to PayFastPaymentProvider(httpClient),
+                PaymentMethod.BANK to edgeAdapter,
+                PaymentMethod.YOCO to edgeAdapter
+            )
+        )
     }
 
     @Test
@@ -131,5 +140,45 @@ class PaymentGatewayRepositoryImplTest {
         ).getOrThrow()
 
         assertTrue(reference.startsWith("STITCH-DISB-"))
+    }
+
+    @Test
+    fun `a provider supplied for a method handles initiation, verification and payout`() = runBlocking {
+        val fake = object : PaymentGatewayProvider {
+            override suspend fun initiate(
+                method: PaymentMethod,
+                type: PaymentType,
+                amount: Money,
+                groupId: String,
+                memberId: String?,
+                description: String?
+            ): Result<PaymentInitiationResult> =
+                Result.success(PaymentInitiationResult("https://fake.example/$method", "fake-ref", method))
+
+            override suspend fun verify(transactionId: String, method: PaymentMethod) =
+                Result.success(PaymentStatusResult(transactionId, true, Money("10.0")))
+
+            override suspend fun disburse(
+                payoutId: String,
+                amount: Money,
+                bankName: String,
+                accountNo: String,
+                branchCode: String,
+                reference: String
+            ): Result<String> = Result.success("FAKE-$payoutId")
+        }
+        val repository = PaymentGatewayRepositoryImpl(mapOf(PaymentMethod.STITCH to fake))
+
+        val initiation = repository.initiatePayment(
+            PaymentMethod.STITCH, PaymentType.CONTRIBUTION, Money("10.0"), "group-1", null, null
+        ).getOrThrow()
+        assertEquals("fake-ref", initiation.transactionId)
+
+        assertTrue(repository.verifyPayment("tx-1", PaymentMethod.STITCH).getOrThrow().isSuccessful)
+
+        val reference = repository.disburseFunds(
+            "payout-1", Money("10.0"), "Bank", "123", "456", "REF"
+        ).getOrThrow()
+        assertEquals("FAKE-payout-1", reference)
     }
 }

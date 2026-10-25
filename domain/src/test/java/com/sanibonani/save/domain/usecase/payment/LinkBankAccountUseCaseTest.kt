@@ -2,6 +2,7 @@ package com.sanibonani.save.domain.usecase.payment
 
 import com.sanibonani.save.domain.model.BankConnection
 import com.sanibonani.save.domain.model.BankConnectionStatus
+import com.sanibonani.save.domain.model.FinancialOperationRequest
 import com.sanibonani.save.domain.model.FinancialOperationResult
 import com.sanibonani.save.domain.model.FinancialOperationType
 import com.sanibonani.save.domain.repository.payment.BankRepository
@@ -29,10 +30,9 @@ class LinkBankAccountUseCaseTest {
     }
 
     @Test
-    fun `a successful link stores a pending connection with its metadata`() = runBlocking {
-        coEvery {
-            financialProviderRepo.executeOperation(match { it.operation == FinancialOperationType.LINK_ACCOUNT && it.providerId == "prov-1" })
-        } returns Result.success(
+    fun `a successful link stores a pending connection and forwards metadata to the provider`() = runBlocking {
+        val request = slot<FinancialOperationRequest>()
+        coEvery { financialProviderRepo.executeOperation(capture(request)) } returns Result.success(
             FinancialOperationResult(
                 success = true,
                 data = mapOf("auth_url" to "https://auth.example/start", "connection_id" to "conn-9")
@@ -46,11 +46,14 @@ class LinkBankAccountUseCaseTest {
         val link = outcome.getOrThrow()
         assertEquals("https://auth.example/start", link.authUrl)
         assertEquals("conn-9", link.connectionId)
+        assertEquals(FinancialOperationType.LINK_ACCOUNT, request.captured.operation)
+        assertEquals("prov-1", request.captured.providerId)
+        assertEquals(mapOf("flow" to "redirect"), request.captured.metadata)
+
         assertEquals("conn-9", saved.captured.id)
         assertEquals("group-1", saved.captured.groupId)
         assertEquals("prov-1", saved.captured.providerId)
         assertEquals(BankConnectionStatus.PENDING, saved.captured.status)
-        assertEquals(mapOf("flow" to "redirect"), saved.captured.metadata)
         assertTrue(saved.captured.linkedAt.isNotBlank())
     }
 

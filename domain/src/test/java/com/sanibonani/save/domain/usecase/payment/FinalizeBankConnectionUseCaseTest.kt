@@ -28,13 +28,12 @@ class FinalizeBankConnectionUseCaseTest {
         useCase = FinalizeBankConnectionUseCase(bankRepo, financialProviderRepo)
     }
 
-    private fun pendingConnection(metadata: Map<String, String> = mapOf("provider_id" to "prov-1")) = BankConnection(
+    private fun pendingConnection() = BankConnection(
         id = "conn-1",
         groupId = "group-1",
         providerId = "prov-1",
         status = BankConnectionStatus.PENDING,
-        linkedAt = "2024-01-01T00:00:00Z",
-        metadata = metadata
+        linkedAt = "2024-01-01T00:00:00Z"
     )
 
     @Test
@@ -75,14 +74,6 @@ class FinalizeBankConnectionUseCaseTest {
         assertEquals(BankConnectionStatus.CONNECTED, saved.captured.status)
         assertEquals("Main Account", saved.captured.accountName)
         assertEquals("****1234", saved.captured.accountNumberHidden)
-        assertEquals(
-            mapOf(
-                "provider_id" to "prov-1",
-                "account_name" to "Main Account",
-                "account_number_hidden" to "****1234"
-            ),
-            saved.captured.metadata
-        )
     }
 
     @Test

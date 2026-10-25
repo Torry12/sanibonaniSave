@@ -1,12 +1,10 @@
 package com.sanibonani.save.data.repository.payment
-import com.sanibonani.save.data.remote.gateway.SimulationGateway
 import com.sanibonani.save.domain.model.Money
 import com.sanibonani.save.domain.model.PaymentMethod
 import com.sanibonani.save.domain.model.PaymentType
 import com.sanibonani.save.domain.repository.payment.PaymentGatewayRepository
 import com.sanibonani.save.domain.repository.payment.PaymentInitiationResult
 import com.sanibonani.save.domain.repository.payment.PaymentStatusResult
-import io.ktor.client.HttpClient
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -14,20 +12,8 @@ import com.sanibonani.save.domain.utils.safeRunCatching
 
 @Singleton
 class PaymentGatewayRepositoryImpl @Inject constructor(
-    private val httpClient: HttpClient,
-    private val simulation: SimulationGateway,
-    private val supabaseEdgeBankAdapter: SupabaseEdgeBankAdapter
+    private val providers: Map<PaymentMethod, @JvmSuppressWildcards PaymentGatewayProvider>
 ) : PaymentGatewayRepository {
-
-    private val providers: Map<PaymentMethod, PaymentGatewayProvider> by lazy {
-        mapOf(
-            PaymentMethod.SIMULATED_BANK to SimulatedBankProvider(simulation),
-            PaymentMethod.STITCH to StitchPaymentProvider(httpClient),
-            PaymentMethod.PAYFAST to PayFastPaymentProvider(httpClient),
-            PaymentMethod.BANK to supabaseEdgeBankAdapter,
-            PaymentMethod.YOCO to supabaseEdgeBankAdapter
-        )
-    }
 
     override suspend fun initiatePayment(
         method: PaymentMethod,

@@ -39,9 +39,7 @@ data class BankConnection(
     @SerialName("account_name") val accountName: String? = null,
     @SerialName("account_number_hidden") val accountNumberHidden: String? = null,
     @SerialName("linked_at") val linkedAt: String,
-    @SerialName("expires_at") val expiresAt: String? = null,
-    @EncodeDefault(EncodeDefault.Mode.NEVER)
-    val metadata: Map<String, String> = emptyMap()
+    @SerialName("expires_at") val expiresAt: String? = null
 )
 
 @Serializable

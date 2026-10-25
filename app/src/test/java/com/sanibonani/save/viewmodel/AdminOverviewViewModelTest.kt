@@ -35,6 +35,7 @@ import com.sanibonani.save.service.CachedAdminGroupContext
 import io.mockk.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -136,9 +137,17 @@ class AdminOverviewViewModelTest {
 
     @After
     fun tearDown() {
-        // Cancel the ViewModel scope while Main is still set, otherwise a coroutine on
-        // Dispatchers.Default resumes after resetMain() and fails the *next* test.
+        // Cancel the ViewModel scope while Main is still set. A Default-dispatched flow producer
+        // finishes asynchronously, so wait for the whole scope to complete — draining its Main
+        // queue as we go — before resetMain(), otherwise its cancellation is dispatched to a
+        // Main dispatcher that no longer exists and fails the *next* test.
+        val scopeJob = viewModel.viewModelScope.coroutineContext[Job]
         viewModel.viewModelScope.cancel()
+        val deadline = System.nanoTime() + 5_000_000_000L
+        while (scopeJob?.isCompleted == false && System.nanoTime() < deadline) {
+            testDispatcher.scheduler.runCurrent()
+            Thread.sleep(1)
+        }
         testDispatcher.scheduler.advanceUntilIdle()
         Dispatchers.resetMain()
         unmockkAll()

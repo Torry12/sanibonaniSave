@@ -34,8 +34,10 @@ import com.sanibonani.save.features.admin.presentation.coordination.AdminViabili
 import com.sanibonani.save.features.group.presentation.GroupFormEvent
 import com.sanibonani.save.features.group.presentation.GroupRegistrationViewModel
 import io.mockk.*
+import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -99,10 +101,13 @@ class MultiGroupTest {
     // test wrapper after the class finished and surface as UncaughtExceptionsBeforeTest in the
     // next test class. Parking them in a store makes tearDown cancel them.
     private val viewModelStore = ViewModelStore()
+    // Access the scope now so ViewModelStore.clear() cancels it and tearDown can await it.
+    private val trackedScopes = mutableListOf<kotlinx.coroutines.CoroutineScope>()
     private var trackedCount = 0
 
     private fun <T : androidx.lifecycle.ViewModel> tracked(viewModel: T): T {
         viewModelStore.put("vm-${trackedCount++}", viewModel)
+        trackedScopes += viewModel.viewModelScope
         return viewModel
     }
 
@@ -161,6 +166,17 @@ class MultiGroupTest {
     @After
     fun tearDown() {
         viewModelStore.clear()
+        // Cancelling is asynchronous for Default-dispatched flow producers. Wait for the scopes
+        // to finish before Main disappears, or their completion is dispatched to a missing Main
+        // and surfaces as UncaughtExceptionsBeforeTest in the next test.
+        val deadline = System.nanoTime() + 5_000_000_000L
+        while (
+            System.nanoTime() < deadline &&
+            trackedScopes.any { it.coroutineContext[Job]?.isCompleted == false }
+        ) {
+            testDispatcher.scheduler.runCurrent()
+            Thread.sleep(1)
+        }
         Dispatchers.resetMain()
         unmockkConstructor(Handler::class)
         unmockkAll()

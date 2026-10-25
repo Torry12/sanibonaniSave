@@ -45,8 +45,7 @@ class FinalizeBankConnectionUseCase @Inject constructor(
         val updatedConnection = connection.copy(
             status = BankConnectionStatus.CONNECTED,
             accountName = result.data["account_name"],
-            accountNumberHidden = result.data["account_number_hidden"],
-            metadata = connection.metadata + result.data
+            accountNumberHidden = result.data["account_number_hidden"]
         )
 
         bankRepo.saveBankConnection(updatedConnection).getOrThrow()

@@ -41,8 +41,7 @@ class LinkBankAccountUseCase @Inject constructor(
             groupId = groupId,
             providerId = providerId,
             status = BankConnectionStatus.PENDING,
-            linkedAt = java.time.Instant.now().toString(),
-            metadata = metadata
+            linkedAt = java.time.Instant.now().toString()
         )
 
         bankRepo.saveBankConnection(pendingConnection).getOrThrow()
