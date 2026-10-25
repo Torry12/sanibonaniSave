@@ -3,6 +3,7 @@ package com.sanibonani.save.features.admin.presentation
 import com.sanibonani.save.domain.utils.safeRunCatching
 import com.sanibonani.save.domain.logging.AppLogger
 import com.sanibonani.save.domain.model.*
+import com.sanibonani.save.domain.repository.admin.PlatformConfigRepository
 import com.sanibonani.save.domain.repository.admin.PlatformRepository
 import com.sanibonani.save.domain.validation.InputValidator
 import com.sanibonani.save.domain.validation.ValidationResult
@@ -14,7 +15,8 @@ import javax.inject.Inject
 
 @HiltViewModel
 class PlatformFeeConfigViewModel @Inject constructor(
-    private val platformRepo: PlatformRepository
+    private val platformRepo: PlatformRepository,
+    private val platformConfigRepo: PlatformConfigRepository
 ) : BaseViewModel<PlatformFeeConfigUiState>(PlatformFeeConfigUiState()) {
 
     val state: StateFlow<PlatformFeeConfigUiState> = uiState
@@ -102,6 +104,8 @@ class PlatformFeeConfigViewModel @Inject constructor(
                 accountHolder = uiState.value.platformAccountHolder
             )
             platformRepo.updateGlobalFees(config).onSuccess {
+                // Billing reads this snapshot, so the admin's own session must not keep quoting the old fees.
+                platformConfigRepo.hydrate(config)
                 updateState { it.copy(isSaving = false, saveSuccess = true) }
                 showMessage("Global fees and platform bank details updated")
             }.onFailure {

@@ -18,6 +18,7 @@ import com.sanibonani.save.domain.usecase.member.VerifyMemberDocumentUseCase
 import com.sanibonani.save.domain.usecase.member.VerifyRelationalDocumentUseCase
 import com.sanibonani.save.domain.usecase.system.SendNotificationUseCase
 import com.sanibonani.save.domain.utils.PaymentCalculator
+import com.sanibonani.save.domain.utils.buildSupabaseAuthHeaders
 import com.sanibonani.save.features.admin.presentation.state.AdminMemberUiState
 import com.sanibonani.save.features.common.presentation.BaseViewModel
 import com.sanibonani.save.features.common.presentation.UIEvent
@@ -205,7 +206,8 @@ class AdminMemberViewModel @Inject constructor(
         }
     }
 
-    fun getDownloadParams(url: String): Map<String, String> = supabaseRepo.accessToken?.let { mapOf("Authorization" to "Bearer $it") } ?: emptyMap()
+    fun getDownloadParams(url: String): Map<String, String> =
+        buildSupabaseAuthHeaders(url, supabaseRepo.accessToken)
 
     fun downloadMemberDocument(url: String, label: String): Pair<String, Map<String, String>> = url to getDownloadParams(url)
 

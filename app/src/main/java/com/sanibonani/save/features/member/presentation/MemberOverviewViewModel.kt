@@ -13,6 +13,7 @@ import com.sanibonani.save.domain.service.NetworkConnectivityService
 import com.sanibonani.save.domain.usecase.group.GetGroupBusinessInsightsUseCase
 import com.sanibonani.save.domain.utils.PaymentCalculation
 import com.sanibonani.save.domain.utils.PaymentCalculator
+import com.sanibonani.save.domain.utils.buildSupabaseAuthHeaders
 import com.sanibonani.save.domain.utils.safeRunCatching
 import com.sanibonani.save.domain.utils.toUserMessage
 import com.sanibonani.save.features.common.presentation.BaseViewModel
@@ -214,7 +215,7 @@ class MemberOverviewViewModel @Inject constructor(
                 )
             }
 
-            if (canImpersonate && targetMemberId != null && targetGroupId != null) {
+            if (canImpersonate && targetGroupId != null) {
                 updateState { it.clearGroupContext().copy(
                     isImpersonating = true,
                     impersonatorId = supabaseRepo.currentUserId,
@@ -326,5 +327,6 @@ class MemberOverviewViewModel @Inject constructor(
 
     fun downloadGroupConstitution() = documentCoordinator.downloadGroupConstitution(host)
 
-    fun getDownloadParams(): Map<String, String> = supabaseRepo.accessToken?.let { mapOf("Authorization" to "Bearer $it") } ?: emptyMap()
+    fun getDownloadParams(url: String): Map<String, String> =
+        buildSupabaseAuthHeaders(url, supabaseRepo.accessToken)
 }

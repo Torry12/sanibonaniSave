@@ -5,6 +5,7 @@ import androidx.arch.core.executor.testing.InstantTaskExecutorRule
 import com.google.firebase.crashlytics.FirebaseCrashlytics
 import com.sanibonani.save.domain.model.Money
 import com.sanibonani.save.domain.model.PlatformConfig
+import com.sanibonani.save.domain.repository.admin.PlatformConfigRepository
 import com.sanibonani.save.domain.repository.admin.PlatformRepository
 import com.sanibonani.save.features.admin.presentation.PlatformFeeConfigViewModel
 import com.sanibonani.save.features.common.presentation.UIEvent
@@ -15,6 +16,7 @@ import io.mockk.mockk
 import io.mockk.mockkStatic
 import io.mockk.slot
 import io.mockk.unmockkAll
+import io.mockk.verify
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.take
@@ -43,6 +45,7 @@ class PlatformFeeConfigSaveTest {
     val instantExecutorRule = InstantTaskExecutorRule()
 
     private val platformRepo = mockk<PlatformRepository>(relaxed = true)
+    private val configRepo = mockk<PlatformConfigRepository>(relaxed = true)
     private val testDispatcher = StandardTestDispatcher()
     private lateinit var viewModel: PlatformFeeConfigViewModel
 
@@ -62,7 +65,7 @@ class PlatformFeeConfigSaveTest {
         every { FirebaseCrashlytics.getInstance() } returns mockCrashlytics
 
         Dispatchers.setMain(testDispatcher)
-        viewModel = PlatformFeeConfigViewModel(platformRepo)
+        viewModel = PlatformFeeConfigViewModel(platformRepo, configRepo)
     }
 
     @After
@@ -142,5 +145,34 @@ class PlatformFeeConfigSaveTest {
         assertEquals(Money("20.00"), config.captured.shortfallRecoveryFee)
         assertEquals(90, config.captured.autoSuspensionDays)
         assertEquals(true, viewModel.state.value.saveSuccess)
+    }
+
+    @Test
+    fun `a published save is the config billing uses next`() = runTest {
+        fillAllFees()
+        coEvery { platformRepo.updateGlobalFees(any()) } returns Result.success(Unit)
+
+        viewModel.saveGlobalFees()
+        advanceUntilIdle()
+
+        verify(exactly = 1) {
+            configRepo.hydrate(match {
+                it.monthlyMemberFee == Money("12.50") &&
+                    it.shortfallRecoveryFee == Money("20.00") &&
+                    it.autoSuspensionDays == 90
+            })
+        }
+    }
+
+    @Test
+    fun `a failed publish does not change the config billing uses`() = runTest {
+        fillAllFees()
+        coEvery { platformRepo.updateGlobalFees(any()) } returns
+            Result.failure(IllegalStateException("HTTP 503 Service Unavailable"))
+
+        viewModel.saveGlobalFees()
+        advanceUntilIdle()
+
+        verify(exactly = 0) { configRepo.hydrate(any()) }
     }
 }

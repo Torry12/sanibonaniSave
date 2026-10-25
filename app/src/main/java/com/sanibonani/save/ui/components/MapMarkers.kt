@@ -28,6 +28,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -72,7 +73,7 @@ class SaMarkerInfoWindow(
             orientation = LinearLayout.VERTICAL
             setPadding(40, 24, 40, 24)
             background = android.graphics.drawable.GradientDrawable().apply {
-                setColor(0xFF1B3A4B.toInt()) // Navy
+                setColor(MapMarkerNavy.toArgb())
                 cornerRadius = 32f
                 setStroke(3, android.graphics.Color.WHITE)
             }
@@ -92,7 +93,7 @@ class SaMarkerInfoWindow(
         if (snippetStr.isNotEmpty()) {
             val snippetView = TextView(context).apply {
                 text = snippetStr
-                setTextColor(0xCCFFFFFF.toInt())
+                setTextColor(MapMarkerText.toArgb())
                 textSize = 11f
                 gravity = Gravity.CENTER
             }

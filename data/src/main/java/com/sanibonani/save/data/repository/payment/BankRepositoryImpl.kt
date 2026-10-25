@@ -1,5 +1,4 @@
 package com.sanibonani.save.data.repository.payment
-import com.sanibonani.save.data.local.BankConnectionEntity
 import com.sanibonani.save.data.local.SanibonaniDatabase
 import com.sanibonani.save.data.local.toEntity
 import com.sanibonani.save.data.local.toModel
@@ -54,7 +53,7 @@ class BankRepositoryImpl @Inject constructor(
             supabase.postgrest["bank_transactions"].select(columns = Columns.raw("*")) {
                 filter {
                     eq("group_id", groupId)
-                    eq("status", BankTransactionStatus.UNRECONCILED.name.lowercase())
+                    eq("status", BankWireStatus.of(BankTransactionStatus.UNRECONCILED))
                 }
             }.decodeList<BankTransaction>()
         },
@@ -78,7 +77,7 @@ class BankRepositoryImpl @Inject constructor(
     override suspend fun ignoreTransaction(bankTxId: String, reason: String): Result<Unit> =
         authoritativeCall("ignoreTransaction") {
             val payload = buildJsonObject {
-                put("status", BankTransactionStatus.IGNORED.name.lowercase())
+                put("status", BankWireStatus.of(BankTransactionStatus.IGNORED))
                 put("metadata", buildJsonObject { put("ignore_reason", reason) })
             }
             supabase.postgrest["bank_transactions"].update(payload) {
@@ -93,8 +92,8 @@ class BankRepositoryImpl @Inject constructor(
 
     override fun observeBankConnection(groupId: String): Flow<Result<BankConnection?>> = observeAndSyncItem(
         dbFlow = db.bankTransactionDao().observeConnection(groupId),
-        mapper = { it.toBankConnectionModel() },
-        toEntity = { it?.toBankConnectionEntity() },
+        mapper = { it.toModel() },
+        toEntity = { it?.toEntity() },
         networkFetch = {
             supabase.postgrest["bank_connections"].select(columns = Columns.raw("*")) {
                 filter { eq("group_id", groupId) }
@@ -108,7 +107,7 @@ class BankRepositoryImpl @Inject constructor(
             supabase.postgrest["bank_connections"].upsert(connection) {
                 onConflict = "group_id"
             }
-            db.bankTransactionDao().upsertConnection(connection.toBankConnectionEntity())
+            db.bankTransactionDao().upsertConnection(connection.toEntity())
         }
 
     override suspend fun deleteBankConnection(groupId: String): Result<Unit> =
@@ -119,25 +118,3 @@ class BankRepositoryImpl @Inject constructor(
             db.bankTransactionDao().deleteConnectionByGroup(groupId)
         }
 }
-
-private fun BankConnection.toBankConnectionEntity() = BankConnectionEntity(
-    id = id,
-    groupId = groupId,
-    providerId = providerId,
-    status = status,
-    accountName = accountName,
-    accountNumberHidden = accountNumberHidden,
-    linkedAt = linkedAt,
-    expiresAt = expiresAt
-)
-
-private fun BankConnectionEntity.toBankConnectionModel() = BankConnection(
-    id = id,
-    groupId = groupId,
-    providerId = providerId,
-    status = status,
-    accountName = accountName,
-    accountNumberHidden = accountNumberHidden,
-    linkedAt = linkedAt,
-    expiresAt = expiresAt
-)

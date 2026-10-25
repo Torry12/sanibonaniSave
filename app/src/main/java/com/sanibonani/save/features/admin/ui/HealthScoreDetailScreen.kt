@@ -41,7 +41,13 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.sanibonani.save.R
 import com.sanibonani.save.domain.model.RiskZone
 import com.sanibonani.save.features.admin.presentation.HealthScoreViewModel
+import com.sanibonani.save.ui.theme.HealthScoreCritical
+import com.sanibonani.save.ui.theme.HealthScoreHealthy
+import com.sanibonani.save.ui.theme.HealthScoreWarning
 import com.sanibonani.save.ui.theme.Navy
+import com.sanibonani.save.ui.theme.RiskZoneCritical
+import com.sanibonani.save.ui.theme.RiskZoneHealthy
+import com.sanibonani.save.ui.theme.RiskZoneWarning
 import com.sanibonani.save.ui.utils.rememberClickDebouncer
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -230,9 +236,9 @@ private fun ComponentScoreCard(
                     .height(8.dp)
                     .clip(RoundedCornerShape(4.dp)),
                 color = when {
-                    score < 40 -> Color(0xFFE53935)   // Red
-                    score < 70 -> Color(0xFFFFA726)   // Orange
-                    else -> Color(0xFF66BB6A)         // Green
+                    score < 40 -> HealthScoreCritical
+                    score < 70 -> HealthScoreWarning
+                    else -> HealthScoreHealthy
                 },
                 trackColor = MaterialTheme.colorScheme.surfaceVariant
             )
@@ -275,9 +281,9 @@ private fun getComponentWeight(name: String): Float = when (name) {
 }
 
 private fun RiskZone.backgroundColor(): Color = when (this) {
-    RiskZone.RED -> Color(0xFFD32F2F)
-    RiskZone.YELLOW -> Color(0xFFFFA000)
-    RiskZone.GREEN -> Color(0xFF388E3C)
+    RiskZone.RED -> RiskZoneCritical
+    RiskZone.YELLOW -> RiskZoneWarning
+    RiskZone.GREEN -> RiskZoneHealthy
 }
 
 private fun RiskZone.label(): String = when (this) {

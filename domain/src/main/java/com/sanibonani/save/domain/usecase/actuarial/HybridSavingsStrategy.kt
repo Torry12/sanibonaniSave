@@ -7,12 +7,11 @@ import com.sanibonani.save.domain.model.*
 class HybridSavingsStrategy : BaseActuarialStrategy() {
 
     override fun calculateMetrics(
-        engine: GroupTypeActuarialEngine,
         group: Group,
         members: List<Member>,
         stats: ActuarialGroupStats
     ): ActuarialMetrics {
-        val core = engine.computeActuarialScalars(
+        val core = ActuarialScalars.compute(
             membersCount = stats.activeMemberCount,
             balance = group.balance,
             mortalityRatePct = 0.0,
@@ -63,7 +62,6 @@ class HybridSavingsStrategy : BaseActuarialStrategy() {
     }
 
     override fun computeInsight(
-        engine: GroupTypeActuarialEngine,
         group: Group,
         members: List<Member>,
         stats: ActuarialGroupStats,
@@ -107,15 +105,5 @@ class HybridSavingsStrategy : BaseActuarialStrategy() {
             industryPaymentRatePct = 95.0,
             benchmarkNotes = "Standard multi-pot model (60% Savings / 20% Lending / 10% Social / 10% Investment)."
         )
-    }
-
-    override fun computeMetricsLegacyInternal(
-        engine: GroupTypeActuarialEngine,
-        group: Group,
-        members: List<Member>,
-        monthsActive: Int,
-        totalExpected: Money
-    ): Any {
-        return calculateMetrics(engine, group, members, engine.getGroupStats(group, members))
     }
 }

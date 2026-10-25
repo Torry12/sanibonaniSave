@@ -175,12 +175,12 @@ class LandingViewModel @Inject constructor(
                             }
                         }
 
+                        // Fees must reach billing even when the analytics read fails, so the
+                        // settings seed is not tied to it.
+                        settingsRes.onSuccess { platformConfigRepository.hydrate(it) }
+
                         if (analyticsRes.isSuccess && settingsRes.isSuccess) {
                             val settings = settingsRes.getOrThrow()
-                            platformConfigRepository.update(
-                                monthlyMemberFee = settings.monthlyMemberFee,
-                                registrationFee = settings.registrationFee
-                            )
 
                             updateState {
                                 it.copy(

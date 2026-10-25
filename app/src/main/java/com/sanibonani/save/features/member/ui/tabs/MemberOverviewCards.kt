@@ -222,8 +222,7 @@ fun AccountOverviewCard(
                         amount = joiningFeeAmount,
                         buttonLabel = "Pay Joining Fee",
                         onClick = { onPay("joining_fee", joiningFeeAmount, groupId) },
-                        isWarning = true,
-                        enabled = group != null
+                        isWarning = true
                     )
                 }
 
@@ -344,7 +343,7 @@ fun ProfilePhotoBox(
     ) {
         val url = member?.profilePhotoUrl
         if (!url.isNullOrBlank()) {
-            val headers = vm.getDownloadParams()
+            val headers = vm.getDownloadParams(url)
             AsyncImage(
                 model = ImageRequest.Builder(context)
                     .data(url)

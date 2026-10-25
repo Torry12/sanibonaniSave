@@ -5,6 +5,7 @@ import com.sanibonani.save.data.repository.admin.ActuarialRepositoryImpl
 import com.sanibonani.save.domain.repository.equity.GroupFinancialRepository
 import com.sanibonani.save.domain.repository.group.GroupRepository
 import com.sanibonani.save.domain.repository.member.MemberRepository
+import com.sanibonani.save.domain.usecase.actuarial.ActuarialScalars
 import com.sanibonani.save.domain.usecase.actuarial.GroupTypeActuarialEngine
 import com.sanibonani.save.domain.utils.PaymentCalculator
 import javax.inject.Provider
@@ -40,38 +41,38 @@ class ActuarialRepositoryTest {
 
     @Test
     fun `pure premium is positive for valid inputs`() {
-        val m = actuarialEngine.computeActuarialScalars(24, Money("45000.0"), 0.82, Money("15000.0"), 35.0, Money("25.0"), 8.5, Money("250.0"), Money("18000.0"), Money("108000.0"), 95.0, Money("72000.0"))
+        val m = ActuarialScalars.compute(24, Money("45000.0"), 0.82, Money("15000.0"), 35.0, Money("25.0"), 8.5, Money("250.0"), Money("18000.0"), Money("108000.0"), 95.0, Money("72000.0"))
         assertTrue("Pure premium must be > 0", m.purePremium.isPositive)
     }
 
     @Test
     fun `gross premium is greater than pure premium`() {
-        val m = actuarialEngine.computeActuarialScalars(24, Money("45000.0"), 0.82, Money("15000.0"), 35.0, Money("25.0"), 8.5, Money("250.0"), Money("18000.0"), Money("108000.0"), 95.0, Money("72000.0"))
+        val m = ActuarialScalars.compute(24, Money("45000.0"), 0.82, Money("15000.0"), 35.0, Money("25.0"), 8.5, Money("250.0"), Money("18000.0"), Money("108000.0"), 95.0, Money("72000.0"))
         assertTrue(m.grossPremium > m.purePremium)
     }
 
     @Test
     fun `risk score is within 0 to 100`() {
-        val m = actuarialEngine.computeActuarialScalars(24, Money("45000.0"), 0.82, Money("15000.0"), 35.0, Money("25.0"), 8.5, Money("250.0"), Money("18000.0"), Money("108000.0"), 95.0, Money("72000.0"))
+        val m = ActuarialScalars.compute(24, Money("45000.0"), 0.82, Money("15000.0"), 35.0, Money("25.0"), 8.5, Money("250.0"), Money("18000.0"), Money("108000.0"), 95.0, Money("72000.0"))
         assertTrue(m.compositeRiskScore in 0..100)
     }
 
     @Test
     fun `reserve adequacy improves with higher balance`() {
-        val low  = actuarialEngine.computeActuarialScalars(24, Money("10000.0"), 0.82, Money("15000.0"), 35.0, Money("25.0"), 8.5, Money("250.0"), Money("5000.0"), Money("30000.0"), 90.0, Money("72000.0"))
-        val high = actuarialEngine.computeActuarialScalars(24, Money("80000.0"), 0.82, Money("15000.0"), 35.0, Money("25.0"), 8.5, Money("250.0"), Money("5000.0"), Money("30000.0"), 90.0, Money("72000.0"))
+        val low  = ActuarialScalars.compute(24, Money("10000.0"), 0.82, Money("15000.0"), 35.0, Money("25.0"), 8.5, Money("250.0"), Money("5000.0"), Money("30000.0"), 90.0, Money("72000.0"))
+        val high = ActuarialScalars.compute(24, Money("80000.0"), 0.82, Money("15000.0"), 35.0, Money("25.0"), 8.5, Money("250.0"), Money("5000.0"), Money("30000.0"), 90.0, Money("72000.0"))
         assertTrue(high.reserveAdequacyPct > low.reserveAdequacyPct)
     }
 
     @Test
     fun `sustainable group has infinite insolvency months`() {
-        val m = actuarialEngine.computeActuarialScalars(24, Money("45000.0"), 0.82, Money("15000.0"), 35.0, Money("25.0"), 8.5, Money("500.0"), Money("5000.0"), Money("60000.0"), 100.0, Money("144000.0"))
+        val m = ActuarialScalars.compute(24, Money("45000.0"), 0.82, Money("15000.0"), 35.0, Money("25.0"), 8.5, Money("500.0"), Money("5000.0"), Money("60000.0"), 100.0, Money("144000.0"))
         assertEquals(Int.MAX_VALUE, m.insolvencyMonths)
     }
 
     @Test
     fun `computeActuarialScalars sanitizes negative numeric inputs`() {
-        val m = actuarialEngine.computeActuarialScalars(
+        val m = ActuarialScalars.compute(
             membersCount = 10,
             balance = Money("-100.0"),
             mortalityRatePct = -1.0,
@@ -93,7 +94,7 @@ class ActuarialRepositoryTest {
     @Test
     fun `computeActuarialScalars uses defaultAnnualExpectedClaim when calculated claims are zero`() {
         val defaultClaim = Money("2560.0")
-        val m = actuarialEngine.computeActuarialScalars(
+        val m = ActuarialScalars.compute(
             membersCount = 10,
             balance = Money("50000.0"),
             mortalityRatePct = 0.0,

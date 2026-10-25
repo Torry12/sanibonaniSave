@@ -9,13 +9,12 @@ import kotlin.math.*
 class StokvelStrategy : BaseActuarialStrategy() {
 
     override fun calculateMetrics(
-        engine: GroupTypeActuarialEngine,
         group: Group,
         members: List<Member>,
         stats: ActuarialGroupStats
     ): ActuarialMetrics {
         val n = stats.activeMemberCount
-        val core = engine.computeActuarialScalars(
+        val core = ActuarialScalars.compute(
             membersCount = n,
             balance = group.balance,
             mortalityRatePct = 0.0, // Not applicable for standard Stokvel
@@ -56,7 +55,6 @@ class StokvelStrategy : BaseActuarialStrategy() {
     }
 
     override fun computeInsight(
-        engine: GroupTypeActuarialEngine,
         group: Group,
         members: List<Member>,
         stats: ActuarialGroupStats,
@@ -135,17 +133,7 @@ class StokvelStrategy : BaseActuarialStrategy() {
         )
     }
 
-    override fun computeMetricsLegacyInternal(
-        engine: GroupTypeActuarialEngine,
-        group: Group,
-        members: List<Member>,
-        monthsActive: Int,
-        totalExpected: Money
-    ): StokvelActuarialMetrics {
-        return computeDetailedMetrics(group, members, monthsActive, totalExpected)
-    }
-
-    private fun computeDetailedMetrics(
+    fun computeDetailedMetrics(
         group: Group,
         members: List<Member>,
         monthsActive: Int,

@@ -63,10 +63,9 @@ class PaymentGatewayRepositoryImpl @Inject constructor(
         branchCode: String,
         reference: String
     ): Result<String> = safeRunCatching {
-        val provider = providers[PaymentMethod.STITCH]
-            ?: providers[PaymentMethod.PAYFAST]
-            ?: error("No payout gateway configured; refusing to disburse through an unrelated provider.")
-
-        provider.disburse(payoutId, amount, bankName, accountNo, branchCode, reference).getOrThrow()
+        // Stitch is the payout rail; PayFast remains a collection-only provider.
+        providers.getValue(PaymentMethod.STITCH)
+            .disburse(payoutId, amount, bankName, accountNo, branchCode, reference)
+            .getOrThrow()
     }
 }

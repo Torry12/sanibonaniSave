@@ -260,7 +260,7 @@ fun MaintenanceTab(
         )
         if (expandedDanger) {
             GlassCard(accentColor = Color.Red) { // Very light red background for danger
-                Text(stringResource(R.string.ui_systemwide_resets_or_dangerous_operation), style = MaterialTheme.typography.bodySmall, color = Color(0xFF9F1239))
+                Text(stringResource(R.string.ui_systemwide_resets_or_dangerous_operation), style = MaterialTheme.typography.bodySmall, color = DangerDeep)
                 Spacer(Modifier.height(24.dp))
                 LogoutButton(
                     onLogout = onLogout,

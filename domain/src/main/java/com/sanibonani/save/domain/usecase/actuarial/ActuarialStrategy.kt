@@ -6,14 +6,12 @@ import com.sanibonani.save.domain.model.*
  */
 interface ActuarialStrategy {
     fun calculateMetrics(
-        engine: GroupTypeActuarialEngine,
         group: Group,
         members: List<Member>,
         stats: ActuarialGroupStats,
     ): ActuarialMetrics
 
     fun computeInsight(
-        engine: GroupTypeActuarialEngine,
         group: Group,
         members: List<Member>,
         stats: ActuarialGroupStats,
@@ -34,15 +32,6 @@ interface ActuarialStrategy {
         memberCount: Int,
         balance: Money
     ): IndustryBenchmark
-
-    // Legacy support for older engine methods
-    fun computeMetricsLegacyInternal(
-        engine: GroupTypeActuarialEngine,
-        group: Group,
-        members: List<Member>,
-        monthsActive: Int,
-        totalExpected: Money
-    ): Any
 }
 
 /**
@@ -60,12 +49,7 @@ abstract class BaseActuarialStrategy : ActuarialStrategy {
         return ActuarialMathUtils.calculatePlanLogic(group, members, goalAmount, periodMonths, actuarialSettings)
     }
 
-    protected fun commonRiskLevel(score: Int): RiskLevel = when {
-        score >= 80 -> RiskLevel.LOW
-        score >= 55 -> RiskLevel.MODERATE
-        score >= 30 -> RiskLevel.HIGH
-        else -> RiskLevel.CRITICAL
-    }
+    protected fun commonRiskLevel(score: Int): RiskLevel = ActuarialMath.riskLevelFor(score)
 
     protected fun r(v: Double): Double = ActuarialMath.round(v)
 }

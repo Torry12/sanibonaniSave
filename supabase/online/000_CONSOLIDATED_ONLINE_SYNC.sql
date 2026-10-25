@@ -1,6 +1,6 @@
 -- ─────────────────────────────────────────────────────────────────────────────
 -- SanibonaniSave - ONLINE (Supabase Cloud) FULL REBUILD
--- Generated: 2026-10-22 from the master scripts, version 2.2
+-- Generated: 2026-10-24 from the master scripts, version 2.2
 -- ─────────────────────────────────────────────────────────────────────────────
 -- HOW THIS FILE IS BUILT
 --   It is the concatenation of the modules listed by supabase/online/00_REBUILD_ONLINE.sql,

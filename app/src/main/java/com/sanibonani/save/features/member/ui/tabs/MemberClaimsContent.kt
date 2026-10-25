@@ -29,6 +29,7 @@ import com.sanibonani.save.features.member.presentation.MemberBeneficiaryViewMod
 import com.sanibonani.save.features.member.presentation.MemberFinanceViewModel
 import com.sanibonani.save.ui.components.InfoType
 import com.sanibonani.save.ui.theme.WarningAmber
+import com.sanibonani.save.ui.theme.WarningYellow
 
 @Composable
 fun BurialClaimsContent(
@@ -404,7 +405,7 @@ fun ClaimHistoryItem(claim: BeneficiaryPayoutClaim) {
     val statusColor = when (claim.status) {
         BeneficiaryClaimStatus.PAID, BeneficiaryClaimStatus.APPROVED -> SuccessGreen
         BeneficiaryClaimStatus.SUBMITTED, BeneficiaryClaimStatus.UNDER_REVIEW -> MaterialTheme.colorScheme.primary
-        BeneficiaryClaimStatus.ESCALATED -> Color(0xFFF59E0B) // Amber
+        BeneficiaryClaimStatus.ESCALATED -> WarningYellow
         BeneficiaryClaimStatus.REJECTED, BeneficiaryClaimStatus.CANCELLED -> Color.Red
     }
 

@@ -38,7 +38,7 @@ class GroupTypeActuarialEngine @Inject constructor(
      */
     fun calculateMetrics(group: Group, members: List<Member>): ActuarialMetrics {
         val stats = getGroupStats(group, members)
-        return getStrategy(group.type).calculateMetrics(this, group, members, stats)
+        return getStrategy(group.type).calculateMetrics(group, members, stats)
     }
 
     /**
@@ -48,7 +48,7 @@ class GroupTypeActuarialEngine @Inject constructor(
         val stats = getGroupStats(group, members)
         val projections = computeCashFlowProjections(group, stats.activeMemberCount, group.balance, stats.paymentRatePct)
         val benchmark = getIndustryBenchmark(group, stats.activeMemberCount, group.balance)
-        return getStrategy(group.type).computeInsight(this, group, members, stats, projections, benchmark)
+        return getStrategy(group.type).computeInsight(group, members, stats, projections, benchmark)
     }
 
     /**
@@ -89,110 +89,30 @@ class GroupTypeActuarialEngine @Inject constructor(
         }
     }
 
-    // ── Legacy Support ─────────────────────────────────────────────────────
+    // ── Group-type detailed metrics ─────────────────────────────────────────
 
     fun computeBurialSocietyMetrics(group: Group, members: List<Member>, monthsActive: Int, totalExpected: Money): BurialSocietyActuarialMetrics {
-        return BurialSocietyStrategy().computeMetricsLegacyInternal(this, group, members, monthsActive, totalExpected) as BurialSocietyActuarialMetrics
+        return BurialSocietyStrategy().computeDetailedMetrics(group, members, monthsActive, totalExpected)
     }
 
     fun computeStokvelMetrics(group: Group, members: List<Member>, monthsActive: Int, totalExpected: Money): StokvelActuarialMetrics {
-        return StokvelStrategy().computeMetricsLegacyInternal(this, group, members, monthsActive, totalExpected) as StokvelActuarialMetrics
+        return StokvelStrategy().computeDetailedMetrics(group, members, monthsActive, totalExpected)
     }
 
     fun computeRoscaMetrics(group: Group, members: List<Member>, monthsActive: Int): RoscaActuarialMetrics {
-        return RoscaStrategy().computeMetricsLegacyInternal(this, group, members, monthsActive, Money.ZERO) as RoscaActuarialMetrics
+        return RoscaStrategy().computeDetailedMetrics(group, members, monthsActive)
     }
 
     fun computeInvestmentMetrics(group: Group, members: List<Member>, monthsActive: Int, totalContributed: Money): InvestmentClubMetrics {
-        return InvestmentClubStrategy().computeMetricsLegacyInternal(this, group, members, monthsActive, totalContributed) as InvestmentClubMetrics
+        return InvestmentClubStrategy().computeDetailedMetrics(group, members, monthsActive, totalContributed)
     }
 
     fun computeEmergencyFundMetrics(group: Group, members: List<Member>): EmergencyFundMetrics {
-        return EmergencyFundStrategy().computeMetricsLegacyInternal(this, group, members, 0, Money.ZERO) as EmergencyFundMetrics
+        return EmergencyFundStrategy().computeDetailedMetrics(group, members)
     }
-
-
 
     fun computeCommunitySavingsMetrics(group: Group, members: List<Member>, monthsActive: Int): CommunitySavingsMetrics {
-        return DefaultActuarialStrategy().computeMetricsLegacyInternal(this, group, members, monthsActive, Money.ZERO) as CommunitySavingsMetrics
-    }
-
-    /**
-     * Core math aggregator for strategy implementations.
-     */
-    fun computeActuarialScalars(
-        membersCount: Int,
-        balance: Money,
-        mortalityRatePct: Double,
-        avgClaim: Money,
-        safetyLoadingPct: Double,
-        adminCostPerMemberMonthly: Money,
-        annualDiscountRatePct: Double,
-        currentPremiumMonthly: Money,
-        claimsPaid: Money,
-        totalContributions: Money,
-        paymentRatePct: Double,
-        totalExpectedContributionsAnnual: Money,
-        defaultAnnualExpectedClaim: Money = Money.ZERO
-    ): ActuarialMetrics {
-        val n = membersCount.coerceAtLeast(1)
-        val q = max(0.0, mortalityRatePct) / 100.0
-
-        val calculatedAnnualClaims = avgClaim.max(Money.ZERO) * (n * q)
-        val expectedAnnualClaims = if (calculatedAnnualClaims.isPositive) {
-            calculatedAnnualClaims
-        } else if (defaultAnnualExpectedClaim.isPositive) {
-            defaultAnnualExpectedClaim
-        } else {
-            Money.ZERO
-        }
-        val apv = ActuarialMath.calculateAPV(expectedAnnualClaims, annualDiscountRatePct, 1.0)
-
-        val purePremiumMonthly = (expectedAnnualClaims / n) / 12.0
-        val safetyLoadingMonthly = purePremiumMonthly * (safetyLoadingPct / 100.0)
-        val grossPremiumMonthly = purePremiumMonthly + safetyLoadingMonthly + adminCostPerMemberMonthly
-
-        val reserveAdequacyPct = if (expectedAnnualClaims.isPositive) balance.ratio(expectedAnnualClaims) * 100.0 else 1000.0
-        val contributionSufficiencyPct = if (grossPremiumMonthly.isPositive) currentPremiumMonthly.ratio(grossPremiumMonthly) * 100.0 else 0.0
-
-        val score = ActuarialMath.calculateCompositeRiskScore(
-            reserveAdequacyPct = reserveAdequacyPct,
-            contributionSufficiencyPct = contributionSufficiencyPct,
-            paymentCompliancePct = paymentRatePct
-        )
-
-        val monthlyInflow = (totalExpectedContributionsAnnual / 12.0) * (paymentRatePct / 100.0)
-        val monthlyClaimsOutflow = expectedAnnualClaims / 12.0
-        val monthlyAdminOutflow = adminCostPerMemberMonthly * n
-        val monthlyNetFlow = monthlyInflow - monthlyClaimsOutflow - monthlyAdminOutflow
-        val insolvencyMonths = ActuarialMath.calculateInsolvencyMonths(balance, -monthlyNetFlow)
-
-        val marginAmtMonthly = currentPremiumMonthly - purePremiumMonthly - safetyLoadingMonthly
-        val breakEvenMembers = if (marginAmtMonthly.isPositive) ceil((adminCostPerMemberMonthly * n).ratio(marginAmtMonthly)).toInt() else Int.MAX_VALUE
-
-        return ActuarialMetrics(
-            purePremium = purePremiumMonthly,
-            grossPremium = grossPremiumMonthly,
-            reserveAdequacyPct = ActuarialMath.round(reserveAdequacyPct),
-            solvencyMarginPct = ActuarialMath.round(if (expectedAnnualClaims.isPositive) ((balance + totalContributions) - claimsPaid).ratio(expectedAnnualClaims) * 100.0 else 100.0),
-            lossRatioPct = ActuarialMath.round(if (totalContributions.isPositive) claimsPaid.ratio(totalContributions) * 100.0 else 0.0),
-            contributionSufficiencyPct = ActuarialMath.round(contributionSufficiencyPct),
-            breakEvenMembers = breakEvenMembers,
-            actuarialPresentValue = apv,
-            fundingRatioPct = ActuarialMath.round(if (apv.isPositive) balance.ratio(apv) * 100.0 else 1000.0),
-            paymentRatePct = ActuarialMath.round(paymentRatePct),
-            compositeRiskScore = score,
-            riskLevel = classifyRiskLevel(score),
-            insolvencyMonths = insolvencyMonths,
-            expectedAnnualClaims = expectedAnnualClaims
-        )
-    }
-
-    fun classifyRiskLevel(score: Int): RiskLevel = when {
-        score >= 80 -> RiskLevel.LOW
-        score >= 55 -> RiskLevel.MODERATE
-        score >= 30 -> RiskLevel.HIGH
-        else -> RiskLevel.CRITICAL
+        return DefaultActuarialStrategy().computeDetailedMetrics(group, members, monthsActive, Money.ZERO)
     }
 
     fun computeCashFlowProjections(group: Group, memberCount: Int, currentBalance: Money, paymentCompliancePct: Double, months: Int = 12): List<FutureMonthProjection> {

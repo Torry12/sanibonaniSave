@@ -113,3 +113,34 @@ val GlassLightBg      = Color(0xCCFFFFFF) // 80% opacity
 val GlassLightBorder  = Color(0x260F4C3A) // 15% opacity
 val GlassDarkBg       = Color(0xB30F3A2F) // 70% opacity
 val GlassDarkBorder   = Color(0x3334D399) // 20% opacity
+
+// ── SEMANTIC STATUS TOKENS (LOANS, CLAIMS, PAYOUTS) ──────────────────────────
+val StatusPendingBg    = Color(0xFFFFF3E0)
+val StatusPendingFg    = Color(0xFFE65100)
+val StatusActiveBg     = Color(0xFFE8F5E9)
+val StatusActiveFg     = Color(0xFF1B5E20)
+val StatusPartialBg    = Color(0xFFE0F7FA)
+val StatusPartialFg    = Color(0xFF006064)
+val StatusCompletedBg  = Color(0xFFE3F2FD)
+val StatusCompletedFg  = Color(0xFF1565C0)
+val StatusRejectedBg   = Color(0xFFFFEBEE)
+val StatusRejectedFg   = Color(0xFFC62828)
+val StatusDefaultedFg  = Color(0xFFB71C1C)
+val SuccessDark        = Color(0xFF2E7D32)
+val DangerDeep         = Color(0xFF9F1239)
+
+// ── HEALTH SCORE & RISK SCALE ─────────────────────────────────────────────────
+val HealthScoreCritical = Color(0xFFE53935)
+val HealthScoreWarning  = Color(0xFFFFA726)
+val HealthScoreHealthy  = Color(0xFF66BB6A)
+val RiskZoneCritical    = Color(0xFFD32F2F)
+val RiskZoneWarning     = Color(0xFFFFA000)
+val RiskZoneHealthy     = Color(0xFF388E3C)
+val RiskLow             = Color(0xFF4CAF50)
+val RiskModerate        = Color(0xFFFFC107)
+val RiskHigh            = Color(0xFFFF9800)
+val RiskCritical        = Color(0xFFF44336)
+
+// ── MAP MARKER TOKENS ─────────────────────────────────────────────────────────
+val MapMarkerNavy = Color(0xFF1B3A4B)
+val MapMarkerText = Color(0xCCFFFFFF)

@@ -2,6 +2,10 @@ package com.sanibonani.save.ui.utils
 
 import androidx.compose.ui.graphics.Color
 import com.sanibonani.save.domain.model.RiskLevel
+import com.sanibonani.save.ui.theme.RiskCritical
+import com.sanibonani.save.ui.theme.RiskHigh
+import com.sanibonani.save.ui.theme.RiskLow
+import com.sanibonani.save.ui.theme.RiskModerate
 
 /**
  * Presentation-layer extensions for [RiskLevel].
@@ -13,10 +17,10 @@ import com.sanibonani.save.domain.model.RiskLevel
 /** Material colour representing this risk level. */
 val RiskLevel.color: Color
     get() = when (this) {
-        RiskLevel.LOW      -> Color(0xFF4CAF50)
-        RiskLevel.MODERATE -> Color(0xFFFFC107)
-        RiskLevel.HIGH     -> Color(0xFFFF9800)
-        RiskLevel.CRITICAL -> Color(0xFFF44336)
+        RiskLevel.LOW      -> RiskLow
+        RiskLevel.MODERATE -> RiskModerate
+        RiskLevel.HIGH     -> RiskHigh
+        RiskLevel.CRITICAL -> RiskCritical
     }
 
 /**

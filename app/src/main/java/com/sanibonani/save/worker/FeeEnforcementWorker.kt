@@ -38,6 +38,7 @@ class FeeEnforcementWorker @AssistedInject constructor(
     private val groupRepo        : GroupRepository,
     private val notificationRepo : NotificationRepository,
     private val feeService       : com.sanibonani.save.domain.service.PlatformFeeService,
+    private val refreshPlatformConfig: com.sanibonani.save.domain.usecase.admin.RefreshPlatformConfigUseCase,
     private val supabase         : io.github.jan.supabase.SupabaseClient
 ) : CoroutineWorker(appContext, workerParams) {
 
@@ -45,6 +46,10 @@ class FeeEnforcementWorker @AssistedInject constructor(
         val groupId = inputData.getString(KEY_GROUP_ID) ?: return Result.failure()
 
         return try {
+            // The worker can run before any screen has hydrated the fee config, so it must
+            // refresh first or it would enforce the in-code defaults.
+            refreshPlatformConfig().getOrNull()
+
             val group = groupRepo.getGroupById(groupId).getOrNull() ?: return Result.success()
 
             // Logic for automatic status transitions based on "days since due"

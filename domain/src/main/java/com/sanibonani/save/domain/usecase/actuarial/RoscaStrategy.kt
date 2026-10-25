@@ -9,13 +9,12 @@ import kotlin.math.*
 class RoscaStrategy : BaseActuarialStrategy() {
 
     override fun calculateMetrics(
-        engine: GroupTypeActuarialEngine,
         group: Group,
         members: List<Member>,
         stats: ActuarialGroupStats
     ): ActuarialMetrics {
         val n = stats.activeMemberCount
-        val core = engine.computeActuarialScalars(
+        val core = ActuarialScalars.compute(
             membersCount = n,
             balance = group.balance,
             mortalityRatePct = 0.0,
@@ -56,7 +55,6 @@ class RoscaStrategy : BaseActuarialStrategy() {
     }
 
     override fun computeInsight(
-        engine: GroupTypeActuarialEngine,
         group: Group,
         members: List<Member>,
         stats: ActuarialGroupStats,
@@ -127,7 +125,7 @@ class RoscaStrategy : BaseActuarialStrategy() {
         )
     }
 
-    private fun computeDetailedMetrics(group: Group, members: List<Member>, monthsActive: Int): RoscaActuarialMetrics {
+    fun computeDetailedMetrics(group: Group, members: List<Member>, monthsActive: Int): RoscaActuarialMetrics {
         val activeMembers = members.filter { it.status == MemberStatus.ACTIVE || it.status == MemberStatus.PROBATION }
         val n = activeMembers.size.coerceAtLeast(1)
         val monthlyPot = group.monthlyContribution * n
@@ -165,15 +163,5 @@ class RoscaStrategy : BaseActuarialStrategy() {
             industryPaymentRatePct = 96.0,
             benchmarkNotes = "Aims for 100% redistribution with zero retained balance."
         )
-    }
-
-    override fun computeMetricsLegacyInternal(
-        engine: GroupTypeActuarialEngine,
-        group: Group,
-        members: List<Member>,
-        monthsActive: Int,
-        totalExpected: Money
-    ): RoscaActuarialMetrics {
-        return computeDetailedMetrics(group, members, monthsActive)
     }
 }

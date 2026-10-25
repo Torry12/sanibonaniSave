@@ -102,7 +102,7 @@ fun AuditInfoRow(label: String, value: String, isWarning: Boolean = false) {
 fun RiskIndicator(level: String) {
     val (color, icon) = when (level.lowercase()) {
         "low" -> MaterialTheme.colorScheme.primary to Icons.Default.CheckCircle
-        "medium" -> Color(0xFFFFA000) to Icons.Default.Warning
+        "medium" -> RiskZoneWarning to Icons.Default.Warning
         "high", "critical" -> MaterialTheme.colorScheme.error to Icons.Default.Dangerous
         else -> MaterialTheme.colorScheme.onSurfaceVariant to Icons.Default.Info
     }

@@ -1,11 +1,8 @@
 package com.sanibonani.save.features.admin.presentation
 
 import com.sanibonani.save.domain.model.*
-import com.sanibonani.save.domain.repository.auth.SupabaseRepository
-import com.sanibonani.save.domain.repository.payment.BankRepository
-import com.sanibonani.save.domain.repository.treasury.LedgerRepository
-import com.sanibonani.save.domain.repository.disbursement.PayoutRepository
-import com.sanibonani.save.domain.repository.member.BeneficiaryClaimRepository
+import com.sanibonani.save.domain.usecase.admin.ObserveAdminFinancialSnapshotUseCase
+import com.sanibonani.save.domain.usecase.auth.VerifyMfaChallengeUseCase
 import com.sanibonani.save.domain.utils.requiresMfaChallenge
 import com.sanibonani.save.domain.utils.toUserMessage
 import com.sanibonani.save.service.AdminGroupContextCacheService
@@ -23,7 +20,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.*
 import javax.inject.Inject
-import com.sanibonani.save.domain.repository.credit.LoanRepository
 
 /**
  * Admin financial dashboard ViewModel.
@@ -35,12 +31,8 @@ import com.sanibonani.save.domain.repository.credit.LoanRepository
 @HiltViewModel
 class AdminFinancialViewModel @Inject constructor(
     private val adminContextCacheService: AdminGroupContextCacheService,
-    private val ledgerRepo: LedgerRepository,
-    private val bankRepo: BankRepository,
-    private val payoutRepo: PayoutRepository,
-    private val loanRepo: LoanRepository,
-    private val claimRepo: BeneficiaryClaimRepository,
-    private val supabaseRepo: SupabaseRepository,
+    private val observeFinancialSnapshot: ObserveAdminFinancialSnapshotUseCase,
+    private val verifyMfa: VerifyMfaChallengeUseCase,
     private val loanActions: AdminLoanActions,
     private val claimActions: AdminClaimActions,
     private val payoutActions: AdminPayoutActions,
@@ -107,43 +99,20 @@ class AdminFinancialViewModel @Inject constructor(
         launchJob("load_financial_data") {
             updateState { it.copy(isLoading = true) }
 
-            combine(
-                ledgerRepo.observeConsolidatedAuditTrail(groupId).orEmptyList(),
-                bankRepo.observeUnreconciledTransactions(groupId).orEmptyList(),
-                payoutRepo.observePayouts(groupId).orEmptyList(),
-                loanRepo.getGroupLoans(groupId).orEmptyList(),
-                claimRepo.observeClaimsForGroup(groupId).orEmptyList()
-            ) { ledger, bankTx, payouts, loans, claims ->
-                DataPackage(ledger, bankTx, payouts, loans, claims)
-            }
+            observeFinancialSnapshot(groupId)
                 .distinctUntilChanged()
-                .collect { pkg ->
+                .collect { snapshot ->
                     updateState { it.copy(
-                        ledger = pkg.ledger,
-                        unreconciledBankTx = pkg.bankTx,
-                        payouts = pkg.payouts,
-                        groupLoans = pkg.loans,
-                        burialClaims = pkg.claims,
+                        ledger = snapshot.ledger,
+                        unreconciledBankTx = snapshot.unreconciledBankTx,
+                        payouts = snapshot.payouts,
+                        groupLoans = snapshot.loans,
+                        burialClaims = snapshot.claims,
                         isLoading = false
                     ) }
                 }
         }
     }
-
-    /**
-     * Unwraps a repository `Result` stream into a stream that never fails,
-     * so failures surface as empty data rather than tearing down the combine.
-     */
-    private fun <T> Flow<Result<List<T>>>.orEmptyList(): Flow<List<T>> =
-        map { result -> result.getOrDefault(emptyList()) }
-
-    private data class DataPackage(
-        val ledger: List<LedgerEntry>,
-        val bankTx: List<BankTransaction>,
-        val payouts: List<PayoutRequest>,
-        val loans: List<Loan>,
-        val claims: List<BeneficiaryPayoutClaim>
-    )
 
     // endregion
 
@@ -203,25 +172,14 @@ class AdminFinancialViewModel @Inject constructor(
     fun verifyMfaChallenge(code: String) {
         launchJob("verify_mfa_challenge") {
             updateState { it.copy(isVerifyingMfa = true) }
-            supabaseRepo.getMfaFactors().onSuccess { factors ->
-                val factor = factors.firstOrNull()
-                if (factor == null) {
-                    updateState {
-                        it.copy(
-                            isVerifyingMfa = false,
-                            mfaChallengeError = IllegalStateException(
-                                "No authenticator is enrolled on this account. Set up two-step verification before authorising this payment."
-                            ).toUserMessage()
-                        )
-                    }
-                } else {
-                    supabaseRepo.verifyMfa(factor.id, code, true).onSuccess {
-                        updateState { it.copy(isVerifyingMfa = false, showMfaChallenge = false) }
-                    }.onFailure { e -> updateState { it.copy(isVerifyingMfa = false, mfaChallengeError = e.toUserMessage()) } }
+
+            verifyMfa(code)
+                .onSuccess {
+                    updateState { it.copy(isVerifyingMfa = false, showMfaChallenge = false) }
                 }
-            }.onFailure { e ->
-                updateState { it.copy(isVerifyingMfa = false, mfaChallengeError = e.toUserMessage()) }
-            }
+                .onFailure { e ->
+                    updateState { it.copy(isVerifyingMfa = false, mfaChallengeError = e.toUserMessage()) }
+                }
         }
     }
 

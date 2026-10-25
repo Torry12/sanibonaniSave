@@ -13,11 +13,9 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
 import javax.inject.Provider
-import kotlin.math.max
 import kotlin.time.Duration.Companion.seconds
 import com.sanibonani.save.domain.utils.safeRunCatching
 
-@Suppress("UNCHECKED_CAST")
 class ActuarialRepositoryImpl @Inject constructor(
     private val groupRepo: GroupRepository,
     private val financialRepo: GroupFinancialRepository,
@@ -36,21 +34,6 @@ class ActuarialRepositoryImpl @Inject constructor(
                 throw e
             } catch (e: Exception) {
                 Result.failure(e)
-            }
-        }
-
-    override suspend fun calculateDynamicJoiningFee(groupId: String): Result<Money> =
-        withContext(Dispatchers.IO) {
-            safeRunCatching {
-                val group = groupRepo.getGroupById(groupId).getOrThrow()
-                val members = memberRepo.get().getGroupMembers(groupId).first().getOrThrow()
-                withContext(Dispatchers.Default) {
-                    val memberCount = max(1, members.count { it.status != MemberStatus.SUSPENDED })
-                    val baseFee = group.joiningFee
-                    val reservesPerMember = group.balance / memberCount
-                    val equityContribution = reservesPerMember * java.math.BigDecimal("0.40")
-                    baseFee + equityContribution
-                }
             }
         }
 

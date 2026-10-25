@@ -11,10 +11,10 @@ import com.sanibonani.save.domain.model.Money
 import com.sanibonani.save.domain.model.PlatformConfig
 import com.sanibonani.save.domain.repository.admin.PlatformRepository
 import com.sanibonani.save.domain.repository.credit.LoanRepository
-import com.sanibonani.save.domain.repository.disbursement.PayoutRepository
-import com.sanibonani.save.domain.service.PayoutGuard
 import com.sanibonani.save.domain.usecase.credit.CalculateLoanRepaymentScheduleUseCase
+import com.sanibonani.save.domain.usecase.credit.RequestLoanUseCase
 import com.sanibonani.save.domain.usecase.credit.ValidateLoanEligibilityUseCase
+import com.sanibonani.save.domain.usecase.disbursement.RequestWithdrawalUseCase
 import com.sanibonani.save.features.common.presentation.UIEvent
 import com.sanibonani.save.features.member.presentation.MemberFinanceViewModel
 import io.mockk.coEvery
@@ -53,11 +53,11 @@ class MemberFinanceLoanTest {
     val instantExecutorRule = InstantTaskExecutorRule()
 
     private val loanRepo = mockk<LoanRepository>(relaxed = true)
-    private val payoutRepo = mockk<PayoutRepository>(relaxed = true)
+    private val requestWithdrawalUseCase = mockk<RequestWithdrawalUseCase>(relaxed = true)
     private val calculateSchedule = mockk<CalculateLoanRepaymentScheduleUseCase>(relaxed = true)
     private val platformRepo = mockk<PlatformRepository>(relaxed = true)
     private val validateLoanEligibility = mockk<ValidateLoanEligibilityUseCase>(relaxed = true)
-    private val payoutGuard = mockk<PayoutGuard>(relaxed = true)
+    private val requestLoanUseCase = RequestLoanUseCase(loanRepo, platformRepo, calculateSchedule)
 
     private val testDispatcher = StandardTestDispatcher()
     private lateinit var viewModel: MemberFinanceViewModel
@@ -87,12 +87,9 @@ class MemberFinanceLoanTest {
         Dispatchers.setMain(testDispatcher)
 
         viewModel = MemberFinanceViewModel(
-            loanRepo,
-            payoutRepo,
-            calculateSchedule,
-            platformRepo,
-            validateLoanEligibility,
-            payoutGuard
+            requestLoanUseCase,
+            requestWithdrawalUseCase,
+            validateLoanEligibility
         )
     }
 

@@ -8,13 +8,12 @@ import kotlin.math.*
 class EmergencyFundStrategy : BaseActuarialStrategy() {
 
     override fun calculateMetrics(
-        engine: GroupTypeActuarialEngine,
         group: Group,
         members: List<Member>,
         stats: ActuarialGroupStats
     ): ActuarialMetrics {
         val n = stats.activeMemberCount
-        val core = engine.computeActuarialScalars(
+        val core = ActuarialScalars.compute(
             membersCount = n,
             balance = group.balance,
             mortalityRatePct = ActuarialConstants.SA_WORKING_AGE_MORT_PER_1000 / 10.0,
@@ -55,7 +54,6 @@ class EmergencyFundStrategy : BaseActuarialStrategy() {
     }
 
     override fun computeInsight(
-        engine: GroupTypeActuarialEngine,
         group: Group,
         members: List<Member>,
         stats: ActuarialGroupStats,
@@ -123,7 +121,7 @@ class EmergencyFundStrategy : BaseActuarialStrategy() {
         )
     }
 
-    private fun computeDetailedMetrics(group: Group, members: List<Member>): EmergencyFundMetrics {
+    fun computeDetailedMetrics(group: Group, members: List<Member>): EmergencyFundMetrics {
         val n = members.size.coerceAtLeast(1)
         val monthlyOutflowProxy = group.monthlyContribution * n * 0.1 // Assume 10% monthly churn
         val coverage = if (monthlyOutflowProxy.isPositive) group.balance.ratio(monthlyOutflowProxy) else 12.0
@@ -151,15 +149,5 @@ class EmergencyFundStrategy : BaseActuarialStrategy() {
             industryPaymentRatePct = 90.0,
             benchmarkNotes = "Aims for 6 months of average household expenses coverage."
         )
-    }
-
-    override fun computeMetricsLegacyInternal(
-        engine: GroupTypeActuarialEngine,
-        group: Group,
-        members: List<Member>,
-        monthsActive: Int,
-        totalExpected: Money
-    ): EmergencyFundMetrics {
-        return computeDetailedMetrics(group, members)
     }
 }

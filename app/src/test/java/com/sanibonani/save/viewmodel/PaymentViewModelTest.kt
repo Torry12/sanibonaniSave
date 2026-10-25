@@ -9,8 +9,10 @@ import com.sanibonani.save.domain.repository.equity.ContributionRepository
 import com.sanibonani.save.domain.repository.group.*
 import com.sanibonani.save.domain.repository.member.*
 import com.sanibonani.save.domain.repository.system.*
+import com.sanibonani.save.domain.service.GroupFinancialPolicy
 import com.sanibonani.save.domain.service.PlatformFeeService
 import com.sanibonani.save.domain.usecase.equity.ProcessContributionUseCase
+import com.sanibonani.save.domain.usecase.payment.LoadPaymentContextUseCase
 import com.sanibonani.save.domain.utils.PaymentCalculation
 import com.sanibonani.save.domain.utils.PaymentCalculator
 import com.sanibonani.save.domain.utils.RealtimePaymentPreview
@@ -45,7 +47,16 @@ class PaymentViewModelTest {
     private val platformConfigRepo = mockk<PlatformConfigRepository>(relaxed = true)
     private val processContributionUseCase = mockk<ProcessContributionUseCase>(relaxed = true)
     private val feeService = mockk<PlatformFeeService>(relaxed = true)
-    private val paymentCalculator = spyk(PaymentCalculator(feeService))
+    private val paymentCalculator = spyk(PaymentCalculator(feeService, GroupFinancialPolicy()))
+    private val loadContext = LoadPaymentContextUseCase(
+        supabaseRepo,
+        groupRepo,
+        memberRepo,
+        contributionRepo,
+        loanRepo,
+        platformConfigRepo,
+        paymentCalculator
+    )
 
     private lateinit var viewModel: PaymentViewModel
     private val testDispatcher = StandardTestDispatcher()
@@ -75,12 +86,7 @@ class PaymentViewModelTest {
         every { supabaseRepo.sessionFlow } returns flowOf(mockk(relaxed = true))
 
         viewModel = PaymentViewModel(
-            supabaseRepo,
-            groupRepo,
-            memberRepo,
-            contributionRepo,
-            loanRepo,
-            platformConfigRepo,
+            loadContext,
             processContributionUseCase,
             paymentCalculator
         )

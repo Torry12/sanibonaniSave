@@ -21,7 +21,8 @@ interface PayoutGuard {
 
 @Singleton
 class PayoutGuardImpl @Inject constructor(
-    private val treasuryService: TreasuryService
+    private val treasuryService: TreasuryService,
+    private val policy: GroupFinancialPolicy
 ) : PayoutGuard {
 
     override suspend fun validateRequest(
@@ -42,7 +43,7 @@ class PayoutGuardImpl @Inject constructor(
             }
 
             // Probation Check for specific group types and payout types
-            if (m.status == MemberStatus.PROBATION && isProbationRestricted(group.type, type)) {
+            if (m.status == MemberStatus.PROBATION && policy.isProbationRestricted(group.type, type)) {
                 val joinedAt = m.joinedAt ?: m.createdAt ?: LocalDate.now().toString()
                 val joinedDate = try {
                     LocalDate.parse(joinedAt.substringBefore("T").substringBefore(" "))
@@ -80,19 +81,6 @@ class PayoutGuardImpl @Inject constructor(
                     balance - reserve // effectively available for non-emergency
                 )
             }
-        }
-    }
-
-    private fun isProbationRestricted(groupType: GroupType, payoutType: PayoutType): Boolean {
-        // ROSCA payouts are scheduled, usually not probation-restricted once cycle starts
-        // Burial claims often have 6-month probation
-        // Stokvel annual payouts happen at end of cycle
-        // Investment Club disinvestments often have a lock-in period
-        return when (groupType) {
-            GroupType.BURIAL_SOCIETY -> payoutType == PayoutType.CLAIM
-            GroupType.STOKVEL -> payoutType == PayoutType.STANDARD || payoutType == PayoutType.EMERGENCY
-            GroupType.INVESTMENT_CLUB -> payoutType == PayoutType.DISINVESTMENT
-            else -> false
         }
     }
 }

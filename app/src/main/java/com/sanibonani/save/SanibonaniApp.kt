@@ -9,9 +9,14 @@ import com.sanibonani.save.data.logging.AndroidLogSink
 import com.sanibonani.save.data.sync.RealtimeSyncManager
 import com.sanibonani.save.domain.event.EventHandlerInitializer
 import com.sanibonani.save.domain.logging.AppLogger
+import com.sanibonani.save.domain.usecase.admin.RefreshPlatformConfigUseCase
 import dagger.hilt.android.HiltAndroidApp
 import androidx.work.Configuration
 import androidx.hilt.work.HiltWorkerFactory
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 @HiltAndroidApp
@@ -28,6 +33,11 @@ class SanibonaniApp : Application(), Configuration.Provider {
 
     @Inject
     lateinit var androidLogSink: AndroidLogSink
+
+    @Inject
+    lateinit var refreshPlatformConfig: RefreshPlatformConfigUseCase
+
+    private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     override val workManagerConfiguration: Configuration
         get() = Configuration.Builder()
@@ -47,6 +57,13 @@ class SanibonaniApp : Application(), Configuration.Provider {
 
         // Start realtime sync for all entity types
         realtimeSyncManager.start()
+
+        // Billing reads the in-memory config; without this seed it would charge PlatformConfig defaults.
+        appScope.launch {
+            refreshPlatformConfig().onFailure {
+                AppLogger.d("SanibonaniApp", "Platform fee refresh deferred: ${it.message}")
+            }
+        }
 
         // Initialize OSMDroid for map views with extreme safety
         safeRunCatching {

@@ -19,79 +19,86 @@ class PaymentAllocationService @Inject constructor() {
         calculation: PaymentCalculation,
         activeLoans: List<Loan> = emptyList()
     ): List<PaymentAllocation> {
-        var remainingAmount = amount
+        val dueDate = effectiveDueDate(calculation)
         val breakdown = calculation.breakdown
-        val effectiveDueDate = if (calculation.nextDueDate == "N/A" || calculation.nextDueDate.isBlank()) {
-            LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE)
-        } else calculation.nextDueDate
-
         val allocations = mutableListOf<PaymentAllocation>()
 
-        // 1. Shortfall Recovery Fee
-        if (remainingAmount.isPositive && breakdown.recoveryFee.isPositive) {
-            val payAmount = remainingAmount.min(breakdown.recoveryFee)
-            allocations.add(PaymentAllocation(
-                type = "member_fee",
-                amount = payAmount,
-                dueDate = effectiveDueDate,
-                description = "Shortfall Recovery Fee"
-            ))
-            remainingAmount -= payAmount
-        }
+        var remaining = allocateFee(
+            allocations, amount, breakdown.recoveryFee,
+            type = "member_fee", description = "Shortfall Recovery Fee", dueDate = dueDate
+        )
+        remaining = allocateFee(
+            allocations, remaining, breakdown.platformFees,
+            type = "member_fee", description = "Monthly Platform Fee", dueDate = dueDate
+        )
+        remaining = allocateFee(
+            allocations, remaining, breakdown.lateFees,
+            type = "late_fee", description = "Late Fee Payment", dueDate = dueDate
+        )
+        remaining = allocateLoans(allocations, remaining, activeLoans, dueDate)
 
-        // 2. Monthly Platform Fees
-        if (remainingAmount.isPositive && breakdown.platformFees.isPositive) {
-            val payAmount = remainingAmount.min(breakdown.platformFees)
-            allocations.add(PaymentAllocation(
-                type = "member_fee",
-                amount = payAmount,
-                dueDate = effectiveDueDate,
-                description = "Monthly Platform Fee"
-            ))
-            remainingAmount -= payAmount
-        }
-
-        // 3. Late Fees
-        if (remainingAmount.isPositive && breakdown.lateFees.isPositive) {
-            val payAmount = remainingAmount.min(breakdown.lateFees)
-            allocations.add(PaymentAllocation(
-                type = "late_fee",
-                amount = payAmount,
-                dueDate = effectiveDueDate,
-                description = "Late Fee Payment"
-            ))
-            remainingAmount -= payAmount
-        }
-
-        // 4. Loans (Chronological order)
-        if (remainingAmount.isPositive && activeLoans.isNotEmpty()) {
-            activeLoans.sortedBy { it.createdAt }.forEach { loan ->
-                if (remainingAmount.isZero) return@forEach
-                val outstanding = loan.totalToRepay - loan.totalRepaid
-                if (outstanding.isPositive) {
-                    val payAmount = remainingAmount.min(outstanding)
-                    allocations.add(PaymentAllocation(
-                        type = "loan_repayment",
-                        amount = payAmount,
-                        loanId = loan.id,
-                        dueDate = effectiveDueDate,
-                        description = "Loan Repayment: ${loan.id?.take(5)}"
-                    ))
-                    remainingAmount -= payAmount
-                }
-            }
-        }
-
-        // 5. Monthly Contribution (Remaining Principal)
-        if (remainingAmount.isPositive) {
+        if (remaining.isPositive) {
             allocations.add(PaymentAllocation(
                 type = "contribution",
-                amount = remainingAmount,
-                dueDate = effectiveDueDate,
+                amount = remaining,
+                dueDate = dueDate,
                 description = "Monthly Contribution"
             ))
         }
 
         return allocations
     }
+
+    private fun allocateFee(
+        allocations: MutableList<PaymentAllocation>,
+        remaining: Money,
+        fee: Money,
+        type: String,
+        description: String,
+        dueDate: String
+    ): Money {
+        if (!remaining.isPositive || !fee.isPositive) return remaining
+
+        val payAmount = remaining.min(fee)
+        allocations.add(PaymentAllocation(
+            type = type,
+            amount = payAmount,
+            dueDate = dueDate,
+            description = description
+        ))
+        return remaining - payAmount
+    }
+
+    private fun allocateLoans(
+        allocations: MutableList<PaymentAllocation>,
+        amount: Money,
+        activeLoans: List<Loan>,
+        dueDate: String
+    ): Money {
+        var remaining = amount
+        if (!remaining.isPositive || activeLoans.isEmpty()) return remaining
+
+        for (loan in activeLoans.sortedBy { it.createdAt }) {
+            if (remaining.isZero) break
+
+            val outstanding = loan.totalToRepay - loan.totalRepaid
+            if (outstanding.isPositive) {
+                val payAmount = remaining.min(outstanding)
+                allocations.add(PaymentAllocation(
+                    type = "loan_repayment",
+                    amount = payAmount,
+                    loanId = loan.id,
+                    dueDate = dueDate,
+                    description = "Loan Repayment: ${loan.id?.take(5)}"
+                ))
+                remaining -= payAmount
+            }
+        }
+        return remaining
+    }
+
+    private fun effectiveDueDate(calculation: PaymentCalculation): String =
+        if (calculation.nextDueDate == "N/A" || calculation.nextDueDate.isBlank()) {
+            LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE)
+        } else calculation.nextDueDate
 }

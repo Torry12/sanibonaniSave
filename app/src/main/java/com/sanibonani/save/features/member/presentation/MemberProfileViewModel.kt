@@ -6,6 +6,7 @@ import com.sanibonani.save.domain.repository.system.*
 import com.sanibonani.save.domain.repository.auth.*
 import com.sanibonani.save.domain.repository.member.*
 import com.sanibonani.save.domain.repository.group.*
+import com.sanibonani.save.domain.utils.buildSupabaseAuthHeaders
 import com.sanibonani.save.service.MemberGroupContextCacheService
 import com.sanibonani.save.features.common.presentation.BaseViewModel
 import com.sanibonani.save.features.member.presentation.state.MemberUiState
@@ -125,9 +126,8 @@ class MemberProfileViewModel @Inject constructor(
         }
     }
 
-    fun getDownloadParams(url: String): Map<String, String> {
-        return supabaseRepo.accessToken?.let { mapOf("Authorization" to "Bearer $it") } ?: emptyMap()
-    }
+    fun getDownloadParams(url: String): Map<String, String> =
+        buildSupabaseAuthHeaders(url, supabaseRepo.accessToken)
 
     fun toggleBiometric(enabled: Boolean) {
         credentialsRepo.setBiometricEnabled(enabled)

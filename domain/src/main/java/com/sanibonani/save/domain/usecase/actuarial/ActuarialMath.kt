@@ -1,5 +1,6 @@
 package com.sanibonani.save.domain.usecase.actuarial
 import com.sanibonani.save.domain.model.Money
+import com.sanibonani.save.domain.model.RiskLevel
 import java.math.BigDecimal
 import kotlin.math.*
 
@@ -49,6 +50,16 @@ object ActuarialMath {
             min(100.0, paymentCompliancePct) * ActuarialConstants.WEIGHT_PAYMENT_RATE
         )
         return score.roundToInt().coerceIn(0, 100)
+    }
+
+    /**
+     * Single mapping from a 0-100 composite score to the published risk bands.
+     */
+    fun riskLevelFor(score: Int): RiskLevel = when {
+        score >= 80 -> RiskLevel.LOW
+        score >= 55 -> RiskLevel.MODERATE
+        score >= 30 -> RiskLevel.HIGH
+        else -> RiskLevel.CRITICAL
     }
 
     /**

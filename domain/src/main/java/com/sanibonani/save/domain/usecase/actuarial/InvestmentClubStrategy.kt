@@ -9,12 +9,11 @@ import kotlin.math.*
 class InvestmentClubStrategy : BaseActuarialStrategy() {
 
     override fun calculateMetrics(
-        engine: GroupTypeActuarialEngine,
         group: Group,
         members: List<Member>,
         stats: ActuarialGroupStats
     ): ActuarialMetrics {
-        val core = engine.computeActuarialScalars(
+        val core = ActuarialScalars.compute(
             membersCount = stats.activeMemberCount,
             balance = group.balance,
             mortalityRatePct = 0.0,
@@ -58,7 +57,6 @@ class InvestmentClubStrategy : BaseActuarialStrategy() {
     }
 
     override fun computeInsight(
-        engine: GroupTypeActuarialEngine,
         group: Group,
         members: List<Member>,
         stats: ActuarialGroupStats,
@@ -140,17 +138,7 @@ class InvestmentClubStrategy : BaseActuarialStrategy() {
         )
     }
 
-    override fun computeMetricsLegacyInternal(
-        engine: GroupTypeActuarialEngine,
-        group: Group,
-        members: List<Member>,
-        monthsActive: Int,
-        totalExpected: Money
-    ): InvestmentClubMetrics {
-        return computeDetailedMetrics(group, members, monthsActive, totalExpected)
-    }
-
-    private fun computeDetailedMetrics(
+    fun computeDetailedMetrics(
         group: Group,
         members: List<Member>,
         monthsActive: Int,

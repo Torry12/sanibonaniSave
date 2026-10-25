@@ -1,6 +1,6 @@
 -- ─────────────────────────────────────────────────────────────────────────────
 -- SanibonaniSave — GROUND ZERO MASTER MIGRATION (Consolidated)
--- Generated: 2026-10-22
+-- Generated: 2026-10-24
 -- Version: 2.2 (Regenerated from the authoritative master scripts)
 --
 -- Applied in this order, mirroring supabase/00_REBUILD_ALL.sql and

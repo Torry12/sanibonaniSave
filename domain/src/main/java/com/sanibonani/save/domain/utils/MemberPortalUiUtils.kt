@@ -161,22 +161,17 @@ private fun String?.orUploadedFallback(uploadedUrl: String): String {
 
 // ──────────────────────────────────────────────────────────────────────────────
 // SHARED SUPABASE AUTH HEADER BUILDER
-// Used by both MemberViewModel and AdminViewModel to construct authenticated
-// storage download headers without duplicating BuildConfig / token logic.
+// Used by the member and admin ViewModels so download headers are built in one
+// place with the same URL gate.
 // ──────────────────────────────────────────────────────────────────────────────
 
 /**
- * Builds the Supabase Storage authorization headers needed for authenticated
- * document downloads.  Both `apikey` and `Authorization` are required so that
- * private-bucket requests succeed regardless of the Supabase project config.
- *
- * @param anonKey  `BuildConfig.SUPABASE_ANON_KEY`
- * @param accessToken  Optional bearer token from the active session.
+ * Builds the authorization headers for a storage download, and only for private
+ * Supabase Storage objects. Public buckets, signed URLs and external links get no
+ * headers, so the session token is never sent to a host that cannot use it.
  */
-fun buildSupabaseAuthHeaders(anonKey: String, accessToken: String?): Map<String, String> {
-    return buildMap {
-        put("apikey", anonKey)
-        accessToken?.let { put("Authorization", "Bearer $it") }
-    }
+fun buildSupabaseAuthHeaders(url: String, accessToken: String?): Map<String, String> {
+    if (accessToken.isNullOrBlank() || !requiresSupabaseAuthHeaders(url)) return emptyMap()
+    return mapOf("Authorization" to "Bearer $accessToken")
 }
 

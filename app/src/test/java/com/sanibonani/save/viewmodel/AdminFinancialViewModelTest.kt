@@ -17,6 +17,9 @@ import com.sanibonani.save.domain.usecase.disbursement.ProcessDisbursementUseCas
 import com.sanibonani.save.domain.usecase.disbursement.RequestPayoutUseCase
 import com.sanibonani.save.domain.usecase.credit.ProcessLoanDisbursementUseCase
 import com.sanibonani.save.domain.usecase.member.ProcessBurialClaimUseCase
+import com.sanibonani.save.domain.service.MfaService
+import com.sanibonani.save.domain.usecase.admin.ObserveAdminFinancialSnapshotUseCase
+import com.sanibonani.save.domain.usecase.auth.VerifyMfaChallengeUseCase
 import com.sanibonani.save.service.AdminGroupContextCacheService
 import com.sanibonani.save.service.CachedAdminGroupContext
 import com.sanibonani.save.features.admin.presentation.AdminFinancialViewModel
@@ -63,6 +66,11 @@ class AdminFinancialViewModelTest {
     private val syncBankTransactionsUseCase = mockk<SyncBankTransactionsUseCase>(relaxed = true)
     private val finalizeBankConnectionUseCase = mockk<com.sanibonani.save.domain.usecase.payment.FinalizeBankConnectionUseCase>(relaxed = true)
     private val supabaseRepo = mockk<SupabaseRepository>(relaxed = true)
+    private val mfaService = mockk<MfaService>(relaxed = true)
+
+    private val observeFinancialSnapshot =
+        ObserveAdminFinancialSnapshotUseCase(ledgerRepo, bankRepo, payoutRepo, loanRepo, claimRepo)
+    private val verifyMfa = VerifyMfaChallengeUseCase(mfaService)
 
     private val requestPayoutUseCase = mockk<RequestPayoutUseCase>(relaxed = true)
     private val processDisbursementUseCase = mockk<ProcessDisbursementUseCase>(relaxed = true)
@@ -113,12 +121,8 @@ class AdminFinancialViewModelTest {
 
     private fun createViewModel() = AdminFinancialViewModel(
         adminContextCacheService,
-        ledgerRepo,
-        bankRepo,
-        payoutRepo,
-        loanRepo,
-        claimRepo,
-        supabaseRepo,
+        observeFinancialSnapshot,
+        verifyMfa,
         AdminLoanActions(
             processLoanDecisionUseCase,
             processLoanDisbursementUseCase,

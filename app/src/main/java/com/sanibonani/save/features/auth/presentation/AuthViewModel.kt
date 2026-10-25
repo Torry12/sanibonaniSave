@@ -1,6 +1,5 @@
 package com.sanibonani.save.features.auth.presentation
 
-import com.sanibonani.save.domain.utils.safeRunCatching
 import androidx.lifecycle.viewModelScope
 import com.sanibonani.save.domain.model.AsyncResult
 import com.sanibonani.save.domain.logging.AppLogger
@@ -9,7 +8,6 @@ import com.sanibonani.save.domain.repository.auth.CredentialsRepository
 import com.sanibonani.save.domain.repository.auth.SupabaseRepository
 import com.sanibonani.save.domain.repository.auth.UserProfileRepository
 import com.sanibonani.save.domain.utils.UserRoleMapper
-import com.sanibonani.save.domain.utils.toUserMessage
 import com.sanibonani.save.domain.validation.InputValidator
 import com.sanibonani.save.domain.validation.ValidationUtils
 import com.sanibonani.save.service.AdminGroupContextCacheService
@@ -48,57 +46,22 @@ class AuthViewModel @Inject constructor(
 
     val hydrationSteps = loadQueue.steps
 
+    private val sessionHydrator = AuthSessionHydrator(
+        supabaseRepo = supabaseRepo,
+        userProfileRepo = userProfileRepo,
+        adminGroupContextCacheService = adminGroupContextCacheService,
+        memberGroupContextCacheService = memberGroupContextCacheService,
+        userProfileCache = userProfileCache,
+        realtimeSyncManager = realtimeSyncManager,
+        loadQueue = loadQueue
+    )
+
     /**
-     * Declarative session observation.
-     * Combines the raw session flow with role resolution.
-     * AI Note: This is the core "warmup" logic for authenticated users.
+     * Declarative session observation: the profile is cached, the role is resolved fail-closed,
+     * and the domain caches are warmed before Success is emitted.
      */
-    val accountStatus: StateFlow<AsyncResult<AuthenticatedAccount>> = supabaseRepo.sessionFlow
-        .flatMapLatest { session ->
-            if (session == null) {
-                loadQueue.reset()
-                flowOf(AsyncResult.Uninitialized)
-            } else {
-                flow<AsyncResult<AuthenticatedAccount>> {
-                    emit(AsyncResult.Loading)
-                    val userId = session.userId
-
-                    // Step 1: Load User Profile
-                    loadQueue.startStep("User Profile")
-                    userProfileRepo.getProfile(userId).onSuccess { profile ->
-                        profile?.let { userProfileCache.save(it.fullName ?: "", it.email ?: "") }
-                        loadQueue.completeStep("User Profile")
-                    }.onFailure { loadQueue.failStep("User Profile", it.toUserMessage()) }
-
-                    // Step 2: Resolve User Role
-                    loadQueue.startStep("Security Permissions")
-                    // Fail closed on privilege: an unreadable role is the least privileged role,
-                    // never a guessed admin.
-                    val role = safeRunCatching { supabaseRepo.getUserRole() }.getOrDefault(UserRole.MEMBER)
-                    loadQueue.completeStep("Security Permissions")
-
-                    // Step 3: Warm up domain context caches in parallel (Parallel Warmup Pattern)
-                    // A cold cache or an unreachable realtime socket does not make the session
-                    // invalid; failing here would strand the caller on the login screen.
-                    loadQueue.startStep("Domain Context")
-                    val warmup = safeRunCatching("AuthWarmup") {
-                        coroutineScope {
-                            val memberWarmup = async { memberGroupContextCacheService.warmUpForUser(userId) }
-                            val adminWarmup = async { adminGroupContextCacheService.warmUpForUser(userId) }
-                            awaitAll(memberWarmup, adminWarmup)
-                        }
-                        realtimeSyncManager.start()
-                    }
-                    if (warmup.isSuccess) {
-                        loadQueue.completeStep("Domain Context")
-                    } else {
-                        loadQueue.failStep("Domain Context", warmup.exceptionOrNull()?.toUserMessage().orEmpty())
-                    }
-
-                    emit(AsyncResult.Success(AuthenticatedAccount(userId, role)))
-                }
-            }
-        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), AsyncResult.Uninitialized)
+    val accountStatus: StateFlow<AsyncResult<AuthenticatedAccount>> = sessionHydrator.accountStatus()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), AsyncResult.Uninitialized)
 
     data class AuthenticatedAccount(val userId: String, val role: UserRole)
 

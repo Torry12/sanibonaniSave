@@ -12,12 +12,6 @@ interface ActuarialRepository {
     ): Result<ViabilityPlan>
 
     /**
-     * Calculates a dynamic joining fee based on accumulated reserves to ensure
-     * fairness between old and new members.
-     */
-    suspend fun calculateDynamicJoiningFee(groupId: String): Result<Money>
-
-    /**
      * Pure function to calculate generic actuarial metrics from group and member data.
      */
     fun calculateMetrics(group: Group, members: List<Member>): Result<ActuarialMetrics>

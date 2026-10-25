@@ -4,6 +4,7 @@ import com.sanibonani.save.domain.repository.payment.BankRepository
 import com.sanibonani.save.domain.repository.payment.FinancialProviderRepository
 import javax.inject.Inject
 import com.sanibonani.save.domain.utils.safeRunCatching
+import java.util.UUID
 
 /**
  * Orchestrates the process of linking a physical bank account to a savings group.
@@ -32,7 +33,7 @@ class LinkBankAccountUseCase @Inject constructor(
         }
 
         val authUrl = result.data["auth_url"] ?: throw Exception("Missing authorization URL from provider")
-        val connectionId = result.data["connection_id"] ?: "pending_${System.currentTimeMillis()}"
+        val connectionId = result.data["connection_id"] ?: "pending_${UUID.randomUUID()}"
 
         // Create a pending connection record
         val pendingConnection = BankConnection(

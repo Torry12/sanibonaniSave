@@ -26,7 +26,7 @@ class ValidateLoanEligibilityUseCaseTest {
         every { feeService.calculateMonthlyMemberIndividual(any(), any()) } returns Money.ZERO
         every { feeService.getShortfallRecoveryFee() } returns Money.ZERO
 
-        val paymentCalculator = com.sanibonani.save.domain.utils.PaymentCalculator(feeService)
+        val paymentCalculator = com.sanibonani.save.domain.utils.PaymentCalculator(feeService, com.sanibonani.save.domain.service.GroupFinancialPolicy())
         useCase = ValidateLoanEligibilityUseCase(contributionRepository, loanRepository, paymentCalculator)
         mockkObject(DateProvider)
         every { DateProvider.getCurrentDate() } returns fixedNow

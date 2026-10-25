@@ -9,7 +9,6 @@ import com.sanibonani.save.domain.model.*
 class BurialSocietyStrategy : BaseActuarialStrategy() {
 
     override fun calculateMetrics(
-        engine: GroupTypeActuarialEngine,
         group: Group,
         members: List<Member>,
         stats: ActuarialGroupStats,
@@ -18,7 +17,7 @@ class BurialSocietyStrategy : BaseActuarialStrategy() {
         val benefit = if (group.burialClaimAmount.isPositive) group.burialClaimAmount else if (group.goalAmount.isPositive) group.goalAmount else ActuarialConstants.SA_AVG_FUNERAL_COST
         val defaultAnnualClaim = benefit * (n * (ActuarialConstants.SA_WORKING_AGE_MORT_PER_1000 / 1000.0))
 
-        val core = engine.computeActuarialScalars(
+        val core = ActuarialScalars.compute(
             membersCount = n,
             balance = group.balance,
             mortalityRatePct = ActuarialConstants.SA_WORKING_AGE_MORT_PER_1000 / 10.0,
@@ -34,7 +33,7 @@ class BurialSocietyStrategy : BaseActuarialStrategy() {
             defaultAnnualExpectedClaim = defaultAnnualClaim
         )
 
-        val detailed = computeDetailedMetrics(engine, group, members, stats.monthsActive, stats.totalExpectedAnnualContributions)
+        val detailed = computeDetailedMetrics(group, members, stats.monthsActive, stats.totalExpectedAnnualContributions)
 
         val keyMetrics = listOf(
             ActuarialFormulaBreakdown(
@@ -64,14 +63,13 @@ class BurialSocietyStrategy : BaseActuarialStrategy() {
     private fun formatPct(v: Double): String = "${r(v)}%"
 
     override fun computeInsight(
-        engine: GroupTypeActuarialEngine,
         group: Group,
         members: List<Member>,
         stats: ActuarialGroupStats,
         projections: List<FutureMonthProjection>,
         benchmark: IndustryBenchmark
     ): GroupFinancialInsight {
-        val m = computeDetailedMetrics(engine, group, members, stats.monthsActive, stats.totalExpectedAnnualContributions)
+        val m = computeDetailedMetrics(group, members, stats.monthsActive, stats.totalExpectedAnnualContributions)
         val riskLevel = commonRiskLevel(buildRiskScore(m))
 
         val keyFindings = mutableListOf<String>()
@@ -127,18 +125,7 @@ class BurialSocietyStrategy : BaseActuarialStrategy() {
         )
     }
 
-    override fun computeMetricsLegacyInternal(
-        engine: GroupTypeActuarialEngine,
-        group: Group,
-        members: List<Member>,
-        monthsActive: Int,
-        totalExpected: Money
-    ): BurialSocietyActuarialMetrics {
-        return computeDetailedMetrics(engine, group, members, monthsActive, totalExpected)
-    }
-
     fun computeDetailedMetrics(
-        engine: GroupTypeActuarialEngine,
         group: Group,
         members: List<Member>,
         monthsActive: Int,

@@ -4,6 +4,7 @@ import com.sanibonani.save.domain.repository.group.*
 import com.sanibonani.save.domain.repository.member.*
 import com.sanibonani.save.domain.repository.disbursement.PayoutRepository
 import com.sanibonani.save.domain.service.PayoutGuard
+import com.sanibonani.save.domain.service.GroupFinancialPolicy
 import com.sanibonani.save.domain.validation.InputValidator
 import javax.inject.Inject
 import com.sanibonani.save.domain.usecase.financialResult
@@ -15,6 +16,7 @@ class RequestPayoutUseCase @Inject constructor(
     private val groupRepository: GroupRepository,
     private val memberRepository: MemberRepository,
     private val payoutGuard: PayoutGuard,
+    private val policy: GroupFinancialPolicy,
     private val executeRoscaPayoutUseCase: ExecuteRoscaPayoutUseCase,
     private val calculateStokvelPayoutsUseCase: CalculateStokvelPayoutsUseCase,
     private val calculateInvestmentClubValuationUseCase: CalculateInvestmentClubValuationUseCase
@@ -77,12 +79,7 @@ class RequestPayoutUseCase @Inject constructor(
             ?.takeIf { it.isPositive }
             ?: throw Exception("Amount required.")
 
-        val payoutType = when (group.type) {
-            GroupType.STOKVEL -> PayoutType.ANNUAL
-            GroupType.EMERGENCY_FUND -> PayoutType.EMERGENCY
-            GroupType.INVESTMENT_CLUB -> PayoutType.DISINVESTMENT
-            else -> PayoutType.STANDARD
-        }
+        val payoutType = policy.payoutTypeFor(group)
 
         // Apply Guards
         payoutGuard.validateRequest(group, member, amountToPay, payoutType).getOrThrow()

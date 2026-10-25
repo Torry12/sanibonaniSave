@@ -1,6 +1,7 @@
 package com.sanibonani.save.domain.utils
 
 import com.sanibonani.save.domain.model.*
+import com.sanibonani.save.domain.service.GroupFinancialPolicy
 import com.sanibonani.save.domain.service.PlatformFeeService
 import java.math.RoundingMode
 import java.time.LocalDate
@@ -51,19 +52,9 @@ data class RealtimePaymentPreview(
 
 @Singleton
 class PaymentCalculator @Inject constructor(
-    private val feeService: PlatformFeeService
+    private val feeService: PlatformFeeService,
+    private val policy: GroupFinancialPolicy
 ) {
-
-    private val strategies = mapOf(
-        GroupType.BURIAL_SOCIETY to BurialSocietyAccounting(),
-        GroupType.INVESTMENT_CLUB to InvestmentClubAccounting(),
-        GroupType.STOKVEL to StokvelAccounting(),
-        GroupType.ROSCA to RoscaAccounting()
-    )
-
-    private fun getStrategy(type: GroupType): AccountingStrategy {
-        return strategies[type] ?: DefaultAccounting()
-    }
 
     /**
      * Calculates the total expected monthly outflow for a member.
@@ -79,14 +70,14 @@ class PaymentCalculator @Inject constructor(
      * Calculates ONLY the group's portion of the contribution (excluding platform fee).
      */
     fun calculateExpectedMemberGroupPart(group: Group, member: Member): Money {
-        return getStrategy(group.type).calculateExpectedMemberGroupPart(group, member)
+        return policy.expectedMemberContribution(group, member)
     }
 
     /**
      * Projects the member payout based on group type and current status.
      */
     fun projectPayout(group: Group, members: List<Member>, member: Member? = null): Money {
-        return getStrategy(group.type).calculateProjectedPayout(group, members, member)
+        return policy.projectedPayout(group, members, member)
     }
 
     fun calculateStatus(
@@ -103,27 +94,30 @@ class PaymentCalculator @Inject constructor(
             return PaymentCalculation(Money.ZERO, Money.ZERO, "N/A", Money.ZERO)
         }
 
-        val joinedDate = resolveJoinedDate(member, currentDate, group.paymentDueDay, contributions)
+        val joinedDate = resolveJoinedDate(member, currentDate, contributions)
 
         // 1. Calculate Totals Paid by Category
         val paidContributions = contributions.filter { it.status == ContributionStatus.PAID || it.status == ContributionStatus.PARTIAL }
-
-        // Note: For loan_settlement_extraction, the amount is negative so it reduces the totalPaidSavings
-        val calculatedPaidSavings = paidContributions.filter { it.type == "contribution" || it.type == "registration_contribution" || it.type == "loan_settlement_extraction" }.fold(Money.ZERO) { acc, c -> acc + c.amount }
-        val totalPaidSavings = if (calculatedPaidSavings.isZero && member.totalPaid.isPositive) member.totalPaid else calculatedPaidSavings
-        val totalPaidPlatform = paidContributions.filter { it.type == "member_fee" || it.type == "platform_fee" }.fold(Money.ZERO) { acc, c -> acc + c.amount }
+        val totalPaidSavings = paidSavings(paidContributions, member)
+        val totalPaidPlatform = paidPlatformFees(paidContributions)
         val totalPaidLoans = loans.fold(Money.ZERO) { acc, l -> acc + l.totalRepaid }
+        val servicingLoans = loans.filter { it.isBeingRepaid() }
 
         // 2. Calculate expectations and fees up to now
-        val (totalExpectedSavings, totalExpectedPlatform, totalExpectedLoans, totalLateFees, isCurrentlyOverdue) = calculateDetailedExpectations(
+        val expectations = calculateDetailedExpectations(
             group = group,
-            loans = loans,
+            loans = servicingLoans,
             joinedDate = joinedDate,
             currentDate = currentDate,
             totalPaidSavings = totalPaidSavings,
             expectedSavingsPerMonth = expectedSavingsPerMonth,
             platformFeePerMonth = platformFeePerMonth
         )
+        val totalExpectedSavings = expectations.expectedSavings
+        val totalExpectedPlatform = expectations.expectedPlatform
+        val totalExpectedLoans = expectations.expectedLoans
+        val totalLateFees = expectations.totalLateFees
+        val isCurrentlyOverdue = expectations.isCurrentlyOverdue
 
         // 3. Category-specific shortfall calculation
         val savingsShortfall = (totalExpectedSavings - totalPaidSavings).max(Money.ZERO)
@@ -155,8 +149,7 @@ class PaymentCalculator @Inject constructor(
             rate.coerceIn(0.0, 100.0)
         } else 100.0
 
-        val loanMonthlyTotal = loans.filter { it.status == LoanStatus.ACTIVE || it.status == LoanStatus.PARTIALLY_PAID }
-            .fold(Money.ZERO) { acc, l -> acc + l.monthlyRepayment }
+        val loanMonthlyTotal = servicingLoans.fold(Money.ZERO) { acc, l -> acc + l.monthlyRepayment }
         val combinedMonthly = expectedSavingsPerMonth + loanMonthlyTotal
 
         val periodsAhead = if (combinedMonthly.isPositive && overpayment.isPositive) {
@@ -205,17 +198,13 @@ class PaymentCalculator @Inject constructor(
         val endLimit = currentDate.withDayOfMonth(1)
 
         while (!tempDate.isAfter(endLimit)) {
-            val dueDayThisMonth = try {
-                tempDate.withDayOfMonth(group.paymentDueDay)
-            } catch (_: Exception) {
-                tempDate.withDayOfMonth(tempDate.lengthOfMonth())
-            }
+            val dueDayThisMonth = dueDateIn(tempDate, group.paymentDueDay)
 
             if (!currentDate.isBefore(dueDayThisMonth) || tempDate.isBefore(endLimit)) {
                 totalExpectedSavings += expectedSavingsPerMonth
                 totalExpectedPlatform += platformFeePerMonth
 
-                for (loan in loans.filter { it.status == LoanStatus.ACTIVE || it.status == LoanStatus.PARTIALLY_PAID }) {
+                for (loan in loans) {
                     val loanStartDate = loan.startDate?.let { safeRunCatching { LocalDate.parse(it.substringBefore("T")) }.getOrNull() }
                     val loanEndDate = loan.endDate?.let { safeRunCatching { LocalDate.parse(it.substringBefore("T")) }.getOrNull() }
 
@@ -251,23 +240,16 @@ class PaymentCalculator @Inject constructor(
         monthlyAmount: Money,
         totalPaid: Money
     ): String {
-        var cumulativeExpected = Money.ZERO
-        var tempDate = joinedDate.withDayOfMonth(1)
-        val limit = DateProvider.getCurrentDate().plusYears(2)
-
-        while (tempDate.isBefore(limit)) {
-            cumulativeExpected += monthlyAmount
-            if (cumulativeExpected > totalPaid) {
-                val dueDayThisMonth = try {
-                    tempDate.withDayOfMonth(group.paymentDueDay)
-                } catch (_: Exception) {
-                    tempDate.withDayOfMonth(tempDate.lengthOfMonth())
-                }
-                return dueDayThisMonth.toString()
-            }
-            tempDate = tempDate.plusMonths(1)
+        val joinedMonth = joinedDate.withDayOfMonth(1)
+        if (!monthlyAmount.isPositive) {
+            return if (totalPaid.isNegative) dueDateIn(joinedMonth, group.paymentDueDay).toString() else "N/A"
         }
-        return "N/A"
+        // First month whose cumulative expectation exceeds what has been paid.
+        val monthsCovered = totalPaid.amount
+            .divide(monthlyAmount.amount, 0, RoundingMode.DOWN)
+            .toLong()
+            .coerceIn(0L, MAX_MONTHS_AHEAD)
+        return dueDateIn(joinedMonth.plusMonths(monthsCovered), group.paymentDueDay).toString()
     }
 
     fun calculateRealtime(
@@ -297,7 +279,30 @@ class PaymentCalculator @Inject constructor(
         return RealtimePaymentPreview(newShortfall, newOverpayment, nextDate)
     }
 
-    private fun resolveJoinedDate(member: Member, fallback: LocalDate, dueDay: Int, contributions: List<Contribution> = emptyList()): LocalDate {
+    private fun paidSavings(paidContributions: List<Contribution>, member: Member): Money {
+        // Note: For loan_settlement_extraction, the amount is negative so it reduces the total paid savings.
+        val calculated = paidContributions
+            .filter { it.type == "contribution" || it.type == "registration_contribution" || it.type == "loan_settlement_extraction" }
+            .fold(Money.ZERO) { acc, c -> acc + c.amount }
+        return if (calculated.isZero && member.totalPaid.isPositive) member.totalPaid else calculated
+    }
+
+    private fun paidPlatformFees(paidContributions: List<Contribution>): Money =
+        paidContributions
+            .filter { it.type == "member_fee" || it.type == "platform_fee" }
+            .fold(Money.ZERO) { acc, c -> acc + c.amount }
+
+    private fun Loan.isBeingRepaid(): Boolean =
+        status == LoanStatus.ACTIVE || status == LoanStatus.PARTIALLY_PAID
+
+    private fun dueDateIn(month: LocalDate, dueDay: Int): LocalDate =
+        try {
+            month.withDayOfMonth(dueDay)
+        } catch (_: Exception) {
+            month.withDayOfMonth(month.lengthOfMonth())
+        }
+
+    private fun resolveJoinedDate(member: Member, fallback: LocalDate, contributions: List<Contribution> = emptyList()): LocalDate {
         return try {
             val rawStr = member.joinedAt ?: member.createdAt
             val parsedJoined = safeRunCatching {
@@ -321,5 +326,10 @@ class PaymentCalculator @Inject constructor(
         } catch (_: Exception) {
             fallback.withDayOfMonth(1)
         }
+    }
+
+    private companion object {
+        // Keeps LocalDate arithmetic in range for absurd inputs (cent-level amounts paid far ahead).
+        const val MAX_MONTHS_AHEAD = 120_000L
     }
 }

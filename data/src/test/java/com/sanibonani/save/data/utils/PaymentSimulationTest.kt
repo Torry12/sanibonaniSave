@@ -3,6 +3,7 @@ package com.sanibonani.save.data.utils
 import com.sanibonani.save.domain.config.PlatformFees
 import com.sanibonani.save.domain.model.*
 import com.sanibonani.save.domain.utils.PaymentCalculator
+import com.sanibonani.save.domain.service.GroupFinancialPolicy
 import com.sanibonani.save.domain.service.PlatformFeeService
 import io.mockk.every
 import io.mockk.mockk
@@ -19,7 +20,7 @@ class PaymentSimulationTest {
 
     @Before
     fun setup() {
-        paymentCalculator = PaymentCalculator(feeService)
+        paymentCalculator = PaymentCalculator(feeService, GroupFinancialPolicy())
         every { feeService.calculateMonthlyMemberIndividual(any(), any()) } returns Money.ZERO
         every { feeService.getShortfallRecoveryFee() } returns Money.ZERO
     }

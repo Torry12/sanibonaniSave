@@ -33,6 +33,7 @@ class RequestPayoutUseCaseTest {
             groupRepository,
             memberRepository,
             payoutGuard,
+            com.sanibonani.save.domain.service.GroupFinancialPolicy(),
             executeRoscaPayoutUseCase,
             calculateStokvelPayoutsUseCase,
             calculateInvestmentClubValuationUseCase

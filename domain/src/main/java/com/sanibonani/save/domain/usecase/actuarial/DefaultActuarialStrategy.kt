@@ -8,7 +8,6 @@ import kotlin.math.*
 class DefaultActuarialStrategy : BaseActuarialStrategy() {
 
     override fun calculateMetrics(
-        engine: GroupTypeActuarialEngine,
         group: Group,
         members: List<Member>,
         stats: ActuarialGroupStats
@@ -16,7 +15,7 @@ class DefaultActuarialStrategy : BaseActuarialStrategy() {
         val n = stats.activeMemberCount
         val defaultAnnualClaim = ActuarialConstants.DEFAULT_ANNUAL_EXPECTED_CLAIM_PER_MEMBER * n
 
-        val core = engine.computeActuarialScalars(
+        val core = ActuarialScalars.compute(
             membersCount = n,
             balance = group.balance,
             mortalityRatePct = ActuarialConstants.SA_WORKING_AGE_MORT_PER_1000 / 10.0,
@@ -58,7 +57,6 @@ class DefaultActuarialStrategy : BaseActuarialStrategy() {
     }
 
     override fun computeInsight(
-        engine: GroupTypeActuarialEngine,
         group: Group,
         members: List<Member>,
         stats: ActuarialGroupStats,
@@ -126,7 +124,7 @@ class DefaultActuarialStrategy : BaseActuarialStrategy() {
         )
     }
 
-    private fun computeDetailedMetrics(group: Group, members: List<Member>, monthsActive: Int, totalExpectedAnnualContributions: Money): CommunitySavingsMetrics {
+    fun computeDetailedMetrics(group: Group, members: List<Member>, monthsActive: Int, totalExpectedAnnualContributions: Money): CommunitySavingsMetrics {
         val n = members.size.coerceAtLeast(1)
         val progress = if (group.goalAmount.isPositive) min(100.0, (group.balance.ratio(group.goalAmount)) * 100.0) else 100.0
         val reach = if (progress >= 100.0) "Goal reached ✅" else "On track"
@@ -149,15 +147,5 @@ class DefaultActuarialStrategy : BaseActuarialStrategy() {
             groupVsBenchmarkPct = 0.0,
             benchmarkNotes = "Focus on meeting specific local goals."
         )
-    }
-
-    override fun computeMetricsLegacyInternal(
-        engine: GroupTypeActuarialEngine,
-        group: Group,
-        members: List<Member>,
-        monthsActive: Int,
-        totalExpected: Money
-    ): CommunitySavingsMetrics {
-        return computeDetailedMetrics(group, members, monthsActive, totalExpected)
     }
 }

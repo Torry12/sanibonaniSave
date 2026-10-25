@@ -130,4 +130,29 @@ class MemberPortalUiUtilsTest {
         val original = "This file is too large to upload. Please choose a smaller file and try again."
         assertEquals(original, sanitizeMemberDocumentUploadError(original))
     }
+
+    @Test
+    fun `buildSupabaseAuthHeaders sends the token only to authenticated storage urls`() {
+        val privateUrl = "https://project.supabase.co/storage/v1/object/authenticated/documents/members/m1/doc_1.pdf"
+
+        assertEquals(
+            mapOf("Authorization" to "Bearer token-123"),
+            buildSupabaseAuthHeaders(privateUrl, "token-123")
+        )
+        assertTrue(
+            buildSupabaseAuthHeaders(
+                "https://project.supabase.co/storage/v1/object/public/avatars/members/m1/profile.jpg",
+                "token-123"
+            ).isEmpty()
+        )
+        assertTrue(buildSupabaseAuthHeaders("https://cdn.example.com/photo.jpg", "token-123").isEmpty())
+    }
+
+    @Test
+    fun `buildSupabaseAuthHeaders omits the header without a session token`() {
+        val privateUrl = "https://project.supabase.co/storage/v1/object/authenticated/documents/members/m1/doc_1.pdf"
+
+        assertTrue(buildSupabaseAuthHeaders(privateUrl, null).isEmpty())
+        assertTrue(buildSupabaseAuthHeaders(privateUrl, "   ").isEmpty())
+    }
 }

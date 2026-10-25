@@ -68,7 +68,7 @@ fun SanibonaniButton(
             Color.Unspecified
         } else {
             val lum = containerColor.luminance()
-            if (lum < 0.45f) Color.White else Color(0xFF022C22)
+            if (lum < 0.45f) Color.White else md_theme_light_onPrimaryContainer
         }
     }
 

@@ -10,23 +10,15 @@ import com.sanibonani.save.domain.validation.ValidationUtils
 import com.sanibonani.save.domain.model.*
 import com.sanibonani.save.domain.model.AsyncResult
 import com.sanibonani.save.domain.model.Contribution
-import com.sanibonani.save.domain.repository.admin.*
-import com.sanibonani.save.domain.repository.equity.ContributionRepository
-import com.sanibonani.save.domain.repository.auth.*
-import com.sanibonani.save.domain.repository.group.*
-import com.sanibonani.save.domain.repository.member.*
 import com.sanibonani.save.domain.usecase.equity.ProcessContributionUseCase
+import com.sanibonani.save.domain.usecase.payment.LoadPaymentContextUseCase
 import com.sanibonani.save.features.common.presentation.BaseViewModel
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.filter
-import kotlinx.coroutines.flow.first
 import javax.inject.Inject
-import com.sanibonani.save.domain.repository.credit.LoanRepository
 
 data class PaymentUiState(
     val paymentContext: AsyncResult<PaymentContextPackage> = AsyncResult.Uninitialized,
@@ -60,12 +52,7 @@ data class PaymentContextPackage(
 
 @HiltViewModel
 class PaymentViewModel @Inject constructor(
-    private val supabaseRepo: SupabaseRepository,
-    private val groupRepo: GroupRepository,
-    private val memberRepo: MemberRepository,
-    private val contributionRepo: ContributionRepository,
-    private val loanRepo: LoanRepository,
-    private val platformConfigRepo: PlatformConfigRepository,
+    private val loadContext: LoadPaymentContextUseCase,
     private val processContributionUseCase: ProcessContributionUseCase,
     private val paymentCalculator: PaymentCalculator
 ) : BaseViewModel<PaymentUiState>(PaymentUiState()) {
@@ -87,7 +74,7 @@ class PaymentViewModel @Inject constructor(
 
     fun loadPaymentContext(groupId: String, type: String) {
         AppAnalytics.track(AnalyticsTaxonomy.Events.PAYMENT_CONTEXT_LOAD_STARTED, mapOf(AnalyticsTaxonomy.Params.GROUP_ID to groupId))
-        val userId = supabaseRepo.currentUserId
+        val userId = loadContext.currentUserId()
         if (userId.isNullOrBlank()) {
             updateState { it.copy(isProcessing = false, error = "You are not signed in.") }
             return
@@ -96,56 +83,42 @@ class PaymentViewModel @Inject constructor(
         paymentContextJob?.cancel()
         paymentContextJob = launchJob("load_payment_context") {
             updateState { it.copy(paymentContext = AsyncResult.Loading) }
-            val destination = when (type.lowercase()) {
-                "registration", "platform_fee", "joining_fee" -> PaymentDestination.PLATFORM
-                else -> PaymentDestination.GROUP
-            }
 
-            // Wait for the member to be hydrated (local cache or network fetch)
-            val member = memberRepo.observeMemberByUserId(userId, groupId)
-                .filter { it.getOrNull() != null }
-                .first()
-                .getOrNull()
+            loadContext(LoadPaymentContextUseCase.Params(userId, groupId, type)).collectLatest { outcome ->
+                when (outcome) {
+                    LoadPaymentContextUseCase.Outcome.Unavailable ->
+                        updateState { it.copy(paymentContext = AsyncResult.Error("Failed to load context", "LoadError")) }
 
-            val group = groupRepo.getGroupById(groupId).getOrNull()
-            val config = platformConfigRepo.current()
-
-            if ((member == null) || (group == null)) {
-                updateState { it.copy(paymentContext = AsyncResult.Error("Failed to load context", "LoadError")) }
-            } else {
-                // Hoist smart-cast locals so the combine block reads without repeated !! assertions.
-                val activeMember = member
-                val activeGroup = group
-                val memberId = activeMember.id
-                if (memberId.isNullOrBlank()) {
-                    updateState { it.copy(paymentContext = AsyncResult.Error("Failed to load context", "LoadError")) }
-                    return@launchJob
-                }
-
-                updateState { it.copy(platformConfig = config, destination = destination) }
-
-                combine(
-                    contributionRepo.observeMemberContributions(memberId, groupId),
-                    loanRepo.getMemberLoans(memberId)
-                ) { contributionsRes, loansRes ->
-                    val contributions = contributionsRes.getOrDefault(emptyList())
-                    val loans = loansRes.getOrDefault(emptyList())
-                    val calculation = paymentCalculator.calculateStatus(activeGroup, activeMember, contributions, loans)
-                    val preview = calculateRealtimePreview(activeGroup, contributions, calculation, _uiState.value.currentInputAmount)
-                    PaymentContextPackage(activeMember, activeGroup, contributions, loans, calculation, preview, config)
-                }.collectLatest { pkg ->
-                    updateState {
-                        it.copy(
-                            paymentContext = AsyncResult.Success(pkg),
-                            member = pkg.member,
-                            group = pkg.group,
-                            contributions = pkg.contributions,
-                            calculation = pkg.calculation,
-                            currentInputAmount = if (it.currentInputAmount.isZero) pkg.calculation.totalDueNow else it.currentInputAmount,
-                            realtimeShortfall = pkg.preview.shortfall,
-                            realtimeOverpayment = pkg.preview.overpayment,
-                            nextDueDate = pkg.preview.nextDueDate,
-                        )
+                    is LoadPaymentContextUseCase.Outcome.Ready -> {
+                        val context = outcome.context
+                        updateState { state ->
+                            val preview = calculateRealtimePreview(
+                                context.group, context.contributions, context.calculation, state.currentInputAmount
+                            )
+                            state.copy(
+                                paymentContext = AsyncResult.Success(
+                                    PaymentContextPackage(
+                                        member = context.member,
+                                        group = context.group,
+                                        contributions = context.contributions,
+                                        loans = context.loans,
+                                        calculation = context.calculation,
+                                        preview = preview,
+                                        config = context.config
+                                    )
+                                ),
+                                member = context.member,
+                                group = context.group,
+                                contributions = context.contributions,
+                                calculation = context.calculation,
+                                currentInputAmount = if (state.currentInputAmount.isZero) context.calculation.totalDueNow else state.currentInputAmount,
+                                realtimeShortfall = preview.shortfall,
+                                realtimeOverpayment = preview.overpayment,
+                                nextDueDate = preview.nextDueDate,
+                                platformConfig = context.config,
+                                destination = context.destination,
+                            )
+                        }
                     }
                 }
             }

@@ -3,6 +3,7 @@ package com.sanibonani.save.simulation
 import com.sanibonani.save.domain.model.*
 import com.sanibonani.save.domain.repository.equity.ContributionRepository
 import com.sanibonani.save.domain.repository.credit.LoanRepository
+import com.sanibonani.save.domain.service.GroupFinancialPolicy
 import com.sanibonani.save.domain.service.PlatformFeeService
 import com.sanibonani.save.domain.usecase.credit.CalculateLoanRepaymentScheduleUseCase
 import com.sanibonani.save.domain.usecase.credit.ValidateLoanEligibilityUseCase
@@ -32,7 +33,7 @@ class LoanProcessingContingencySimulationTest {
     fun setup() {
         every { feeService.calculateMonthlyMemberIndividual(any(), any()) } returns Money.ZERO
         every { feeService.getShortfallRecoveryFee() } returns Money.ZERO
-        val paymentCalculator = PaymentCalculator(feeService)
+        val paymentCalculator = PaymentCalculator(feeService, GroupFinancialPolicy())
 
         validateEligibility = ValidateLoanEligibilityUseCase(contributionRepo, loanRepo, paymentCalculator)
         mockkObject(DateProvider)

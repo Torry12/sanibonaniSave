@@ -7,9 +7,11 @@ import io.mockk.coVerify
 import io.mockk.mockk
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import java.io.IOException
 
 class SyncBankTransactionsUseCaseTest {
 
@@ -74,5 +76,100 @@ class SyncBankTransactionsUseCaseTest {
 
         assertTrue(result.isFailure)
         assertTrue(result.exceptionOrNull()?.message?.contains("not currently connected") == true)
+    }
+
+    private fun connectedConnection() = BankConnection(
+        id = "conn_1",
+        groupId = "group_1",
+        providerId = "prov_1",
+        status = BankConnectionStatus.CONNECTED,
+        linkedAt = "2024-01-01T00:00:00Z"
+    )
+
+    @Test
+    fun `a failed balance lookup aborts before importing transactions`() = runBlocking {
+        val groupId = "group_1"
+        coEvery { bankRepo.observeBankConnection(groupId) } returns flowOf(Result.success(connectedConnection()))
+        coEvery {
+            financialProviderRepo.executeOperation(match { it.operation == FinancialOperationType.GET_BALANCE })
+        } returns Result.success(FinancialOperationResult(success = false, errorCode = "E_BAL"))
+        coEvery {
+            financialProviderRepo.executeOperation(match { it.operation == FinancialOperationType.GET_TRANSACTIONS })
+        } returns Result.success(FinancialOperationResult(success = true, data = mapOf("raw_statement" to "RAW")))
+
+        val result = useCase(groupId)
+
+        assertTrue(result.isFailure)
+        assertTrue(result.exceptionOrNull()?.message?.contains("Balance Sync Failed: E_BAL") == true)
+        coVerify(exactly = 0) { bankRepo.importRawStatement(any(), any(), any()) }
+    }
+
+    @Test
+    fun `a failed transaction lookup is reported`() = runBlocking {
+        val groupId = "group_1"
+        coEvery { bankRepo.observeBankConnection(groupId) } returns flowOf(Result.success(connectedConnection()))
+        coEvery {
+            financialProviderRepo.executeOperation(match { it.operation == FinancialOperationType.GET_BALANCE })
+        } returns Result.success(FinancialOperationResult(success = true, data = mapOf("balance" to "10.00")))
+        coEvery {
+            financialProviderRepo.executeOperation(match { it.operation == FinancialOperationType.GET_TRANSACTIONS })
+        } returns Result.success(FinancialOperationResult(success = false, errorCode = "E_TX"))
+
+        val result = useCase(groupId)
+
+        assertTrue(result.isFailure)
+        assertTrue(result.exceptionOrNull()?.message?.contains("Transaction Sync Failed: E_TX") == true)
+    }
+
+    @Test
+    fun `a raw statement wins over a transaction list and defaults to the json format`() = runBlocking {
+        val groupId = "group_1"
+        coEvery { bankRepo.observeBankConnection(groupId) } returns flowOf(Result.success(connectedConnection()))
+        coEvery {
+            financialProviderRepo.executeOperation(match { it.operation == FinancialOperationType.GET_BALANCE })
+        } returns Result.success(FinancialOperationResult(success = true, data = mapOf("balance" to "10.00")))
+        coEvery {
+            financialProviderRepo.executeOperation(match { it.operation == FinancialOperationType.GET_TRANSACTIONS })
+        } returns Result.success(
+            FinancialOperationResult(
+                success = true,
+                data = mapOf("raw_statement" to "RAW", "transactions" to "TX")
+            )
+        )
+        coEvery { bankRepo.importRawStatement("RAW", "json", groupId) } returns Result.success(Unit)
+
+        val result = useCase(groupId)
+
+        assertTrue(result.isSuccess)
+        coVerify(exactly = 1) { bankRepo.importRawStatement("RAW", "json", groupId) }
+    }
+
+    @Test
+    fun `a response without statement data is a successful no-op`() = runBlocking {
+        val groupId = "group_1"
+        coEvery { bankRepo.observeBankConnection(groupId) } returns flowOf(Result.success(connectedConnection()))
+        coEvery {
+            financialProviderRepo.executeOperation(match { it.operation == FinancialOperationType.GET_BALANCE })
+        } returns Result.success(FinancialOperationResult(success = true, data = mapOf("balance" to "10.00")))
+        coEvery {
+            financialProviderRepo.executeOperation(match { it.operation == FinancialOperationType.GET_TRANSACTIONS })
+        } returns Result.success(FinancialOperationResult(success = true))
+
+        val result = useCase(groupId)
+
+        assertTrue(result.isSuccess)
+        coVerify(exactly = 0) { bankRepo.importRawStatement(any(), any(), any()) }
+    }
+
+    @Test
+    fun `a failed connection lookup is reported as no connection`() = runBlocking {
+        val groupId = "group_1"
+        coEvery { bankRepo.observeBankConnection(groupId) } returns flowOf(Result.failure(IOException("offline")))
+
+        val result = useCase(groupId)
+
+        assertTrue(result.isFailure)
+        assertEquals("No active bank connection found for group.", result.exceptionOrNull()?.message)
+        coVerify(exactly = 0) { financialProviderRepo.executeOperation(any()) }
     }
 }
