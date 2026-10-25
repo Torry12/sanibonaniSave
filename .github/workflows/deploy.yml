@@ -35,7 +35,6 @@ jobs:
           SUPABASE_URL=${{ secrets.SUPABASE_URL }}
           SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }}
           YOCO_PUBLIC_KEY=${{ secrets.YOCO_PUBLIC_KEY }}
-          WHATSAPP_PHONE_NUMBER_ID=${{ secrets.WHATSAPP_PHONE_NUMBER_ID }}
           GEOAPIFY_API_KEY=${{ secrets.GEOAPIFY_API_KEY }}
           PLATFORM_ADMIN_EMAIL=${{ secrets.PLATFORM_ADMIN_EMAIL }}
           EOF
@@ -77,7 +76,6 @@ jobs:
           SUPABASE_URL=${{ secrets.SUPABASE_URL }}
           SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }}
           YOCO_PUBLIC_KEY=${{ secrets.YOCO_PUBLIC_KEY }}
-          WHATSAPP_PHONE_NUMBER_ID=${{ secrets.WHATSAPP_PHONE_NUMBER_ID }}
           GEOAPIFY_API_KEY=${{ secrets.GEOAPIFY_API_KEY }}
           PLATFORM_ADMIN_EMAIL=${{ secrets.PLATFORM_ADMIN_EMAIL }}
           KEYSTORE_PATH=../release.keystore
@@ -126,7 +124,7 @@ jobs:
           echo "🔍 Scanning AAB for secrets..."
           # Unzip AAB and scan dex/resources
           unzip -o release/app-release.aab -d release/aab_contents || true
-          FOUND=$(grep -rliE "(supabase|ANON_KEY|yoco|sk_live|whatsapp_token)" release/aab_contents/ 2>/dev/null || true)
+          FOUND=$(grep -rliE "(supabase|ANON_KEY|yoco|sk_live)" release/aab_contents/ 2>/dev/null || true)
           if [ -n "$FOUND" ]; then
             echo "⚠️  Potential secrets found in: $FOUND"
             exit 1

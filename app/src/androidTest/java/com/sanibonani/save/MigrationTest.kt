@@ -8,14 +8,26 @@ import com.sanibonani.save.data.local.ALL_MIGRATIONS
 import com.sanibonani.save.data.local.SanibonaniDatabase
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
-import org.junit.Rule
+import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.IOException
+import dagger.hilt.android.testing.HiltAndroidRule
+import dagger.hilt.android.testing.HiltAndroidTest
+import org.junit.Rule
 
+@HiltAndroidTest
 @RunWith(AndroidJUnit4::class)
 class MigrationTest {
     private val TEST_DB = "migration-test"
+
+    @get:Rule(order = 0)
+    val hiltRule = HiltAndroidRule(this)
+
+    @Before
+    fun setUpHilt() {
+        hiltRule.inject()
+    }
 
     @get:Rule
     val helper: MigrationTestHelper = MigrationTestHelper(
@@ -28,7 +40,7 @@ class MigrationTest {
     @Test
     @Throws(IOException::class)
     fun migrateAll() {
-        helper.createDatabase(TEST_DB, 15).apply {
+        helper.createDatabase(TEST_DB, 31).apply {
             execSQL(
                 """
                 INSERT INTO `groups` (
@@ -37,13 +49,15 @@ class MigrationTest {
                     `payment_due_day`, `max_members`, `current_members`, `is_public`, `allow_partial_payment`,
                     `auto_suspend_after`, `bank_name`, `account_number`, `branch_code`, `account_type`,
                     `gateway_public_key`, `balance`, `admin_user_id`, `fee_status`, `registration_paid`,
-                    `is_platform_suspended`, `created_at`, `latitude`, `longitude`, `geohash`, `updated_at`
+                    `is_platform_suspended`, `goal_amount`, `period_months`, `constitution_status`,
+                    `max_beneficiaries`, `beneficiary_increase_pct`, `created_at`, `latitude`, `longitude`, `geohash`, `updated_at`
                 ) VALUES (
                     'group-legacy', 'Legacy Group', 'OTHER', 'Gauteng', 'Johannesburg', 'Soweto', 'Legacy row', '🤝',
                     120.0, 250.0, 15.0, 5, 3, 28, 50, 1, 1, 0,
                     2, 'Legacy Bank', '123456789', '250655', 'Savings',
                     NULL, 500.0, 'admin-legacy', 'DUE', 1,
-                    0, '2025-01-01T00:00:00Z', -26.2041, 28.0473, 'kekjd', 123456789
+                    0, 50000.0, 12, 'PENDING',
+                    5, 10.0, '2025-01-01T00:00:00Z', -26.2041, 28.0473, 'kekjd', 123456789
                 )
                 """.trimIndent()
             )
@@ -51,23 +65,27 @@ class MigrationTest {
                 """
                 INSERT INTO `members` (
                     `id`, `group_id`, `user_id`, `member_key`, `full_name`, `id_number`, `phone`, `email`,
+                    `street`, `suburb`, `city`, `province`,
                     `status`, `joined_at`, `probation_end_at`, `profile_photo_url`,
                     `document_1_url`, `document_1_type`, `document_1_status`,
                     `document_2_url`, `document_2_type`, `document_2_status`,
-                    `total_contributions`, `fcm_token`, `notification_pref`, `created_at`, `updated_at`
+                    `document_3_status`, `document_4_status`, `document_5_status`,
+                    `total_contributions`, `total_paid`, `fcm_token`, `notification_pref`, `created_at`, `updated_at`
                 ) VALUES (
                     'member-legacy', 'group-legacy', 'user-legacy', 'member-key-legacy', 'Legacy Member', '9001015000081', '0810000001', 'legacy@example.com',
+                    '123 Main St', 'Soweto', 'Johannesburg', 'Gauteng',
                     'ACTIVE', '2025-01-01T00:00:00Z', '2025-04-01T00:00:00Z', NULL,
                     NULL, NULL, 'PENDING',
                     NULL, NULL, 'PENDING',
-                    7, NULL, 'BOTH', '2025-01-01T00:00:00Z', 123456789
+                    'PENDING', 'PENDING', 'PENDING',
+                    7, 1750.0, NULL, 'BOTH', '2025-01-01T00:00:00Z', 123456789
                 )
                 """.trimIndent()
             )
             close()
         }
 
-        val db = helper.runMigrationsAndValidate(TEST_DB, 35, true, *ALL_MIGRATIONS)
+        val db = helper.runMigrationsAndValidate(TEST_DB, 81, true, *ALL_MIGRATIONS)
 
         val cursor = db.query("SELECT name FROM sqlite_master WHERE type='table' AND name='payouts'")
         assertTrue("Payouts table should exist in version 34", cursor.moveToFirst())

@@ -13,7 +13,7 @@ fun GroupType.toFinancialGroupModel(): FinancialGroupModel = when (this) {
     GroupType.EMERGENCY_FUND -> FinancialGroupModel.EMERGENCY_FUND
     GroupType.STOKVEL -> FinancialGroupModel.ASCA
     GroupType.COMMUNITY_SAVINGS -> FinancialGroupModel.HYBRID_FINANCIAL_GROUP
-    GroupType.TONTINE -> FinancialGroupModel.INVESTMENT_GROUP
+    GroupType.HYBRID_SAVINGS_GROUP -> FinancialGroupModel.HYBRID_FINANCIAL_GROUP
     GroupType.OTHER -> FinancialGroupModel.HYBRID_FINANCIAL_GROUP
 }
 

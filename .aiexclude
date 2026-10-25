@@ -1,0 +1,20 @@
+# Exclude build artifacts and binary files from AI context to improve performance
+**/build/**
+**/release/**
+**/*.apk
+**/*.aab
+**/*.jks
+**/*.keystore
+**/*.png
+**/*.jpg
+**/*.jpeg
+**/*.gif
+**/*.svg
+**/*.pdf
+**/*.jar
+**/*.class
+.gradle/
+.idea/caches/
+.idea/libraries/
+.idea/modules/
+node_modules/

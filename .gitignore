@@ -65,6 +65,11 @@ build/
 # Local properties
 local.properties
 
+# Supabase CLI credentials (access token, DB password) — NEVER commit
+.env
+.env.*
+!.env.example
+
 # Logs
 *.log
 build_error.txt
@@ -84,3 +89,13 @@ caches/
 native/
 # wrapper/ is intentionally NOT excluded — gradle/wrapper/ must be committed
 kotlin-profile/
+
+# R8/ProGuard release mapping: 120 MB+ exceeds GitHub's 100 MB object limit.
+# Kept locally (and uploaded to the app store) instead of committed.
+app/release/mapping.txt
+
+# Android SDK analytics state created by local Gradle runs
+.android/
+
+# Gradle user-home override created by a local run (holds only a wrapper stub)
+.gradle-cache/

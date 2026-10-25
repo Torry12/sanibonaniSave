@@ -122,6 +122,44 @@ serve(async (req) => {
         return json({ user_id: data.user?.id ?? null })
       }
 
+      case "create_data_snapshot": {
+        if (callerEmail != PLATFORM_ADMIN_EMAIL) {
+          return json({ error: "Only the canonical platform admin can trigger backups." }, 403)
+        }
+
+        const tables = [
+          "groups", "members", "contributions", "loans", "payouts",
+          "group_ledger", "platform_ledger", "audit_logs", "platform_settings"
+        ]
+
+        const snapshot: Record<string, any[]> = {}
+
+        for (const table of tables) {
+          const { data, error } = await serviceClient.from(table).select("*")
+          if (error) {
+            console.error(`Error fetching table ${table}:`, error)
+            snapshot[table] = []
+          } else {
+            snapshot[table] = data || []
+          }
+        }
+
+        const timestamp = new Date().toISOString().replace(/[:.]/g, "-")
+        const fileName = `snapshot_${timestamp}.json`
+        const content = JSON.stringify(snapshot, null, 2)
+
+        const { error: uploadError } = await serviceClient.storage
+          .from("backups")
+          .upload(fileName, content, {
+            contentType: "application/json",
+            upsert: true
+          })
+
+        if (uploadError) throw uploadError
+
+        return json({ ok: true, fileName })
+      }
+
       default:
         return json({ error: "Unsupported action." }, 400)
     }

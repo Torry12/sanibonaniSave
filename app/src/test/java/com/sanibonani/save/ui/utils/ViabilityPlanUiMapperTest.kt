@@ -1,20 +1,61 @@
 package com.sanibonani.save.ui.utils
 
-import com.sanibonani.save.domain.model.GroupType
-import com.sanibonani.save.domain.model.ViabilityPlan
+import com.sanibonani.save.domain.model.*
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ViabilityPlanUiMapperTest {
 
+    private fun createDefaultPlan(
+        initialContribution: Money = Money("1000"),
+        suggestedMonthlyContribution: Money = Money("300"),
+        projectedValue: Money = Money("12000"),
+        isViable: Boolean = true,
+        activeMemberRatio: Double = 1.0,
+        defaultRiskFactor: Double = 1.0,
+        cycleSlippageFactor: Double = 1.0,
+        projectionRetentionFactor: Double = 1.0,
+        claimReadinessFactor: Double = 1.0,
+        mortalityBufferFactor: Double = 1.0,
+        reserveAdequacyFactor: Double = 1.0
+    ) = ViabilityPlan(
+        initialContribution = initialContribution,
+        suggestedMonthlyContribution = suggestedMonthlyContribution,
+        projectedValue = projectedValue,
+        isViable = isViable,
+        goalAmount = Money.ZERO,
+        periodMonths = 12,
+        messages = emptyList(),
+        requiredMonthlyToMeetGoal = Money.ZERO,
+        shortfallAmount = Money.ZERO,
+        breakEvenMonths = 0,
+        compoundedProjectedValue = Money.ZERO,
+        optimisticProjectedValue = Money.ZERO,
+        pessimisticProjectedValue = Money.ZERO,
+        activeMemberRatio = activeMemberRatio,
+        inflationAdjustmentFactor = 1.0,
+        projectionRetentionFactor = projectionRetentionFactor,
+        claimReadinessFactor = claimReadinessFactor,
+        mortalityBufferFactor = mortalityBufferFactor,
+        reserveAdequacyFactor = reserveAdequacyFactor,
+        marketReturnPremiumFactor = 1.0,
+        volatilityHaircutFactor = 1.0,
+        collectionEfficiencyFactor = 1.0,
+        festivePayoutPressureFactor = 1.0,
+        defaultRiskFactor = defaultRiskFactor,
+        cycleSlippageFactor = cycleSlippageFactor,
+        withdrawalPressureFactor = 1.0,
+        inflationSafetyFactor = 1.0,
+        survivorUncertaintyFactor = 1.0,
+        horizonCompoundingFactor = 1.0,
+        goalStretchRatio = 1.0,
+        growthConservatismFactor = 1.0
+    )
+
     @Test
     fun `toViabilityFactors returns non-neutral factors by default`() {
-        val plan = ViabilityPlan(
-            initialContribution = 1000.0,
-            suggestedMonthlyContribution = 300.0,
-            projectedValue = 12000.0,
-            isViable = true,
+        val plan = createDefaultPlan(
             activeMemberRatio = 0.9,
             defaultRiskFactor = 1.03,
             cycleSlippageFactor = 1.05
@@ -22,39 +63,28 @@ class ViabilityPlanUiMapperTest {
 
         val factors = plan.toViabilityFactors()
 
-        assertTrue(factors.any { it.key == "active_member_ratio" && it.value == 0.9 })
-        assertTrue(factors.any { it.key == "default_risk_factor" && it.value == 1.03 })
-        assertTrue(factors.any { it.key == "cycle_slippage_factor" && it.value == 1.05 })
+        assertTrue(factors.any { it.key == "active_member_ratio" && it.value == "0.9" })
+        assertTrue(factors.any { it.key == "default_risk_factor" && it.value == "1.03" })
+        assertTrue(factors.any { it.key == "cycle_slippage_factor" && it.value == "1.05" })
         assertTrue(factors.none { it.key == "projection_retention_factor" })
     }
 
     @Test
     fun `toViabilityFactors includeNeutral true returns full factor set`() {
-        val plan = ViabilityPlan(
-            initialContribution = 1000.0,
-            suggestedMonthlyContribution = 300.0,
-            projectedValue = 12000.0,
-            isViable = true
-        )
+        val plan = createDefaultPlan()
 
         val factors = plan.toViabilityFactors(includeNeutral = true)
 
-        assertEquals(18, factors.size)
+        assertEquals(24, factors.size) // Total number of factor properties in ViabilityPlan
     }
 
     @Test
     fun `toViabilityFactors keeps active member ratio even when neutral`() {
-        val plan = ViabilityPlan(
-            initialContribution = 1000.0,
-            suggestedMonthlyContribution = 300.0,
-            projectedValue = 12000.0,
-            isViable = true,
-            activeMemberRatio = 1.0
-        )
+        val plan = createDefaultPlan(activeMemberRatio = 1.0)
 
         val factors = plan.toViabilityFactors()
 
-        assertTrue(factors.any { it.key == "active_member_ratio" && it.value == 1.0 })
+        assertTrue(factors.any { it.key == "active_member_ratio" && it.value == "1.0" })
     }
 
     @Test
@@ -62,7 +92,8 @@ class ViabilityPlanUiMapperTest {
         val factor = ViabilityFactorUi(
             key = "market_return_premium_factor",
             label = "Market Return Premium",
-            value = 1.08
+            value = "1.08",
+            numericValue = 1.08
         )
 
         assertEquals(ViabilityFactorTrend.LIFT, factor.trend())
@@ -73,12 +104,14 @@ class ViabilityPlanUiMapperTest {
         val haircutFactor = ViabilityFactorUi(
             key = "volatility_haircut_factor",
             label = "Volatility Haircut",
-            value = 0.91
+            value = "0.91",
+            numericValue = 0.91
         )
         val neutralFactor = ViabilityFactorUi(
             key = "projection_retention_factor",
             label = "Projection Retention",
-            value = 1.0
+            value = "1.0",
+            numericValue = 1.0
         )
 
         assertEquals(ViabilityFactorTrend.HAIRCUT, haircutFactor.trend())
@@ -106,12 +139,14 @@ class ViabilityPlanUiMapperTest {
         val reserveFactor = ViabilityFactorUi(
             key = "reserve_adequacy_factor",
             label = "Reserve Adequacy",
-            value = 1.04
+            value = "1.04",
+            numericValue = 1.04
         )
         val unknownFactor = ViabilityFactorUi(
             key = "custom_factor",
             label = "Custom Factor",
-            value = 1.0
+            value = "1.0",
+            numericValue = 1.0
         )
 
         assertEquals(
@@ -126,11 +161,7 @@ class ViabilityPlanUiMapperTest {
 
     @Test
     fun `toViabilityFactors for ROSCA excludes unrelated burial factors`() {
-        val plan = ViabilityPlan(
-            initialContribution = 1000.0,
-            suggestedMonthlyContribution = 300.0,
-            projectedValue = 12000.0,
-            isViable = true,
+        val plan = createDefaultPlan(
             activeMemberRatio = 0.88,
             projectionRetentionFactor = 0.96,
             defaultRiskFactor = 1.07,
@@ -148,11 +179,7 @@ class ViabilityPlanUiMapperTest {
 
     @Test
     fun `toViabilityPanels returns bespoke panel titles per group type`() {
-        val plan = ViabilityPlan(
-            initialContribution = 1000.0,
-            suggestedMonthlyContribution = 300.0,
-            projectedValue = 12000.0,
-            isViable = true,
+        val plan = createDefaultPlan(
             activeMemberRatio = 0.9,
             projectionRetentionFactor = 0.99,
             claimReadinessFactor = 1.20,
@@ -166,4 +193,3 @@ class ViabilityPlanUiMapperTest {
         assertTrue(panels.any { it.title == "Claim Protection" })
     }
 }
-

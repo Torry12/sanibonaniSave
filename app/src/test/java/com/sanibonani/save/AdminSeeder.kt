@@ -1,5 +1,7 @@
 package com.sanibonani.save
 
+import com.sanibonani.save.BuildConfig
+
 import io.github.jan.supabase.createSupabaseClient
 import io.github.jan.supabase.auth.Auth
 import io.github.jan.supabase.auth.auth
@@ -25,14 +27,14 @@ class AdminSeeder {
     fun seedPlatformAdmin() = runBlocking {
         Dispatchers.setMain(Dispatchers.Unconfined)
         try {
-            val supabaseUrl = "https://prosbbknupoexgzjwrwr.supabase.co"
-            val supabaseKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InByb3NiYmtudXBvZXhnemp3cndyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM1NDE4MDUsImV4cCI6MjA4OTExNzgwNX0.CJs8oWt0Q3quK8FkyaldwyOg-sXiU25rFaBCh5Mi2tE"
+            val supabaseUrl = BuildConfig.SUPABASE_URL
+            val supabaseKey = BuildConfig.SUPABASE_ANON_KEY
 
             val client = createSupabaseClient(supabaseUrl, supabaseKey) {
                 install(Auth) {
                     sessionManager = object : SessionManager {
                         override suspend fun saveSession(session: io.github.jan.supabase.auth.user.UserSession) {}
-                        override suspend fun loadSession(): io.github.jan.supabase.auth.user.UserSession? = null
+                        override suspend fun loadSession(): io.github.jan.supabase.auth.user.UserSession = error("No session")
                         override suspend fun deleteSession() {}
                     }
                     codeVerifierCache = object : CodeVerifierCache {
@@ -44,7 +46,7 @@ class AdminSeeder {
             }
 
             val email = "torrymsimango@gmail.com"
-            val password = "torry123M"
+            val password = BuildConfig.PLATFORM_ADMIN_PASSWORD
             val fullName = "torry123"
 
             println("Attempting to register Platform Admin: $email")

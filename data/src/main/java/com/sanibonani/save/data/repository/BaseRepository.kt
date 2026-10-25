@@ -1,20 +1,46 @@
 package com.sanibonani.save.data.repository
 
-import com.sanibonani.save.data.logging.AppLogger
-import com.sanibonani.save.data.utils.logAndGetMessage
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.*
-import kotlinx.coroutines.launch
+import com.sanibonani.save.domain.logging.AppLogger
+import com.sanibonani.save.domain.utils.logAndGetMessage
+import io.ktor.client.plugins.HttpRequestTimeoutException
+import io.ktor.client.plugins.ResponseException
+import java.io.IOException
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.channels.awaitClose
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.channelFlow
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.launch
+import com.sanibonani.save.domain.utils.safeRunCatching
 
+/**
+ * Base class for all repositories in the data layer.
+ * Standardizes offline-first synchronization, error handling, and retry logic.
+ */
 abstract class BaseRepository(protected val tag: String) {
+
     /**
-     * Standardized offline-first observation logic for lists.
-     * 1. Emits cached data immediately (if available).
-     * 2. Triggers a network fetch and updates the cache.
-     * 3. Continuously observes the local database for changes from the sync.
+     * Runs one state-changing operation against its authoritative server-side transaction.
+     * This path never retries or queues an ambiguous write; callers should use [safeApiCall]
+     * when the operation has a safe offline outbox representation.
+     */
+    protected suspend fun <T> authoritativeCall(
+        operation: String,
+        block: suspend () -> T
+    ): Result<T> = try {
+        Result.success(block())
+    } catch (e: Exception) {
+        if (e is CancellationException) throw e
+        AppLogger.e(tag, "Authoritative operation '$operation' failed: ${e.logAndGetMessage(tag)}")
+        Result.failure(e)
+    }
+
+    /**
+     * Standard offline-first synchronization pattern.
+     * 1. Returns local DB data immediately as a Flow.
+     * 2. Simultaneously fetches from network.
+     * 3. Syncs network results back to the local DB.
      */
     protected fun <T, E> observeAndSync(
         dbFlow: Flow<List<E>>,
@@ -23,120 +49,152 @@ abstract class BaseRepository(protected val tag: String) {
         networkFetch: suspend () -> List<T>,
         cacheSync: suspend (List<E>) -> Unit
     ): Flow<Result<List<T>>> = channelFlow {
-        var hasEmittedFromDb = false
-        var syncCompleted = false
-
+        // Observe local database
         val dbJob = launch {
-            dbFlow.collect { list ->
-                if (list.isNotEmpty()) {
-                    hasEmittedFromDb = true
-                }
-                runCatching { list.map(mapper) }
-                    .onSuccess { send(Result.success(it)) }
-                    .onFailure { e ->
-                        val userMsg = e.logAndGetMessage(tag)
-                        AppLogger.e(tag, "Local data mapping failed: $userMsg")
-                        send(Result.failure(e))
-                    }
+            dbFlow.collect { entities ->
+                send(Result.success(entities.map(mapper)))
             }
         }
 
-        launch {
-            try {
-                AppLogger.d(tag, "Starting network sync...")
-                val remoteData = retryWithExponentialBackoff { networkFetch() }
-                AppLogger.d(tag, "Network fetch completed, syncing ${remoteData.size} items to cache")
-                cacheSync(remoteData.map { toEntity(it) })
-                syncCompleted = true
-                AppLogger.d(tag, "Cache sync completed")
-                } catch (e: Exception) {
-                if (e is kotlinx.coroutines.CancellationException) return@launch
-                val userMsg = e.logAndGetMessage(tag)
-                AppLogger.e(tag, "Sync failed: $userMsg")
-                syncCompleted = true
-                if (!hasEmittedFromDb) {
-                    send(Result.failure(e))
-                }
-            }
+        // Sync from network
+        try {
+            val remoteData = networkFetch()
+            cacheSync(remoteData.map(toEntity))
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
+            AppLogger.e(tag, "Sync failed: ${e.logAndGetMessage(tag)}")
         }
 
-        awaitClose {
-            dbJob.cancel()
-        }
-    }.flowOn(Dispatchers.IO)
+        awaitClose { dbJob.cancel() }
+    }
 
+    /**
+     * Variant of observeAndSync for a single item.
+     *
+     * toEntity may return null when the remote row does not exist: an absent item is not a
+     * failed sync, so nothing is cached and the local copy simply stays as it is.
+     */
     protected fun <T, E> observeAndSyncItem(
         dbFlow: Flow<E?>,
         mapper: (E) -> T,
-        toEntity: (T) -> E,
+        toEntity: (T) -> E?,
         networkFetch: suspend () -> T,
         cacheSync: suspend (E) -> Unit
     ): Flow<Result<T?>> = channelFlow {
-        var hasEmittedFromDb = false
-        
         val dbJob = launch {
-            dbFlow.collect { item ->
-                if (item != null) {
-                    hasEmittedFromDb = true
-                }
-                if (item != null) {
-                    runCatching { mapper(item) }
-                        .onSuccess { send(Result.success(it)) }
-                        .onFailure { e ->
-                            val userMsg = e.logAndGetMessage(tag)
-                            AppLogger.e(tag, "Local item mapping failed: $userMsg")
-                            send(Result.failure(e))
-                        }
-                } else {
-                    // Emit null to unblock combine flows
-                    send(Result.success(null))
-                }
+            dbFlow.collect { entity ->
+                send(Result.success(entity?.let(mapper)))
             }
         }
 
-        launch {
-            try {
-                val remoteData = retryWithExponentialBackoff { networkFetch() }
-                cacheSync(toEntity(remoteData))
-            } catch (e: Exception) {
-                if (e is kotlinx.coroutines.CancellationException) return@launch
-                val userMsg = e.logAndGetMessage(tag)
-                AppLogger.e(tag, "Item sync failed: $userMsg")
-                if (!hasEmittedFromDb) {
-                    send(Result.failure(e))
-                }
-            }
+        try {
+            val remoteData = networkFetch()
+            toEntity(remoteData)?.let { cacheSync(it) }
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
+            AppLogger.e(tag, "Item sync failed: ${e.logAndGetMessage(tag)}")
         }
 
-        awaitClose {
-            dbJob.cancel()
+        awaitClose { dbJob.cancel() }
+    }
+
+    /**
+     * Observe remote data only (no local caching).
+     */
+    protected fun <T> observeRemoteOnly(
+        networkFetch: suspend () -> List<T>
+    ): Flow<Result<List<T>>> = flow {
+        try {
+            emit(Result.success(networkFetch()))
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
+            emit(Result.failure(e))
         }
-    }.flowOn(Dispatchers.IO)
-    
+    }
+
+    /**
+     * Standardized retry logic with exponential backoff.
+     */
     protected suspend fun <T> retryWithExponentialBackoff(
         maxRetries: Int = 3,
-        initialDelayMs: Long = 1000L,
-        maxDelayMs: Long = 30_000L,
+        initialDelay: Long = 1000L,
         block: suspend () -> T
-    ): T = withContext(Dispatchers.IO) {
-        var lastException: Exception? = null
-        var delayMs = initialDelayMs
-        
+    ): Result<T> {
+        var currentDelay = initialDelay
         repeat(maxRetries) { attempt ->
             try {
-                return@withContext block()
+                return Result.success(block())
             } catch (e: Exception) {
-                if (e is kotlinx.coroutines.CancellationException) throw e
-                lastException = e
-                if (attempt < maxRetries - 1) {
-                    val userMsg = e.logAndGetMessage(tag)
-                    AppLogger.d(tag, "Retry attempt ${attempt + 1}/$maxRetries after ${delayMs}ms: $userMsg")
-                    delay(delayMs)
-                    delayMs = (delayMs * 2).coerceAtMost(maxDelayMs)
-                }
+                if (e is CancellationException) throw e
+
+                val isRecoverable = e is HttpRequestTimeoutException ||
+                                   e is java.net.SocketTimeoutException ||
+                                   e is IOException
+
+                if (attempt == maxRetries - 1 || !isRecoverable) return Result.failure(e)
+
+                AppLogger.w(tag, "Attempt ${attempt + 1} failed, retrying in $currentDelay ms... (Recoverable: $isRecoverable)")
+                delay(currentDelay)
+                currentDelay *= 2
             }
         }
-        
-        throw lastException ?: Exception("Failed after $maxRetries retry attempts")
+        return Result.failure(Exception("Retry failed after $maxRetries attempts"))
+    }
+
+    /**
+     * Safely fetches data trying primary columns first, then fallback columns if schema is out of sync.
+     */
+    protected suspend fun <T> safeColumnFetch(
+        primaryColumns: String,
+        fallbackColumns: String,
+        block: suspend (String) -> T
+    ): T {
+        return try {
+            block(primaryColumns)
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
+            val msg = e.message.orEmpty()
+            if (msg.contains("column", ignoreCase = true) && msg.contains("does not exist", ignoreCase = true)) {
+                AppLogger.w(tag, "Schema missing extended columns; using fallback projection.")
+                block(fallbackColumns)
+            } else {
+                throw e
+            }
+        }
+    }
+
+    /**
+     * Executes an API call safely, auto-queuing to the offline outbox on failure.
+     */
+    protected suspend fun <T> safeApiCall(
+        operationType: String,
+        groupId: String?,
+        payload: String,
+        dao: com.sanibonani.save.data.local.PendingOperationDao,
+        idempotencyKey: String? = null,
+        block: suspend () -> T
+    ): Result<T> = safeRunCatching("$tag.$operationType") {
+        block()
+    }.onFailure { e ->
+        if (e is CancellationException) throw e
+
+        val statusCode = (e as? ResponseException)?.response?.status?.value
+        // 408 and 429 are 'try again later' answers, exactly like a 5xx. Treating them as
+        // permanent would drop a queued money movement that the outbox could still replay.
+        val isRecoverable = e is IOException ||
+                           statusCode?.let { it == 408 || it == 429 || it >= 500 } == true
+
+        if (isRecoverable) {
+            AppLogger.w(tag, "$operationType queued for retry.")
+            dao.upsert(com.sanibonani.save.data.local.PendingOperationEntity(
+                id = idempotencyKey ?: java.util.UUID.randomUUID().toString(),
+                type = operationType,
+                payload = payload,
+                groupId = groupId,
+                createdAt = System.currentTimeMillis()
+            ))
+        } else {
+            AppLogger.e(tag, "$operationType failed with a permanent error; not queued.")
+        }
     }
 }

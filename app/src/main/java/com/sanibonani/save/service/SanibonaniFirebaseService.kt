@@ -2,9 +2,7 @@ package com.sanibonani.save.service
 
 import android.app.NotificationManager
 import android.app.PendingIntent
-import android.content.Context
 import android.content.Intent
-import android.content.SharedPreferences
 import androidx.core.app.NotificationCompat
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
@@ -13,9 +11,9 @@ import com.google.firebase.messaging.RemoteMessage
 import com.sanibonani.save.MainActivity
 import com.sanibonani.save.SanibonaniApp
 import com.sanibonani.save.R
-import com.sanibonani.save.data.logging.AppLogger
-import com.sanibonani.save.data.utils.logAndGetMessage
-import com.sanibonani.save.domain.repository.SupabaseRepository
+import com.sanibonani.save.domain.logging.AppLogger
+import com.sanibonani.save.domain.utils.logAndGetMessage
+import com.sanibonani.save.domain.repository.auth.SupabaseRepository
 import dagger.hilt.android.AndroidEntryPoint
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.postgrest.postgrest
@@ -28,7 +26,7 @@ import javax.inject.Inject
 
 @AndroidEntryPoint
 class SanibonaniFirebaseService : FirebaseMessagingService() {
-    
+
     @Inject lateinit var supabaseRepo: SupabaseRepository
     @Inject lateinit var supabaseClient: SupabaseClient
 
@@ -38,15 +36,17 @@ class SanibonaniFirebaseService : FirebaseMessagingService() {
         val body    = message.notification?.body  ?: message.data["body"]  ?: ""
         val event   = message.data["event"] ?: ""
         val groupId = message.data["group_id"] ?: ""
-        
+
         val channel = determineChannel(event)
         showNotification(title, body, channel, event, groupId)
     }
 
+    // Deprecated in the Firebase API, but still the required override for token refresh.
+    @Deprecated("FirebaseMessagingService.onNewToken is deprecated; still the supported token-refresh callback.")
     override fun onNewToken(token: String) {
         super.onNewToken(token)
         AppLogger.d("FCMService", "New FCM token received: ${token.take(20)}...")
-        
+
         // Try to update Supabase immediately if user is logged in
         val userId = supabaseRepo.currentUserId
         if (userId != null) {
@@ -72,6 +72,8 @@ class SanibonaniFirebaseService : FirebaseMessagingService() {
                 AppLogger.i("FCMService", "FCM token synced to Supabase for user $userId")
                 // Also clear the local backup since it's now synced
                 clearLocalToken()
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
                 val userMsg = e.logAndGetMessage("FCMService")
                 AppLogger.w(
@@ -90,7 +92,7 @@ class SanibonaniFirebaseService : FirebaseMessagingService() {
             val masterKey = MasterKey.Builder(applicationContext)
                 .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
                 .build()
-            
+
             val encryptedPrefs = EncryptedSharedPreferences.create(
                 applicationContext,
                 "fcm_tokens",
@@ -98,7 +100,7 @@ class SanibonaniFirebaseService : FirebaseMessagingService() {
                 EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
                 EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
             )
-            
+
             encryptedPrefs.edit().putString("pending_token", token).apply()
             AppLogger.d("FCMService", "Token stored locally in encrypted storage")
         } catch (e: Exception) {
@@ -112,7 +114,7 @@ class SanibonaniFirebaseService : FirebaseMessagingService() {
             val masterKey = MasterKey.Builder(applicationContext)
                 .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
                 .build()
-            
+
             val encryptedPrefs = EncryptedSharedPreferences.create(
                 applicationContext,
                 "fcm_tokens",
@@ -120,7 +122,7 @@ class SanibonaniFirebaseService : FirebaseMessagingService() {
                 EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
                 EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
             )
-            
+
             encryptedPrefs.edit().remove("pending_token").apply()
         } catch (e: Exception) {
             val userMsg = e.logAndGetMessage("FCMService")
@@ -143,18 +145,18 @@ class SanibonaniFirebaseService : FirebaseMessagingService() {
             flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
             putExtra("notification_event", event)
             putExtra("notification_group_id", groupId)
-            
+
             // Deep link logic: If it's a CUSTOM message, target Tab 4 (Messages)
             // If it's any other system notification, target Tab 5 (Notifications)
             val targetTab = if (event == "custom") 4 else 5
             putExtra("target_tab", targetTab)
         }
-        
+
         val pendingIntent = PendingIntent.getActivity(
             this, System.currentTimeMillis().toInt(), intent,
             PendingIntent.FLAG_ONE_SHOT or PendingIntent.FLAG_IMMUTABLE
         )
-        
+
         val notification = NotificationCompat.Builder(this, channelId)
             .setContentTitle(title)
             .setContentText(body)

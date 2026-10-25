@@ -33,16 +33,10 @@ interface MemberBehaviorTrackDao {
     @Query("SELECT * FROM member_behavior_track WHERE member_id = :memberId")
     suspend fun getByMemberId(memberId: String): MemberBehaviorTrackEntity?
 
-    @Query("SELECT * FROM member_behavior_track WHERE member_id_number = :idNumber AND group_id = :groupId")
-    suspend fun getByIdNumber(idNumber: String, groupId: String): MemberBehaviorTrackEntity?
-
     @Query("SELECT * FROM member_behavior_track WHERE id = :id")
     suspend fun getById(id: String): MemberBehaviorTrackEntity?
 
     // Read operations - flows (reactive)
-    @Query("SELECT * FROM member_behavior_track WHERE member_id = :memberId")
-    fun observeByMemberId(memberId: String): Flow<MemberBehaviorTrackEntity?>
-
     @Query("SELECT * FROM member_behavior_track WHERE member_id_number = :idNumber AND group_id = :groupId")
     fun observeByIdNumber(idNumber: String, groupId: String): Flow<MemberBehaviorTrackEntity?>
 
@@ -52,21 +46,12 @@ interface MemberBehaviorTrackDao {
     @Query("SELECT * FROM member_behavior_track WHERE is_flagged_for_review = 1")
     fun observeFlaggedForReview(): Flow<List<MemberBehaviorTrackEntity>>
 
-    @Query("SELECT * FROM member_behavior_track WHERE is_suspended = 1")
-    fun observeSuspendedMembers(): Flow<List<MemberBehaviorTrackEntity>>
-
     // Group queries
     @Query("SELECT * FROM member_behavior_track WHERE group_id = :groupId ORDER BY behavior_score DESC")
     suspend fun getGroupMembersBehavior(groupId: String): List<MemberBehaviorTrackEntity>
 
     @Query("SELECT * FROM member_behavior_track WHERE group_id = :groupId ORDER BY behavior_score DESC")
     fun observeGroupMembersBehavior(groupId: String): Flow<List<MemberBehaviorTrackEntity>>
-
-    @Query("SELECT * FROM member_behavior_track WHERE group_id = :groupId AND fraud_risk_level IN ('HIGH', 'CRITICAL') ORDER BY fraud_score DESC")
-    fun observeHighRiskMembers(groupId: String): Flow<List<MemberBehaviorTrackEntity>>
-
-    @Query("SELECT * FROM member_behavior_track WHERE group_id = :groupId AND is_flagged_for_review = 1")
-    fun observeFlaggedMembersInGroup(groupId: String): Flow<List<MemberBehaviorTrackEntity>>
 
     // Statistics
     @Query("SELECT COUNT(*) FROM member_behavior_track WHERE group_id = :groupId")
@@ -90,6 +75,12 @@ interface MemberBehaviorTrackDao {
 
     @Query("DELETE FROM member_behavior_track WHERE group_id = :groupId")
     suspend fun deleteByGroup(groupId: String)
+
+    @Transaction
+    suspend fun syncForGroup(groupId: String, entities: List<MemberBehaviorTrackEntity>) {
+        deleteByGroup(groupId)
+        upsertAll(entities)
+    }
 
     @Query("DELETE FROM member_behavior_track")
     suspend fun deleteAll()

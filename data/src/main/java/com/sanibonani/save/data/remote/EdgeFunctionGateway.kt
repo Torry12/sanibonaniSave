@@ -1,6 +1,5 @@
 package com.sanibonani.save.data.remote
 
-import com.sanibonani.save.data.logging.AppLogger
 import com.sanibonani.save.domain.model.WhatsAppSendException
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.auth.auth
@@ -10,7 +9,6 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.int
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -20,6 +18,7 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import javax.inject.Inject
 import javax.inject.Singleton
+import com.sanibonani.save.domain.utils.safeRunCatching
 
 @Singleton
 class EdgeFunctionGateway @Inject constructor(
@@ -32,7 +31,7 @@ class EdgeFunctionGateway @Inject constructor(
         payload: JsonObject = buildJsonObject { },
         requireAuth: Boolean = true
     ): Result<JsonObject> = withContext(Dispatchers.IO) {
-        runCatching {
+        safeRunCatching("EdgeFn:$functionName") {
             val token = supabaseClient.auth.currentSessionOrNull()?.accessToken
             if (requireAuth && token.isNullOrBlank()) {
                 throw IllegalStateException("You need to sign in again before retrying this action.")
@@ -52,7 +51,7 @@ class EdgeFunctionGateway @Inject constructor(
                 val bodyString = response.body?.string().orEmpty().trim()
                 if (!response.isSuccessful) {
                     // Parse the top-level "error" field from the response JSON.
-                    val parsedBody = runCatching {
+                    val parsedBody = safeRunCatching {
                         if (bodyString.isBlank()) null
                         else json.parseToJsonElement(bodyString).jsonObject
                     }.getOrNull()
@@ -73,13 +72,13 @@ class EdgeFunctionGateway @Inject constructor(
 
                     // For WhatsApp send failures, throw a richer exception with debug codes.
                     if (functionName == "send-whatsapp") {
-                        val waCode = runCatching {
+                        val waCode = safeRunCatching {
                             when (errorNode) {
                                 is JsonObject -> errorNode["code"]?.jsonPrimitive?.intOrNull
                                 else -> parsedBody?.get("code")?.jsonPrimitive?.intOrNull
                             }
                         }.getOrNull()
-                        val waType = runCatching {
+                        val waType = safeRunCatching {
                             when (errorNode) {
                                 is JsonObject -> errorNode["type"]?.jsonPrimitive?.content
                                 else -> parsedBody?.get("type")?.jsonPrimitive?.content
@@ -106,8 +105,6 @@ class EdgeFunctionGateway @Inject constructor(
                     else -> buildJsonObject { put("value", JsonPrimitive(parsed.toString())) }
                 }
             }
-        }.onFailure { throwable ->
-            AppLogger.e("EdgeFunctionGateway", "Edge function invocation failed: $functionName", throwable)
         }
     }
 

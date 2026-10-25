@@ -1,8 +1,9 @@
 package com.sanibonani.save.data.repository
 
-import com.sanibonani.save.data.local.SanibonaniDatabase
 import com.sanibonani.save.data.remote.EdgeFunctionGateway
-import io.github.jan.supabase.SupabaseClient
+import com.sanibonani.save.data.repository.system.NotificationRouter
+import com.sanibonani.save.data.repository.system.WhatsAppChannel
+import com.sanibonani.save.domain.model.NotifEvent
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.mockk
@@ -15,14 +16,20 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Test
 
+/**
+ * Tests for WhatsApp delivery fallback logic and notification routing.
+ *
+ * These features were originally in NotificationRepositoryImpl but have been refactored
+ * into [WhatsAppChannel] and [NotificationRouter] respectively.
+ */
 class NotificationRepositoryWhatsAppFallbackTest {
 
-    private val supabase = mockk<SupabaseClient>(relaxed = true)
     private val edgeFunctionGateway = mockk<EdgeFunctionGateway>()
-    private val db = mockk<SanibonaniDatabase>(relaxed = true)
+    private val whatsAppChannel = WhatsAppChannel(edgeFunctionGateway)
+    private val router = NotificationRouter()
 
     @Test
-    fun `sendWhatsAppViaEdge retries as plain text when template delivery fails`() = runTest {
+    fun `WhatsAppChannel retries as plain text when template delivery fails`() = runTest {
         val payloads = mutableListOf<JsonObject>()
         coEvery {
             edgeFunctionGateway.invoke("send-whatsapp", any(), any())
@@ -30,15 +37,16 @@ class NotificationRepositoryWhatsAppFallbackTest {
             val payload = secondArg<JsonObject>()
             payloads += payload
             if (payload.containsKey("template")) {
+                // Simulate template rejection error
                 Result.failure(IllegalStateException("Template parameter rejected"))
             } else {
                 Result.success(buildJsonObject { put("success", true) })
             }
         }
 
-        val repo = NotificationRepositoryImpl(supabase, edgeFunctionGateway, db)
-        repo.sendWhatsAppViaEdge("0821234567", "Hello team")
+        whatsAppChannel.deliver("0821234567", "Hello team")
 
+        // Should call twice: once with template, then fallback with plain text
         assertEquals(2, payloads.size)
         assertNotNull(payloads.first()["template"])
         assertEquals("0821234567", (payloads.last()["to"] as JsonPrimitive).content)
@@ -49,33 +57,28 @@ class NotificationRepositoryWhatsAppFallbackTest {
     }
 
     @Test
-    fun `sendWhatsAppViaEdge propagates non template failures without fallback`() = runTest {
+    fun `WhatsAppChannel propagates non template failures without fallback`() = runTest {
         coEvery {
             edgeFunctionGateway.invoke("send-whatsapp", any(), any())
         } returns Result.failure(IllegalStateException("Unauthorized"))
 
-        val repo = NotificationRepositoryImpl(supabase, edgeFunctionGateway, db)
-        val result = runCatching { repo.sendWhatsAppViaEdge("0821234567", "Hello team") }
+        val result = whatsAppChannel.deliver("0821234567", "Hello team")
 
         assertEquals(true, result.isFailure)
+        // Should only call once because it's not a template delivery failure
         coVerify(exactly = 1) { edgeFunctionGateway.invoke("send-whatsapp", any(), any()) }
     }
 
     @Test
-    fun `routesToGroupAdmin includes payout requested`() {
-        val repo = NotificationRepositoryImpl(supabase, edgeFunctionGateway, db)
-
-        assertEquals(true, repo.routesToGroupAdmin(com.sanibonani.save.domain.model.NotifEvent.PAYOUT_REQUESTED))
-        assertEquals(true, repo.routesToGroupAdmin(com.sanibonani.save.domain.model.NotifEvent.MEMBER_MESSAGE))
-        assertEquals(true, repo.routesToGroupAdmin(com.sanibonani.save.domain.model.NotifEvent.LOAN_REQUESTED))
+    fun `NotificationRouter shouldRouteToAdmin includes payout requested`() {
+        assertEquals(true, router.shouldRouteToAdmin(NotifEvent.PAYOUT_REQUESTED))
+        assertEquals(true, router.shouldRouteToAdmin(NotifEvent.MEMBER_MESSAGE))
+        assertEquals(true, router.shouldRouteToAdmin(NotifEvent.LOAN_REQUESTED))
     }
 
     @Test
-    fun `routesToGroupAdmin excludes unrelated events`() {
-        val repo = NotificationRepositoryImpl(supabase, edgeFunctionGateway, db)
-
-        assertEquals(false, repo.routesToGroupAdmin(com.sanibonani.save.domain.model.NotifEvent.PAYMENT_CONFIRMED))
-        assertEquals(false, repo.routesToGroupAdmin(com.sanibonani.save.domain.model.NotifEvent.CUSTOM))
+    fun `NotificationRouter shouldRouteToAdmin excludes unrelated events`() {
+        assertEquals(false, router.shouldRouteToAdmin(NotifEvent.PAYMENT_CONFIRMED))
+        assertEquals(false, router.shouldRouteToAdmin(NotifEvent.CUSTOM))
     }
 }
-

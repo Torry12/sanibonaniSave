@@ -1,5 +1,6 @@
 pluginManagement {
     repositories {
+        gradlePluginPortal()
         google {
             content {
                 includeGroupByRegex("com\\.android.*")
@@ -8,7 +9,6 @@ pluginManagement {
             }
         }
         mavenCentral()
-        gradlePluginPortal()
     }
 }
 plugins {
@@ -29,3 +29,4 @@ rootProject.name = "SanibonaniSave"
 include(":app")
 include(":domain")
 include(":data")
+include(":simulation")

@@ -28,8 +28,6 @@ jobs:
         echo "SUPABASE_SERVICE_ROLE_KEY=${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" >> local.properties
         echo "YOCO_PUBLIC_KEY=${{ secrets.YOCO_PUBLIC_KEY }}" >> local.properties
         echo "GEOAPIFY_API_KEY=${{ secrets.GEOAPIFY_API_KEY }}" >> local.properties
-        echo "WHATSAPP_TOKEN=${{ secrets.WHATSAPP_TOKEN }}" >> local.properties
-        echo "WHATSAPP_PHONE_NUMBER_ID=${{ secrets.WHATSAPP_PHONE_NUMBER_ID }}" >> local.properties
 
     - name: Grant execute permission for gradlew
       run: chmod +x gradlew

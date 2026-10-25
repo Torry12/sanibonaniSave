@@ -1,0 +1,9 @@
+- `[x]` Refactor Map Pin Aesthetics
+    - `[x]` Update `createMarkerIcon` in `MapComponents.kt`
+    - `[x]` Change color to project Navy
+    - `[x]` Add white stroke/border
+    - `[x]` Refine emoji centering and scaling
+    - `[x]` Reduce overall pin size for clarity
+- `[x]` Verification
+    - `[x]` Visual check of Map Discovery screen (Completed via walkthrough)
+    - `[x]` Verify marker legibility in clusters (Optimized to 96px)

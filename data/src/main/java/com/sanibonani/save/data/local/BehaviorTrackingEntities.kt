@@ -1,9 +1,8 @@
 package com.sanibonani.save.data.local
 
-import androidx.room.Entity
-import androidx.room.Index
-import androidx.room.ColumnInfo
-import androidx.room.PrimaryKey
+import androidx.room.*
+import com.sanibonani.save.domain.model.*
+import kotlinx.serialization.json.Json
 
 // ─────────────────────────────────────────────────────────────────────────────
 // BEHAVIOR TRACKING ENTITIES
@@ -25,12 +24,12 @@ import androidx.room.PrimaryKey
 )
 data class MemberBehaviorTrackEntity(
     @PrimaryKey val id: String,
-    
+
     // Primary indices
     @ColumnInfo(name = "member_id") val memberId: String,
     @ColumnInfo(name = "member_id_number") val memberIdNumber: String,
     @ColumnInfo(name = "group_id") val groupId: String,
-    
+
     // Payment Metrics
     @ColumnInfo(name = "total_contributions") val totalContributions: Int = 0,
     @ColumnInfo(name = "on_time_contributions") val onTimeContributions: Int = 0,
@@ -39,18 +38,18 @@ data class MemberBehaviorTrackEntity(
     @ColumnInfo(name = "missed_contributions") val missedContributions: Int = 0,
     @ColumnInfo(name = "payment_consistency_score") val paymentConsistencyScore: Double = 0.0,
     @ColumnInfo(name = "average_days_late") val averageDaysLate: Double = 0.0,
-    
+
     // Contribution Streaks
     @ColumnInfo(name = "current_payment_streak") val currentPaymentStreak: Int = 0,
     @ColumnInfo(name = "longest_payment_streak") val longestPaymentStreak: Int = 0,
     @ColumnInfo(name = "has_broken_streak_recently") val hasBrokenStreakRecently: Boolean = false,
-    
+
     // Financial Metrics
-    @ColumnInfo(name = "total_amount_contributed") val totalAmountContributed: Double = 0.0,
-    @ColumnInfo(name = "total_late_fees_paid") val totalLateFeesPaid: Double = 0.0,
-    @ColumnInfo(name = "pending_late_fees") val pendingLateFees: Double = 0.0,
-    @ColumnInfo(name = "total_outstanding_amount") val totalOutstandingAmount: Double = 0.0,
-    
+    @ColumnInfo(name = "total_amount_contributed") val totalAmountContributed: Money = Money.ZERO,
+    @ColumnInfo(name = "total_late_fees_paid") val totalLateFeesPaid: Money = Money.ZERO,
+    @ColumnInfo(name = "pending_late_fees") val pendingLateFees: Money = Money.ZERO,
+    @ColumnInfo(name = "total_outstanding_amount") val totalOutstandingAmount: Money = Money.ZERO,
+
     // Loan Metrics
     @ColumnInfo(name = "total_loans_requested") val totalLoansRequested: Int = 0,
     @ColumnInfo(name = "total_loans_approved") val totalLoansApproved: Int = 0,
@@ -59,7 +58,7 @@ data class MemberBehaviorTrackEntity(
     @ColumnInfo(name = "overdue_loans") val overdueLoans: Int = 0,
     @ColumnInfo(name = "loan_default_count") val loanDefaultCount: Int = 0,
     @ColumnInfo(name = "loan_completion_rate") val loanCompletionRate: Double = 0.0,
-    
+
     // Fraud Indicators
     @ColumnInfo(name = "duplicate_transaction_count") val duplicateTransactionCount: Int = 0,
     @ColumnInfo(name = "suspicious_activity_count") val suspiciousActivityCount: Int = 0,
@@ -67,30 +66,30 @@ data class MemberBehaviorTrackEntity(
     @ColumnInfo(name = "multiple_accounts_detected") val multipleAccountsDetected: Boolean = false,
     @ColumnInfo(name = "velocity_check_failed") val velocityCheckFailed: Boolean = false,
     @ColumnInfo(name = "rapid_disbursement_attempts") val rapidDisbursementAttempts: Int = 0,
-    
+
     // Behavioral Flags
-    @ColumnInfo(name = "member_status") val memberStatus: String = "FAIR",
-    @ColumnInfo(name = "fraud_risk_level") val fraudRiskLevel: String = "LOW",
+    @ColumnInfo(name = "member_status") val memberStatus: BehaviorStatus = BehaviorStatus.FAIR,
+    @ColumnInfo(name = "fraud_risk_level") val fraudRiskLevel: FraudRiskLevel = FraudRiskLevel.LOW,
     @ColumnInfo(name = "fraud_score") val fraudScore: Double = 0.0,
-    @ColumnInfo(name = "behavior_score") val behaviorScore: Double = 0.0,
-    
+    @ColumnInfo(name = "behavior_score") val behaviorScore: Double = 100.0,
+
     // Flags and Warnings
     @ColumnInfo(name = "is_flagged_for_review") val isFlaggedForReview: Boolean = false,
     @ColumnInfo(name = "is_suspended") val isSuspended: Boolean = false,
     @ColumnInfo(name = "suspension_reason") val suspensionReason: String? = null,
     @ColumnInfo(name = "review_notes") val reviewNotes: String? = null,
-    
+
     // Membership Duration
     @ColumnInfo(name = "months_in_group") val monthsInGroup: Int = 0,
     @ColumnInfo(name = "joined_at") val joinedAt: String? = null,
     @ColumnInfo(name = "last_activity_at") val lastActivityAt: String? = null,
     @ColumnInfo(name = "last_contribution_at") val lastContributionAt: String? = null,
-    
+
     // Admin Notes
     @ColumnInfo(name = "admin_notes") val adminNotes: String? = null,
     @ColumnInfo(name = "last_reviewed_at") val lastReviewedAt: String? = null,
     @ColumnInfo(name = "reviewed_by") val reviewedBy: String? = null,
-    
+
     @ColumnInfo(name = "created_at") val createdAt: String? = null,
     @ColumnInfo(name = "updated_at") val updatedAt: String? = null
 )
@@ -109,15 +108,15 @@ data class MemberBehaviorTrackEntity(
 )
 data class FraudDetectionEventEntity(
     @PrimaryKey val id: String,
-    
+
     @ColumnInfo(name = "member_id") val memberId: String,
     @ColumnInfo(name = "group_id") val groupId: String,
     @ColumnInfo(name = "event_type") val eventType: String,
-    @ColumnInfo(name = "severity") val severity: String,
+    @ColumnInfo(name = "severity") val severity: FraudRiskLevel,
     @ColumnInfo(name = "details_json") val detailsJson: String, // JSON string
     @ColumnInfo(name = "action_taken") val actionTaken: String? = null,
     @ColumnInfo(name = "resolved") val resolved: Boolean = false,
-    
+
     @ColumnInfo(name = "created_at") val createdAt: String? = null,
     @ColumnInfo(name = "updated_at") val updatedAt: String? = null
 )
@@ -133,7 +132,7 @@ data class FraudDetectionEventEntity(
 )
 data class BehaviorAnalyticsSummaryEntity(
     @PrimaryKey @ColumnInfo(name = "group_id") val groupId: String,
-    
+
     @ColumnInfo(name = "total_members_tracked") val totalMembersTracked: Int = 0,
     @ColumnInfo(name = "excellent_members") val excellentMembers: Int = 0,
     @ColumnInfo(name = "good_members") val goodMembers: Int = 0,
@@ -147,5 +146,169 @@ data class BehaviorAnalyticsSummaryEntity(
     @ColumnInfo(name = "on_time_payment_rate") val onTimePaymentRate: Double = 0.0,
     @ColumnInfo(name = "loan_default_rate") val loanDefaultRate: Double = 0.0,
     @ColumnInfo(name = "calculated_at") val calculatedAt: String? = null
+)
+
+// ── Mappers ──────────────────────────────────────────────────────────────────
+
+fun MemberBehaviorTrackEntity.toModel() = MemberBehaviorTrack(
+    id = id,
+    memberId = memberId,
+    memberIdNumber = memberIdNumber,
+    groupId = groupId,
+    totalContributions = totalContributions,
+    onTimeContributions = onTimeContributions,
+    lateContributions = lateContributions,
+    overdueCount = overdueCount,
+    missedContributions = missedContributions,
+    paymentConsistencyScore = paymentConsistencyScore,
+    averageDaysLate = averageDaysLate,
+    currentPaymentStreak = currentPaymentStreak,
+    longestPaymentStreak = longestPaymentStreak,
+    hasBrokenStreakRecently = hasBrokenStreakRecently,
+    totalAmountContributed = totalAmountContributed,
+    totalLateFeesPaid = totalLateFeesPaid,
+    pendingLateFees = pendingLateFees,
+    totalOutstandingAmount = totalOutstandingAmount,
+    totalLoansRequested = totalLoansRequested,
+    totalLoansApproved = totalLoansApproved,
+    totalLoansCompleted = totalLoansCompleted,
+    activeLoans = activeLoans,
+    overdueLoans = overdueLoans,
+    loanDefaultCount = loanDefaultCount,
+    loanCompletionRate = loanCompletionRate,
+    duplicateTransactionCount = duplicateTransactionCount,
+    suspiciousActivityCount = suspiciousActivityCount,
+    unusualPaymentPatterns = unusualPaymentPatterns,
+    multipleAccountsDetected = multipleAccountsDetected,
+    velocityCheckFailed = velocityCheckFailed,
+    rapidDisbursementAttempts = rapidDisbursementAttempts,
+    memberStatus = memberStatus,
+    fraudRiskLevel = fraudRiskLevel,
+    fraudScore = fraudScore,
+    behaviorScore = behaviorScore,
+    isFlaggedForReview = isFlaggedForReview,
+    isSuspended = isSuspended,
+    suspensionReason = suspensionReason,
+    reviewNotes = reviewNotes,
+    monthsInGroup = monthsInGroup,
+    joinedAt = joinedAt,
+    lastActivityAt = lastActivityAt,
+    lastContributionAt = lastContributionAt,
+    adminNotes = adminNotes,
+    lastReviewedAt = lastReviewedAt,
+    reviewedBy = reviewedBy,
+    createdAt = createdAt,
+    updatedAt = updatedAt
+)
+
+fun MemberBehaviorTrack.toEntity() = MemberBehaviorTrackEntity(
+    id = id ?: java.util.UUID.randomUUID().toString(),
+    memberId = memberId,
+    memberIdNumber = memberIdNumber,
+    groupId = groupId,
+    totalContributions = totalContributions,
+    onTimeContributions = onTimeContributions,
+    lateContributions = lateContributions,
+    overdueCount = overdueCount,
+    missedContributions = missedContributions,
+    paymentConsistencyScore = paymentConsistencyScore,
+    averageDaysLate = averageDaysLate,
+    currentPaymentStreak = currentPaymentStreak,
+    longestPaymentStreak = longestPaymentStreak,
+    hasBrokenStreakRecently = hasBrokenStreakRecently,
+    totalAmountContributed = totalAmountContributed,
+    totalLateFeesPaid = totalLateFeesPaid,
+    pendingLateFees = pendingLateFees,
+    totalOutstandingAmount = totalOutstandingAmount,
+    totalLoansRequested = totalLoansRequested,
+    totalLoansApproved = totalLoansApproved,
+    totalLoansCompleted = totalLoansCompleted,
+    activeLoans = activeLoans,
+    overdueLoans = overdueLoans,
+    loanDefaultCount = loanDefaultCount,
+    loanCompletionRate = loanCompletionRate,
+    duplicateTransactionCount = duplicateTransactionCount,
+    suspiciousActivityCount = suspiciousActivityCount,
+    unusualPaymentPatterns = unusualPaymentPatterns,
+    multipleAccountsDetected = multipleAccountsDetected,
+    velocityCheckFailed = velocityCheckFailed,
+    rapidDisbursementAttempts = rapidDisbursementAttempts,
+    memberStatus = memberStatus,
+    fraudRiskLevel = fraudRiskLevel,
+    fraudScore = fraudScore,
+    behaviorScore = behaviorScore,
+    isFlaggedForReview = isFlaggedForReview,
+    isSuspended = isSuspended,
+    suspensionReason = suspensionReason,
+    reviewNotes = reviewNotes,
+    monthsInGroup = monthsInGroup,
+    joinedAt = joinedAt,
+    lastActivityAt = lastActivityAt,
+    lastContributionAt = lastContributionAt,
+    adminNotes = adminNotes,
+    lastReviewedAt = lastReviewedAt,
+    reviewedBy = reviewedBy,
+    createdAt = createdAt,
+    updatedAt = updatedAt
+)
+
+fun FraudDetectionEventEntity.toModel() = FraudDetectionEvent(
+    id = id,
+    memberId = memberId,
+    groupId = groupId,
+    eventType = eventType,
+    severity = severity,
+    details = try { Json.decodeFromString(detailsJson) } catch (e: Exception) { emptyMap() },
+    actionTaken = actionTaken,
+    resolved = resolved,
+    createdAt = createdAt,
+    updatedAt = updatedAt
+)
+
+fun FraudDetectionEvent.toEntity() = FraudDetectionEventEntity(
+    id = id ?: java.util.UUID.randomUUID().toString(),
+    memberId = memberId,
+    groupId = groupId,
+    eventType = eventType,
+    severity = severity,
+    detailsJson = Json.encodeToString(details),
+    actionTaken = actionTaken,
+    resolved = resolved,
+    createdAt = createdAt,
+    updatedAt = updatedAt
+)
+
+fun BehaviorAnalyticsSummaryEntity.toModel() = BehaviorAnalyticsSummary(
+    groupId = groupId,
+    totalMembersTracked = totalMembersTracked,
+    excellentMembers = excellentMembers,
+    goodMembers = goodMembers,
+    fairMembers = fairMembers,
+    poorMembers = poorMembers,
+    suspendedMembers = suspendedMembers,
+    highFraudRiskCount = highFraudRiskCount,
+    flaggedMembersCount = flaggedMembersCount,
+    averageBehaviorScore = averageBehaviorScore,
+    averageFraudScore = averageFraudScore,
+    onTimePaymentRate = onTimePaymentRate,
+    loanDefaultRate = loanDefaultRate,
+    calculatedAt = calculatedAt
+)
+
+fun BehaviorAnalyticsSummary.toEntity() = BehaviorAnalyticsSummaryEntity(
+    groupId = groupId,
+    totalMembersTracked = totalMembersTracked,
+    excellentMembers = excellentMembers,
+    goodMembers = goodMembers,
+    fairMembers = fairMembers,
+    poorMembers = poorMembers,
+    suspendedMembers = suspendedMembers,
+    highFraudRiskCount = highFraudRiskCount,
+    flaggedMembersCount = flaggedMembersCount,
+    averageBehaviorScore = averageBehaviorScore,
+    averageFraudScore = averageFraudScore,
+    onTimePaymentRate = onTimePaymentRate,
+    loanDefaultRate = loanDefaultRate,
+    calculatedAt = calculatedAt
 )
 
