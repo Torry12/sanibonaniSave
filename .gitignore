@@ -54,13 +54,12 @@ keystore.b64
 
 # Gradle
 .gradle/
-build/
-
-# Build artifacts
-**/build/
+# Module build outputs only: a bare "build/" also matches source packages such as
+# buildSrc/src/main/kotlin/com/sanibonani/save/build/.
+/*/build/
 
 # KSP generated files
-**/build/generated/ksp/
+/*/build/generated/ksp/
 
 # Local properties
 local.properties
