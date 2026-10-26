@@ -65,7 +65,7 @@ class PlatformDisbursementsViewModel @Inject constructor(
         }
     }
 
-    fun approvePayout(payoutId: String, groupId: String) {
+    fun approvePayout(payoutId: String) {
         val payout = uiState.value.payouts.find { it.id == payoutId } ?: return
         val nextStatus = when (payout.status) {
             PayoutStatus.PENDING -> PayoutStatus.GROUP_APPROVED
@@ -73,30 +73,36 @@ class PlatformDisbursementsViewModel @Inject constructor(
             PayoutStatus.FAILED -> PayoutStatus.PROCESSING
             else -> return
         }
-        processPayoutInternal(payoutId, groupId, nextStatus)
+        processPayoutInternal(payoutId, nextStatus)
     }
 
-    fun rejectPayout(payoutId: String, groupId: String) {
+    fun rejectPayout(payoutId: String) {
         val payout = uiState.value.payouts.find { it.id == payoutId } ?: return
         val nextStatus = when (payout.status) {
             PayoutStatus.PROCESSING -> PayoutStatus.FAILED
             else -> PayoutStatus.REJECTED
         }
-        processPayoutInternal(payoutId, groupId, nextStatus)
+        processPayoutInternal(payoutId, nextStatus)
     }
 
-    fun completePayout(payoutId: String, groupId: String) {
-        processPayoutInternal(payoutId, groupId, PayoutStatus.COMPLETED)
+    fun completePayout(payoutId: String) {
+        processPayoutInternal(payoutId, PayoutStatus.COMPLETED)
     }
 
-    private fun processPayoutInternal(payoutId: String, groupId: String, status: PayoutStatus) {
+    private fun processPayoutInternal(payoutId: String, status: PayoutStatus) {
+        // currentUserId can be blank during a session race; the domain refuses an unattributable
+        // transition, so the screen reports it instead of launching a call that must fail.
+        val adminId = supabaseRepo.currentUserId?.takeIf { it.isNotBlank() }
+        if (adminId == null) {
+            handleError(IllegalStateException("Sign in again to change a payout status."))
+            return
+        }
         launchJob("process_payout_$payoutId") {
             updateState { it.copy(isProcessingPayout = true, processingIds = it.processingIds + payoutId) }
             processDisbursementUseCase(
                 payoutId = payoutId,
-                groupId = groupId,
                 status = status,
-                adminId = supabaseRepo.currentUserId ?: ""
+                adminId = adminId
             ).onSuccess { updated ->
                 updateState { s -> s.copy(
                     payouts = s.payouts.map { if (it.id == updated.id) updated else it }

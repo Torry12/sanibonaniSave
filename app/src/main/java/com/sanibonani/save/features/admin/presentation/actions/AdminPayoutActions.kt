@@ -111,16 +111,19 @@ class AdminPayoutActions @Inject constructor(
     }
 
     fun approveAndEscalatePayoutRequest(host: AdminFinancialActionHost, payoutId: String) {
-        val groupId = adminContextCacheService.selectedGroupId.value ?: return
         host.launchAction("approve_escalate_payout") {
+            val adminId = supabaseRepo.currentUserId?.takeIf { it.isNotBlank() }
+            if (adminId == null) {
+                host.reportError(IllegalStateException("Sign in again to escalate a payout request."))
+                return@launchAction
+            }
             host.updateActionState { it.copy(isLoading = true, error = null, processingIds = it.processingIds + payoutId) }
             // Through the disbursement use case so the transition, the liquidity check and the
             // platform audit trail all see the escalation, exactly as on the platform screen.
             processDisbursementUseCase(
                 payoutId = payoutId,
-                groupId = groupId,
                 status = PayoutStatus.GROUP_APPROVED,
-                adminId = supabaseRepo.currentUserId ?: ""
+                adminId = adminId
             ).onSuccess { updated ->
                 host.updateActionState { s ->
                     s.copy(

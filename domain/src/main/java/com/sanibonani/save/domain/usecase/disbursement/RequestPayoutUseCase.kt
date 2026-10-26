@@ -5,7 +5,6 @@ import com.sanibonani.save.domain.repository.member.*
 import com.sanibonani.save.domain.repository.disbursement.PayoutRepository
 import com.sanibonani.save.domain.service.PayoutGuard
 import com.sanibonani.save.domain.service.GroupFinancialPolicy
-import com.sanibonani.save.domain.validation.InputValidator
 import javax.inject.Inject
 import com.sanibonani.save.domain.usecase.financialResult
 /**
@@ -90,24 +89,24 @@ class RequestPayoutUseCase @Inject constructor(
         // Apply Guards
         payoutGuard.validateRequest(group, member, amountToPay, payoutType).getOrThrow()
 
-        if (member != null && bankName.isNullOrBlank()) {
-            throw Exception("Member banking details are required for a member payout.")
+        val bankDetails = when (val check = validateBankDetails(bankName, accountNo, branchCode)) {
+            is BankDetailsResult.Valid -> check.details
+            is BankDetailsResult.Invalid -> throw Exception(
+                when {
+                    check.field != BankDetailsField.BANK_NAME -> check.reason
+                    member != null -> "Member banking details are required for a member payout."
+                    else -> "Bank name required."
+                }
+            )
         }
-        if (bankName.isNullOrBlank()) throw Exception("Bank name required.")
-        val validAccountNo = accountNo?.trim().orEmpty()
-        val validBranchCode = branchCode?.trim().orEmpty()
-        InputValidator.validateAccountNumber(validAccountNo, bankName)
-            .getErrorMessage()?.let { throw Exception(it) }
-        InputValidator.validateBranchCode(validBranchCode)
-            .getErrorMessage()?.let { throw Exception(it) }
 
         val request = PayoutRequest(
             groupId = groupId,
             memberId = member?.id,
             amount = amountToPay,
-            bankName = bankName.trim(),
-            accountNo = validAccountNo,
-            branchCode = validBranchCode,
+            bankName = bankDetails.bankName,
+            accountNo = bankDetails.accountNo,
+            branchCode = bankDetails.branchCode,
             status = PayoutStatus.PENDING,
             type = payoutType,
             metadata = null

@@ -23,6 +23,7 @@ import com.sanibonani.save.domain.usecase.auth.VerifyMfaChallengeUseCase
 import com.sanibonani.save.service.AdminGroupContextCacheService
 import com.sanibonani.save.service.CachedAdminGroupContext
 import com.sanibonani.save.features.admin.presentation.AdminFinancialViewModel
+import com.sanibonani.save.features.common.presentation.UIEvent
 import com.sanibonani.save.features.admin.presentation.actions.AdminBankActions
 import com.sanibonani.save.features.admin.presentation.actions.AdminClaimActions
 import com.sanibonani.save.features.admin.presentation.actions.AdminLedgerActions
@@ -33,13 +34,16 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -100,6 +104,7 @@ class AdminFinancialViewModelTest {
 
         Dispatchers.setMain(testDispatcher)
         every { supabaseRepo.sessionFlow } returns MutableStateFlow(null)
+        every { supabaseRepo.currentUserId } returns "admin-1"
 
         every { adminContextCacheService.selectedGroupId } returns selectedGroupIdFlow
         every { adminContextCacheService.contexts } returns contextsFlow
@@ -190,7 +195,7 @@ class AdminFinancialViewModelTest {
             branchCode = "250655"
         )
         coEvery {
-            processDisbursementUseCase(payoutId, groupId, PayoutStatus.GROUP_APPROVED, any(), any(), any())
+            processDisbursementUseCase(payoutId, PayoutStatus.GROUP_APPROVED, any(), any())
         } returns Result.success(approved)
 
         val vm = createViewModel()
@@ -199,7 +204,7 @@ class AdminFinancialViewModelTest {
         advanceUntilIdle()
 
         coVerify(exactly = 1) {
-            processDisbursementUseCase(payoutId, groupId, PayoutStatus.GROUP_APPROVED, any(), any(), any())
+            processDisbursementUseCase(payoutId, PayoutStatus.GROUP_APPROVED, any(), any())
         }
         // The raw write bypasses transition, liquidity and audit checks, so it must not be used.
         coVerify(exactly = 0) { payoutRepo.updatePayoutStatus(any(), any(), any(), any()) }
@@ -212,7 +217,7 @@ class AdminFinancialViewModelTest {
         val payoutId = "payout-1"
         selectedGroupIdFlow.value = groupId
         coEvery {
-            processDisbursementUseCase(payoutId, groupId, PayoutStatus.GROUP_APPROVED, any(), any(), any())
+            processDisbursementUseCase(payoutId, PayoutStatus.GROUP_APPROVED, any(), any())
         } returns Result.failure(Exception("INSUFFICIENT_LIQUIDITY: balance is below the required amount"))
 
         val vm = createViewModel()
@@ -223,6 +228,24 @@ class AdminFinancialViewModelTest {
         assertEquals(null, vm.state.value.successMessage)
         assertEquals(false, vm.state.value.isLoading)
         assertEquals(emptySet<String>(), vm.state.value.processingIds)
+    }
+
+    @Test
+    fun `escalation without a signed-in administrator reports an error and never calls the use case`() = runTest {
+        val groupId = "group-1"
+        selectedGroupIdFlow.value = groupId
+        every { supabaseRepo.currentUserId } returns null
+        val vm = createViewModel()
+        val errors = mutableListOf<UIEvent>()
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+            vm.events.collect { errors.add(it) }
+        }
+
+        vm.approveAndEscalatePayoutRequest("payout-1")
+        advanceUntilIdle()
+
+        coVerify(exactly = 0) { processDisbursementUseCase(any(), any(), any()) }
+        assertTrue(errors.filterIsInstance<UIEvent.ShowError>().isNotEmpty())
     }
 
     @Test

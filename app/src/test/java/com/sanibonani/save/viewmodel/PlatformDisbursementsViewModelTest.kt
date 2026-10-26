@@ -120,22 +120,48 @@ class PlatformDisbursementsViewModelTest {
         )
         coEvery { payoutRepo.getPendingPayouts() } returns Result.success(listOf(failed))
         coEvery {
-            processDisbursementUseCase(any(), any(), any(), any())
+            processDisbursementUseCase(any(), any(), any())
         } returns Result.success(failed.copy(status = PayoutStatus.REJECTED))
 
         viewModel.load()
         advanceUntilIdle()
-        viewModel.rejectPayout("p1", "g1")
+        viewModel.rejectPayout("p1")
         advanceUntilIdle()
 
         coVerify {
             processDisbursementUseCase(
                 payoutId = "p1",
-                groupId = "g1",
                 status = PayoutStatus.REJECTED,
                 adminId = "platform_admin"
             )
         }
+    }
+
+    @Test
+    fun `a blank session does not ask the domain to stamp an empty admin`() = runTest {
+        val pending = PayoutRequest(
+            id = "p1",
+            groupId = "g1",
+            amount = Money("1000.0"),
+            status = PayoutStatus.PENDING,
+            bankName = "FNB",
+            accountNo = "123456789",
+            branchCode = "250655"
+        )
+        coEvery { payoutRepo.getPendingPayouts() } returns Result.success(listOf(pending))
+        every { supabaseRepo.currentUserId } returns null
+        val errors = mutableListOf<UIEvent>()
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+            viewModel.events.collect { errors.add(it) }
+        }
+
+        viewModel.load()
+        advanceUntilIdle()
+        viewModel.approvePayout("p1")
+        advanceUntilIdle()
+
+        coVerify(exactly = 0) { processDisbursementUseCase(any(), any(), any()) }
+        assertTrue(errors.filterIsInstance<UIEvent.ShowError>().isNotEmpty())
     }
 
     @Test

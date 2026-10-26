@@ -49,7 +49,7 @@ class ProcessDisbursementUseCaseTest {
         coEvery { payoutRepository.completePayoutAtomic(any(), any(), any()) } returns Result.success(Unit)
 
         // When
-        val result = useCase(payoutId, "g1", PayoutStatus.COMPLETED, "admin1")
+        val result = useCase(payoutId, PayoutStatus.COMPLETED, "admin1")
 
         // Then
         assertTrue(result.isSuccess)
@@ -74,7 +74,7 @@ class ProcessDisbursementUseCaseTest {
         coEvery { payoutRepository.getPayoutById(payoutId) } returns Result.success(payout)
 
         // When
-        val result = useCase(payoutId, "g1", PayoutStatus.COMPLETED, "admin1")
+        val result = useCase(payoutId, PayoutStatus.COMPLETED, "admin1")
 
         // Then
         assertTrue(result.isFailure)
@@ -96,7 +96,7 @@ class ProcessDisbursementUseCaseTest {
         // MFA is verified in setUp, so dual control is the only thing blocking this completion.
         coEvery { payoutRepository.getPayoutById("p1") } returns Result.success(payout)
 
-        val result = useCase("p1", "g1", PayoutStatus.COMPLETED, "admin1")
+        val result = useCase("p1", PayoutStatus.COMPLETED, "admin1")
 
         assertTrue(result.isFailure)
         assertTrue(result.exceptionOrNull()?.message?.contains("DUAL_CONTROL_VIOLATION") == true)
@@ -118,7 +118,7 @@ class ProcessDisbursementUseCaseTest {
         coEvery { payoutRepository.getPayoutById("p1") } returns Result.success(payout)
         coEvery { payoutRepository.completePayoutAtomic(any(), any(), any()) } returns Result.success(Unit)
 
-        val result = useCase("p1", "g1", PayoutStatus.COMPLETED, "admin2")
+        val result = useCase("p1", PayoutStatus.COMPLETED, "admin2")
 
         assertTrue(result.isSuccess)
         coVerify(exactly = 1) { payoutRepository.completePayoutAtomic("p1", "admin2", any()) }
@@ -139,7 +139,7 @@ class ProcessDisbursementUseCaseTest {
         coEvery { payoutRepository.getPayoutById("p1") } returns Result.success(payout)
         coEvery { payoutRepository.completePayoutAtomic(any(), any(), any()) } returns Result.success(Unit)
 
-        val result = useCase("p1", "g1", PayoutStatus.COMPLETED, "admin1")
+        val result = useCase("p1", PayoutStatus.COMPLETED, "admin1")
 
         assertTrue(result.isSuccess)
     }
@@ -162,7 +162,7 @@ class ProcessDisbursementUseCaseTest {
         coEvery { payoutRepository.getPayoutById("p1") } returns Result.success(payout)
         coEvery { payoutRepository.completePayoutAtomic(any(), any(), any()) } returns Result.success(Unit)
 
-        val result = useCase("p1", "g1", PayoutStatus.COMPLETED, "admin1")
+        val result = useCase("p1", PayoutStatus.COMPLETED, "admin1")
 
         assertTrue(result.isSuccess)
         coVerify(exactly = 1) { payoutRepository.completePayoutAtomic("p1", "admin1", any()) }
@@ -183,7 +183,7 @@ class ProcessDisbursementUseCaseTest {
         coEvery { payoutRepository.getPayoutById("p1") } returns Result.success(payout)
         coEvery { payoutRepository.completePayoutAtomic(any(), any(), any()) } returns Result.success(Unit)
 
-        val result = useCase("p1", "g1", PayoutStatus.COMPLETED, "admin1")
+        val result = useCase("p1", PayoutStatus.COMPLETED, "admin1")
 
         assertTrue(result.isSuccess)
     }
@@ -195,7 +195,7 @@ class ProcessDisbursementUseCaseTest {
         coEvery { payoutRepository.getPayoutById("p1") } returns
             Result.success(pendingPayout(Money("100.0"), status = PayoutStatus.PROCESSING))
 
-        val result = useCase("p1", "g1", PayoutStatus.COMPLETED, "   ")
+        val result = useCase("p1", PayoutStatus.COMPLETED, "   ")
 
         assertTrue(result.isFailure)
         coVerify(exactly = 0) { payoutRepository.completePayoutAtomic(any(), any(), any()) }
@@ -209,7 +209,7 @@ class ProcessDisbursementUseCaseTest {
             listOf(pendingPayout(Money("20000.0"), id = "p2", status = PayoutStatus.GROUP_APPROVED))
         )
 
-        val result = useCase("p1", "g1", PayoutStatus.GROUP_APPROVED, "admin1")
+        val result = useCase("p1", PayoutStatus.GROUP_APPROVED, "admin1")
 
         assertTrue(result.isFailure)
         assertTrue(result.exceptionOrNull()?.message?.contains("INSUFFICIENT_LIQUIDITY") == true)
@@ -222,7 +222,7 @@ class ProcessDisbursementUseCaseTest {
         // R50 000 of balance would cover R40 000 only if the queue were really empty.
         coEvery { payoutRepository.getPendingPayouts() } returns Result.failure(Exception("offline"))
 
-        val result = useCase("p1", "g1", PayoutStatus.GROUP_APPROVED, "admin1")
+        val result = useCase("p1", PayoutStatus.GROUP_APPROVED, "admin1")
 
         assertTrue(result.isFailure)
         coVerify(exactly = 0) { payoutRepository.updatePayoutStatus(any(), any(), any(), any()) }
@@ -245,7 +245,7 @@ class ProcessDisbursementUseCaseTest {
         coEvery { payoutRepository.getPayoutById("p1") } returns Result.success(payout)
         coEvery { payoutRepository.updatePayoutStatus(any(), any(), any(), any(), any()) } returns Result.success(Unit)
 
-        val result = useCase("p1", "g1", PayoutStatus.PROCESSING, "admin1")
+        val result = useCase("p1", PayoutStatus.PROCESSING, "admin1")
 
         assertTrue(result.isSuccess)
         coVerify(exactly = 1) {
@@ -254,16 +254,15 @@ class ProcessDisbursementUseCaseTest {
     }
 
     @Test
-    fun `liquidity is checked against the payout's own group, not the caller's context`() = runBlocking {
+    fun `liquidity is checked against the payout's own group`() = runBlocking {
         val payout = pendingPayout(Money("40000.0")).copy(groupId = "g-real")
         coEvery { payoutRepository.getPayoutById("p1") } returns Result.success(payout)
         coEvery { payoutRepository.updatePayoutStatus(any(), any(), any(), any(), any()) } returns Result.success(Unit)
 
-        val result = useCase("p1", "g-other", PayoutStatus.GROUP_APPROVED, "admin1")
+        val result = useCase("p1", PayoutStatus.GROUP_APPROVED, "admin1")
 
         assertTrue(result.isSuccess)
         coVerify { financialRepository.getVerifiedBalance("g-real") }
-        coVerify(exactly = 0) { financialRepository.getVerifiedBalance("g-other") }
     }
 
     @Test
@@ -278,9 +277,10 @@ class ProcessDisbursementUseCaseTest {
         )
         coEvery { payoutRepository.updatePayoutStatus(any(), any(), any(), any(), any()) } returns Result.success(Unit)
 
-        val result = useCase("p1", "g-other", PayoutStatus.GROUP_APPROVED, "admin1")
+        val result = useCase("p1", PayoutStatus.GROUP_APPROVED, "admin1")
 
         assertTrue(result.isSuccess)
+        coVerify { financialRepository.getVerifiedBalance("g-real") }
     }
 
     @Test
@@ -294,10 +294,11 @@ class ProcessDisbursementUseCaseTest {
             )
         )
 
-        val result = useCase("p1", "g-other", PayoutStatus.GROUP_APPROVED, "admin1")
+        val result = useCase("p1", PayoutStatus.GROUP_APPROVED, "admin1")
 
         assertTrue(result.isFailure)
         assertTrue(result.exceptionOrNull()?.message?.contains("INSUFFICIENT_LIQUIDITY") == true)
+        coVerify { financialRepository.getVerifiedBalance("g-real") }
         coVerify(exactly = 0) { payoutRepository.updatePayoutStatus(any(), any(), any(), any(), any()) }
     }
 
@@ -307,7 +308,7 @@ class ProcessDisbursementUseCaseTest {
             Result.success(pendingPayout(Money("100.0"), status = PayoutStatus.FAILED))
         coEvery { payoutRepository.updatePayoutStatus(any(), any(), any(), any(), any()) } returns Result.success(Unit)
 
-        val result = useCase("p1", "g1", PayoutStatus.REJECTED, "admin1")
+        val result = useCase("p1", PayoutStatus.REJECTED, "admin1")
 
         assertTrue(result.isSuccess)
         coVerify(exactly = 1) {

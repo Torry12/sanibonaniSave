@@ -291,9 +291,9 @@ fun DisbursementsTab(
                     Button(
                         onClick = {
                             when (targetStatus) {
-                                PayoutStatus.GROUP_APPROVED -> vm.approvePayout(payout.id ?: "", payout.groupId)
-                                PayoutStatus.REJECTED -> vm.rejectPayout(payout.id ?: "", payout.groupId)
-                                PayoutStatus.COMPLETED -> vm.completePayout(payout.id ?: "", payout.groupId)
+                                PayoutStatus.GROUP_APPROVED -> vm.approvePayout(payout.id ?: "")
+                                PayoutStatus.REJECTED -> vm.rejectPayout(payout.id ?: "")
+                                PayoutStatus.COMPLETED -> vm.completePayout(payout.id ?: "")
                                 else -> {}
                             }
                             payoutToConfirm = null

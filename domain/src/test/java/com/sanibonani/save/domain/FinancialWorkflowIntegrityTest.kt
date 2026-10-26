@@ -54,7 +54,7 @@ class FinancialWorkflowIntegrityTest {
         coEvery { financialRepository.getVerifiedBalance(groupId) } returns Result.success(Money("500.0")) // Less than amount
 
         // When
-        val result = processDisbursementUseCase(payoutId, groupId, PayoutStatus.COMPLETED, "admin1")
+        val result = processDisbursementUseCase(payoutId, PayoutStatus.COMPLETED, "admin1")
 
         // Then
         assertTrue(result.isFailure)
@@ -80,7 +80,7 @@ class FinancialWorkflowIntegrityTest {
         coEvery { payoutRepository.getPayoutById(payoutId) } returns Result.success(payout)
 
         // When
-        val result = processDisbursementUseCase(payoutId, "g1", PayoutStatus.COMPLETED, "admin1")
+        val result = processDisbursementUseCase(payoutId, PayoutStatus.COMPLETED, "admin1")
 
         // Then
         assertTrue(result.isFailure)
@@ -105,7 +105,7 @@ class FinancialWorkflowIntegrityTest {
         )
         coEvery { payoutRepository.getPayoutById(payoutId) } returns Result.success(payout)
 
-        val result = processDisbursementUseCase(payoutId, "g1", PayoutStatus.COMPLETED, "admin1")
+        val result = processDisbursementUseCase(payoutId, PayoutStatus.COMPLETED, "admin1")
 
         assertTrue(result.exceptionOrNull() is DualControlViolationException)
         assertTrue(result.exceptionOrNull()!!.message!!.contains(DualControlViolationException.MARKER))

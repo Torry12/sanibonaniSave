@@ -8,8 +8,6 @@ import com.sanibonani.save.domain.model.PayoutStatus
 import com.sanibonani.save.domain.model.PayoutType
 import com.sanibonani.save.domain.repository.disbursement.PayoutRepository
 import com.sanibonani.save.domain.service.PayoutGuard
-import com.sanibonani.save.domain.validation.InputValidator
-import com.sanibonani.save.domain.validation.ValidationResult
 import javax.inject.Inject
 
 /**
@@ -33,21 +31,29 @@ class RequestWithdrawalUseCase @Inject constructor(
         val memberId = params.member.id
             ?: return Result.failure(IllegalStateException("No server id for member"))
 
-        val bankName = params.member.bankName.orEmpty().trim()
-        val accountNo = params.member.accountNo.orEmpty().trim()
-        val branchCode = params.member.branchCode.orEmpty().trim()
-
         // Checked before the request is queued: the processor rejects blank or malformed details
         // after the treasury has already reserved the amount.
-        val detailsError = when {
-            bankName.isEmpty() -> "Add your bank name before requesting a withdrawal."
-            InputValidator.validateAccountNumber(accountNo, bankName) !is ValidationResult.Valid ->
-                "Add a valid account number before requesting a withdrawal."
-            branchCode.isEmpty() || InputValidator.validateBranchCode(branchCode) !is ValidationResult.Valid ->
-                "Add a valid 6-digit branch code before requesting a withdrawal."
-            else -> null
+        val bankDetails = when (
+            val check = validateBankDetails(
+                params.member.bankName,
+                params.member.accountNo,
+                params.member.branchCode
+            )
+        ) {
+            is BankDetailsResult.Valid -> check.details
+            is BankDetailsResult.Invalid -> return Result.failure(
+                IllegalStateException(
+                    when (check.field) {
+                        BankDetailsField.BANK_NAME ->
+                            "Add your bank name before requesting a withdrawal."
+                        BankDetailsField.ACCOUNT_NUMBER ->
+                            "Add a valid account number before requesting a withdrawal."
+                        BankDetailsField.BRANCH_CODE ->
+                            "Add a valid 6-digit branch code before requesting a withdrawal."
+                    }
+                )
+            )
         }
-        if (detailsError != null) return Result.failure(IllegalStateException(detailsError))
 
         payoutGuard.validateRequest(params.group, params.member, params.amount, params.type)
             .getOrElse { return Result.failure(it) }
@@ -58,9 +64,9 @@ class RequestWithdrawalUseCase @Inject constructor(
             amount = params.amount,
             type = params.type,
             status = PayoutStatus.PENDING,
-            bankName = bankName,
-            accountNo = accountNo,
-            branchCode = branchCode
+            bankName = bankDetails.bankName,
+            accountNo = bankDetails.accountNo,
+            branchCode = bankDetails.branchCode
         )
 
         return payoutRepository.requestPayout(request).map { request }
