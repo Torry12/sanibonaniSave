@@ -69,6 +69,19 @@ object NavigationUtils {
         }
     }
 
+    /**
+     * Destination once a group has been created. The creator's role is re-resolved before this
+     * runs, but a role that has not caught up yet must still land inside the group just made
+     * instead of a group-less dashboard the route guard would immediately bounce.
+     */
+    fun destinationAfterGroupCreation(role: UserRole, groupId: String): String {
+        return when (role) {
+            UserRole.PLATFORM_ADMIN -> Screen.AdminDashboard.withId(groupId, supportMode = true)
+            UserRole.GROUP_ADMIN    -> Screen.AdminDashboard.withId(groupId)
+            UserRole.MEMBER         -> Screen.MemberDashboard.withTab(0, groupId)
+        }
+    }
+
     fun destinationForPaymentType(type: String, groupId: String): String {
         return when (type) {
             "registration" -> Screen.AdminDashboard.withId(groupId)

@@ -158,7 +158,6 @@ fun DetailSection(title: String, content: @Composable ColumnScope.() -> Unit) {
 @Composable
 fun GlobalErrorBanner(
     message: String,
-    onRetry: () -> Unit,
     onDismiss: () -> Unit,
     isCritical: Boolean = false,
     actionLabel: String? = null,
@@ -186,9 +185,10 @@ fun GlobalErrorBanner(
                 Spacer(Modifier.width(12.dp))
                 Text(message, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
 
-                if (actionLabel != null) {
+                val action = onAction
+                if (actionLabel != null && action != null) {
                     TextButton(
-                        onClick = onAction ?: onRetry,
+                        onClick = action,
                         colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onPrimary)
                     ) {
                         Text(actionLabel.uppercase(), fontWeight = FontWeight.Bold, fontSize = 12.sp)

@@ -8,6 +8,7 @@ import com.sanibonani.save.domain.repository.auth.CredentialsRepository
 import com.sanibonani.save.domain.repository.auth.SupabaseRepository
 import com.sanibonani.save.domain.repository.auth.UserProfileRepository
 import com.sanibonani.save.domain.utils.UserRoleMapper
+import com.sanibonani.save.domain.utils.safeRunCatching
 import com.sanibonani.save.domain.validation.InputValidator
 import com.sanibonani.save.domain.validation.ValidationUtils
 import com.sanibonani.save.service.AdminGroupContextCacheService
@@ -192,6 +193,19 @@ class AuthViewModel @Inject constructor(
     }
 
     fun updateError(msg: String?) { updateState { it.copy(error = msg) } }
+
+    /**
+     * Re-resolves the signed-in account's role. Creating a group elevates the creator on the
+     * server without emitting a new session, so the role captured during hydration stays stale
+     * until this runs.
+     */
+    fun refreshUserRole() {
+        val userId = supabaseRepo.currentUserId ?: uiState.value.userId ?: return
+        launchJob("refresh_role") {
+            val role = safeRunCatching { supabaseRepo.getUserRole() }.getOrElse { UserRole.MEMBER }
+            updateState { it.copy(userId = userId, userRole = role) }
+        }
+    }
 
     fun toggleBiometric(enabled: Boolean) {
         credentialsRepo.setBiometricEnabled(enabled)

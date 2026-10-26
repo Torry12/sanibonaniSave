@@ -18,6 +18,8 @@ import kotlinx.coroutines.flow.*
 import javax.inject.Inject
 import kotlin.time.Duration.Companion.milliseconds
 
+private const val STEP_INCOMPLETE_MESSAGE = "Please fix the highlighted fields to continue."
+
 data class GroupRegistrationState(
     val name: String = "",
     val type: GroupType = GroupType.STOKVEL,
@@ -74,7 +76,15 @@ data class GroupRegistrationState(
     val pendingConstitutionName: String? = null,
     val useStandardConstitution: Boolean = false,
     val platformRegistrationFee: Money = Money.ZERO
-)
+) {
+    /** Label for the primary wizard button; a free group never asks for a payment. */
+    val summaryActionLabel: String
+        get() = when {
+            currentStep < totalSteps -> "Next"
+            platformRegistrationFee.isPositive -> "Pay ${platformRegistrationFee.format()}"
+            else -> "Create Group"
+        }
+}
 
 /**
  * ViewModel responsible for the multi-step group registration process.
@@ -119,7 +129,10 @@ class GroupRegistrationViewModel @Inject constructor(
         val isLoggedIn = supabaseRepo.isLoggedIn
         val fee = feeService.getRegistrationFee()
         val cachedName = userProfileCache?.getFullName() ?: ""
-        val cachedEmail = userProfileCache?.getEmail() ?: ""
+        // The admin email field is read-only for a signed-in account, so an empty cache would
+        // leave a required, uneditable field blank; fall back to the session's own email.
+        val cachedEmail = userProfileCache?.getEmail()?.takeIf { it.isNotBlank() }
+            ?: supabaseRepo.currentSessionEmail.orEmpty()
         val cachedPhone = userProfileCache?.getPhone() ?: ""
 
         updateState {
@@ -144,8 +157,37 @@ class GroupRegistrationViewModel @Inject constructor(
         ) }
     }
 
-    fun nextStep() { updateState { it.copy(currentStep = (it.currentStep + 1).coerceAtMost(it.totalSteps)) } }
-    fun prevStep() { updateState { it.copy(currentStep = (it.currentStep - 1).coerceAtLeast(1)) } }
+    fun nextStep() {
+        updateState { state ->
+            if (state.currentStep >= state.totalSteps) return@updateState state
+            val errors = RegisterGroupValidator.validateStep(state.currentStep, state)
+            if (errors.isEmpty()) {
+                state.copy(currentStep = state.currentStep + 1, fieldErrors = emptyMap(), error = null)
+            } else {
+                state.copy(fieldErrors = errors, error = STEP_INCOMPLETE_MESSAGE)
+            }
+        }
+    }
+
+    fun prevStep() {
+        updateState {
+            it.copy(
+                currentStep = (it.currentStep - 1).coerceAtLeast(1),
+                fieldErrors = emptyMap(),
+                error = null
+            )
+        }
+    }
+
+    /**
+     * Applies a field edit and clears only the errors for the fields the user touched, so the
+     * remaining highlights still point at everything else that needs attention.
+     */
+    private fun updateField(vararg keys: String, reducer: (GroupRegistrationState) -> GroupRegistrationState) {
+        updateState { state ->
+            reducer(state).copy(fieldErrors = state.fieldErrors - keys.toSet(), error = null)
+        }
+    }
 
     /**
      * Centralized event handler for UI interactions.
@@ -153,60 +195,64 @@ class GroupRegistrationViewModel @Inject constructor(
      */
     fun onEvent(event: GroupFormEvent) {
         when (event) {
-            is GroupFormEvent.NameChanged -> updateState { it.copy(name = event.name) }
-            is GroupFormEvent.TypeSelected -> updateState { it.copy(type = event.type) }
-            is GroupFormEvent.ProvinceSelected -> updateState { it.copy(province = event.province, latitude = null, longitude = null, geohash = null) }
+            is GroupFormEvent.NameChanged -> updateField("name") { it.copy(name = event.name) }
+            is GroupFormEvent.TypeSelected -> updateField(
+                "maxMembers", "maxBeneficiaries", "beneficiaryIncreasePct", "goalAmount", "periodMonths"
+            ) { it.copy(type = event.type) }
+            is GroupFormEvent.ProvinceSelected -> updateField("province") {
+                it.copy(province = event.province, latitude = null, longitude = null, geohash = null)
+            }
             is GroupFormEvent.CityChanged -> {
-                updateState { it.copy(city = event.city, latitude = null, longitude = null, geohash = null) }
+                updateField("city") { it.copy(city = event.city, latitude = null, longitude = null, geohash = null) }
                 searchAddress(event.city)
             }
             is GroupFormEvent.TownshipChanged -> {
-                updateState { it.copy(township = event.township, latitude = null, longitude = null, geohash = null) }
+                updateField("township") { it.copy(township = event.township, latitude = null, longitude = null, geohash = null) }
                 searchAddress(event.township)
             }
             is GroupFormEvent.StreetChanged -> {
-                updateState { it.copy(street = event.street, latitude = null, longitude = null, geohash = null) }
+                updateField("street") { it.copy(street = event.street, latitude = null, longitude = null, geohash = null) }
                 searchAddress(event.street)
             }
-            is GroupFormEvent.DescriptionChanged -> updateState { it.copy(description = event.description) }
-            is GroupFormEvent.JoiningFeeChanged -> updateState { it.copy(joiningFee = event.value) }
-            is GroupFormEvent.MonthlyContributionChanged -> updateState { it.copy(monthlyContribution = event.value) }
-            is GroupFormEvent.LateFeeChanged -> updateState { it.copy(lateFee = event.value) }
-            is GroupFormEvent.MaxMembersChanged -> updateState { it.copy(maxMembers = event.value) }
-            is GroupFormEvent.AdminEmailChanged -> updateState { it.copy(adminEmail = event.email) }
-            is GroupFormEvent.AdminFullNameChanged -> updateState { it.copy(adminFullName = event.name) }
-            is GroupFormEvent.AdminPhoneChanged -> updateState { it.copy(adminPhone = event.phone) }
-            is GroupFormEvent.AdminIdNumberChanged -> updateState { it.copy(adminIdNumber = event.id) }
-            is GroupFormEvent.AdminPasswordChanged -> updateState { it.copy(adminPassword = event.password) }
-            is GroupFormEvent.BankNameSelected -> updateState { it.copy(bankName = event.bank) }
-            is GroupFormEvent.AccountNumberChanged -> updateState { it.copy(accountNumber = event.value) }
-            is GroupFormEvent.BranchCodeChanged -> updateState { it.copy(branchCode = event.value) }
-            is GroupFormEvent.RoscaRotationMethodSelected -> updateState { it.copy(rotationMethod = event.method) }
-            is GroupFormEvent.TermsAcceptedToggled -> updateState { it.copy(termsAccepted = event.accepted) }
+            is GroupFormEvent.DescriptionChanged -> updateField("description") { it.copy(description = event.description) }
+            is GroupFormEvent.JoiningFeeChanged -> updateField("joiningFee") { it.copy(joiningFee = event.value) }
+            is GroupFormEvent.MonthlyContributionChanged -> updateField("monthlyContribution") { it.copy(monthlyContribution = event.value) }
+            is GroupFormEvent.LateFeeChanged -> updateField("lateFee") { it.copy(lateFee = event.value) }
+            is GroupFormEvent.MaxMembersChanged -> updateField("maxMembers") { it.copy(maxMembers = event.value) }
+            is GroupFormEvent.AdminEmailChanged -> updateField("adminEmail") { it.copy(adminEmail = event.email) }
+            is GroupFormEvent.AdminFullNameChanged -> updateField("adminFullName") { it.copy(adminFullName = event.name) }
+            is GroupFormEvent.AdminPhoneChanged -> updateField("adminPhone") { it.copy(adminPhone = event.phone) }
+            is GroupFormEvent.AdminIdNumberChanged -> updateField("adminIdNumber") { it.copy(adminIdNumber = event.id) }
+            is GroupFormEvent.AdminPasswordChanged -> updateField("adminPassword") { it.copy(adminPassword = event.password) }
+            is GroupFormEvent.BankNameSelected -> updateField("bankName") { it.copy(bankName = event.bank) }
+            is GroupFormEvent.AccountNumberChanged -> updateField("accountNumber") { it.copy(accountNumber = event.value) }
+            is GroupFormEvent.BranchCodeChanged -> updateField("branchCode") { it.copy(branchCode = event.value) }
+            is GroupFormEvent.RoscaRotationMethodSelected -> updateField("rotationMethod") { it.copy(rotationMethod = event.method) }
+            is GroupFormEvent.TermsAcceptedToggled -> updateField("termsAccepted") { it.copy(termsAccepted = event.accepted) }
             is GroupFormEvent.AddressQueryChanged -> {
-                updateState { it.copy(addressQuery = event.query) }
+                updateField("addressQuery") { it.copy(addressQuery = event.query) }
                 searchAddress(event.query)
             }
             is GroupFormEvent.AddressSelected -> onAddressSelected(event.address)
-            is GroupFormEvent.CoordinatesPicked -> updateState { it.copy(latitude = event.lat, longitude = event.lon) }
-            is GroupFormEvent.GpsLocationPicked -> updateState {
+            is GroupFormEvent.CoordinatesPicked -> updateField("latitude", "longitude") { it.copy(latitude = event.lat, longitude = event.lon) }
+            is GroupFormEvent.GpsLocationPicked -> updateField("city", "latitude", "longitude") {
                 it.copy(
                     latitude = event.lat,
                     longitude = event.lon,
                     city = event.placeName?.takeIf { n -> n.isNotBlank() } ?: it.city
                 )
             }
-            is GroupFormEvent.RoscaCycleChanged -> updateState { it.copy(roscaCycle = event.months) }
-            is GroupFormEvent.LateFeeGraceDaysChanged -> updateState { it.copy(lateFeeGraceDays = event.value) }
-            is GroupFormEvent.ProbationMonthsChanged -> updateState { it.copy(probationMonths = event.value) }
-            is GroupFormEvent.PaymentDueDayChanged -> updateState { it.copy(paymentDueDay = event.value) }
-            is GroupFormEvent.GoalAmountChanged -> updateState { it.copy(goalAmount = event.value) }
-            is GroupFormEvent.PeriodMonthsChanged -> updateState { it.copy(periodMonths = event.value) }
-            is GroupFormEvent.MaxBeneficiariesChanged -> updateState { it.copy(maxBeneficiaries = event.value) }
-            is GroupFormEvent.BeneficiaryIncreasePctChanged -> updateState { it.copy(beneficiaryIncreasePct = event.value) }
-            is GroupFormEvent.AllowPartialPaymentToggled -> updateState { it.copy(allowPartialPayment = event.allow) }
-            is GroupFormEvent.UseStandardConstitutionToggled -> updateState { it.copy(useStandardConstitution = event.use) }
-            is GroupFormEvent.LogoEmojiSelected -> updateState { it.copy(logoEmoji = event.emoji) }
+            is GroupFormEvent.RoscaCycleChanged -> updateField("roscaCycle", "maxMembers") { it.copy(roscaCycle = event.months) }
+            is GroupFormEvent.LateFeeGraceDaysChanged -> updateField("lateFeeGraceDays") { it.copy(lateFeeGraceDays = event.value) }
+            is GroupFormEvent.ProbationMonthsChanged -> updateField("probationMonths") { it.copy(probationMonths = event.value) }
+            is GroupFormEvent.PaymentDueDayChanged -> updateField("paymentDueDay") { it.copy(paymentDueDay = event.value) }
+            is GroupFormEvent.GoalAmountChanged -> updateField("goalAmount") { it.copy(goalAmount = event.value) }
+            is GroupFormEvent.PeriodMonthsChanged -> updateField("periodMonths") { it.copy(periodMonths = event.value) }
+            is GroupFormEvent.MaxBeneficiariesChanged -> updateField("maxBeneficiaries") { it.copy(maxBeneficiaries = event.value) }
+            is GroupFormEvent.BeneficiaryIncreasePctChanged -> updateField("beneficiaryIncreasePct") { it.copy(beneficiaryIncreasePct = event.value) }
+            is GroupFormEvent.AllowPartialPaymentToggled -> updateField("allowPartialPayment") { it.copy(allowPartialPayment = event.allow) }
+            is GroupFormEvent.UseStandardConstitutionToggled -> updateField("useStandardConstitution") { it.copy(useStandardConstitution = event.use) }
+            is GroupFormEvent.LogoEmojiSelected -> updateField("logoEmoji") { it.copy(logoEmoji = event.emoji) }
             GroupFormEvent.NextStep -> nextStep()
             GroupFormEvent.PrevStep -> prevStep()
             GroupFormEvent.Submit -> submitGroup()
@@ -239,7 +285,7 @@ class GroupRegistrationViewModel @Inject constructor(
      * Applies a selected address suggestion to the state.
      */
     fun onAddressSelected(address: com.sanibonani.save.domain.service.LocationAddress) {
-        updateState { it.copy(
+        updateField("street", "township", "city", "province", "addressQuery") { it.copy(
             street = address.formatted,
             township = address.township ?: it.township,
             city = address.city ?: it.city,
@@ -260,7 +306,26 @@ class GroupRegistrationViewModel @Inject constructor(
      * Validates and submits the group draft.
      * Creates group and automatically registers creator as the initial member.
      */
-    fun submitGroup() = submitter.submit(registrationHost)
+    fun submitGroup() {
+        val state = uiState.value
+        // A group that already exists only owes payment or activation; its persisted fields must
+        // not block the resume just because the live form has since been edited.
+        if (state.createdGroupId.isNullOrBlank()) {
+            val errors = RegisterGroupValidator.validateAll(state)
+            if (errors.isNotEmpty()) {
+                updateState {
+                    it.copy(
+                        fieldErrors = errors,
+                        error = STEP_INCOMPLETE_MESSAGE,
+                        currentStep = RegisterGroupValidator.firstInvalidStep(it) ?: it.currentStep
+                    )
+                }
+                return
+            }
+        }
+        updateState { it.copy(fieldErrors = emptyMap()) }
+        submitter.submit(registrationHost)
+    }
 
     /**
      * Finalizes the registration by activating the group after payment confirmation
