@@ -1,6 +1,9 @@
 -- ─────────────────────────────────────────────────────────────────────────────
 -- SanibonaniSave — REAL-LIFE INTEGRITY SEEDS (Extreme Testing Scenarios)
--- Version: 2.0 (Money-Precise, Audit & Forensic Hardening - August 2026)
+-- Version: 2.1 (Money-Precise, Audit & Forensic Hardening - August 2026)
+-- Scenario 4 injects a balance drift and repairs it via
+-- recalculate_all_group_financials_v3 in the same run, so every seeded group ends with
+-- balance == SUM(group_ledger.amount).
 -- ─────────────────────────────────────────────────────────────────────────────
 
 DO $$
@@ -13,6 +16,7 @@ DECLARE
     v_loan_id UUID;
     v_now TIMESTAMPTZ := NOW();
     v_qa_password TEXT := 'Pass123!';
+    v_report JSONB;
 
 BEGIN
     RAISE NOTICE '🔥 Injecting Real-Life Integrity Scenarios (Money-Precise)...';
@@ -32,7 +36,12 @@ BEGIN
     DELETE FROM auth.users
     WHERE email IN ('risky.payer@scen.com', 'loan.defaulter@scen.com', 'claimant@scen.com');
     DELETE FROM public.audit_logs
-    WHERE action = 'INTEGRITY_DRIFT_INJECTED' AND target_group_id = v_stokvel_id;
+    WHERE action IN ('INTEGRITY_DRIFT_INJECTED', 'INTEGRITY_DRIFT_REPAIRED')
+      AND target_group_id = v_stokvel_id;
+    DELETE FROM public.reconciliations
+    WHERE group_id = v_stokvel_id
+      AND status = 'resolved'
+      AND notes LIKE '%repaired a 1234.56 drift%';
 
     -- 1. SCENARIO: The "Risky Payer" (LIGHT-Stokvel)
     -- Purpose: Test behavior score tracking and "High Risk" flags in Audit.
@@ -127,8 +136,9 @@ BEGIN
 
 
     -- 4. SCENARIO: "Financial Drift" Detection
-    -- Purpose: Create a discrepancy between ledger and table balance for Audit testing.
-    -- We bypass the normal increment function to create "drift".
+    -- Purpose: Exercise forensic detection of an un-ledgered balance change. The drift is
+    -- injected by bypassing increment_group_balance, then repaired in the same run through the
+    -- canonical reconciliation RPC so the seed never leaves a group out of balance.
     UPDATE public.groups AS g
     SET balance = COALESCE((
         SELECT SUM(l.amount) FROM public.group_ledger AS l WHERE l.group_id = g.id
@@ -138,9 +148,26 @@ BEGIN
     INSERT INTO public.audit_logs (actor_id, target_group_id, action, details)
     VALUES ('system', v_stokvel_id, 'INTEGRITY_DRIFT_INJECTED', '{"amount": 1234.56, "reason": "Test forensic detection of un-ledgered balance changes."}');
 
-    -- Reconcile the other scenarios. Keep the stokvel mismatch visible for audit testing.
+    v_report := public.recalculate_all_group_financials_v3(v_stokvel_id);
+
+    -- Close the discrepancy_found row the repair just recorded: the drift is a resolved fixture,
+    -- not an open incident.
+    UPDATE public.reconciliations
+    SET status = 'resolved',
+        notes = notes || ' Resolved during seeding after the drift fixture was verified.',
+        updated_at = NOW()
+    WHERE id = (v_report->'reconciliation_report'->>'id')::uuid;
+
+    INSERT INTO public.audit_logs (actor_id, target_group_id, action, details)
+    VALUES ('system', v_stokvel_id, 'INTEGRITY_DRIFT_REPAIRED', jsonb_build_object(
+        'amount', 1234.56,
+        'final_balance', v_report->>'final_balance',
+        'reconciliation_id', v_report->'reconciliation_report'->>'id'
+    ));
+
+    -- Every scenario group now satisfies balance == SUM(group_ledger.amount).
     PERFORM public.recalculate_all_group_financials_v3(v_burial_id);
     PERFORM public.recalculate_all_group_financials_v3(v_emergency_id);
 
-    RAISE NOTICE '🏁 Integrity Scenarios Injected. Forensic Audit now has active leads.';
+    RAISE NOTICE '🏁 Integrity Scenarios Injected. All groups reconcile to their ledgers.';
 END $$;

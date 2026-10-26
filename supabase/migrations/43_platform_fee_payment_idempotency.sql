@@ -43,6 +43,7 @@ CREATE OR REPLACE FUNCTION public.pay_platform_fee_v2(
 ) RETURNS JSONB
 LANGUAGE plpgsql
 SECURITY DEFINER
+SET search_path = public, pg_temp
 AS $$
 DECLARE
     v_current_bal NUMERIC;

@@ -10,6 +10,7 @@ CREATE OR REPLACE FUNCTION public.increment_group_balance(
 ) RETURNS NUMERIC
 LANGUAGE plpgsql
 SECURITY DEFINER
+SET search_path = public, pg_temp
 AS $$
 DECLARE
     v_new_balance NUMERIC;
