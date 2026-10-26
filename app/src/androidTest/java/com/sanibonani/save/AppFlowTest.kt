@@ -35,12 +35,20 @@ class AppFlowTest {
         composeTestRule.activityRule.scenario.recreate()
     }
 
+    private fun waitForText(text: String) {
+        // On a cold start the Compose hierarchy may not exist yet, and fetching semantics
+        // from it throws rather than returning empty.
+        composeTestRule.waitUntil(timeoutMillis = 30000) {
+            runCatching {
+                composeTestRule.onAllNodesWithText(text).fetchSemanticsNodes().isNotEmpty()
+            }.getOrDefault(false)
+        }
+    }
+
     @Test
     fun testLandingScreenToBrowseGroups() {
         // Wait for splash to finish and landing screen to appear
-        composeTestRule.waitUntil(timeoutMillis = 15000) {
-            composeTestRule.onAllNodesWithText("Browse Groups").fetchSemanticsNodes().isNotEmpty()
-        }
+        waitForText("Browse Groups")
 
         // Click on "Browse Groups" (Hero action for guest)
         composeTestRule.onNodeWithText("Browse Groups").performClick()
@@ -55,9 +63,7 @@ class AppFlowTest {
     @Test
     fun testLandingScreenToLogin() {
         // Wait for landing screen
-        composeTestRule.waitUntil(timeoutMillis = 15000) {
-            composeTestRule.onAllNodesWithText("Already a member? Log in").fetchSemanticsNodes().isNotEmpty()
-        }
+        waitForText("Already a member? Log in")
 
         // Click on login text
         composeTestRule.onNodeWithText("Already a member? Log in").performClick()

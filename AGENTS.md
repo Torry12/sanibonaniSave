@@ -121,7 +121,7 @@ any version below.
  **AGP** | 9.4.1 | Required for Hilt 2.60.1 |
  **Hilt** | 2.60.1 | Full project-wide DI |
  **KSP** | 2.3.12 | Annotation processing |
- **Room** | 2.8.5 | Schema version 81 |
+ **Room** | 2.8.5 | Schema version 82 |
  **Compose** | 2026.09.00 (BOM) | Material 3 + Adaptive |
  **Supabase** | 3.8.0 | SDK used in `:data`/`:app` only |
  **Ktor** | 3.6.0 | HTTP client for Supabase |

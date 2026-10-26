@@ -323,11 +323,6 @@ fun PlatformAdminScreen(
     state.error?.let { error ->
         GlobalErrorBanner(
             message = error,
-            onRetry = {
-                analyticsVm.load()
-                disbursementsVm.load()
-                ledgerVm.load()
-            },
             onDismiss = { vm.clearError() },
             isCritical = true,
             actionLabel = "Retry",
