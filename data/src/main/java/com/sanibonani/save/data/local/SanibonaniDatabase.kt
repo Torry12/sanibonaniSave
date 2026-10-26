@@ -35,7 +35,7 @@ import androidx.room.*
         GroupPollVoteEntity::class,
         PendingOperationEntity::class
     ],
-    version = 81,
+    version = 82,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
