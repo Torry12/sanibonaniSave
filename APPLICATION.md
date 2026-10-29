@@ -17,10 +17,10 @@ SanibonaniSave is a **Distributed Cooperative Financial Infrastructure** specifi
 ## 🛠 2. Technical Stack & Dependencies
 
 ### Core Frameworks
-- **Language**: Kotlin 2.4.20 (JVM Toolchain 17)
+- **Language**: Kotlin 2.4.21 (JVM Toolchain 17)
 - **AGP**: 9.4.1 (Supporting Hilt 2.60.1)
 - **UI**: Jetpack Compose 2026.09.00 BOM (Material 3)
-- **Persistence**: Room 2.8.5 (Precision-safe converters, schema version 81)
+- **Persistence**: Room 2.8.5 (Precision-safe converters, schema version 82)
 - **Backend**: Supabase 3.8.0 (Auth, Realtime, RPCs)
 - **Annotation Processing**: KSP 2.3.12
 
@@ -31,7 +31,7 @@ SanibonaniSave is a **Distributed Cooperative Financial Infrastructure** specifi
 ## 🏗 3. Architectural Blueprint
 
 ### Module Boundaries
-1. **`:domain`**: Business logic. Models, Interfaces, UseCases, Services. Target is no Android/SDK dependency — it currently has no Supabase imports (`:data` maps the SDK's session types to the domain-owned `AuthSession`), but still imports `android.*` for `@Parcelize` models and `AppLogger`.
+1. **`:domain`**: Business logic. Models, Interfaces, UseCases, Services. Imports **neither** the Supabase SDK **nor** `android.*` — models are `@Serializable` only, navigation passes ids, and logging goes through the `AppLogSink` port implemented in `:app`. It is still packaged as an Android library for `BuildConfig` and the test runner.
 2. **`:data`**: Android Library. Repositories, Supabase, Room. The only module permitted to speak the Supabase SDK directly.
 3. **`:app`**: UI, ViewModels, DI, Workers, Analytics. The only other module permitted to touch Android framework and Supabase SDK types.
 4. **`:simulation`**: JVM-runnable financial-flow simulator and domain seed factory; consumed by `:app` test source sets only.
@@ -65,9 +65,14 @@ SanibonaniSave is a **Distributed Cooperative Financial Infrastructure** specifi
 ### Row-Level Security (RLS)
 Postgres RLS enforces data isolation between groups and members. JWT custom claims (`role`, `group_id`) are verified by RLS policies.
 
+### Function Security
+- **MFA Enforcement** is in-database, not in an Edge Function: `assert_mfa_for_disbursement_v1(p_amount)` raises `[SEC_001] MFA_REQUIRED` when a disbursement is ≥ R10,000 and the session is not AAL2, and both outflow RPCs `PERFORM` it.
+- `SECURITY DEFINER` functions read past RLS inside their body, so the audit and settlement RPCs carry their own `[SEC_002]` identity checks and have `EXECUTE` revoked from `PUBLIC` and `anon` in `03_SECURITY_AND_RLS.sql`.
+- Every `SECURITY DEFINER` function pins `search_path`; a new RPC without a pin is a review blocker.
+- Canonical source is `supabase/02_FUNCTIONS_AND_TRIGGERS.sql`; a live tier changes only through a new dated `supabase/online/SYNC_DELTA_<date>.sql`. See `supabase/SQL_DOCUMENTATION.md`.
+
 ### Edge Functions
-- **ML Data Sync**: Functions for aggregating behavior patterns into JSONL datasets.
-- **MFA Enforcement**: disbursement RPCs ≥ R10,000 require AAL2 verification.
+`supabase/functions/` hosts `agent-orchestrator`, `architecture-read`, `financial-orchestrator`, `mobile-admin-actions`, `process-kyc-ai`, `sandbox-bank-api`, `send-whatsapp`, and `yoco-webhook`.
 
 ---
 
@@ -91,4 +96,4 @@ If the `:domain` module fails after model changes, check for redeclarations or m
 
 ---
 **Maintained by**: SanibonaniSave Engineering Team
-**Last Revised**: August 28, 2026
+**Last Revised**: October 28, 2026

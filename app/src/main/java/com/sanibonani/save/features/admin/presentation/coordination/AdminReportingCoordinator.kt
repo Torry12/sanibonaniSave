@@ -5,18 +5,18 @@ import com.sanibonani.save.domain.model.AsyncResult
 import com.sanibonani.save.domain.model.Group
 import com.sanibonani.save.domain.model.LedgerEntry
 import com.sanibonani.save.domain.model.Member
-import com.sanibonani.save.domain.repository.admin.AuditRepository
-import com.sanibonani.save.domain.repository.system.ExportRepository
-import com.sanibonani.save.domain.repository.treasury.LedgerRepository
 import com.sanibonani.save.domain.service.DataVerificationService
+import com.sanibonani.save.domain.usecase.admin.GenerateGroupAuditReportUseCase
+import com.sanibonani.save.domain.usecase.system.BuildGroupLedgerStatementUseCase
+import com.sanibonani.save.domain.usecase.system.ExportGroupConstitutionUseCase
 import com.sanibonani.save.domain.utils.toUserMessage
 import com.sanibonani.save.features.common.presentation.UIEvent
 import javax.inject.Inject
 
 class AdminReportingCoordinator @Inject constructor(
-    private val auditRepo: AuditRepository,
-    private val ledgerRepo: LedgerRepository,
-    private val exportRepo: ExportRepository,
+    private val generateGroupAuditReport: GenerateGroupAuditReportUseCase,
+    private val buildGroupLedgerStatement: BuildGroupLedgerStatementUseCase,
+    private val exportGroupConstitution: ExportGroupConstitutionUseCase,
     private val verificationService: DataVerificationService
 ) {
 
@@ -25,7 +25,7 @@ class AdminReportingCoordinator @Inject constructor(
         AppLogger.i("AdminOverview", "Loading Group Audit Report for ID: $groupId")
         host.launchAdminSafeJob("audit_report_loading", "Failed to load audit report") {
             host.updateAdminState { it.copy(groupAuditReport = AsyncResult.Loading) }
-            auditRepo.triggerGroupAudit(groupId)
+            generateGroupAuditReport(groupId)
                 .onSuccess { report ->
                     host.updateAdminState { it.copy(groupAuditReport = AsyncResult.Success(report)) }
                 }
@@ -39,17 +39,11 @@ class AdminReportingCoordinator @Inject constructor(
 
     fun downloadStatement(host: AdminActionHost) {
         val group = host.adminState.value.group ?: return
-        val groupId = group.id ?: return
         host.launchAdminSafeJob("download_statement", "Failed to download statement") {
             host.updateAdminState { it.copy(isLoading = true) }
-            ledgerRepo.getGroupLedger(groupId).onSuccess { entries ->
-                exportRepo.exportLedgerToPdf(group, entries).onSuccess { file ->
-                    host.updateAdminState { it.copy(isLoading = false) }
-                    host.sendUiEvent(UIEvent.OpenFile(file, "application/pdf", "Group Statement"))
-                }.onFailure { e ->
-                    host.updateAdminState { it.copy(isLoading = false) }
-                    host.reportError(e)
-                }
+            buildGroupLedgerStatement(group).onSuccess { file ->
+                host.updateAdminState { it.copy(isLoading = false) }
+                host.sendUiEvent(UIEvent.OpenFile(file, "application/pdf", "Group Statement"))
             }.onFailure { e ->
                 host.updateAdminState { it.copy(isLoading = false) }
                 host.reportError(e)
@@ -62,7 +56,7 @@ class AdminReportingCoordinator @Inject constructor(
         host.launchAdminSafeJob("download_constitution", "Failed to download constitution") {
             host.updateAdminState { it.copy(isLoading = true) }
             host.runWithLoading {
-                exportRepo.exportGroupConstitution(group).onSuccess { file ->
+                exportGroupConstitution(group).onSuccess { file ->
                     host.updateAdminState { it.copy(isLoading = false) }
                     host.sendUiEvent(UIEvent.OpenFile(file, "application/pdf", "Group Constitution"))
                 }.onFailure { e ->

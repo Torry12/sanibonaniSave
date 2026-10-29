@@ -6,7 +6,7 @@
 ---
 
 ## 1. 📱 Core Android Development
-* **Kotlin (2.4.20)**: Advanced language features including sealed classes for state management, reified inline functions, and extension properties.
+* **Kotlin (2.4.21)**: Advanced language features including sealed classes for state management, reified inline functions, and extension properties.
 * **Jetpack Compose (2026.09.00 BOM, Material 3)**: Declarative UI development, state hoisting, and custom modifiers.
 * **Coroutines & Flow**: Advanced asynchronous programming, `StateFlow`/`SharedFlow` for reactive UI updates, and structured concurrency.
 * **Dependency Injection**: Full project wiring using **Dagger Hilt 2.60.1** across a multi-module architecture (`:app`, `:data`, `:domain`, `:simulation`).

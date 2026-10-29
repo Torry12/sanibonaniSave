@@ -2,7 +2,7 @@ package com.sanibonani.save.features.member.presentation.state
 
 import com.sanibonani.save.domain.utils.PaymentCalculation
 import com.sanibonani.save.domain.model.*
-import com.sanibonani.save.domain.repository.system.SyncStatus
+import com.sanibonani.save.domain.model.SyncStatus
 import com.sanibonani.save.features.common.presentation.UIEvent
 import com.sanibonani.save.domain.service.LocationAddress
 import java.io.File

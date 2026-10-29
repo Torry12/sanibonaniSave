@@ -77,7 +77,7 @@ class PayoutGuardImpl @Inject constructor(
         // cannot drain the fund even though the balance covers it. This is the "50% liquidity cap"
         // the member screen advertises; the balance check above only stops overdrafts.
         if (type == PayoutType.EMERGENCY) {
-            val cap = balance * 0.5
+            val cap = balance.percent(50)
             if (amount > cap) {
                 throw WithdrawalLimitExceededException(amount, cap)
             }

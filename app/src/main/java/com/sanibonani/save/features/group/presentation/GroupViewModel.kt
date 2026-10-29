@@ -1,9 +1,10 @@
 package com.sanibonani.save.features.group.presentation
 
 import com.sanibonani.save.domain.model.*
-import com.sanibonani.save.domain.repository.group.GroupRepository
 import com.sanibonani.save.domain.utils.toUserMessage
+import com.sanibonani.save.domain.usecase.group.FilterGroupsUseCase
 import com.sanibonani.save.domain.usecase.group.GetPublicGroupsUseCase
+import com.sanibonani.save.domain.usecase.group.ObserveGroupDetailUseCase
 import com.sanibonani.save.features.common.presentation.BaseViewModel
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
@@ -25,18 +26,21 @@ data class GroupUiState(
 
 @HiltViewModel
 class GroupViewModel @Inject constructor(
-    private val groupRepo: GroupRepository,
-    private val getPublicGroupsUseCase: GetPublicGroupsUseCase
+    private val filterGroups: FilterGroupsUseCase,
+    private val getPublicGroups: GetPublicGroupsUseCase,
+    private val observeGroupDetail: ObserveGroupDetailUseCase
 ) : BaseViewModel<GroupUiState>(GroupUiState()) {
 
     val state: StateFlow<GroupUiState> = uiState
+
+    private fun currentState(): GroupUiState = uiState.value
 
     init {
         loadGroups()
     }
 
     fun setActive(active: Boolean) {
-        if (active && !state.value.isLoading) {
+        if (active && !currentState().isLoading) {
             loadGroups()
         }
     }
@@ -44,7 +48,7 @@ class GroupViewModel @Inject constructor(
     fun loadGroups() {
         launchSafeJob("load_groups", "Failed to load public groups") {
             updateState { it.copy(isLoading = true, error = null) }
-            getPublicGroupsUseCase().collectLatest { res ->
+            getPublicGroups().collectLatest { res ->
                 res.onSuccess { list ->
                     updateGroupsState(list)
                 }.onFailure { e ->
@@ -57,20 +61,20 @@ class GroupViewModel @Inject constructor(
 
     private fun updateGroupsState(rawList: List<Group>) {
         updateState { s ->
-            val filtered = rawList.filter { g ->
-                (s.searchQuery.isBlank() || g.name.contains(s.searchQuery, ignoreCase = true)) &&
-                (s.provinceFilter == null || g.province == s.provinceFilter) &&
-                (s.typeFilter == null || g.type == s.typeFilter)
-            }
-            val grouped = filtered.groupBy { it.province ?: "Other" }.toList().sortedBy { it.first }
-            s.copy(rawGroups = rawList, filteredGroups = filtered, groupsByProvince = grouped, isLoading = false)
+            val filtered = filterGroups(rawList, s.searchQuery, s.provinceFilter, s.typeFilter)
+            s.copy(
+                rawGroups = rawList,
+                filteredGroups = filtered,
+                groupsByProvince = filterGroups.byProvince(filtered),
+                isLoading = false
+            )
         }
     }
 
     fun loadGroup(id: String) {
         launchSafeJob("load_group_detail_$id", "Failed to load group details") {
             updateState { it.copy(isLoadingDetail = true, detailError = null) }
-            groupRepo.observeGroup(id).collectLatest { res ->
+            observeGroupDetail(id).collectLatest { res ->
                 res.onSuccess { g ->
                     updateState { it.copy(selectedGroup = g, isLoadingDetail = false) }
                 }.onFailure { e ->
@@ -81,17 +85,25 @@ class GroupViewModel @Inject constructor(
         }
     }
 
-    fun updateFilter(query: String? = null, province: String? = null, type: GroupType? = null, clearType: Boolean = false, clearProvince: Boolean = false) {
+    fun updateFilter(
+        query: String? = null,
+        province: String? = null,
+        type: GroupType? = null,
+        clearType: Boolean = false,
+        clearProvince: Boolean = false
+    ) {
         updateState { s ->
             val nQuery = query ?: s.searchQuery
             val nProvince = if (clearProvince) null else (province ?: s.provinceFilter)
             val nType = if (clearType) null else (type ?: s.typeFilter)
-            val filtered = s.rawGroups.filter { g ->
-                (nQuery.isBlank() || g.name.contains(nQuery, ignoreCase = true)) &&
-                (nProvince == null || g.province == nProvince) &&
-                (nType == null || g.type == nType)
-            }
-            s.copy(searchQuery = nQuery, provinceFilter = nProvince, typeFilter = nType, filteredGroups = filtered, groupsByProvince = filtered.groupBy { it.province ?: "Other" }.toList())
+            val filtered = filterGroups(s.rawGroups, nQuery, nProvince, nType)
+            s.copy(
+                searchQuery = nQuery,
+                provinceFilter = nProvince,
+                typeFilter = nType,
+                filteredGroups = filtered,
+                groupsByProvince = filterGroups.byProvince(filtered)
+            )
         }
     }
 }

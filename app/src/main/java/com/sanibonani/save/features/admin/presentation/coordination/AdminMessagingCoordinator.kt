@@ -5,7 +5,7 @@ import com.sanibonani.save.domain.usecase.system.SendNotificationUseCase
 import javax.inject.Inject
 
 class AdminMessagingCoordinator @Inject constructor(
-    private val sendNotificationUseCase: SendNotificationUseCase
+    private val sendNotification: SendNotificationUseCase
 ) {
 
     fun updateText(host: AdminActionHost, text: String) {
@@ -25,7 +25,7 @@ class AdminMessagingCoordinator @Inject constructor(
         host.launchAdminSafeJob("broadcast_message", "Failed to send message") {
             host.updateAdminState { it.copy(isSendingMessage = true, messageSentSuccess = false) }
             host.runWithLoading {
-                sendNotificationUseCase(groupId, message, memberId = null, channel = channel)
+                sendNotification(groupId, message, memberId = null, channel = channel)
                     .onSuccess {
                         host.updateAdminState {
                             it.copy(isSendingMessage = false, messageSentSuccess = true, messageText = "")

@@ -12,6 +12,9 @@ import com.sanibonani.save.domain.repository.group.*
 import com.sanibonani.save.domain.repository.member.*
 import com.sanibonani.save.domain.repository.system.*
 
+import com.sanibonani.save.domain.usecase.auth.BuildDocumentAuthHeadersUseCase
+import com.sanibonani.save.domain.usecase.equity.ObserveGroupContributionsUseCase
+import com.sanibonani.save.domain.usecase.equity.ObserveMemberContributionsUseCase
 import com.sanibonani.save.domain.usecase.member.*
 import com.sanibonani.save.domain.usecase.credit.ValidateLoanEligibilityUseCase
 import com.sanibonani.save.domain.usecase.system.*
@@ -49,8 +52,9 @@ class AdminViewModelWhatsAppTest {
     private val exportRepo             = mockk<ExportRepository>(relaxed = true)
     private val supabaseRepo           = mockk<SupabaseRepository>(relaxed = true)
     private val paymentCalculator      = mockk<PaymentCalculator>(relaxed = true)
+    private val syncRepo               = mockk<SyncRepository>(relaxed = true)
 
-    private val adminContextCache      = AdminGroupContextCacheService(groupRepo, memberRepo, notificationRepo, payoutRepo, actuarialRepo)
+    private val adminContextCache      = AdminGroupContextCacheService(groupRepo, memberRepo, notificationRepo, payoutRepo, actuarialRepo, syncRepo)
 
     private val updateMemberStatus     = mockk<UpdateMemberStatusUseCase>(relaxed = true)
     private val verifyMemberDocument   = mockk<VerifyMemberDocumentUseCase>(relaxed = true)
@@ -75,17 +79,19 @@ class AdminViewModelWhatsAppTest {
 
         viewModel = AdminMemberViewModel(
             adminContextCache,
-            memberRepo,
-            contributionRepo,
-            beneficiaryRepo,
-            memberDocumentRepo,
+            UpdateMemberBankingDetailsUseCase(memberRepo),
+            ObserveGroupContributionsUseCase(contributionRepo),
+            ObserveMemberContributionsUseCase(contributionRepo),
+            ObserveBeneficiariesUseCase(beneficiaryRepo),
+            UpdateBeneficiaryUseCase(beneficiaryRepo),
+            ObserveMemberDocumentsUseCase(memberDocumentRepo),
+            ExportMemberStatementUseCase(exportRepo),
+            BuildDocumentAuthHeadersUseCase(supabaseRepo),
             updateMemberStatus,
             verifyMemberDocument,
             verifyRelationalDoc,
             validateLoanEligibility,
             sendNotification,
-            exportRepo,
-            supabaseRepo,
             paymentCalculator
         )
     }

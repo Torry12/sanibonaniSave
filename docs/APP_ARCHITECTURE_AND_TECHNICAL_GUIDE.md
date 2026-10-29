@@ -82,19 +82,19 @@ SanibonaniSave_Full/
 
 > All versions are centrally managed in `gradle/libs.versions.toml` — check there first.
 
-- **Kotlin**: 2.4.20 (K2 compiler)
-- **Gradle**: 9.8.0
+- **Kotlin**: 2.4.21 (K2 compiler)
+- **Gradle**: 9.8.1
 - **AGP**: 9.4.1
 - **Compose BOM**: 2026.09.00
 - **KSP**: 2.3.12
 - **Hilt**: 2.60.1 (Dependency Injection)
 - **Supabase**: 3.8.0 (Auth, PostgREST, Realtime, Storage) — `:data`/`:app` only
-- **Room**: 2.8.5 (Local SQLite Cache, schema version 81)
+- **Room**: 2.8.5 (Local SQLite Cache, schema version 82)
 - **Ktor**: 3.6.0 (Network Engine)
 - **Retrofit / OkHttp**: 3.0.0 / 5.5.0 (YoCo REST integration)
 - **Coil**: 2.7.0 (Image Loading)
 - **OSMDroid**: 6.1.20 (OpenStreetMap)
-- **Firebase BOM**: 34.19.0 (Messaging, Analytics, Crashlytics)
+- **Firebase BOM**: 35.0.2 (Messaging, Analytics, Crashlytics)
 - **Google Services**: 4.5.0
 
 ---

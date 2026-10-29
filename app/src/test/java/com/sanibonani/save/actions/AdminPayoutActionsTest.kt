@@ -3,8 +3,10 @@ package com.sanibonani.save.actions
 import com.sanibonani.save.domain.model.Money
 import com.sanibonani.save.domain.repository.auth.SupabaseRepository
 import com.sanibonani.save.domain.repository.disbursement.PayoutRepository
+import com.sanibonani.save.domain.usecase.auth.GetAttributableActorIdUseCase
 import com.sanibonani.save.domain.usecase.disbursement.ProcessDisbursementUseCase
 import com.sanibonani.save.domain.usecase.disbursement.RequestPayoutUseCase
+import com.sanibonani.save.domain.usecase.disbursement.VerifyPayoutDocumentUseCase
 import com.sanibonani.save.features.admin.presentation.actions.AdminFinancialActionHost
 import com.sanibonani.save.features.admin.presentation.actions.AdminPayoutActions
 import com.sanibonani.save.features.admin.presentation.state.AdminFinancialUiState
@@ -40,9 +42,9 @@ class AdminPayoutActionsTest {
         every { supabaseRepo.currentUserId } returns "admin1"
         actions = AdminPayoutActions(
             requestPayoutUseCase,
-            payoutRepo,
+            VerifyPayoutDocumentUseCase(payoutRepo),
             processDisbursementUseCase,
-            supabaseRepo,
+            GetAttributableActorIdUseCase(supabaseRepo),
             contextCache
         )
     }

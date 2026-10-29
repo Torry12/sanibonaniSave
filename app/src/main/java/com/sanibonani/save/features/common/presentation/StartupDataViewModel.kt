@@ -3,16 +3,15 @@ package com.sanibonani.save.features.common.presentation
 import com.sanibonani.save.domain.utils.safeRunCatching
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.sanibonani.save.domain.repository.group.GroupRepository
+import com.sanibonani.save.domain.usecase.group.WarmPublicGroupsCacheUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import javax.inject.Inject
 
 @HiltViewModel
 class StartupDataViewModel @Inject constructor(
-    private val groupRepository: GroupRepository
+    private val warmPublicGroupsCache: WarmPublicGroupsCacheUseCase
 ) : ViewModel() {
     private var preloaded = false
 
@@ -21,10 +20,9 @@ class StartupDataViewModel @Inject constructor(
         preloaded = true
 
         viewModelScope.launch {
-            // Warm public groups cache on app launch so map screens render faster.
-            // Using cache-only to prevent network block on startup.
+            // Cache-only read, so a slow server never blocks startup; the timeout is the backstop.
             withTimeoutOrNull(7000) {
-                safeRunCatching { groupRepository.getPublicGroupsFromCache().first() }
+                safeRunCatching { warmPublicGroupsCache() }
             }
         }
     }

@@ -8,8 +8,8 @@ import com.sanibonani.save.domain.usecase.actuarial.ViabilityUtils
 import javax.inject.Inject
 
 class AdminViabilityCoordinator @Inject constructor(
-    private val calculateViabilityUseCase: CalculateViabilityUseCase,
-    private val applyViabilityPlanUseCase: ApplyViabilityPlanUseCase
+    private val calculateViability: CalculateViabilityUseCase,
+    private val applyViabilityPlan: ApplyViabilityPlanUseCase
 ) {
 
     fun calculate(
@@ -35,7 +35,7 @@ class AdminViabilityCoordinator @Inject constructor(
         host.launchAdminSafeJob("calculate_viability", "Failed to calculate viability") {
             host.updateAdminState { it.copy(isCalculatingViability = true) }
             host.runWithLoading {
-                calculateViabilityUseCase(groupId, effectiveGoal, months, actuarialSettings)
+                calculateViability(groupId, effectiveGoal, months, actuarialSettings)
                     .onSuccess { plan ->
                         host.updateAdminState { it.copy(isCalculatingViability = false, viabilityPlan = plan) }
                     }
@@ -54,7 +54,7 @@ class AdminViabilityCoordinator @Inject constructor(
         host.launchAdminSafeJob("apply_viability", "Failed to apply viability plan") {
             host.updateAdminState { it.copy(isLoading = true) }
             host.runWithLoading {
-                applyViabilityPlanUseCase(groupId, plan)
+                applyViabilityPlan(groupId, plan)
                     .onSuccess {
                         host.updateAdminState { it.copy(isLoading = false, viabilityPlan = null) }
                     }

@@ -46,8 +46,7 @@ data class MemberAuditReport(
     val contributions: MemberContributionStats? = null,
     val loans: MemberLoanStats? = null,
     val behavior: MemberBehaviorStats? = null,
-    @SerialName("recent_audit_logs") val recentAuditLogs: List<AuditLog> = emptyList(),
-    val summary: Map<String, String> = emptyMap()
+    @SerialName("recent_audit_logs") val recentAuditLogs: List<AuditLog> = emptyList()
 )
 
 @Serializable
@@ -74,24 +73,22 @@ data class GroupReconciliationStats(
 
 @Serializable
 data class GroupFinances(
-    val balance: Money = Money.ZERO,
     @SerialName("total_inflow") val totalInflow: Money = Money.ZERO,
-    @SerialName("total_outflow") val totalOutflow: Money = Money.ZERO,
-    @SerialName("outstanding_loans") val outstandingLoans: Money = Money.ZERO
+    @SerialName("total_outflow") val totalOutflow: Money = Money.ZERO
 )
 
 @Serializable
 data class GroupAuditReport(
     @SerialName("group_id") val groupId: String = "",
-    @SerialName("group_name") val name: String = "",
+    // `generate_group_audit_report_v1` emits this key as "name"; SerialName must match it or
+    // ignoreUnknownKeys leaves the report header blank on the Group Audit tab.
+    @SerialName("name") val name: String = "",
     val type: String = "",
     val balance: Money = Money.ZERO,
     val finances: GroupFinances? = null,
     val membership: GroupMembershipStats? = null,
     val actuarial: GroupActuarialStats? = null,
-    val reconciliation: GroupReconciliationStats? = null,
-    @SerialName("ledger_summary") val ledgerSummary: List<LedgerEntry>? = null,
-    val findings: List<String> = emptyList()
+    val reconciliation: GroupReconciliationStats? = null
 )
 
 @Serializable
@@ -113,7 +110,6 @@ data class PlatformAuditReport(
     val revenue: Money = Money.ZERO,
     val risk: PlatformRiskStats? = null,
     val groups: PlatformGroupStats? = null,
-    val issues: List<String> = emptyList(),
     @SerialName("top_level_stats") val topLevelStats: Map<String, String>? = null
 )
 

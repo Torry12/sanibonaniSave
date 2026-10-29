@@ -10,6 +10,19 @@ import com.sanibonani.save.domain.model.UserRole
 import com.sanibonani.save.domain.repository.auth.CredentialsRepository
 import com.sanibonani.save.domain.repository.auth.SupabaseRepository
 import com.sanibonani.save.domain.repository.auth.UserProfileRepository
+import com.sanibonani.save.domain.usecase.auth.GetAttributableActorIdUseCase
+import com.sanibonani.save.domain.usecase.auth.GetCurrentUserRoleUseCase
+import com.sanibonani.save.domain.usecase.auth.GetSavedLoginCredentialsUseCase
+import com.sanibonani.save.domain.usecase.auth.GetUserProfileUseCase
+import com.sanibonani.save.domain.usecase.auth.HandleAuthDeepLinkUseCase
+import com.sanibonani.save.domain.usecase.auth.ObserveAuthSessionUseCase
+import com.sanibonani.save.domain.usecase.auth.RebuildConnectionsUseCase
+import com.sanibonani.save.domain.usecase.auth.RegisterAccountUseCase
+import com.sanibonani.save.domain.usecase.auth.RequestMagicLinkUseCase
+import com.sanibonani.save.domain.usecase.auth.ResendVerificationEmailUseCase
+import com.sanibonani.save.domain.usecase.auth.SetBiometricEnabledUseCase
+import com.sanibonani.save.domain.usecase.auth.SignInUseCase
+import com.sanibonani.save.domain.usecase.auth.UpdatePasswordUseCase
 import com.sanibonani.save.features.auth.presentation.AuthViewModel
 import com.sanibonani.save.features.common.presentation.LoadStateQueue
 import com.sanibonani.save.service.AdminGroupContextCacheService
@@ -85,15 +98,25 @@ class AuthViewModelHydrationTest {
         coEvery { userProfileRepo.getProfile(any()) } returns Result.success(null)
 
         viewModel = AuthViewModel(
-            supabaseRepo,
-            userProfileRepo,
-            credentialsRepo,
+            ObserveAuthSessionUseCase(supabaseRepo),
+            GetUserProfileUseCase(userProfileRepo),
+            GetCurrentUserRoleUseCase(supabaseRepo),
+            GetAttributableActorIdUseCase(supabaseRepo),
+            GetSavedLoginCredentialsUseCase(credentialsRepo),
+            SignInUseCase(supabaseRepo, credentialsRepo),
+            RegisterAccountUseCase(supabaseRepo),
+            ResendVerificationEmailUseCase(supabaseRepo),
+            RequestMagicLinkUseCase(supabaseRepo),
+            HandleAuthDeepLinkUseCase(supabaseRepo),
+            UpdatePasswordUseCase(supabaseRepo),
+            SetBiometricEnabledUseCase(credentialsRepo),
+            RebuildConnectionsUseCase(connManager),
             adminCache,
             memberCache,
             userProfileCacheService,
-            connManager,
             realtimeSyncManager,
             loadQueue,
+            mockk(relaxed = true),
             mockk(relaxed = true)
         )
     }

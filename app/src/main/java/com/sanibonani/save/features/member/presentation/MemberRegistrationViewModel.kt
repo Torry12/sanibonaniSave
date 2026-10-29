@@ -2,10 +2,10 @@ package com.sanibonani.save.features.member.presentation
 
 import com.sanibonani.save.domain.utils.safeRunCatching
 import com.sanibonani.save.domain.model.*
-import com.sanibonani.save.domain.repository.group.GroupRepository
-import com.sanibonani.save.domain.repository.auth.SupabaseRepository
 import com.sanibonani.save.domain.service.LocationService
 import com.sanibonani.save.domain.service.LocationAddress
+import com.sanibonani.save.domain.usecase.auth.GetAttributableActorIdUseCase
+import com.sanibonani.save.domain.usecase.group.GetGroupByIdUseCase
 import com.sanibonani.save.domain.usecase.member.RegisterMemberUseCase
 import com.sanibonani.save.domain.utils.toUserMessage
 import com.sanibonani.save.domain.validation.ValidationUtils
@@ -26,9 +26,9 @@ import com.sanibonani.save.service.MemberGroupContextCacheService
  */
 @HiltViewModel
 class MemberRegistrationViewModel @Inject constructor(
-    private val registerMemberUseCase: RegisterMemberUseCase,
-    private val groupRepo: GroupRepository,
-    private val supabaseRepo: SupabaseRepository,
+    private val registerMember: RegisterMemberUseCase,
+    private val getGroupById: GetGroupByIdUseCase,
+    private val getAttributableActorId: GetAttributableActorIdUseCase,
     private val locationService: LocationService,
     private val userProfileCache: UserProfileCacheService,
     private val memberContextCacheService: MemberGroupContextCacheService? = null
@@ -52,7 +52,7 @@ class MemberRegistrationViewModel @Inject constructor(
     fun initializeRegistration(groupId: String) {
         launchJob("registration_init") {
             updateState { it.copy(targetGroupId = groupId, isLoading = true, error = null) }
-            groupRepo.getGroupById(groupId)
+            getGroupById(groupId)
                 .onSuccess { group ->
                     updateState { it.copy(joiningFee = group.joiningFee, isLoading = false) }
                 }
@@ -121,7 +121,7 @@ class MemberRegistrationViewModel @Inject constructor(
      */
     fun submit(groupId: String, transactionId: String?) {
         val s = uiState.value
-        val userId = supabaseRepo.currentUserId
+        val userId = getAttributableActorId()
 
         if (s.fullName.isBlank() || s.fullName.trim().length < 3) {
             updateState { it.copy(error = "Full Name must be at least 3 characters.") }
@@ -150,7 +150,7 @@ class MemberRegistrationViewModel @Inject constructor(
                 city = s.city.trim(),
                 province = s.province.trim()
             )
-            registerMemberUseCase(member, transactionId)
+            registerMember(member, transactionId)
                 .onSuccess {
                     // Save user profile for downstream forms
                     if (s.fullName.isNotBlank() && s.email.isNotBlank()) {

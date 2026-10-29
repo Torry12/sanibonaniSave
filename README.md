@@ -15,6 +15,12 @@ For in-depth information, please refer to the following compiled guides:
 3. **[DESIGN.md](DESIGN.md)**: Visual identity and UI component specifications.
 4. **[SQL_DOCUMENTATION.md](supabase/SQL_DOCUMENTATION.md)**: Database schema, RPCs, balance invariants, and the dated delta workflow.
 
+The working notes live under `docs/` and are indexed by **[docs/INDEX.md](docs/INDEX.md)**:
+**[docs/TECHNICAL_STATE_LATEST.md](docs/TECHNICAL_STATE_LATEST.md)** for the current build/test snapshot,
+**[docs/BUSINESS_PROCESSES.md](docs/BUSINESS_PROCESSES.md)** for the end-to-end flows, and
+**[supabase/docs/README_LEDGER.md](supabase/docs/README_LEDGER.md)** for the ledger-first policy every money path must follow.
+Agents should also read **[.github/AGENT_CONTEXT.md](.github/AGENT_CONTEXT.md)** before editing SQL.
+
 ---
 
 ## Quick Setup (Android Studio)
@@ -35,7 +41,7 @@ Download `google-services.json` from your Firebase project and place it in the `
 
 | Component | Technology | Version |
 | :--- | :--- | :--- |
-| **Language** | Kotlin (K2 Compiler) | 2.4.20 |
+| **Language** | Kotlin (K2 Compiler) | 2.4.21 |
 | **Build System** | Gradle + AGP | 9.4.1 |
 | **UI** | Jetpack Compose | 2026.09.00 (BOM) |
 | **DI** | Hilt | 2.60.1 |
@@ -68,11 +74,11 @@ The behavior tracking system is optimized for exporting datasets to **Azure AI F
 
 | Group Type | Key Specialized Logic |
 | :--- | :--- |
-| **Burial Society** | Actuarial risk analysis, solvency ratios, and death benefit management. |
-| **Stokvel** | Annual payout projections and liquidity tracking. |
-| **ROSCA** | Automated turn-taking, rotation scheduling, and pot derivation from ledger. |
-| **Investment Club** | Unit-based valuation (NAV) and equity cost-basis tracking. |
-| **Emergency Fund** | 50% liquidity caps and instant disbursal validation. |
+| **Burial Society** | Actuarial risk analysis and death-benefit management; required reserve is five months of contributions (`GroupFinancialPolicy`). |
+| **Stokvel** | Annual payout projections, 10% balance reserve. |
+| **ROSCA** | Automated turn-taking, rotation scheduling, and pot derivation from ledger-verified contributions. |
+| **Investment Club** | Unit-based valuation (NAV = `group.balance`) with cost-basis equity share; probation acts as a lock-in. |
+| **Emergency Fund** | 20% balance reserve plus the 50% single-withdrawal cap enforced in `PayoutGuard`. |
 
 ---
 

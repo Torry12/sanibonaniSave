@@ -124,7 +124,12 @@ class FeeEnforcementWorker @AssistedInject constructor(
         const val WORK_NAME    = "fee_enforcement_check"
         private const val MAX_ATTEMPTS = 3
 
-        fun schedule(context: Context, groupId: String): Operation {
+        /**
+         * One schedule per group. The name used to be the bare [WORK_NAME] with UPDATE, so an
+         * admin of two groups re-enqueued the same unique work and the second group's id
+         * silently replaced the first in the input data - only one group was ever enforced.
+         */
+        fun schedule(workManager: WorkManager, groupId: String) {
             val data = Data.Builder().putString(KEY_GROUP_ID, groupId).build()
             val request = PeriodicWorkRequestBuilder<FeeEnforcementWorker>(
                 repeatInterval = 24, repeatIntervalTimeUnit = TimeUnit.HOURS
@@ -134,8 +139,11 @@ class FeeEnforcementWorker @AssistedInject constructor(
                     .setRequiredNetworkType(NetworkType.CONNECTED)
                     .build())
                 .build()
-            return WorkManager.getInstance(context)
-                .enqueueUniquePeriodicWork(WORK_NAME, ExistingPeriodicWorkPolicy.UPDATE, request)
+            workManager.enqueueUniquePeriodicWork(
+                "${WORK_NAME}_$groupId",
+                ExistingPeriodicWorkPolicy.KEEP,
+                request
+            )
         }
     }
 }

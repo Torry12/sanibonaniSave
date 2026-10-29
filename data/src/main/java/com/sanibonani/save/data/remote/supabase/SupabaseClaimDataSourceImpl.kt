@@ -75,7 +75,7 @@ class SupabaseClaimDataSourceImpl @Inject constructor(
             fallbackAdminId = null, // No fallback in direct UI calls usually
             notes = notes
         )
-        client.postgrest.rpc("pay_burial_claim_v1", rpcParams)
+        client.postgrest.rpc(PAY_CLAIM_RPC, rpcParams)
     }
 
     override suspend fun getEscalatedClaims(): Result<List<BeneficiaryPayoutClaim>> = safeRunCatching {
@@ -83,5 +83,13 @@ class SupabaseClaimDataSourceImpl @Inject constructor(
         client.postgrest[PRIMARY_TABLE].select(columns = Columns.raw(CLAIM_COLUMNS_PRIMARY)) {
             filter { or { statuses.forEach { eq("status", it) } } }
         }.decodeList<BeneficiaryPayoutClaim>()
+    }
+
+    companion object {
+        /**
+         * Declared by SYNC_DELTA_20261029B. Before that function existed this call resolved to
+         * nothing, so a claim the admin approved in the UI could never actually be paid.
+         */
+        const val PAY_CLAIM_RPC = "pay_burial_claim_v1"
     }
 }

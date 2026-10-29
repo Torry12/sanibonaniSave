@@ -7,7 +7,6 @@ import androidx.work.CoroutineWorker
 import androidx.work.Data
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.NetworkType
-import androidx.work.Operation
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
@@ -30,7 +29,7 @@ class AutomatedRoscaWorker @AssistedInject constructor(
     @Assisted appContext: Context,
     @Assisted workerParams: WorkerParameters,
     private val groupRepo: GroupRepository,
-    private val executeRoscaPayoutUseCase: ExecuteRoscaPayoutUseCase
+    private val executeRoscaPayout: ExecuteRoscaPayoutUseCase
 ) : CoroutineWorker(appContext, workerParams) {
 
     override suspend fun doWork(): Result {
@@ -45,7 +44,7 @@ class AutomatedRoscaWorker @AssistedInject constructor(
 
             AppLogger.i("AutomatedRoscaWorker", "Starting automated payout check for ROSCA group $groupId")
 
-            val payoutResult = executeRoscaPayoutUseCase(groupId)
+            val payoutResult = executeRoscaPayout(groupId)
 
             payoutResult.onSuccess { msg ->
                 AppLogger.i("AutomatedRoscaWorker", "Payout processed: $msg")
@@ -94,7 +93,12 @@ class AutomatedRoscaWorker @AssistedInject constructor(
             "Group not found"
         )
 
-        fun schedule(context: Context, groupId: String): Operation {
+        /**
+         * One schedule per group: the unique name carries the id, so two ROSCA groups on one
+         * device rotate independently. Scheduled by [BackgroundWorkScheduler] for a group whose
+         * type is [com.sanibonani.save.domain.model.GroupType.ROSCA].
+         */
+        fun schedule(workManager: WorkManager, groupId: String) {
             val data = Data.Builder().putString(KEY_GROUP_ID, groupId).build()
             val request = PeriodicWorkRequestBuilder<AutomatedRoscaWorker>(
                 repeatInterval = 24, repeatIntervalTimeUnit = TimeUnit.HOURS
@@ -107,12 +111,11 @@ class AutomatedRoscaWorker @AssistedInject constructor(
                 )
                 .build()
 
-            return WorkManager.getInstance(context)
-                .enqueueUniquePeriodicWork(
-                    "${WORK_NAME}_$groupId",
-                    ExistingPeriodicWorkPolicy.KEEP,
-                    request
-                )
+            workManager.enqueueUniquePeriodicWork(
+                "${WORK_NAME}_$groupId",
+                ExistingPeriodicWorkPolicy.KEEP,
+                request
+            )
         }
     }
 }

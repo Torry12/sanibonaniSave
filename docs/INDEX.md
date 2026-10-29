@@ -23,7 +23,9 @@ Welcome to the SanibonaniSave documentation portal. This index organizes all pro
 - **[KYC_DOCUMENTS.md](KYC_DOCUMENTS.md)**: Identity verification requirements and document handling.
 - **[AUTOMATED_DOCUMENTS.md](AUTOMATED_DOCUMENTS.md)**: Contract and constitution generation.
 - **[BACKEND_ORGANIZATION.md](BACKEND_ORGANIZATION.md)**: Supabase structure, RLS policies, and database schema organization.
-- **[SQL_DOCUMENTATION.md](../supabase/SQL_DOCUMENTATION.md)**: Tables, core RPCs, balance invariants, and the dated `SYNC_DELTA` workflow.
+- **[SQL_DOCUMENTATION.md](../supabase/SQL_DOCUMENTATION.md)**: Tables, column CHECK vocabulary, core RPCs, error codes, balance invariants, and the dated `SYNC_DELTA` workflow.
+- **[README_LEDGER.md](../supabase/docs/README_LEDGER.md)**: The ledger-first policy — what may write `groups.balance` and how to repair drift.
+- **[README_GROUP_VOTING.md](../supabase/docs/README_GROUP_VOTING.md)**: Poll tables, the four voting triggers, and the single-admin authorization model.
 - **[IMPERSONATION_FLOW.md](IMPERSONATION_FLOW.md)**: Technical guide for Platform Admin impersonation features for support.
 - **[FINANCIAL_ARCHITECTURE_REFACTOR_2026.md](FINANCIAL_ARCHITECTURE_REFACTOR_2026.md)**: Detailed report of the August 2026 reorganization.
 
@@ -41,6 +43,7 @@ Welcome to the SanibonaniSave documentation portal. This index organizes all pro
 
 ## 🚀 Operations & Deployment
 - **[SEED_DATA_INSTRUCTIONS.md](SEED_DATA_INSTRUCTIONS.md)**: How to seed local and remote databases.
+- **SQL parity probes**: `../supabase/maintenance/SCHEMA_PARITY_DIGEST.sql` (one-row object counts + digest, expected baseline in its header) and `SCHEMA_OBJECT_FINGERPRINTS.sql` (per-function body hashes) are the read-only way to measure Local↔repo↔Cloud drift.
 - **[SIMULATION_RESULTS.md](SIMULATION_RESULTS.md)**: Live simulation runs and their outcomes.
 - **[DELIVERABLES_RUNTIME_SIGNAL.md](DELIVERABLES_RUNTIME_SIGNAL.md)**: Details on the CI/CD runtime signal and diagnostic probes.
 - **[QA_LOGIN_CREDENTIALS.md](../QA_LOGIN_CREDENTIALS.md)**: Test accounts for QA.

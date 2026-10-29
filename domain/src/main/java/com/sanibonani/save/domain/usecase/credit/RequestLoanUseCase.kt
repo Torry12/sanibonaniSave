@@ -15,12 +15,15 @@ import javax.inject.Inject
  * Prices and files a member's loan application.
  *
  * The configured rate and fee are the price of this loan, so a failed settings read
- * stops the request instead of billing an invented default.
+ * stops the request instead of billing an invented default. Eligibility is re-checked
+ * here — including the group's per-loan cap — so an over-cap request never reaches
+ * the approval queue.
  */
 class RequestLoanUseCase @Inject constructor(
     private val loanRepository: LoanRepository,
     private val platformRepository: PlatformRepository,
-    private val calculateSchedule: CalculateLoanRepaymentScheduleUseCase
+    private val calculateSchedule: CalculateLoanRepaymentScheduleUseCase,
+    private val validateEligibility: ValidateLoanEligibilityUseCase
 ) {
     data class Params(
         val group: Group,
@@ -36,6 +39,16 @@ class RequestLoanUseCase @Inject constructor(
             ?: return Result.failure(IllegalStateException("No server id for group"))
         val memberId = params.member.id
             ?: return Result.failure(IllegalStateException("No server id for member"))
+
+        val eligibility = validateEligibility(
+            params.member,
+            params.group,
+            params.amount,
+            params.termMonths
+        )
+        if (eligibility is ValidateLoanEligibilityUseCase.EligibilityResult.Ineligible) {
+            return Result.failure(IllegalStateException(eligibility.reason))
+        }
 
         val settings = platformRepository.getPlatformSettings()
             .getOrElse { return Result.failure(it) }

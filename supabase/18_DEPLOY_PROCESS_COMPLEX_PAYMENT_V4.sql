@@ -21,6 +21,16 @@ DECLARE
     v_all RECORD;
     v_total_sum NUMERIC := 0;
 BEGIN
+    -- This one call can post a contribution, repay a loan, and charge a joining fee for whichever
+    -- member id the request names, so the caller has to be the platform, that group's admin, the
+    -- member themself, or the service role the sync worker signs in as.
+    IF auth.role() IS DISTINCT FROM 'service_role'
+       AND NOT (public.is_platform_admin()
+                OR public.is_group_admin(p_group_id)
+                OR public.is_own_member(p_member_id)) THEN
+        RAISE EXCEPTION '[SEC_002] COMPLEX_PAYMENT_ACCESS_DENIED';
+    END IF;
+
     SELECT balance INTO v_bal FROM public.groups WHERE id = p_group_id FOR UPDATE;
     IF NOT FOUND THEN
         RAISE EXCEPTION '[SYS_001] GROUP_NOT_FOUND';
@@ -71,6 +81,9 @@ BEGIN
 END;
 $$;
 
-GRANT EXECUTE ON FUNCTION public.process_complex_payment_v4(UUID, UUID, NUMERIC, TEXT, JSONB, TEXT, TEXT, TEXT) TO anon, authenticated, service_role;
+-- No anonymous payment posting: the grant that shipped with this function included `anon`, which is
+-- how an unauthenticated request could credit any member and drain any group balance.
+REVOKE EXECUTE ON FUNCTION public.process_complex_payment_v4(UUID, UUID, NUMERIC, TEXT, JSONB, TEXT, TEXT, TEXT) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.process_complex_payment_v4(UUID, UUID, NUMERIC, TEXT, JSONB, TEXT, TEXT, TEXT) TO authenticated, service_role;
 COMMENT ON FUNCTION public.process_complex_payment_v4(UUID, UUID, NUMERIC, TEXT, JSONB, TEXT, TEXT, TEXT) IS 'Atomically records an allocated group payment and its ledger entries.';
 NOTIFY pgrst, 'reload schema';

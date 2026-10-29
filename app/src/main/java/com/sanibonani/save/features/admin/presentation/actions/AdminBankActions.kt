@@ -2,8 +2,8 @@ package com.sanibonani.save.features.admin.presentation.actions
 
 import com.sanibonani.save.domain.event.BankCallbackEvent
 import com.sanibonani.save.domain.event.EventBus
-import com.sanibonani.save.domain.repository.payment.BankRepository
 import com.sanibonani.save.domain.usecase.payment.FinalizeBankConnectionUseCase
+import com.sanibonani.save.domain.usecase.payment.IgnoreBankTransactionUseCase
 import com.sanibonani.save.domain.usecase.payment.SyncBankTransactionsUseCase
 import com.sanibonani.save.service.AdminGroupContextCacheService
 import kotlinx.coroutines.flow.filterIsInstance
@@ -17,9 +17,9 @@ import javax.inject.Inject
  * which is the screen that lists providers.
  */
 class AdminBankActions @Inject constructor(
-    private val syncBankTransactionsUseCase: SyncBankTransactionsUseCase,
-    private val finalizeBankConnectionUseCase: FinalizeBankConnectionUseCase,
-    private val bankRepo: BankRepository,
+    private val syncBankTransactions: SyncBankTransactionsUseCase,
+    private val finalizeBankConnection: FinalizeBankConnectionUseCase,
+    private val ignoreBankTransactionUseCase: IgnoreBankTransactionUseCase,
     private val adminContextCacheService: AdminGroupContextCacheService,
 ) {
 
@@ -39,7 +39,7 @@ class AdminBankActions @Inject constructor(
 
         host.launchAction("refresh_bank_data") {
             host.updateActionState { it.copy(isRefreshingBank = true, error = null) }
-            syncBankTransactionsUseCase(groupId)
+            syncBankTransactions(groupId)
                 .onSuccess {
                     host.updateActionState { it.copy(isRefreshingBank = false, bankRefreshSuccess = true) }
                     host.notifyUser("Bank data synchronized successfully")
@@ -56,7 +56,7 @@ class AdminBankActions @Inject constructor(
         val groupId = host.actionState.group?.id ?: return
         host.launchAction("handle_bank_callback") {
             host.updateActionState { it.copy(isLoading = true, error = null) }
-            finalizeBankConnectionUseCase(groupId, connectionId, status)
+            finalizeBankConnection(groupId, connectionId, status)
                 .onSuccess {
                     host.updateActionState { it.copy(isLoading = false) }
                     host.notifyUser("Bank account linked successfully!")
@@ -71,7 +71,7 @@ class AdminBankActions @Inject constructor(
     fun ignoreBankTransaction(host: AdminFinancialActionHost, bankTxId: String, reason: String) {
         host.launchAction("ignore_bank_transaction") {
             host.updateActionState { it.copy(isLoading = true, error = null) }
-            bankRepo.ignoreTransaction(bankTxId, reason)
+            ignoreBankTransactionUseCase(bankTxId, reason)
                 .onSuccess {
                     host.updateActionState { it.copy(isLoading = false, successMessage = "Bank transaction ignored") }
                 }

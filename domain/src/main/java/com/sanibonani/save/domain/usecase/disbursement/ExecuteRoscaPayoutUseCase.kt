@@ -21,7 +21,7 @@ class ExecuteRoscaPayoutUseCase @Inject constructor(
     private val payoutRepository: PayoutRepository,
     private val loanRepository: LoanRepository,
     private val behaviorTrackingRepository: BehaviorTrackingRepository,
-    private val platformRepository: PlatformRepository,
+    private val auditRepository: AuditRepository,
     private val roscaRotationUseCase: CalculateRoscaRotationUseCase,
     private val payoutGuard: PayoutGuard
 ) {
@@ -134,7 +134,7 @@ class ExecuteRoscaPayoutUseCase @Inject constructor(
                 // only a request that exists - a COMPLETED event tells the member funds are on
                 // their way, and an initiation line without an id cannot be reconciled.
                 if (payoutId != null) {
-                    platformRepository.logAuditEvent(AuditLog(actorId = "system_rosca", targetGroupId = groupId, targetMemberId = currentMember.id, action = "ROSCA_PAYOUT_INITIATED", details = buildJsonObject { put("payoutId", payoutId); put("totalPot", plan.totalPot.amount.toPlainString()); put("period", plan.period) }))
+                    auditRepository.logAuditEvent(AuditLog(actorId = "system_rosca", targetGroupId = groupId, targetMemberId = currentMember.id, action = "ROSCA_PAYOUT_INITIATED", details = buildJsonObject { put("payoutId", payoutId); put("totalPot", plan.totalPot.amount.toPlainString()); put("period", plan.period) }))
                     EventBus.emit(PayoutProcessedEvent(
                         payout = PayoutRequest(
                             id = payoutId,

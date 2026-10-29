@@ -1,10 +1,9 @@
 package com.sanibonani.save.features.admin.presentation.actions
 
 import com.sanibonani.save.domain.model.BeneficiaryClaimStatus
-import com.sanibonani.save.domain.model.DocumentStatus
-import com.sanibonani.save.domain.repository.auth.SupabaseRepository
-import com.sanibonani.save.domain.repository.member.BeneficiaryClaimRepository
+import com.sanibonani.save.domain.usecase.auth.GetAttributableActorIdUseCase
 import com.sanibonani.save.domain.usecase.member.ProcessBurialClaimUseCase
+import com.sanibonani.save.domain.usecase.member.VerifyBurialClaimDocumentUseCase
 import com.sanibonani.save.service.AdminGroupContextCacheService
 import javax.inject.Inject
 
@@ -12,19 +11,25 @@ import javax.inject.Inject
  * Burial claim review lifecycle: status decisions and supporting document verification.
  */
 class AdminClaimActions @Inject constructor(
-    private val processBurialClaimUseCase: ProcessBurialClaimUseCase,
-    private val claimRepo: BeneficiaryClaimRepository,
-    private val supabaseRepo: SupabaseRepository,
+    private val processBurialClaim: ProcessBurialClaimUseCase,
+    private val verifyClaimDocumentUseCase: VerifyBurialClaimDocumentUseCase,
+    private val getAttributableActorId: GetAttributableActorIdUseCase,
     private val adminContextCacheService: AdminGroupContextCacheService,
 ) {
 
     fun processClaim(host: AdminFinancialActionHost, claimId: String, approve: Boolean) {
         val groupId = adminContextCacheService.selectedGroupId.value ?: return
-        val adminId = supabaseRepo.currentUserId ?: return
+        // The domain refuses an unattributable decision, so report a blank session
+        // instead of launching a call that must fail or silently dropping the tap.
+        val adminId = getAttributableActorId()
+        if (adminId == null) {
+            host.reportError(IllegalStateException("Sign in again to change a claim status."))
+            return
+        }
         host.launchAction("process_claim") {
             host.updateActionState { it.copy(isLoading = true, error = null, processingIds = it.processingIds + claimId) }
             val status = if (approve) BeneficiaryClaimStatus.PAID else BeneficiaryClaimStatus.REJECTED
-            processBurialClaimUseCase(
+            processBurialClaim(
                 claimId = claimId,
                 status = status,
                 reviewedBy = adminId
@@ -46,10 +51,9 @@ class AdminClaimActions @Inject constructor(
     }
 
     fun verifyClaimDocument(host: AdminFinancialActionHost, claimId: String, docKey: String, approve: Boolean) {
-        val status = if (approve) DocumentStatus.VERIFIED else DocumentStatus.REJECTED
         host.launchAction("verify_claim_document") {
             host.updateActionState { it.copy(isLoading = true, error = null) }
-            claimRepo.verifyClaimDocument(claimId, docKey, status)
+            verifyClaimDocumentUseCase(claimId, docKey, approve)
                 .onSuccess {
                     host.updateActionState { it.copy(isLoading = false, successMessage = "Claim document ${if (approve) "verified" else "rejected"}") }
                 }

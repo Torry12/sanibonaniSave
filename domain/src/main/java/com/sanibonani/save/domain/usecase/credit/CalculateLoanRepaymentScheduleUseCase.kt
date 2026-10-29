@@ -33,6 +33,7 @@ class CalculateLoanRepaymentScheduleUseCase @Inject constructor() {
     )
 
     operator fun invoke(params: Params): Result {
+        require(!params.processingFee.isNegative) { "Processing fee must not be negative." }
         val strategy = strategies[params.amortizationType]
             ?: throw IllegalArgumentException("Unsupported amortization type: ${params.amortizationType}")
 

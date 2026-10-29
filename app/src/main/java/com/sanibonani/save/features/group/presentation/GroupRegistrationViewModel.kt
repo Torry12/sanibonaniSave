@@ -2,10 +2,13 @@ package com.sanibonani.save.features.group.presentation
 
 import com.sanibonani.save.domain.utils.safeRunCatching
 import com.sanibonani.save.domain.model.*
-import com.sanibonani.save.domain.repository.auth.*
-import com.sanibonani.save.domain.repository.group.GroupDocumentRepository
 import com.sanibonani.save.domain.service.LocationService
 import com.sanibonani.save.domain.service.PlatformFeeService
+import com.sanibonani.save.domain.usecase.auth.GetAttributableActorIdUseCase
+import com.sanibonani.save.domain.usecase.auth.GetCurrentSessionEmailUseCase
+import com.sanibonani.save.domain.usecase.auth.IsLoggedInUseCase
+import com.sanibonani.save.domain.usecase.group.GetGroupByIdUseCase
+import com.sanibonani.save.domain.usecase.group.UploadGroupConstitutionUseCase
 import com.sanibonani.save.domain.usecase.group.CreateGroupUseCase
 import com.sanibonani.save.domain.usecase.admin.ActivateGroupUseCase
 import com.sanibonani.save.features.common.presentation.BaseViewModel
@@ -92,25 +95,29 @@ data class GroupRegistrationState(
  */
 @HiltViewModel
 class GroupRegistrationViewModel @Inject constructor(
-    private val createGroupUseCase: CreateGroupUseCase,
-    private val activateGroupUseCase: ActivateGroupUseCase,
+    private val createGroup: CreateGroupUseCase,
+    private val activateGroup: ActivateGroupUseCase,
     private val feeService: PlatformFeeService,
     private val locationService: LocationService,
-    private val supabaseRepo: SupabaseRepository,
+    private val isLoggedIn: IsLoggedInUseCase,
+    private val getCurrentSessionEmail: GetCurrentSessionEmailUseCase,
+    private val getAttributableActorId: GetAttributableActorIdUseCase,
     private val userProfileCache: UserProfileCacheService? = null,
     private val memberContextCacheService: MemberGroupContextCacheService? = null,
-    private val documentRepository: GroupDocumentRepository? = null,
+    private val getGroupById: GetGroupByIdUseCase? = null,
+    private val uploadGroupConstitution: UploadGroupConstitutionUseCase? = null,
 ) : BaseViewModel<GroupRegistrationState>(GroupRegistrationState()) {
 
     val state: StateFlow<GroupRegistrationState> = uiState
 
     private val submitter = GroupRegistrationSubmitter(
-        createGroupUseCase = createGroupUseCase,
-        activateGroupUseCase = activateGroupUseCase,
-        supabaseRepo = supabaseRepo,
+        createGroup = createGroup,
+        activateGroup = activateGroup,
+        getAttributableActorId = getAttributableActorId,
         userProfileCache = userProfileCache,
         memberContextCacheService = memberContextCacheService,
-        documentRepository = documentRepository
+        uploadGroupConstitution = uploadGroupConstitution,
+        getGroupById = getGroupById
     )
 
     private val registrationHost = object : GroupRegistrationHost {
@@ -126,18 +133,18 @@ class GroupRegistrationViewModel @Inject constructor(
 
     init {
         // AI Note: Warmup the state with current login status, standard platform fees, and cached user profile.
-        val isLoggedIn = supabaseRepo.isLoggedIn
+        val loggedIn = isLoggedIn()
         val fee = feeService.getRegistrationFee()
         val cachedName = userProfileCache?.getFullName() ?: ""
         // The admin email field is read-only for a signed-in account, so an empty cache would
         // leave a required, uneditable field blank; fall back to the session's own email.
         val cachedEmail = userProfileCache?.getEmail()?.takeIf { it.isNotBlank() }
-            ?: supabaseRepo.currentSessionEmail.orEmpty()
+            ?: getCurrentSessionEmail().orEmpty()
         val cachedPhone = userProfileCache?.getPhone() ?: ""
 
         updateState {
             it.copy(
-                isLoggedIn = isLoggedIn,
+                isLoggedIn = loggedIn,
                 platformRegistrationFee = fee,
                 adminFullName = if (cachedName.isNotBlank()) cachedName else it.adminFullName,
                 adminEmail = if (cachedEmail.isNotBlank()) cachedEmail else it.adminEmail,
@@ -152,7 +159,7 @@ class GroupRegistrationViewModel @Inject constructor(
     fun resetNavigation() {
         submitter.clearPendingConstitution()
         updateState { initialState.copy(
-            isLoggedIn = supabaseRepo.isLoggedIn,
+            isLoggedIn = isLoggedIn(),
             platformRegistrationFee = it.platformRegistrationFee
         ) }
     }

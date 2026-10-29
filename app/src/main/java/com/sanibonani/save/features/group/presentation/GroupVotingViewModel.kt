@@ -1,9 +1,11 @@
 package com.sanibonani.save.features.group.presentation
 
 import com.sanibonani.save.domain.model.*
-import com.sanibonani.save.domain.repository.group.VotingRepository
 import com.sanibonani.save.domain.usecase.group.CastGroupPollVoteUseCase
+import com.sanibonani.save.domain.usecase.group.CloseGroupPollUseCase
 import com.sanibonani.save.domain.usecase.group.CreateGroupPollUseCase
+import com.sanibonani.save.domain.usecase.group.ObserveGroupPollsUseCase
+import com.sanibonani.save.domain.utils.toUserMessage
 import com.sanibonani.save.features.common.presentation.BaseViewModel
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
@@ -22,9 +24,10 @@ data class GroupVotingUiState(
 
 @HiltViewModel
 class GroupVotingViewModel @Inject constructor(
-    private val votingRepository: VotingRepository,
-    private val createGroupPollUseCase: CreateGroupPollUseCase,
-    private val castGroupPollVoteUseCase: CastGroupPollVoteUseCase
+    private val observeGroupPolls: ObserveGroupPollsUseCase,
+    private val createGroupPoll: CreateGroupPollUseCase,
+    private val castGroupPollVote: CastGroupPollVoteUseCase,
+    private val closeGroupPoll: CloseGroupPollUseCase
 ) : BaseViewModel<GroupVotingUiState>(GroupVotingUiState()) {
 
     val state: StateFlow<GroupVotingUiState> = uiState
@@ -36,7 +39,7 @@ class GroupVotingViewModel @Inject constructor(
         updateState { it.copy(groupId = groupId, memberId = memberId) }
         pollsJob?.cancel()
         pollsJob = launchJob("load_polls") {
-            votingRepository.observePolls(groupId, memberId).collectLatest { res ->
+            observeGroupPolls(groupId, memberId).collectLatest { res ->
                 res.onSuccess { list -> updateState { it.copy(polls = list, isLoading = false) } }
                     .onFailure { updateState { it.copy(isLoading = false) } }
             }
@@ -47,7 +50,7 @@ class GroupVotingViewModel @Inject constructor(
         val s = uiState.value
         launchJob("create_poll") {
             updateState { it.copy(isSaving = true) }
-            createGroupPollUseCase(s.groupId, s.memberId, title, description, options, allowMultipleChoice).onSuccess {
+            createGroupPoll(s.groupId, s.memberId, title, description, options, allowMultipleChoice).onSuccess {
                 updateState { it.copy(isSaving = false, message = "Poll created") }
             }
         }
@@ -57,7 +60,7 @@ class GroupVotingViewModel @Inject constructor(
         val s = uiState.value
         if (s.memberId == null) return
         launchJob("cast_vote") {
-            castGroupPollVoteUseCase(s.groupId, pollId, optionId, s.memberId).onSuccess {
+            castGroupPollVote(s.groupId, pollId, optionId, s.memberId).onSuccess {
                 updateState { it.copy(message = "Vote submitted") }
             }
         }
@@ -65,9 +68,13 @@ class GroupVotingViewModel @Inject constructor(
 
     fun closePoll(pollId: String) {
         launchJob("close_poll") {
-            votingRepository.closePoll(pollId).onSuccess {
-                updateState { it.copy(message = "Poll closed") }
-            }
+            closeGroupPoll(pollId)
+                .onSuccess { updateState { it.copy(message = "Poll closed") } }
+                // The database decides who may close a poll, so a refusal is an ordinary answer
+                // here, not an anomaly. Without this leg the button appeared to do nothing.
+                .onFailure { error ->
+                    updateState { it.copy(error = error.toUserMessage()) }
+                }
         }
     }
 }

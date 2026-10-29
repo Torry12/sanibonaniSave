@@ -53,7 +53,7 @@ data class PaymentContextPackage(
 @HiltViewModel
 class PaymentViewModel @Inject constructor(
     private val loadContext: LoadPaymentContextUseCase,
-    private val processContributionUseCase: ProcessContributionUseCase,
+    private val processContribution: ProcessContributionUseCase,
     private val paymentCalculator: PaymentCalculator
 ) : BaseViewModel<PaymentUiState>(PaymentUiState()) {
 
@@ -69,6 +69,21 @@ class PaymentViewModel @Inject constructor(
             paymentContextJob = null
             mutationJob?.cancel()
             mutationJob = null
+            clearTransactionState()
+        } else {
+            clearTransactionState()
+        }
+    }
+
+    fun clearTransactionState() {
+        updateState {
+            it.copy(
+                isProcessing = false,
+                isSuccess = false,
+                error = null,
+                checkoutUrl = null,
+                transactionId = null
+            )
         }
     }
 
@@ -173,7 +188,7 @@ class PaymentViewModel @Inject constructor(
             updateState { it.copy(isProcessing = true, isSuccess = false, error = null, checkoutUrl = null, transactionId = null) }
             val selectedMethod = uiState.value.selectedMethod
 
-            val outcome = processContributionUseCase(
+            val outcome = processContribution(
                 type = paymentType,
                 amount = amount,
                 groupId = groupId,

@@ -1,14 +1,14 @@
 package com.sanibonani.save.features.member.presentation.coordination
 
-import com.sanibonani.save.domain.model.AppNotification
+import com.sanibonani.save.domain.model.NotifChannel
 import com.sanibonani.save.domain.model.NotifEvent
-import com.sanibonani.save.domain.repository.system.NotificationRepository
+import com.sanibonani.save.domain.usecase.system.SendNotificationUseCase
 import javax.inject.Inject
 import kotlin.time.Duration.Companion.milliseconds
 import kotlinx.coroutines.delay
 
 class MemberMessagingCoordinator @Inject constructor(
-    private val notifRepo: NotificationRepository
+    private val sendNotification: SendNotificationUseCase
 ) {
 
     fun updateText(host: MemberActionHost, text: String) {
@@ -23,13 +23,13 @@ class MemberMessagingCoordinator @Inject constructor(
 
         host.launchMemberJob("sending_message") {
             host.updateMemberState { it.copy(isSendingMessage = true) }
-            val notification = AppNotification(
+            sendNotification(
                 groupId = groupId,
-                memberId = s.member?.id,
                 message = msg,
+                memberId = s.member?.id,
+                channel = NotifChannel.PUSH,
                 triggerEvent = NotifEvent.MEMBER_MESSAGE
-            )
-            notifRepo.sendNotification(notification).onSuccess {
+            ).onSuccess {
                 host.updateMemberState {
                     it.copy(isSendingMessage = false, messageSentSuccess = true, messageText = "")
                 }

@@ -22,7 +22,9 @@ class VerifyMfaChallengeUseCase @Inject constructor(
     }
 
     private companion object {
+        // Shared by the payment approvals and the platform-admin re-authorisation, so the
+        // wording has to name neither flow.
         const val NO_ENROLLED_FACTOR =
-            "No authenticator is enrolled on this account. Set up two-step verification before authorising this payment."
+            "No authenticator is enrolled on this account. Set up two-step verification before authorising this action."
     }
 }

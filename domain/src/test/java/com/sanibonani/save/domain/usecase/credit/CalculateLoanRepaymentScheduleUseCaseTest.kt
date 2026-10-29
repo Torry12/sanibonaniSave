@@ -6,6 +6,7 @@ import java.math.BigDecimal
 import java.time.LocalDate
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertThrows
 import org.junit.Test
 
 /**
@@ -110,5 +111,50 @@ class CalculateLoanRepaymentScheduleUseCaseTest {
         assertEquals(Money("1000.00"), sum(result.schedule) { it.principal })
         assertTrue(result.totalToRepay > Money("1000.00"))
         assertEquals(BigDecimal("0.00"), result.schedule.last().remainingBalance.amount)
+    }
+
+    @Test
+    fun `zero interest reducing schedule distributes principal and settles the final remainder`() {
+        val result = useCase(
+            CalculateLoanRepaymentScheduleUseCase.Params(
+                principal = Money("100.00"),
+                annualInterestRate = 0.0,
+                termMonths = 3,
+                amortizationType = AmortizationType.REDUCING,
+                startDate = startDate
+            )
+        )
+
+        assertEquals(Money.ZERO, result.totalInterest)
+        assertEquals(Money("100.00"), result.totalToRepay)
+        assertEquals(Money("100.00"), sum(result.schedule) { it.principal })
+        assertEquals(result.totalToRepay, sum(result.schedule) { it.totalInstallment })
+        assertEquals(Money.ZERO, result.schedule.last().remainingBalance)
+    }
+
+    @Test
+    fun `invalid rate term principal and fee are rejected`() {
+        val valid = CalculateLoanRepaymentScheduleUseCase.Params(
+            principal = Money("100.00"),
+            annualInterestRate = 0.0,
+            termMonths = 3,
+            startDate = startDate
+        )
+
+        assertThrows(IllegalArgumentException::class.java) {
+            useCase(valid.copy(annualInterestRate = Double.NaN))
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            useCase(valid.copy(annualInterestRate = -1.0))
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            useCase(valid.copy(termMonths = 0))
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            useCase(valid.copy(principal = Money.ZERO))
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            useCase(valid.copy(processingFee = Money("-0.01")))
+        }
     }
 }

@@ -2,7 +2,7 @@ package com.sanibonani.save.domain.usecase.disbursement
 
 import com.sanibonani.save.domain.model.*
 import com.sanibonani.save.domain.repository.admin.BehaviorTrackingRepository
-import com.sanibonani.save.domain.repository.admin.PlatformRepository
+import com.sanibonani.save.domain.repository.admin.AuditRepository
 import com.sanibonani.save.domain.repository.credit.LoanRepository
 import com.sanibonani.save.domain.repository.disbursement.PayoutRepository
 import com.sanibonani.save.domain.repository.equity.ContributionRepository
@@ -33,7 +33,7 @@ class ExecuteRoscaPayoutLoanLedgerTest {
     private val payoutRepository: PayoutRepository = mockk()
     private val loanRepository: LoanRepository = mockk()
     private val behaviorTrackingRepository: BehaviorTrackingRepository = mockk()
-    private val platformRepository: PlatformRepository = mockk()
+    private val auditRepository: AuditRepository = mockk()
     private val rotationUseCase: CalculateRoscaRotationUseCase = mockk()
     private val payoutGuard: PayoutGuard = mockk()
 
@@ -79,7 +79,7 @@ class ExecuteRoscaPayoutLoanLedgerTest {
     fun setUp() {
         useCase = ExecuteRoscaPayoutUseCase(
             groupRepository, memberRepository, contributionRepository, payoutRepository,
-            loanRepository, behaviorTrackingRepository, platformRepository, rotationUseCase,
+            loanRepository, behaviorTrackingRepository, auditRepository, rotationUseCase,
             payoutGuard
         )
 
@@ -126,7 +126,7 @@ class ExecuteRoscaPayoutLoanLedgerTest {
         coEvery { loanRepository.getGroupLoansSync("g1") } returns Result.success(emptyList())
         coEvery { payoutRepository.processRoscaPayout(any(), any(), any(), any(), any(), any(), any()) } returns
             Result.success("payout-1")
-        coEvery { platformRepository.logAuditEvent(any()) } returns Result.success(Unit)
+        coEvery { auditRepository.logAuditEvent(any()) } returns Result.success(Unit)
 
         val result = useCase("g1")
 
@@ -164,7 +164,7 @@ class ExecuteRoscaPayoutLoanLedgerTest {
         )
         coEvery { payoutRepository.processRoscaPayout(any(), any(), any(), any(), any(), any(), any()) } returns
             Result.success("payout-1")
-        coEvery { platformRepository.logAuditEvent(any()) } returns Result.success(Unit)
+        coEvery { auditRepository.logAuditEvent(any()) } returns Result.success(Unit)
 
         val result = useCase("g1")
 

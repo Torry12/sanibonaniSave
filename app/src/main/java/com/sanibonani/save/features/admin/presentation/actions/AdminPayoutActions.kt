@@ -1,14 +1,13 @@
 package com.sanibonani.save.features.admin.presentation.actions
 
 import com.sanibonani.save.domain.utils.safeRunCatching
-import com.sanibonani.save.domain.model.DocumentStatus
 import com.sanibonani.save.domain.model.Money
 import com.sanibonani.save.domain.model.MemberStatus
 import com.sanibonani.save.domain.model.PayoutStatus
-import com.sanibonani.save.domain.repository.auth.SupabaseRepository
-import com.sanibonani.save.domain.repository.disbursement.PayoutRepository
+import com.sanibonani.save.domain.usecase.auth.GetAttributableActorIdUseCase
 import com.sanibonani.save.domain.usecase.disbursement.ProcessDisbursementUseCase
 import com.sanibonani.save.domain.usecase.disbursement.RequestPayoutUseCase
+import com.sanibonani.save.domain.usecase.disbursement.VerifyPayoutDocumentUseCase
 import com.sanibonani.save.service.AdminGroupContextCacheService
 import javax.inject.Inject
 
@@ -17,10 +16,10 @@ import javax.inject.Inject
  * platform escalation and payout document verification.
  */
 class AdminPayoutActions @Inject constructor(
-    private val requestPayoutUseCase: RequestPayoutUseCase,
-    private val payoutRepo: PayoutRepository,
-    private val processDisbursementUseCase: ProcessDisbursementUseCase,
-    private val supabaseRepo: SupabaseRepository,
+    private val requestPayout: RequestPayoutUseCase,
+    private val verifyPayoutDocumentUseCase: VerifyPayoutDocumentUseCase,
+    private val processDisbursement: ProcessDisbursementUseCase,
+    private val getAttributableActorId: GetAttributableActorIdUseCase,
     private val adminContextCacheService: AdminGroupContextCacheService,
 ) {
 
@@ -39,7 +38,7 @@ class AdminPayoutActions @Inject constructor(
                 return@launchAction
             }
             host.updateActionState { it.copy(isRequestingPayout = true, error = null) }
-            requestPayoutUseCase(
+            requestPayout(
                 groupId = groupId,
                 memberId = s.selectedMemberId,
                 requestedAmount = moneyAmount
@@ -64,7 +63,7 @@ class AdminPayoutActions @Inject constructor(
         val groupId = adminContextCacheService.selectedGroupId.value ?: return
         host.launchAction("execute_rosca_payout") {
             host.updateActionState { it.copy(isRequestingPayout = true, error = null) }
-            requestPayoutUseCase(groupId = groupId).onSuccess { result ->
+            requestPayout(groupId = groupId).onSuccess { result ->
                 host.updateActionState { it.copy(isRequestingPayout = false, successMessage = result) }
             }.onFailure { e ->
                 host.updateActionState { it.copy(isRequestingPayout = false) }
@@ -89,7 +88,7 @@ class AdminPayoutActions @Inject constructor(
                     continue
                 }
                 val outcome = safeRunCatching {
-                    requestPayoutUseCase(groupId = groupId, memberId = memberId).getOrThrow()
+                    requestPayout(groupId = groupId, memberId = memberId).getOrThrow()
                 }
                 if (outcome.isSuccess) successCount++ else failedCount++
             }
@@ -112,7 +111,7 @@ class AdminPayoutActions @Inject constructor(
 
     fun approveAndEscalatePayoutRequest(host: AdminFinancialActionHost, payoutId: String) {
         host.launchAction("approve_escalate_payout") {
-            val adminId = supabaseRepo.currentUserId?.takeIf { it.isNotBlank() }
+            val adminId = getAttributableActorId()
             if (adminId == null) {
                 host.reportError(IllegalStateException("Sign in again to escalate a payout request."))
                 return@launchAction
@@ -120,7 +119,7 @@ class AdminPayoutActions @Inject constructor(
             host.updateActionState { it.copy(isLoading = true, error = null, processingIds = it.processingIds + payoutId) }
             // Through the disbursement use case so the transition, the liquidity check and the
             // platform audit trail all see the escalation, exactly as on the platform screen.
-            processDisbursementUseCase(
+            processDisbursement(
                 payoutId = payoutId,
                 status = PayoutStatus.GROUP_APPROVED,
                 adminId = adminId
@@ -141,10 +140,9 @@ class AdminPayoutActions @Inject constructor(
     }
 
     fun verifyPayoutDocument(host: AdminFinancialActionHost, payoutId: String, approve: Boolean) {
-        val status = if (approve) DocumentStatus.VERIFIED else DocumentStatus.REJECTED
         host.launchAction("verify_payout_document") {
             host.updateActionState { it.copy(isLoading = true, error = null) }
-            payoutRepo.verifyPayoutDocument(payoutId, status)
+            verifyPayoutDocumentUseCase(payoutId, approve)
                 .onSuccess {
                     host.updateActionState { it.copy(isLoading = false, successMessage = "Payout document ${if (approve) "verified" else "rejected"}") }
                 }

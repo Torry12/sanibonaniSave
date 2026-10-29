@@ -1,6 +1,8 @@
 package com.sanibonani.save.di
 
 import com.sanibonani.save.data.service.*
+import com.sanibonani.save.data.sync.RealtimeSyncManager
+import com.sanibonani.save.data.utils.DevSettings
 import com.sanibonani.save.domain.service.*
 import com.sanibonani.save.service.NetworkConnectivityServiceImpl
 import dagger.Binds
@@ -64,4 +66,12 @@ abstract class ServiceModule {
     @Binds
     @Singleton
     abstract fun bindNetworkConnectivityService(impl: NetworkConnectivityServiceImpl): NetworkConnectivityService
+
+    @Binds
+    @Singleton
+    abstract fun bindRealtimeSyncService(impl: RealtimeSyncManager): RealtimeSyncService
+
+    @Binds
+    @Singleton
+    abstract fun bindDevSettingsService(impl: DevSettings): DevSettingsService
 }

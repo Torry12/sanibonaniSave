@@ -11,6 +11,19 @@
     <string name="ui_tab_backups">Dikopi</string>
     <string name="ui_platform_administrator">Motsamaisi wa Polatefomo</string>
     <string name="ui_loading_platform_data">E kenya dintlha tsa polatefomo...</string>
+    <string name="ui_loading">E a kenya...</string>
+    <string name="ui_please_wait">Kopo u emele...</string>
+    <string name="ui_syncing">E kopanya...</string>
+    <string name="ui_loading_dashboard">E kenya idashibodi...</string>
+    <string name="ui_creating_account">E theha ak\'haonte ya hau...</string>
+    <string name="ui_preparing_checkout">E lokisa tefo e bolokehileng...</string>
+    <string name="ui_loading_group_profile">E kenya profiloe ya sehlopha...</string>
+    <string name="ui_creating_group">E theha sehlopha sa hau...</string>
+    <string name="ui_fetching_group_details">E lata dintlha tsa sehlopha...</string>
+    <string name="ui_registering_in_group">Re u ingolisa sehlopheng...</string>
+    <string name="ui_loading_group_settings">E kenya litlhophiso tsa sehlopha...</string>
+    <string name="ui_refreshing_group_data">E ntjhafatsa dintlha tsa sehlopha...</string>
+    <string name="ui_updating_fee_configurations">E nchafatsa ditlhophiso tsa ditefiso...</string>
     <string name="ui_access_denied">Ho Kena ho Thibetswe</string>
     <string name="ui_access_denied_message">Ha u na ditokelo tse hlokahalang ho kena photholong ya Motsamaisi wa Polatefomo. Boiteko bona bo rekhotitswe bakeng sa tshireletso.</string>
     <string name="ui_logout_for_security">Tsoa bakeng sa Tshireletso</string>
@@ -22,6 +35,7 @@
     <string name="ui_late_payments">Ditefo tse Diehileng</string>
     <string name="ui_overdue_now">E diehile hona joale</string>
     <string name="ui_current_streak">Tsoelo-pele ya Hajoale</string>
+    <string name="ui_current_streak_months">Likgwedi tse-%s</string>
     <string name="ui_total_contributed">Kakaretso e Tlatsetsoitsoeng</string>
     <string name="ui_loan_history">Nalane ya Likadimo</string>
     <string name="ui_loans_requested">Likadimo tse Kopiloeng</string>

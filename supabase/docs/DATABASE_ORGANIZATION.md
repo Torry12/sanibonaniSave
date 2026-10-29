@@ -28,7 +28,7 @@ After changing a source module, run these scripts from the repository root:
 
 They update the ground-zero migration baseline, dashboard bundle, online full-rebuild bundle, and integrated local seed respectively. Do not hand-edit those generated copies.
 
-For an existing cloud database, use the dated additive deltas in `online/` (`SYNC_DELTA_20261014.sql`, `20261021`, `20261022`). Do not use a full-rebuild script to synchronize an existing tier, and never rewrite or re-run an applied delta. Each delta carries a read-only pre-flight and a fingerprint gate: compare the reported hashes with the ones recorded in the file, and stop for review if any body differs. Take a backup before applying database changes.
+For an existing cloud database, use the dated additive deltas in `online/` (`SYNC_DELTA_20261014`, `_20261021`, `_20261022`, `_20261026`, `_20261026B`, `_20261027`, `_20261028`, `_20261029`). All seven through `_20261028` are applied on Local; Cloud still owes `20261027` and `20261028`, and `20261029` is cut but applied on neither tier. Do not use a full-rebuild script to synchronize an existing tier, and never rewrite or re-run an applied delta. Each delta carries a read-only pre-flight and a fingerprint gate: compare the reported hashes with the ones recorded in the file, and stop for review if any body differs. Take a backup before applying database changes. `maintenance/SCHEMA_PARITY_DIGEST.sql` and `maintenance/SCHEMA_OBJECT_FINGERPRINTS.sql` are the read-only drift probes.
 
 ## Integrity requirements
 

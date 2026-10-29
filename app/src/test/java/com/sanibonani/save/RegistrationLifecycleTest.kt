@@ -13,6 +13,7 @@ import com.sanibonani.save.domain.repository.member.MemberRepository
 import com.sanibonani.save.domain.service.LocationService
 import com.sanibonani.save.domain.service.PlatformFeeService
 import com.sanibonani.save.domain.usecase.admin.ActivateGroupUseCase
+import com.sanibonani.save.domain.usecase.auth.*
 import com.sanibonani.save.domain.usecase.group.CreateGroupUseCase
 import com.sanibonani.save.features.group.presentation.GroupFormEvent
 import com.sanibonani.save.features.group.presentation.GroupRegistrationViewModel
@@ -61,7 +62,9 @@ class RegistrationLifecycleTest {
             activateGroupUseCase,
             feeService,
             locationService,
-            supabaseRepo
+            IsLoggedInUseCase(supabaseRepo),
+            GetCurrentSessionEmailUseCase(supabaseRepo),
+            GetAttributableActorIdUseCase(supabaseRepo)
         )
         viewModelStore.put("registration-test", viewModel)
     }
@@ -206,7 +209,9 @@ class RegistrationLifecycleTest {
             activateGroupUseCase,
             feeService,
             locationService,
-            supabaseRepo
+            IsLoggedInUseCase(supabaseRepo),
+            GetCurrentSessionEmailUseCase(supabaseRepo),
+            GetAttributableActorIdUseCase(supabaseRepo)
         ).also { viewModelStore.put("zero-fee-${System.identityHashCode(it)}", it) }
     }
 

@@ -11,6 +11,19 @@
     <string name="ui_tab_backups">Backups</string>
     <string name="ui_platform_administrator">Platform Administrator</string>
     <string name="ui_loading_platform_data">Loading platform data...</string>
+    <string name="ui_loading">Loading...</string>
+    <string name="ui_please_wait">Please wait...</string>
+    <string name="ui_syncing">Syncing...</string>
+    <string name="ui_loading_dashboard">Loading dashboard...</string>
+    <string name="ui_creating_account">Creating your account...</string>
+    <string name="ui_preparing_checkout">Preparing secure checkout...</string>
+    <string name="ui_loading_group_profile">Loading group profile...</string>
+    <string name="ui_creating_group">Creating your group...</string>
+    <string name="ui_fetching_group_details">Fetching group details...</string>
+    <string name="ui_registering_in_group">Registering you in group...</string>
+    <string name="ui_loading_group_settings">Loading group settings...</string>
+    <string name="ui_refreshing_group_data">Refreshing group data...</string>
+    <string name="ui_updating_fee_configurations">Updating fee configurations...</string>
     <string name="ui_access_denied">Access Denied</string>
     <string name="ui_access_denied_message">You do not have the necessary permissions to access the Platform Administrator portal. This attempt has been logged for security purposes.</string>
     <string name="ui_logout_for_security">Logout for Security</string>
@@ -22,7 +35,7 @@
     <string name="ui_late_payments">Late Payments</string>
     <string name="ui_overdue_now">Overdue Now</string>
     <string name="ui_current_streak">Current Streak</string>
-    <string name="ui_current_streak_months" translatable="false">%s months</string>
+    <string name="ui_current_streak_months">%s months</string>
     <string name="ui_total_contributed">Total Contributed</string>
     <string name="ui_loan_history">Loan History</string>
     <string name="ui_loans_requested">Loans Requested</string>

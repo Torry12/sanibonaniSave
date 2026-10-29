@@ -4,6 +4,7 @@ import com.sanibonani.save.domain.model.Loan
 import com.sanibonani.save.domain.model.LoanRepayment
 import com.sanibonani.save.domain.model.LoanStatus
 import com.sanibonani.save.domain.model.PaymentMethod
+import com.sanibonani.save.domain.model.RecordRepaymentResult
 import kotlinx.coroutines.flow.Flow
 
 interface LoanRepository {
@@ -23,6 +24,7 @@ interface LoanRepository {
     ): Result<Unit>
     suspend fun disburseLoan(loanId: String, paymentMethod: PaymentMethod, adminId: String? = null): Result<Unit>
     suspend fun recordRepayment(repayment: LoanRepayment, idempotencyKey: String? = null): Result<Unit>
+    suspend fun settleExpiredLoan(loanId: String): Result<RecordRepaymentResult>
     suspend fun getRepayments(loanId: String): Flow<Result<List<LoanRepayment>>>
     suspend fun updateLoanContract(loanId: String, contractUrl: String): Result<Unit>
     suspend fun uploadLoanContract(loanId: String, byteArray: ByteArray, fileName: String): Result<String>

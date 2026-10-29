@@ -15,6 +15,7 @@ import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.postgrest.postgrest
 import javax.inject.Inject
 import kotlinx.coroutines.flow.Flow
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import com.sanibonani.save.domain.utils.requirePersistedId
@@ -108,6 +109,20 @@ class VotingRepositoryImpl @Inject constructor(
     }
 
     override suspend fun closePoll(pollId: String): Result<Unit> = authoritativeCall("closePoll") {
-        supabase.postgrest.rpc("close_poll_v1", buildJsonObject { put("p_poll_id", pollId) })
+        supabase.postgrest.rpc(CLOSE_POLL_RPC, buildClosePollRpcParams(pollId))
+    }
+
+    companion object {
+        const val CLOSE_POLL_RPC = "close_poll_v1"
+
+        /**
+         * PostgREST casts `p_poll_id` to uuid before the RPC is resolved, so a blank id would
+         * arrive as a malformed request rather than the answer the caller expects. Refusing it
+         * here keeps the screen's failure message about the poll instead of about the wire.
+         */
+        fun buildClosePollRpcParams(pollId: String): JsonObject {
+            require(pollId.isNotBlank()) { "This poll cannot be closed: it has no identifier." }
+            return buildJsonObject { put("p_poll_id", pollId) }
+        }
     }
 }

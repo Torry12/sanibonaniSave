@@ -28,7 +28,8 @@ class LedgerConsistencyWorker @AssistedInject constructor(
     @Assisted appContext: Context,
     @Assisted workerParams: WorkerParameters,
     private val reconciliationService: ReconciliationService,
-    private val platformRepo: PlatformRepository
+    private val platformRepo: PlatformRepository,
+    private val auditRepo: AuditRepository
 ) : CoroutineWorker(appContext, workerParams) {
 
     override suspend fun doWork(): Result {
@@ -37,33 +38,52 @@ class LedgerConsistencyWorker @AssistedInject constructor(
         return try {
             val auditResult = reconciliationService.auditGroupLedger(groupId)
 
-            auditResult.onSuccess { record ->
-                if (record.status == ReconciliationStatus.DISCREPANCY) {
+            auditResult.fold(
+                onSuccess = { record ->
+                    if (record.status == ReconciliationStatus.DISCREPANCY) {
+                        com.sanibonani.save.domain.logging.AppLogger.e(
+                            "LedgerGuardian",
+                            "🚨 Critical Discrepancy Found in Group $groupId: ${record.discrepancy.format()}"
+                        )
+
+                        // Trigger an automatic repair if the discrepancy is significant
+                        if (record.discrepancy.abs() > Money("1.0")) {
+                            val repairOutcome = platformRepo.repairGroupData(groupId)
+                            if (repairOutcome.isSuccess) {
+                                auditRepo.logAuditEvent(AuditLog(
+                                    actorId = "SYSTEM_GUARDIAN",
+                                    targetGroupId = groupId,
+                                    action = "AUTO_REPAIR_LEDGER",
+                                    details = Json.encodeToJsonElement(mapOf(
+                                        "discrepancy" to record.discrepancy.format(),
+                                        "reason" to "Ledger sum mismatch"
+                                    ))
+                                ))
+                            } else {
+                                // A repair that never happened must not appear in the audit trail.
+                                com.sanibonani.save.domain.logging.AppLogger.e(
+                                    "LedgerGuardian",
+                                    "Auto-repair failed for group $groupId; no audit entry written.",
+                                    repairOutcome.exceptionOrNull()
+                                )
+                            }
+                        }
+                    } else {
+                        com.sanibonani.save.domain.logging.AppLogger.i("LedgerGuardian", "✅ Group $groupId is balanced.")
+                    }
+                    Result.success()
+                },
+                // An audit that could not run is not a clean balance: report it so the work is
+                // retried instead of silently marking the guardian pass as successful.
+                onFailure = { e ->
                     com.sanibonani.save.domain.logging.AppLogger.e(
                         "LedgerGuardian",
-                        "🚨 Critical Discrepancy Found in Group $groupId: ${record.discrepancy.format()}"
+                        "Ledger audit could not run for group $groupId",
+                        e
                     )
-
-                    // Trigger an automatic repair if the discrepancy is significant
-                    if (record.discrepancy.abs() > Money("1.0")) {
-                        platformRepo.repairGroupData(groupId)
-
-                        platformRepo.logAuditEvent(AuditLog(
-                            actorId = "SYSTEM_GUARDIAN",
-                            targetGroupId = groupId,
-                            action = "AUTO_REPAIR_LEDGER",
-                            details = Json.encodeToJsonElement(mapOf(
-                                "discrepancy" to record.discrepancy.format(),
-                                "reason" to "Ledger sum mismatch"
-                            ))
-                        ))
-                    }
-                } else {
-                    com.sanibonani.save.domain.logging.AppLogger.i("LedgerGuardian", "✅ Group $groupId is balanced.")
+                    if (runAttemptCount < MAX_ATTEMPTS) Result.retry() else Result.failure()
                 }
-            }
-
-            Result.success()
+            )
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -81,7 +101,11 @@ class LedgerConsistencyWorker @AssistedInject constructor(
         const val WORK_NAME = "ledger_consistency_audit"
         private const val MAX_ATTEMPTS = 3
 
-        fun schedule(context: Context, groupId: String) {
+        /**
+         * One schedule per group, for the same reason as [FeeEnforcementWorker]: a shared unique
+         * name means the last group enqueued is the only group audited.
+         */
+        fun schedule(workManager: WorkManager, groupId: String) {
             val data = Data.Builder().putString(KEY_GROUP_ID, groupId).build()
             val request = PeriodicWorkRequestBuilder<LedgerConsistencyWorker>(
                 repeatInterval = 24, repeatIntervalTimeUnit = TimeUnit.HOURS
@@ -92,8 +116,11 @@ class LedgerConsistencyWorker @AssistedInject constructor(
                     .build())
                 .build()
 
-            WorkManager.getInstance(context)
-                .enqueueUniquePeriodicWork(WORK_NAME, ExistingPeriodicWorkPolicy.KEEP, request)
+            workManager.enqueueUniquePeriodicWork(
+                "${WORK_NAME}_$groupId",
+                ExistingPeriodicWorkPolicy.KEEP,
+                request
+            )
         }
     }
 }

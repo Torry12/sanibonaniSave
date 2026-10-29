@@ -1,33 +1,23 @@
 package com.sanibonani.save.domain.usecase.credit
-import com.sanibonani.save.domain.event.EventBus
-import com.sanibonani.save.domain.event.LedgerEntryCreatedEvent
 import com.sanibonani.save.domain.model.AppNotification
-import com.sanibonani.save.domain.model.AuditLog
-import com.sanibonani.save.domain.model.Contribution
-import com.sanibonani.save.domain.model.ContributionStatus
 import com.sanibonani.save.domain.model.Group
 import com.sanibonani.save.domain.model.GroupType
-import com.sanibonani.save.domain.model.LedgerEntry
 import com.sanibonani.save.domain.model.Loan
 import com.sanibonani.save.domain.model.LoanStatus
-import com.sanibonani.save.domain.model.Member
 import com.sanibonani.save.domain.model.MemberStatus
 import com.sanibonani.save.domain.model.NotifChannel
 import com.sanibonani.save.domain.model.NotifEvent
-import com.sanibonani.save.domain.repository.admin.AuditLogRepository
 import com.sanibonani.save.domain.repository.admin.PlatformRepository
-import com.sanibonani.save.domain.repository.equity.ContributionRepository
 import com.sanibonani.save.domain.repository.credit.LoanRepository
+import com.sanibonani.save.domain.repository.equity.ContributionRepository
 import com.sanibonani.save.domain.repository.member.MemberRepository
-import com.sanibonani.save.domain.logging.AppLogger
 import com.sanibonani.save.domain.repository.system.NotificationRepository
 import com.sanibonani.save.domain.utils.PaymentCalculator
+import com.sanibonani.save.domain.logging.AppLogger
 import com.sanibonani.save.domain.utils.safeRunCatching
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
 import javax.inject.Inject
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.encodeToJsonElement
 import com.sanibonani.save.domain.usecase.financialResult
 import com.sanibonani.save.domain.usecase.firstValueOrNull
 
@@ -39,7 +29,6 @@ class ProcessLoanForcedSettlementUseCase @Inject constructor(
     private val memberRepository: MemberRepository,
     private val contributionRepository: ContributionRepository,
     private val platformRepository: PlatformRepository,
-    private val auditLogRepository: AuditLogRepository,
     private val notificationRepository: NotificationRepository,
     private val paymentCalculator: PaymentCalculator
 ) {
@@ -68,67 +57,25 @@ class ProcessLoanForcedSettlementUseCase @Inject constructor(
         return monthsElapsed >= 3
     }
     private suspend fun settleLoanFromContributions(loan: Loan, group: Group) {
-        val remainingBalance = loan.balanceRemaining
-        if (!remainingBalance.isPositive) return
-        val member = memberRepository.getMemberById(loan.memberId).getOrNull() ?: return
+        val loanId = requireNotNull(loan.id) { "Cannot settle a loan without a persisted ID." }
+        val settlement = loanRepository.settleExpiredLoan(loanId).getOrThrow()
+        val settledAmount = settlement.repayment.amount
 
-        // 1. Extract from member's contributions to pay off the loan (negative contribution)
-        memberRepository.recordContribution(
-            Contribution(
-                memberId = loan.memberId,
-                groupId = loan.groupId,
-                amount = -remainingBalance,
-                type = "loan_settlement_extraction",
-                status = ContributionStatus.PAID,
-                dueDate = LocalDate.now().toString(),
-                transactionId = "forced_settlement_${loan.id}"
-            )
-        ).getOrThrow()
-
-        // 2. Update loan status to COMPLETED
-        loanRepository.updateLoanStatus(loan.id ?: "", LoanStatus.COMPLETED).getOrThrow()
-
-        // 3. Create LedgerEntry for internal settlement
-        EventBus.emit(
-            LedgerEntryCreatedEvent(
-                LedgerEntry(
-                    groupId = loan.groupId,
-                    amount = remainingBalance,
-                    category = "Loan Settlement",
-                    description = "Forced extraction for expired loan ${loan.id}",
-                    memberId = loan.memberId
-                )
-            )
-        )
-
-        auditLogRepository.logEvent(
-            AuditLog(
-                actorId = "SYSTEM",
-                targetMemberId = loan.memberId,
-                targetGroupId = loan.groupId,
-                action = "LOAN_FORCED_SETTLEMENT",
-                details = Json.encodeToJsonElement(mapOf(
-                    "loanId" to (loan.id ?: ""),
-                    "extractedAmount" to remainingBalance.format()
-                ))
-            )
-        )
         if (group.type == GroupType.BURIAL_SOCIETY) {
-            handleBurialSocietyProbationReset(member, group)
+            handleBurialSocietyProbationReset(loan.memberId, group)
         }
         notificationRepository.sendNotification(
             AppNotification(
                 groupId = loan.groupId,
                 memberId = loan.memberId,
-                message = "Loan term exceeded. Balance ${remainingBalance.format()} settled from contributions.",
+                message = "Loan term exceeded. Balance ${settledAmount.format()} settled from contributions.",
                 channel = NotifChannel.BOTH,
                 triggerEvent = NotifEvent.LOAN_DEFAULTED
             )
         )
     }
-    private suspend fun handleBurialSocietyProbationReset(member: Member, group: Group) {
-        val updatedMember = memberRepository.getMemberById(member.id ?: "").getOrNull() ?: return
-        val memberId = member.id ?: ""
+    private suspend fun handleBurialSocietyProbationReset(memberId: String, group: Group) {
+        val updatedMember = memberRepository.getMemberById(memberId).getOrNull() ?: return
         // A history that never arrived contains no payments, and scoring that as arrears would put a
         // member who is up to date on probation. The sanction waits for a readable ledger instead.
         val contributions = contributionRepository

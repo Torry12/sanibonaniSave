@@ -1,6 +1,5 @@
 package com.sanibonani.save.data.repository.admin
 
-import com.sanibonani.save.data.datasource.RemoteAuditDataSource
 import com.sanibonani.save.data.local.SanibonaniDatabase
 import com.sanibonani.save.data.local.toEntity
 import com.sanibonani.save.data.local.toModel
@@ -10,10 +9,8 @@ import com.sanibonani.save.domain.logging.AppLogger
 import com.sanibonani.save.domain.model.ActuarialMetrics
 import com.sanibonani.save.domain.model.AdminFeeState
 import com.sanibonani.save.domain.model.AppNotification
-import com.sanibonani.save.domain.model.AuditLog
 import com.sanibonani.save.domain.model.DatabaseBackup
 import com.sanibonani.save.domain.model.Group
-import com.sanibonani.save.domain.model.GroupAuditResult
 import com.sanibonani.save.domain.model.LedgerEntry
 import com.sanibonani.save.domain.model.MemberBehaviorInsight
 import com.sanibonani.save.domain.model.Money
@@ -22,7 +19,6 @@ import com.sanibonani.save.domain.model.NotifEvent
 import com.sanibonani.save.domain.model.Payment
 import com.sanibonani.save.domain.model.PlatformAnalytics
 import com.sanibonani.save.domain.model.PlatformAnalyticsSummary
-import com.sanibonani.save.domain.model.PlatformAuditReport
 import com.sanibonani.save.domain.model.PlatformConfig
 import com.sanibonani.save.domain.model.PlatformFeeConfig
 import com.sanibonani.save.domain.repository.admin.ActuarialRepository
@@ -44,6 +40,8 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 import com.sanibonani.save.domain.utils.safeRunCatching
 
@@ -52,7 +50,6 @@ class PlatformRepositoryImpl @Inject constructor(
     private val db: SanibonaniDatabase,
     private val actuarialRepo: ActuarialRepository,
     private val notifRepo: NotificationRepository,
-    private val auditRemoteSource: RemoteAuditDataSource,
 ) : BaseRepository("PlatformRepository"), PlatformRepository {
 
     private val supabase: SupabaseClient
@@ -153,21 +150,6 @@ class PlatformRepositoryImpl @Inject constructor(
         }
     }
 
-    override suspend fun getPlatformAuditReport(): Result<PlatformAuditReport> = retryWithExponentialBackoff {
-        var report = auditRemoteSource.getLatestPlatformAuditReport().getOrNull()
-
-        if (report == null) {
-            // Force generate if missing
-            triggerPlatformAudit().getOrNull()
-            report = auditRemoteSource.getLatestPlatformAuditReport().getOrNull()
-        }
-        report ?: PlatformAuditReport()
-    }
-
-    override suspend fun triggerPlatformAudit(): Result<Unit> = authoritativeCall("triggerPlatformAudit") {
-        auditRemoteSource.generatePlatformAudit().getOrThrow()
-    }
-
     override suspend fun computeSystemWideMetrics(): Result<Unit> = authoritativeCall("computeSystemWideMetrics") {
         supabase.functions.invoke("compute-platform-metrics")
     }
@@ -177,36 +159,39 @@ class PlatformRepositoryImpl @Inject constructor(
     }
 
     override suspend fun getCloudBackups(): Result<List<DatabaseBackup>> = retryWithExponentialBackoff {
-        safeRunCatching {
-            supabase.postgrest["database_backups"].select {
-                order("created_at", order = Order.DESCENDING)
-            }.decodeList<DatabaseBackup>()
-        }.getOrElse { emptyList() }
+        // A dump is a storage object: `deleteCloudBackup` removes it from the `backups` bucket, and the
+        // edge function that produces it writes there too. There is no `database_backups` table, so the
+        // old read answered "no backups" for every project and, wrapped in getOrElse, never failed.
+        supabase.storage["backups"]
+            .list("")
+            .sortedByDescending { file -> file.updatedAt }
+            .map { file ->
+                DatabaseBackup(
+                    name = file.name,
+                    size = file.metadata?.get("size")?.jsonPrimitive?.longOrNull ?: 0L,
+                    lastModified = file.updatedAt?.toString().orEmpty()
+                )
+            }
     }
 
     override suspend fun deleteCloudBackup(name: String): Result<Unit> = authoritativeCall("deleteCloudBackup") {
         supabase.storage["backups"].delete(name)
     }
 
-    override suspend fun auditGroup(groupId: String): Result<GroupAuditResult> = retryWithExponentialBackoff {
-        auditRemoteSource.auditAndFixGroupBalance(groupId, false).getOrThrow()
-    }
-
-    override suspend fun repairGroup(groupId: String): Result<GroupAuditResult> = authoritativeCall("repairGroup") {
-        auditRemoteSource.auditAndFixGroupBalance(groupId, true).getOrThrow()
-    }
-
     override suspend fun repairGroupData(groupId: String): Result<Unit> = authoritativeCall("repairGroupData") {
         supabase.postgrest.rpc("recalculate_all_group_financials_v3", buildJsonObject { put("p_group_id", groupId) })
     }
 
-    override suspend fun searchMembers(query: String): Result<List<MemberBehaviorInsight>> = retryWithExponentialBackoff {
-        safeRunCatching {
-            supabase.postgrest["platform_member_behavior_insights_v1"].select {
-                filter { ilike("full_name", "%$query%") }
-            }.decodeList<MemberBehaviorInsight>()
-        }.getOrElse { emptyList() }
-    }
+    override suspend fun searchMembers(query: String): Result<List<MemberBehaviorInsight>> =
+        retryWithExponentialBackoff {
+            // `platform_member_behavior_insights_v1` was never a view this schema creates, so the read
+            // could only ever 404 - and `getOrElse` turned that into an empty roster. The server has
+            // had the answer all along in `search_members_v1`, which joins the behaviour track.
+            supabase.postgrest.rpc(
+                function = "search_members_v1",
+                parameters = buildJsonObject { put("p_query", query) }
+            ).decodeList<MemberBehaviorInsight>()
+        }
 
     override suspend fun getGranularFeeConfigs(): Result<List<PlatformFeeConfig>> = retryWithExponentialBackoff {
         safeRunCatching {
@@ -323,10 +308,6 @@ class PlatformRepositoryImpl @Inject constructor(
         actuarialRepo.computeMetrics(groupId).getOrThrow()
     }
 
-    override suspend fun logAuditEvent(auditLog: AuditLog): Result<Unit> = authoritativeCall("logAuditEvent") {
-        supabase.postgrest["audit_logs"].insert(auditLog) { select() }
-    }
-
     override suspend fun broadcastPlatformMessage(message: String): Result<Unit> = authoritativeCall("broadcastPlatformMessage") {
         val groups = getAllGroups().getOrThrow()
         groups.forEach { group ->
@@ -337,10 +318,6 @@ class PlatformRepositoryImpl @Inject constructor(
                 channel = NotifChannel.BOTH
             ))
         }
-    }
-
-    override suspend fun getAuditLogs(limit: Int): Result<List<AuditLog>> = retryWithExponentialBackoff {
-        safeRunCatching { auditRemoteSource.getAuditLogs(limit).getOrThrow() }.getOrElse { emptyList() }
     }
 
     override suspend fun getPlatformLedger(): Result<List<LedgerEntry>> = retryWithExponentialBackoff {

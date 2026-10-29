@@ -1,7 +1,7 @@
 package com.sanibonani.save.features.financial.presentation
 
 import com.sanibonani.save.domain.model.FinancialProvider
-import com.sanibonani.save.domain.repository.payment.FinancialProviderRepository
+import com.sanibonani.save.domain.usecase.payment.ObserveFinancialProvidersUseCase
 import com.sanibonani.save.domain.utils.toUserMessage
 import com.sanibonani.save.features.common.presentation.BaseViewModel
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -16,7 +16,7 @@ data class FinancialProviderUiState(
 
 @HiltViewModel
 class FinancialProviderViewModel @Inject constructor(
-    private val providerRepo: FinancialProviderRepository
+    private val observeFinancialProviders: ObserveFinancialProvidersUseCase
 ) : BaseViewModel<FinancialProviderUiState>(FinancialProviderUiState()) {
 
     val state: StateFlow<FinancialProviderUiState> = uiState
@@ -28,7 +28,7 @@ class FinancialProviderViewModel @Inject constructor(
     fun loadProviders() {
         launchJob("load_providers") {
             updateState { it.copy(isLoading = true, error = null) }
-            providerRepo.observeProviders().collect { result ->
+            observeFinancialProviders().collect { result ->
                 result.onSuccess { list ->
                     updateState { it.copy(providers = list, isLoading = false) }
                 }.onFailure { e ->

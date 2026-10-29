@@ -1,15 +1,15 @@
 package com.sanibonani.save.features.admin.presentation.coordination
 
-import com.sanibonani.save.domain.repository.member.MemberRepository
-import com.sanibonani.save.domain.repository.treasury.LedgerRepository
 import com.sanibonani.save.domain.usecase.disbursement.ExecuteRoscaPayoutUseCase
+import com.sanibonani.save.domain.usecase.member.SyncGroupMembersUseCase
+import com.sanibonani.save.domain.usecase.treasury.ConsolidateGroupLedgerUseCase
 import com.sanibonani.save.features.common.presentation.UIEvent
 import com.sanibonani.save.service.AdminGroupContextCacheService
 import javax.inject.Inject
 
 class AdminGroupOperationsCoordinator @Inject constructor(
-    private val memberRepo: MemberRepository,
-    private val ledgerRepo: LedgerRepository,
+    private val syncGroupMembers: SyncGroupMembersUseCase,
+    private val consolidateGroupLedger: ConsolidateGroupLedgerUseCase,
     private val executeRoscaPayoutUseCase: ExecuteRoscaPayoutUseCase,
     private val adminContextCacheService: AdminGroupContextCacheService
 ) {
@@ -19,7 +19,7 @@ class AdminGroupOperationsCoordinator @Inject constructor(
         host.launchAdminSafeJob("refresh_members", "Failed to sync members") {
             host.updateAdminState { it.copy(isLoading = true) }
             host.runWithLoading {
-                memberRepo.syncGroupMembers(groupId)
+                syncGroupMembers(groupId)
                     .onSuccess {
                         adminContextCacheService.warmUpGroup(groupId, force = true)
                         host.updateAdminState { it.copy(isLoading = false) }
@@ -37,7 +37,7 @@ class AdminGroupOperationsCoordinator @Inject constructor(
         host.launchAdminSafeJob("ledger_consolidation", "Failed to consolidate ledger") {
             host.updateAdminState { it.copy(isLoading = true) }
             host.runWithLoading {
-                ledgerRepo.consolidateGroupLedger(groupId)
+                consolidateGroupLedger(groupId)
                     .onSuccess {
                         refreshMembers(host)
                         host.updateAdminState { it.copy(isLoading = false) }

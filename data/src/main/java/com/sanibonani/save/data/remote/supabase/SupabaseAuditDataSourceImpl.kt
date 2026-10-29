@@ -28,7 +28,11 @@ class SupabaseAuditDataSourceImpl @Inject constructor(
         )
         val rawJson = response.data.toString()
         AppLogger.d(tag, "Member audit report received (${rawJson.length} chars)")
-        AuditResult(data = response.decodeAs<MemberAuditReport>(), rawJson = rawJson)
+        // The RPC answers SQL NULL for an id that does not exist; decoding that into the
+        // non-nullable model throws a serializer error the admin cannot act on.
+        val report = response.decodeAs<MemberAuditReport?>()
+            ?: error("No member has the id $memberId, so no audit report could be produced.")
+        AuditResult(data = report, rawJson = rawJson)
     }
 
     override suspend fun generateGroupAudit(groupId: String): Result<AuditResult<GroupAuditReport>> = safeRunCatching("$tag.group") {
@@ -38,7 +42,9 @@ class SupabaseAuditDataSourceImpl @Inject constructor(
         )
         val rawJson = response.data.toString()
         AppLogger.d(tag, "Group audit report received (${rawJson.length} chars)")
-        AuditResult(data = response.decodeAs<GroupAuditReport>(), rawJson = rawJson)
+        val report = response.decodeAs<GroupAuditReport?>()
+            ?: error("No group has the id $groupId, so no audit report could be produced.")
+        AuditResult(data = report, rawJson = rawJson)
     }
 
     override suspend fun generatePlatformAudit(): Result<AuditResult<PlatformAuditReport>> = safeRunCatching("$tag.platform") {

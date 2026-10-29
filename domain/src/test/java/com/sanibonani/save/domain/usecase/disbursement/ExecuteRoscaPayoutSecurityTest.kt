@@ -5,7 +5,7 @@ import com.sanibonani.save.domain.event.EventBus
 import com.sanibonani.save.domain.event.PayoutProcessedEvent
 import com.sanibonani.save.domain.model.*
 import com.sanibonani.save.domain.repository.admin.BehaviorTrackingRepository
-import com.sanibonani.save.domain.repository.admin.PlatformRepository
+import com.sanibonani.save.domain.repository.admin.AuditRepository
 import com.sanibonani.save.domain.repository.credit.LoanRepository
 import com.sanibonani.save.domain.repository.disbursement.PayoutRepository
 import com.sanibonani.save.domain.repository.equity.ContributionRepository
@@ -42,7 +42,7 @@ class ExecuteRoscaPayoutSecurityTest {
     private val payoutRepository: PayoutRepository = mockk()
     private val loanRepository: LoanRepository = mockk()
     private val behaviorTrackingRepository: BehaviorTrackingRepository = mockk()
-    private val platformRepository: PlatformRepository = mockk()
+    private val auditRepository: AuditRepository = mockk()
     private val rotationUseCase: CalculateRoscaRotationUseCase = mockk()
     private val payoutGuard: PayoutGuard = mockk()
 
@@ -100,7 +100,7 @@ class ExecuteRoscaPayoutSecurityTest {
     private fun useCaseWith(member: Member) {
         useCase = ExecuteRoscaPayoutUseCase(
             groupRepository, memberRepository, contributionRepository, payoutRepository,
-            loanRepository, behaviorTrackingRepository, platformRepository, rotationUseCase,
+            loanRepository, behaviorTrackingRepository, auditRepository, rotationUseCase,
             payoutGuard
         )
         coEvery { memberRepository.syncGroupMembers("g1") } returns Result.success(listOf(member))
@@ -133,7 +133,7 @@ class ExecuteRoscaPayoutSecurityTest {
         coEvery { payoutRepository.getPendingPayouts() } returns Result.success(emptyList())
         coEvery { payoutRepository.processRoscaPayout(any(), any(), any(), any(), any(), any(), any()) } returns
             Result.success("payout-1")
-        coEvery { platformRepository.logAuditEvent(any()) } returns Result.success(Unit)
+        coEvery { auditRepository.logAuditEvent(any()) } returns Result.success(Unit)
     }
 
     @Test
@@ -227,7 +227,7 @@ class ExecuteRoscaPayoutSecurityTest {
         assertTrue(announcement.payout.status == PayoutStatus.PENDING)
 
         val audit = slot<AuditLog>()
-        coVerify { platformRepository.logAuditEvent(capture(audit)) }
+        coVerify { auditRepository.logAuditEvent(capture(audit)) }
         assertTrue(audit.captured.action == "ROSCA_PAYOUT_INITIATED")
     }
 
@@ -277,6 +277,6 @@ class ExecuteRoscaPayoutSecurityTest {
         assertFalse(message.contains("Created payout"))
         assertTrue(message.contains("No payout"))
         // No payout row exists, so there is nothing to announce and no initiation to audit.
-        coVerify(exactly = 0) { platformRepository.logAuditEvent(any()) }
+        coVerify(exactly = 0) { auditRepository.logAuditEvent(any()) }
     }
 }

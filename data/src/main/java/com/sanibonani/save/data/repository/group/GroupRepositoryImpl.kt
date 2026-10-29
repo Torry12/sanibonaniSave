@@ -46,7 +46,12 @@ class GroupRepositoryImpl @Inject constructor(
         localGroupSource.observePublicGroups().map { Result.success(it) }
 
     override suspend fun getGroupById(id: String): Result<Group> = safeRunCatching {
-        remoteGroupSource.getGroupById(id).getOrElse {
+        remoteGroupSource.getGroupById(id).map { remote ->
+            // A fetched group replaces the cached row so every Room observer sees the same
+            // state as the caller; otherwise a refresh updates the caller and leaves the cache stale.
+            localGroupSource.saveGroup(remote)
+            remote
+        }.getOrElse {
             localGroupSource.getGroupById(id) ?: throw it
         }
     }

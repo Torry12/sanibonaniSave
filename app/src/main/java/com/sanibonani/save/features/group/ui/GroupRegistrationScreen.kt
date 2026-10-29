@@ -129,11 +129,14 @@ fun GroupRegistrationScreen(
                     "Platform registration payment failed: ${e.message}"
                 )
             },
-            onBack = { vm.onEvent(GroupFormEvent.DismissPayment) },
+            onBack = {
+                payVm.clearTransactionState()
+                vm.onEvent(GroupFormEvent.DismissPayment)
+            },
             vm = payVm
         )
     } else if (state.isSubmitting && !state.success) {
-        SanibonaniLoadingScreen(message = "Creating your group...")
+        SanibonaniLoadingScreen(message = stringResource(R.string.ui_creating_group))
     } else {
         Scaffold(
             topBar = {
@@ -190,7 +193,7 @@ fun GroupRegistrationScreen(
                     )
                     SoftLoadingOverlay(
                         isLoading = state.isLoading,
-                        message = "Updating fee configurations..."
+                        message = stringResource(R.string.ui_updating_fee_configurations)
                     )
                 }
             }

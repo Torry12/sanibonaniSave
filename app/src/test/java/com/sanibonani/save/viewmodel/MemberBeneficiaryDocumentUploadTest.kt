@@ -9,6 +9,11 @@ import com.sanibonani.save.domain.model.MemberStatus
 import com.sanibonani.save.domain.repository.member.BeneficiaryClaimRepository
 import com.sanibonani.save.domain.repository.member.BeneficiaryRepository
 import com.sanibonani.save.domain.service.FileStorageService
+import com.sanibonani.save.domain.usecase.member.AddBeneficiaryUseCase
+import com.sanibonani.save.domain.usecase.member.AttachBeneficiaryDocumentUseCase
+import com.sanibonani.save.domain.usecase.member.RemoveBeneficiaryUseCase
+import com.sanibonani.save.domain.usecase.member.SubmitBurialClaimUseCase
+import com.sanibonani.save.domain.usecase.member.UpdateBeneficiaryUseCase
 import com.sanibonani.save.domain.usecase.member.ValidateBurialClaimEligibilityUseCase
 import com.sanibonani.save.features.common.presentation.UIEvent
 import com.sanibonani.save.features.member.presentation.MemberBeneficiaryViewModel
@@ -82,10 +87,13 @@ class MemberBeneficiaryDocumentUploadTest {
         Dispatchers.setMain(testDispatcher)
 
         viewModel = MemberBeneficiaryViewModel(
-            beneficiaryRepo,
-            claimRepo,
-            fileStorageService,
-            ValidateBurialClaimEligibilityUseCase()
+            addBeneficiaryUseCase = AddBeneficiaryUseCase(beneficiaryRepo),
+            updateBeneficiaryUseCase = UpdateBeneficiaryUseCase(beneficiaryRepo),
+            removeBeneficiary = RemoveBeneficiaryUseCase(beneficiaryRepo),
+            attachBeneficiaryDocument = AttachBeneficiaryDocumentUseCase(beneficiaryRepo, fileStorageService),
+            submitBurialClaim = SubmitBurialClaimUseCase(claimRepo),
+            fileStorageService = fileStorageService,
+            validateClaimEligibility = ValidateBurialClaimEligibilityUseCase()
         )
 
         viewModel.setImpersonationContext(

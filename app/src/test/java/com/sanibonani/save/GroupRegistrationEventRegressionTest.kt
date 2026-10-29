@@ -10,6 +10,7 @@ import com.sanibonani.save.domain.service.LocationService
 import com.sanibonani.save.domain.service.PlatformFeeService
 import com.sanibonani.save.domain.repository.auth.SupabaseRepository
 import com.sanibonani.save.domain.usecase.admin.ActivateGroupUseCase
+import com.sanibonani.save.domain.usecase.auth.*
 import com.sanibonani.save.domain.usecase.group.CreateGroupUseCase
 import com.sanibonani.save.features.group.presentation.GroupFormEvent
 import com.sanibonani.save.features.group.presentation.GroupRegistrationState
@@ -81,7 +82,9 @@ class GroupRegistrationEventRegressionTest {
             activateGroupUseCase,
             feeService,
             locationService,
-            supabaseRepo
+            IsLoggedInUseCase(supabaseRepo),
+            GetCurrentSessionEmailUseCase(supabaseRepo),
+            GetAttributableActorIdUseCase(supabaseRepo)
         )
     }
 

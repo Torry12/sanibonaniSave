@@ -18,11 +18,22 @@ import com.sanibonani.save.domain.service.NetworkConnectivityService
 import com.sanibonani.save.domain.service.PlatformFeeService
 import com.sanibonani.save.domain.usecase.actuarial.ApplyViabilityPlanUseCase
 import com.sanibonani.save.domain.usecase.actuarial.CalculateViabilityUseCase
+import com.sanibonani.save.domain.usecase.admin.GenerateGroupAuditReportUseCase
+import com.sanibonani.save.domain.usecase.admin.GetPlatformSettingsUseCase
+import com.sanibonani.save.domain.usecase.admin.ObserveGroupHealthScoreUseCase
+import com.sanibonani.save.domain.usecase.auth.GetAttributableActorIdUseCase
+import com.sanibonani.save.domain.usecase.auth.GetCurrentUserRoleUseCase
 import com.sanibonani.save.domain.usecase.disbursement.ExecuteRoscaPayoutUseCase
 import com.sanibonani.save.domain.usecase.group.GetGroupBusinessInsightsUseCase
 import com.sanibonani.save.domain.usecase.group.GetManagedGroupsUseCase
+import com.sanibonani.save.domain.usecase.member.SyncGroupMembersUseCase
+import com.sanibonani.save.domain.usecase.payment.GetOutstandingPlatformFeesUseCase
 import com.sanibonani.save.domain.usecase.payment.ProcessGroupPlatformFeePaymentUseCase
+import com.sanibonani.save.domain.usecase.system.BuildGroupLedgerStatementUseCase
+import com.sanibonani.save.domain.usecase.system.ExportGroupConstitutionUseCase
 import com.sanibonani.save.domain.usecase.system.SendNotificationUseCase
+import com.sanibonani.save.domain.usecase.treasury.ConsolidateGroupLedgerUseCase
+import com.sanibonani.save.domain.usecase.treasury.ObserveGroupLedgerUseCase
 import com.sanibonani.save.features.admin.presentation.AdminOverviewViewModel
 import com.sanibonani.save.features.admin.presentation.coordination.AdminGroupOperationsCoordinator
 import com.sanibonani.save.features.admin.presentation.coordination.AdminMessagingCoordinator
@@ -157,24 +168,30 @@ class AdminOverviewViewModelTest {
         adminContextCacheService,
         getManagedGroupsUseCase,
         getGroupBusinessInsightsUseCase,
-        healthScoreRepo,
-        supabaseRepo,
-        ledgerRepo,
+        ObserveGroupHealthScoreUseCase(healthScoreRepo),
+        GetAttributableActorIdUseCase(supabaseRepo),
+        GetCurrentUserRoleUseCase(supabaseRepo),
+        ObserveGroupLedgerUseCase(ledgerRepo),
         devSettings,
         syncManager,
         AdminViabilityCoordinator(calculateViabilityUseCase, applyViabilityPlanUseCase),
         AdminMessagingCoordinator(sendNotificationUseCase),
         AdminPlatformFeeCoordinator(
-            platformRepo,
-            financialRepo,
+            GetPlatformSettingsUseCase(platformRepo),
+            GetOutstandingPlatformFeesUseCase(financialRepo),
             processPlatformFeePaymentUseCase,
             feeService,
             adminContextCacheService
         ),
-        AdminReportingCoordinator(auditRepo, ledgerRepo, exportRepo, verificationService),
+        AdminReportingCoordinator(
+            GenerateGroupAuditReportUseCase(auditRepo),
+            BuildGroupLedgerStatementUseCase(ledgerRepo, exportRepo),
+            ExportGroupConstitutionUseCase(exportRepo),
+            verificationService
+        ),
         AdminGroupOperationsCoordinator(
-            memberRepo,
-            ledgerRepo,
+            SyncGroupMembersUseCase(memberRepo),
+            ConsolidateGroupLedgerUseCase(ledgerRepo),
             executeRoscaPayoutUseCase,
             adminContextCacheService
         ),
@@ -234,6 +251,31 @@ class AdminOverviewViewModelTest {
         assertTrue(viewModel.state.value.isLoading)
         verify { adminContextCacheService.selectGroup("g-1") }
         verify { adminContextCacheService.warmUpGroup("g-1") }
+    }
+
+    @Test
+    fun `refreshData performs a full cache refresh`() = runTest {
+        hydrateGroup()
+        coEvery { adminContextCacheService.refreshGroup("g-1") } returns Result.success(Unit)
+
+        viewModel.refreshData()
+        advanceUntilIdle()
+
+        coVerify(exactly = 1) { adminContextCacheService.refreshGroup("g-1") }
+        assertFalse(viewModel.state.value.isLoading)
+    }
+
+    @Test
+    fun `refreshData surfaces a failed refresh`() = runTest {
+        hydrateGroup()
+        coEvery { adminContextCacheService.refreshGroup("g-1") } returns
+            Result.failure(java.io.IOException("offline"))
+
+        viewModel.refreshData()
+        advanceUntilIdle()
+
+        assertNotNull(viewModel.state.value.error)
+        assertFalse(viewModel.state.value.isLoading)
     }
 
     @Test

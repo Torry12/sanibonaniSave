@@ -34,6 +34,15 @@ class ValidateLoanEligibilityUseCase @Inject constructor(
         if (member.status != MemberStatus.ACTIVE) return EligibilityResult.Ineligible("Member not active.")
         if (termMonths != null && termMonths > 3) return EligibilityResult.Ineligible("Loan term exceeds the 3-month maximum limit.")
 
+        // The group's own ceiling on a single loan. Zero is the schema default for "not configured",
+        // so only a positive cap tightens the 30%-of-contributions rule.
+        val perLoanCap = group.loanMaxAmount?.takeIf { it.isPositive }
+        if (requestedAmount != null && perLoanCap != null && requestedAmount > perLoanCap) {
+            return EligibilityResult.Ineligible(
+                "Requested amount (${requestedAmount.format()}) exceeds the group's maximum loan amount (${perLoanCap.format()})."
+            )
+        }
+
         val contributions = contributionRepository.observeMemberContributions(member.id ?: "", group.id ?: "").firstValueOrNull() ?: emptyList()
 
         // Enforce joining fee rule: Member must have paid their joining fee to be fully active/eligible
@@ -60,7 +69,7 @@ class ValidateLoanEligibilityUseCase @Inject constructor(
             }.getOrDefault(false)
         }
         val totalLast6Months = last6MonthsContributions.fold(Money.ZERO) { acc, c -> acc + c.amount }
-        val maxBorrowingPower = totalLast6Months * 0.3
+        val maxBorrowingPower = totalLast6Months.percent(30)
         val availableBorrowingPower = (maxBorrowingPower - currentActiveLoanTotal).max(Money.ZERO)
 
         if (!availableBorrowingPower.isPositive && requestedAmount != null) {

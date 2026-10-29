@@ -1,6 +1,5 @@
 package com.sanibonani.save.data.repository.admin
 
-import com.sanibonani.save.data.datasource.RemoteAuditDataSource
 import com.sanibonani.save.data.local.SanibonaniDatabase
 import com.sanibonani.save.domain.model.Money
 import com.sanibonani.save.domain.repository.admin.ActuarialRepository
@@ -53,8 +52,7 @@ class PlatformSuspensionFeeTest {
             protocol = protocol,
             db = mockk<SanibonaniDatabase>(relaxed = true),
             actuarialRepo = mockk<ActuarialRepository>(relaxed = true),
-            notifRepo = notifRepo,
-            auditRemoteSource = mockk<RemoteAuditDataSource>(relaxed = true)
+            notifRepo = notifRepo
         )
     }
 

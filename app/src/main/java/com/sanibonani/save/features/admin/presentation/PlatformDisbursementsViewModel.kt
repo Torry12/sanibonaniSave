@@ -1,14 +1,14 @@
 package com.sanibonani.save.features.admin.presentation
 
 import com.sanibonani.save.domain.model.*
-import com.sanibonani.save.domain.repository.auth.SupabaseRepository
-import com.sanibonani.save.domain.repository.credit.LoanRepository
-import com.sanibonani.save.domain.repository.disbursement.PayoutRepository
-import com.sanibonani.save.domain.repository.member.BeneficiaryClaimRepository
-import com.sanibonani.save.domain.repository.member.MemberRepository
+import com.sanibonani.save.domain.usecase.auth.GetAttributableActorIdUseCase
+import com.sanibonani.save.domain.usecase.credit.GetPendingLoanRequestsUseCase
+import com.sanibonani.save.domain.usecase.disbursement.GetPendingPayoutsUseCase
 import com.sanibonani.save.domain.usecase.disbursement.ProcessDisbursementUseCase
 import com.sanibonani.save.domain.usecase.credit.ProcessLoanDecisionUseCase
 import com.sanibonani.save.domain.usecase.credit.ProcessLoanDisbursementUseCase
+import com.sanibonani.save.domain.usecase.member.GetEscalatedClaimsUseCase
+import com.sanibonani.save.domain.usecase.member.GetMemberByIdUseCase
 import com.sanibonani.save.domain.usecase.member.ProcessBurialClaimUseCase
 import com.sanibonani.save.domain.utils.requiresMfaChallenge
 import com.sanibonani.save.features.admin.presentation.state.PlatformDisbursementsUiState
@@ -21,15 +21,15 @@ import javax.inject.Inject
 
 @HiltViewModel
 class PlatformDisbursementsViewModel @Inject constructor(
-    private val claimRepo: BeneficiaryClaimRepository,
-    private val payoutRepo: PayoutRepository,
-    private val memberRepo: MemberRepository,
-    private val loanRepo: LoanRepository,
-    private val processLoanDecisionUseCase: ProcessLoanDecisionUseCase,
-    private val processLoanDisbursementUseCase: ProcessLoanDisbursementUseCase,
-    private val processDisbursementUseCase: ProcessDisbursementUseCase,
-    private val processBurialClaimUseCase: ProcessBurialClaimUseCase,
-    private val supabaseRepo: SupabaseRepository
+    private val getEscalatedClaims: GetEscalatedClaimsUseCase,
+    private val getPendingPayouts: GetPendingPayoutsUseCase,
+    private val getMemberById: GetMemberByIdUseCase,
+    private val getPendingLoanRequests: GetPendingLoanRequestsUseCase,
+    private val processLoanDecision: ProcessLoanDecisionUseCase,
+    private val processLoanDisbursement: ProcessLoanDisbursementUseCase,
+    private val processDisbursement: ProcessDisbursementUseCase,
+    private val processBurialClaim: ProcessBurialClaimUseCase,
+    private val getAttributableActorId: GetAttributableActorIdUseCase
 ) : BaseViewModel<PlatformDisbursementsUiState>(PlatformDisbursementsUiState()) {
 
     val state: StateFlow<PlatformDisbursementsUiState> = uiState
@@ -40,26 +40,35 @@ class PlatformDisbursementsViewModel @Inject constructor(
     fun load() {
         launchJob("load_disbursements") {
             coroutineScope {
-                val claimsDeferred = async { claimRepo.getEscalatedClaimsSync() }
-                val payoutsDeferred = async { payoutRepo.getPendingPayouts() }
-                val loansDeferred = async { loanRepo.getAllPendingLoansSync() }
+                val claimsDeferred = async { getEscalatedClaims() }
+                val payoutsDeferred = async { getPendingPayouts() }
+                val loansDeferred = async { getPendingLoanRequests() }
 
                 val claimsResult = claimsDeferred.await()
                 val payoutsResult = payoutsDeferred.await()
                 val loansResult = loansDeferred.await()
 
+                // A failed fetch is not a verified empty response. Only sections that
+                // answered are replaced; a failed section keeps what is on screen.
                 updateState { it.copy(
-                    escalatedClaims = claimsResult.getOrElse { emptyList() },
-                    payouts = payoutsResult.getOrElse { emptyList() },
-                    loanRequestsByGroup = loansResult.getOrElse { emptyList() }.groupBy { it.groupId }
+                    escalatedClaims = claimsResult.getOrNull() ?: it.escalatedClaims,
+                    payouts = payoutsResult.getOrNull() ?: it.payouts,
+                    loanRequestsByGroup = loansResult.getOrNull()?.groupBy { loan -> loan.groupId }
+                        ?: it.loanRequestsByGroup
                 ) }
 
-                // An empty queue and a failed fetch are different answers. Dropping the failure
-                // made an offline device look like a platform with nothing left to pay out.
-                (claimsResult.exceptionOrNull()
-                    ?: payoutsResult.exceptionOrNull()
-                    ?: loansResult.exceptionOrNull())?.let {
-                    handleError(it, "Some disbursement data could not be refreshed.")
+                // Name the failed sections: an admin on a device with silenced logcat
+                // cannot otherwise tell claims drift from an offline payout fetch.
+                val failedSections = listOfNotNull(
+                    claimsResult.exceptionOrNull()?.let { "escalated claims" },
+                    payoutsResult.exceptionOrNull()?.let { "payout requests" },
+                    loansResult.exceptionOrNull()?.let { "loan requests" }
+                )
+                if (failedSections.isNotEmpty()) {
+                    val firstError = claimsResult.exceptionOrNull()
+                        ?: payoutsResult.exceptionOrNull()
+                        ?: loansResult.exceptionOrNull()!!
+                    handleError(firstError, "Could not refresh ${failedSections.joinToString(", ")}.")
                 }
             }
         }
@@ -89,17 +98,22 @@ class PlatformDisbursementsViewModel @Inject constructor(
         processPayoutInternal(payoutId, PayoutStatus.COMPLETED)
     }
 
-    private fun processPayoutInternal(payoutId: String, status: PayoutStatus) {
-        // currentUserId can be blank during a session race; the domain refuses an unattributable
-        // transition, so the screen reports it instead of launching a call that must fail.
-        val adminId = supabaseRepo.currentUserId?.takeIf { it.isNotBlank() }
+    private fun adminIdOrReport(action: String): String? {
+        val adminId = getAttributableActorId()
         if (adminId == null) {
-            handleError(IllegalStateException("Sign in again to change a payout status."))
-            return
+            handleError(
+                IllegalStateException("A signed-in reviewer is required to change a $action status."),
+                "Sign in again to change a $action status."
+            )
         }
+        return adminId
+    }
+
+    private fun processPayoutInternal(payoutId: String, status: PayoutStatus) {
+        val adminId = adminIdOrReport("payout") ?: return
         launchJob("process_payout_$payoutId") {
             updateState { it.copy(isProcessingPayout = true, processingIds = it.processingIds + payoutId) }
-            processDisbursementUseCase(
+            processDisbursement(
                 payoutId = payoutId,
                 status = status,
                 adminId = adminId
@@ -116,10 +130,10 @@ class PlatformDisbursementsViewModel @Inject constructor(
 
     fun approveLoanRequest(loan: Loan) {
         val loanId = loan.id ?: return
-        val adminId = supabaseRepo.currentUserId ?: return
+        val adminId = adminIdOrReport("loan") ?: return
         launchJob("approve_loan_$loanId") {
             updateState { it.copy(isProcessingLoanRequest = true, processingIds = it.processingIds + loanId) }
-            processLoanDecisionUseCase(
+            processLoanDecision(
                 loanId = loanId,
                 decision = ProcessLoanDecisionUseCase.LoanDecision.Approve,
                 adminId = adminId
@@ -138,10 +152,10 @@ class PlatformDisbursementsViewModel @Inject constructor(
 
     fun rejectLoanRequest(loan: Loan, reason: String) {
         val loanId = loan.id ?: return
-        val adminId = supabaseRepo.currentUserId ?: return
+        val adminId = adminIdOrReport("loan") ?: return
         launchJob("reject_loan_$loanId") {
             updateState { it.copy(isProcessingLoanRequest = true, processingIds = it.processingIds + loanId) }
-            processLoanDecisionUseCase(
+            processLoanDecision(
                 loanId = loanId,
                 decision = ProcessLoanDecisionUseCase.LoanDecision.Reject(reason),
                 adminId = adminId
@@ -160,10 +174,10 @@ class PlatformDisbursementsViewModel @Inject constructor(
 
     fun disburseLoan(loan: Loan) {
         val loanId = loan.id ?: return
-        val adminId = supabaseRepo.currentUserId ?: return
+        val adminId = adminIdOrReport("loan") ?: return
         launchJob("disburse_loan_$loanId") {
             updateState { it.copy(isProcessingLoanRequest = true, processingIds = it.processingIds + loanId) }
-            processLoanDisbursementUseCase(loanId, adminId, PaymentMethod.BANK).onSuccess { updated ->
+            processLoanDisbursement(loanId, adminId, PaymentMethod.BANK).onSuccess { updated ->
                 updateState { s -> s.copy(
                     loanRequestsByGroup = s.loanRequestsByGroup.mapValues { (_, list) ->
                         list.map { if (it.id == updated.id) updated else it }
@@ -189,12 +203,13 @@ class PlatformDisbursementsViewModel @Inject constructor(
     }
 
     private fun processBurialClaimInternal(claimId: String, status: BeneficiaryClaimStatus, reason: String) {
+        val adminId = adminIdOrReport("claim") ?: return
         launchJob("process_claim_$claimId") {
             updateState { it.copy(isProcessingClaim = true, processingIds = it.processingIds + claimId) }
-            processBurialClaimUseCase(
+            processBurialClaim(
                 claimId = claimId,
                 status = status,
-                reviewedBy = supabaseRepo.currentUserId ?: "",
+                reviewedBy = adminId,
                 adminNotes = if (status != BeneficiaryClaimStatus.REJECTED) reason else null,
                 rejectionReason = if (status == BeneficiaryClaimStatus.REJECTED) reason else null
             ).onSuccess { updated ->
@@ -211,7 +226,7 @@ class PlatformDisbursementsViewModel @Inject constructor(
     fun fetchMemberSummary(memberId: String, groupId: String) {
         launchJob("member_summary") {
             updateState { it.copy(isLoadingMemberSummary = true) }
-            memberRepo.getMemberById(memberId).onSuccess { member ->
+            getMemberById(memberId).onSuccess { member ->
                 updateState { it.copy(selectedMemberSummary = MemberSummary(member = member, behavior = null), isLoadingMemberSummary = false) }
             }.onFailure {
                 updateState { it.copy(isLoadingMemberSummary = false) }

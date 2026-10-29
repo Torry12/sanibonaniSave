@@ -5,6 +5,7 @@ import com.sanibonani.save.data.local.toEntity
 import com.sanibonani.save.data.local.toLedgerEntity
 import com.sanibonani.save.domain.logging.AppLogger
 import com.sanibonani.save.domain.model.*
+import com.sanibonani.save.domain.service.RealtimeSyncService
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.realtime.PostgresAction
 import io.github.jan.supabase.realtime.RealtimeChannel
@@ -27,14 +28,14 @@ class RealtimeSyncManager @Inject constructor(
     private val supabase: SupabaseClient,
     private val db: SanibonaniDatabase,
     private val json: Json
-) {
+) : RealtimeSyncService {
     private val tag = "RealtimeSyncManager"
     private var managedScope: CoroutineScope? = null
     private val activeChannels = ConcurrentHashMap<String, RealtimeChannel>()
     private var channelGeneration = 0
 
     private val _syncMetrics = MutableStateFlow<Map<String, RealtimeSyncStatus>>(emptyMap())
-    val syncMetrics: StateFlow<Map<String, RealtimeSyncStatus>> = _syncMetrics.asStateFlow()
+    override val syncMetrics: StateFlow<Map<String, RealtimeSyncStatus>> = _syncMetrics.asStateFlow()
 
     // ── Batch Processors ─────────────────────────────────────────────────────
     private var contributionBatcher: BatchProcessor<Contribution>? = null
@@ -43,7 +44,7 @@ class RealtimeSyncManager @Inject constructor(
     private var notificationBatcher: BatchProcessor<AppNotification>? = null
 
     @Synchronized
-    fun start() {
+    override fun start() {
         val running = managedScope
         if (running != null && running.isActive) {
             AppLogger.d(tag, "RealtimeSyncManager already running")
@@ -208,7 +209,7 @@ class RealtimeSyncManager @Inject constructor(
     }
 
     @Synchronized
-    fun stop() {
+    override fun stop() {
         AppLogger.d(tag, "Stopping realtime subscriptions...")
         managedScope?.cancel()
         managedScope = null

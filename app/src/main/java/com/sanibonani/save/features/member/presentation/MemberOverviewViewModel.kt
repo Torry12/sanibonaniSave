@@ -3,54 +3,47 @@ package com.sanibonani.save.features.member.presentation
 import com.sanibonani.save.domain.model.Group
 import com.sanibonani.save.domain.model.UserRole
 import com.sanibonani.save.domain.logging.AppLogger
-import com.sanibonani.save.domain.repository.auth.SupabaseRepository
-import com.sanibonani.save.domain.repository.equity.ContributionRepository
-import com.sanibonani.save.domain.repository.treasury.LedgerRepository
-import com.sanibonani.save.domain.repository.credit.LoanRepository
-import com.sanibonani.save.domain.repository.group.GroupRepository
-import com.sanibonani.save.domain.repository.member.MemberRepository
 import com.sanibonani.save.domain.service.NetworkConnectivityService
-import com.sanibonani.save.domain.usecase.group.GetGroupBusinessInsightsUseCase
-import com.sanibonani.save.domain.utils.PaymentCalculation
+import com.sanibonani.save.domain.usecase.auth.BuildDocumentAuthHeadersUseCase
+import com.sanibonani.save.domain.usecase.auth.GetAttributableActorIdUseCase
+import com.sanibonani.save.domain.usecase.auth.GetCurrentUserRoleUseCase
+import com.sanibonani.save.domain.usecase.group.GetGroupByIdUseCase
+import com.sanibonani.save.domain.usecase.member.ObserveMembershipsUseCase
 import com.sanibonani.save.domain.utils.PaymentCalculator
-import com.sanibonani.save.domain.utils.buildSupabaseAuthHeaders
-import com.sanibonani.save.domain.utils.safeRunCatching
 import com.sanibonani.save.domain.utils.toUserMessage
 import com.sanibonani.save.features.common.presentation.BaseViewModel
 import com.sanibonani.save.features.common.presentation.UIEvent
 import com.sanibonani.save.features.member.presentation.coordination.MemberActionHost
 import com.sanibonani.save.features.member.presentation.coordination.MemberDocumentCoordinator
+import com.sanibonani.save.features.member.presentation.coordination.MemberLiveObservationCoordinator
 import com.sanibonani.save.features.member.presentation.coordination.MemberMessagingCoordinator
-import com.sanibonani.save.features.member.presentation.state.MemberContextPackage
+import com.sanibonani.save.service.CachedGroupContext
 import com.sanibonani.save.features.member.presentation.state.MemberUiState
 import com.sanibonani.save.service.MemberGroupContextCacheService
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.async
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.flow.firstOrNull
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 @HiltViewModel
 class MemberOverviewViewModel @Inject constructor(
     private val memberContextCacheService: MemberGroupContextCacheService,
-    private val memberRepo: MemberRepository,
-    private val contributionRepo: ContributionRepository,
-    private val groupRepo: GroupRepository,
-    private val ledgerRepo: LedgerRepository,
-    private val supabaseRepo: SupabaseRepository,
-    private val loanRepo: LoanRepository,
-    private val getGroupBusinessInsightsUseCase: GetGroupBusinessInsightsUseCase,
+    private val observeMemberships: ObserveMembershipsUseCase,
+    private val getGroupById: GetGroupByIdUseCase,
+    private val getAttributableActorId: GetAttributableActorIdUseCase,
+    private val getCurrentUserRole: GetCurrentUserRoleUseCase,
+    private val buildDocumentAuthHeaders: BuildDocumentAuthHeadersUseCase,
     private val paymentCalculator: PaymentCalculator,
     private val messagingCoordinator: MemberMessagingCoordinator,
     private val documentCoordinator: MemberDocumentCoordinator,
+    private val liveObservation: MemberLiveObservationCoordinator,
     networkService: NetworkConnectivityService,
 ) : BaseViewModel<MemberUiState>(MemberUiState()) {
 
@@ -84,112 +77,58 @@ class MemberOverviewViewModel @Inject constructor(
 
     private fun observeContext() {
         launchJob("context_observation") {
-            observeGroupContext(
-                groupIdFlow = uiState.map { it.selectedGroupId },
-                contextSource = memberContextCacheService.contexts,
-            ) { context ->
-                if (context == null) {
-                    return@observeGroupContext
+            uiState
+                .map { it.selectedGroupId }
+                .distinctUntilChanged()
+                .flatMapLatest { groupId ->
+                    if (groupId.isNullOrBlank()) flowOf(null)
+                    else memberContextCacheService.contexts.map { it[groupId] }
                 }
-
-                if (context.isFullyHydrated && context.member != null && context.group != null) {
-                    val pkg = MemberContextPackage(
-                        member = context.member,
-                        group = context.group,
-                        contributions = context.contributions,
-                        beneficiaries = context.beneficiaries,
-                        loans = context.loans,
-                        repayments = context.loanRepayments,
-                        calculation = context.calculation ?: PaymentCalculation.EMPTY,
-                        notifications = context.notifications,
-                        messages = context.messages
-                    )
-
-                    updateState { s -> s.copy(
-                        member = pkg.member,
-                        group = pkg.group,
-                        contributions = pkg.contributions,
-                        beneficiaries = pkg.beneficiaries,
-                        loans = pkg.loans,
-                        paymentCalculation = pkg.calculation,
-                        monthlyContributionAmount = paymentCalculator.calculateExpectedMemberGroupPart(pkg.group, pkg.member),
-                        notifications = pkg.notifications,
-                        messages = pkg.messages,
-                        isLoading = false,
-                        cacheLastSyncByGroup = s.cacheLastSyncByGroup + (pkg.group.id.orEmpty() to context.lastUpdatedMillis),
-                    ) }
-
-                    val liveMemberId = pkg.member.id.serverIdOrReport("member") ?: return@observeGroupContext
-                    startLiveObservation(liveMemberId, pkg.group)
-                } else {
-                    updateState { it.copy(isLoading = true) }
-                }
-            }
+                .distinctUntilChanged()
+                .collectLatest(::hydrateSelectedContext)
         }
+    }
+
+    private fun hydrateSelectedContext(context: CachedGroupContext?) {
+        val state = uiState.value
+        val partialSupportMemberId = state.targetMemberId.takeIf { state.isImpersonating }
+        val pkg = context?.toMemberContextPackage(partialSupportMemberId)
+        if (pkg == null) {
+            cancelJob("live_observation")
+            if (context != null) updateState { it.copy(isLoading = true) }
+            return
+        }
+
+        updateState { s ->
+            s.copy(
+                member = pkg.member,
+                group = pkg.group,
+                contributions = pkg.contributions,
+                beneficiaries = pkg.beneficiaries,
+                loans = pkg.loans,
+                paymentCalculation = pkg.calculation,
+                monthlyContributionAmount = paymentCalculator.calculateExpectedMemberGroupPart(pkg.group, pkg.member),
+                notifications = pkg.notifications,
+                messages = pkg.messages,
+                isLoading = false,
+                cacheLastSyncByGroup = s.cacheLastSyncByGroup + (pkg.group.id.orEmpty() to context.lastUpdatedMillis),
+            )
+        }
+
+        val liveMemberId = pkg.member.id.serverIdOrReport("member")
+        if (liveMemberId == null) cancelJob("live_observation")
+        else startLiveObservation(liveMemberId, pkg.group)
     }
 
     private fun startLiveObservation(memberId: String, group: Group) {
         val groupId = group.id.serverIdOrReport("group") ?: return
-        launchJob("live_observation") {
-            // AI Performance optimization: Parallel warmup pattern
-            coroutineScope {
-                val membersTask = async {
-                    memberRepo.getGroupMembers(groupId).firstOrNull()?.getOrNull() ?: emptyList()
-                }
-
-                val members = membersTask.await()
-                val insightsTask = async(Dispatchers.Default) {
-                    getGroupBusinessInsightsUseCase(group, members)
-                }
-
-                val insights = insightsTask.await()
-                updateState { it.copy(businessInsight = insights) }
-            }
-
-            coroutineScope {
-                launch {
-                    groupRepo.observeGroup(groupId).collect { res ->
-                        res.onSuccess { g -> if (g != null) updateState { it.copy(group = g) } }
-                    }
-                }
-                launch {
-                    memberRepo.observeMemberById(memberId).collect { res ->
-                        res.onSuccess { m -> if (m != null) updateState { it.copy(member = m) } }
-                    }
-                }
-                launch {
-                    contributionRepo.observeMemberContributions(memberId, groupId).collect { res ->
-                        res.onSuccess { list -> updateState { it.copy(contributions = list) } }
-                    }
-                }
-                launch {
-                    loanRepo.getMemberLoans(memberId).collect { res ->
-                        res.onSuccess { list -> updateState { it.copy(loans = list) } }
-                    }
-                }
-                launch {
-                    ledgerRepo.observeMemberLedger(memberId).collect { res ->
-                        res.onSuccess { list -> updateState { it.copy(memberLedger = list) } }
-                    }
-                }
-                launch {
-                    memberRepo.getGroupMembers(groupId).collectLatest { res ->
-                        res.onSuccess { members ->
-                            val insights = withContext(Dispatchers.Default) {
-                                getGroupBusinessInsightsUseCase(group, members)
-                            }
-                            updateState { it.copy(businessInsight = insights) }
-                        }
-                    }
-                }
-            }
-        }
+        liveObservation.start(host, groupId, memberId, group)
     }
 
     private fun loadMemberships() {
-        val userId = supabaseRepo.currentUserId ?: return
+        val userId = getAttributableActorId() ?: return
         launchJob("membership_observation") {
-            memberRepo.observeMemberships(userId).collect { res ->
+            observeMemberships(userId).collect { res ->
                 res.onSuccess { memberships ->
                     updateState { it.copy(memberships = memberships) }
                     if (uiState.value.selectedGroupId == null && memberships.isNotEmpty()) {
@@ -218,7 +157,7 @@ class MemberOverviewViewModel @Inject constructor(
             if (canImpersonate && targetGroupId != null) {
                 updateState { it.clearGroupContext().copy(
                     isImpersonating = true,
-                    impersonatorId = supabaseRepo.currentUserId,
+                    impersonatorId = getAttributableActorId(),
                     targetMemberId = targetMemberId,
                     selectedGroupId = targetGroupId,
                     isExiting = false,
@@ -242,7 +181,7 @@ class MemberOverviewViewModel @Inject constructor(
                     isExiting = false,
                     isLoading = true
                 ) }
-                supabaseRepo.currentUserId?.let { memberContextCacheService.warmUpForUser(it) }
+                getAttributableActorId()?.let { memberContextCacheService.warmUpForUser(it) }
             } else {
                 updateState { it.clearGroupContext().copy(
                     isImpersonating = false,
@@ -258,10 +197,10 @@ class MemberOverviewViewModel @Inject constructor(
     private suspend fun isSupportOperator(groupId: String?): Boolean {
         if (groupId.isNullOrBlank()) return false
         // Fail closed: an unreadable role is never treated as administrative.
-        val role = safeRunCatching { supabaseRepo.getUserRole() }.getOrDefault(UserRole.MEMBER)
+        val role = getCurrentUserRole()
         if (role == UserRole.PLATFORM_ADMIN) return true
-        val userId = supabaseRepo.currentUserId ?: return false
-        val group = groupRepo.getGroupById(groupId).getOrNull() ?: return false
+        val userId = getAttributableActorId() ?: return false
+        val group = getGroupById(groupId).getOrNull() ?: return false
         return group.adminUserId == userId
     }
 
@@ -270,7 +209,7 @@ class MemberOverviewViewModel @Inject constructor(
     fun switchGroup(groupId: String) = selectGroup(groupId)
 
     fun clearImpersonation(onComplete: () -> Unit = {}) {
-        val operatorId = supabaseRepo.currentUserId
+        val operatorId = getAttributableActorId()
         cancelJob("portal_context_transition")
         updateState {
             it.clearGroupContext().copy(
@@ -294,8 +233,28 @@ class MemberOverviewViewModel @Inject constructor(
     }
 
     fun refreshData() {
-        val userId = supabaseRepo.currentUserId ?: return
-        launchJob("refresh_data") { memberContextCacheService.warmUpForUser(userId) }
+        val state = uiState.value
+        val groupId = state.selectedGroupId ?: return
+        val impersonated = state.member.takeIf { state.isImpersonating }
+        if (state.isImpersonating && impersonated == null) return
+        val userId = if (state.isImpersonating) {
+            impersonated?.userId.orEmpty()
+        } else {
+            getAttributableActorId() ?: return
+        }
+
+        updateState { it.copy(isLoading = true, error = null) }
+        launchJob("refresh_data") {
+            val result = if (state.isImpersonating) {
+                val memberId = impersonated?.id.serverIdOrReport("member")
+                if (memberId == null) Result.success(Unit)
+                else memberContextCacheService.refreshImpersonatedMember(memberId, groupId)
+            } else {
+                memberContextCacheService.refreshGroup(userId, groupId)
+            }
+            result.onFailure { e -> updateState { s -> s.copy(error = e.toUserMessage()) } }
+            updateState { it.copy(isLoading = false) }
+        }
     }
 
     fun selectTab(index: Int) { updateState { it.copy(selectedTab = index) } }
@@ -311,9 +270,15 @@ class MemberOverviewViewModel @Inject constructor(
     fun setActive(active: Boolean) {
         if (active) {
             observeContext()
-            refreshData()
+            // Entering the dashboard warms the cache only; a full network refresh stays bound
+            // to the pull-to-refresh gesture.
+            if (!uiState.value.isImpersonating) {
+                getAttributableActorId()?.let { userId ->
+                    launchJob("context_warmup") { memberContextCacheService.warmUpForUser(userId) }
+                }
+            }
         } else {
-            listOf("context_observation", "live_observation", "insights_loading", "audit_report").forEach { cancelJob(it) }
+            listOf("context_observation", "live_observation", "insights_loading", "audit_report", "context_warmup").forEach { cancelJob(it) }
         }
     }
 
@@ -327,6 +292,5 @@ class MemberOverviewViewModel @Inject constructor(
 
     fun downloadGroupConstitution() = documentCoordinator.downloadGroupConstitution(host)
 
-    fun getDownloadParams(url: String): Map<String, String> =
-        buildSupabaseAuthHeaders(url, supabaseRepo.accessToken)
+    fun getDownloadParams(url: String): Map<String, String> = buildDocumentAuthHeaders(url)
 }

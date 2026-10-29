@@ -53,7 +53,7 @@ class CalculateInvestmentClubValuationUseCase @Inject constructor() {
                 memberId = member.id ?: "",
                 memberName = member.fullName,
                 unitsOwned = memberContribution, // 1 unit per R1 contributed
-                marketValue = totalAssets * weight,
+                marketValue = totalAssets.proportionOf(memberContribution, totalContributions),
                 contributionWeight = weight * 100.0
             )
         }
@@ -68,4 +68,3 @@ class CalculateInvestmentClubValuationUseCase @Inject constructor() {
         )
     }
 }
-

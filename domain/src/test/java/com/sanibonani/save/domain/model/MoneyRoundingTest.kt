@@ -2,6 +2,7 @@ package com.sanibonani.save.domain.model
 
 import org.junit.Assert.assertEquals
 import org.junit.Test
+import java.math.BigDecimal
 
 /**
  * Rounding contract for every financial value that enters the app. These replace the retired
@@ -28,5 +29,17 @@ class MoneyRoundingTest {
     fun `amounts built from differently written literals compare equal`() {
         assertEquals(Money("10.0"), Money("10.00"))
         assertEquals(Money(10), Money("10.00"))
+    }
+
+    @Test
+    fun `percentage calculations use decimal rates and round the final amount`() {
+        assertEquals(Money("0.02"), Money("0.05").percent(BigDecimal("33.3333333333")))
+        assertEquals(Money("0.00"), Money("0.05").percent(10))
+    }
+
+    @Test
+    fun `proportional shares avoid floating point and round half even`() {
+        assertEquals(Money("0.02"), Money("0.05").proportionOf(Money("1.00"), Money("3.00")))
+        assertEquals(Money.ZERO, Money("100.00").proportionOf(Money("1.00"), Money.ZERO))
     }
 }

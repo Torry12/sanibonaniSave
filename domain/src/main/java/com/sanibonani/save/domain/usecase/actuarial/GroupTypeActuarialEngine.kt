@@ -61,7 +61,7 @@ class GroupTypeActuarialEngine @Inject constructor(
         val n = max(1, activeList.size)
         val totalExpectedAnnual = activeList.fold(Money.ZERO) { acc, member ->
             acc + paymentCalculator.calculateExpectedMemberGroupPart(group, member)
-        } * 12.0
+        } * 12
         val monthsActive = estimateMonthsActive(group, members)
 
         // Payment rate is balance vs expected contributions over life of group
@@ -117,14 +117,14 @@ class GroupTypeActuarialEngine @Inject constructor(
 
     fun computeCashFlowProjections(group: Group, memberCount: Int, currentBalance: Money, paymentCompliancePct: Double, months: Int = 12): List<FutureMonthProjection> {
         val n = memberCount.coerceAtLeast(1)
-        val compliance = paymentCompliancePct.coerceIn(0.0, 100.0) / 100.0
-        val monthlyInflow = group.monthlyContribution * n * compliance
+        val compliancePct = paymentCompliancePct.coerceIn(0.0, 100.0)
+        val monthlyInflow = (group.monthlyContribution * n).percent(compliancePct)
 
         val monthlyOutflow = when (group.type) {
-            GroupType.BURIAL_SOCIETY -> (if (group.goalAmount.isPositive) group.goalAmount else ActuarialConstants.SA_AVG_FUNERAL_COST) * (n * ActuarialConstants.SA_WORKING_AGE_MORT_PER_1000 / 1000.0 / 12.0) + monthlyInflow * 0.05
+            GroupType.BURIAL_SOCIETY -> (if (group.goalAmount.isPositive) group.goalAmount else ActuarialConstants.SA_AVG_FUNERAL_COST) * (n * ActuarialConstants.SA_WORKING_AGE_MORT_PER_1000 / 1000.0 / 12.0) + monthlyInflow.percent(5)
             GroupType.ROSCA -> group.monthlyContribution * n
-            GroupType.STOKVEL, GroupType.INVESTMENT_CLUB -> monthlyInflow * 0.02
-            else -> monthlyInflow * 0.03
+            GroupType.STOKVEL, GroupType.INVESTMENT_CLUB -> monthlyInflow.percent(2)
+            else -> monthlyInflow.percent(3)
         }
 
         var runningBalance = currentBalance

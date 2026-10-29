@@ -12,6 +12,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavGraph.Companion.findStartDestination
@@ -19,6 +20,7 @@ import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.sanibonani.save.R
 import com.sanibonani.save.domain.logging.AppLogger
 import com.sanibonani.save.domain.model.Money
 import com.sanibonani.save.domain.model.UserRole
@@ -29,8 +31,8 @@ import com.sanibonani.save.features.common.presentation.GlobalLoadingViewModel
 import com.sanibonani.save.features.common.presentation.GlobalSyncViewModel
 import com.sanibonani.save.service.UserProfileCacheService
 import com.sanibonani.save.ui.components.GlobalErrorBanner
-import com.sanibonani.save.ui.components.GlobalLoadingOverlay
 import com.sanibonani.save.ui.components.GlobalSyncBanner
+import com.sanibonani.save.ui.components.SoftLoadingOverlay
 import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
 import dagger.hilt.android.EntryPointAccessors
@@ -170,7 +172,10 @@ fun SanibonaniNavGraph(
             )
         }
 
-        GlobalLoadingOverlay(globalSpinnerActive)
+        SoftLoadingOverlay(
+            isLoading = globalSpinnerActive,
+            message = stringResource(R.string.ui_loading)
+        )
 
         GlobalSyncBanner(syncStatus)
 

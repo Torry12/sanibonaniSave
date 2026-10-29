@@ -8,9 +8,14 @@ import com.sanibonani.save.domain.repository.credit.LoanRepository
 import com.sanibonani.save.domain.repository.disbursement.PayoutRepository
 import com.sanibonani.save.domain.repository.member.BeneficiaryClaimRepository
 import com.sanibonani.save.domain.repository.member.MemberRepository
+import com.sanibonani.save.domain.usecase.auth.GetAttributableActorIdUseCase
+import com.sanibonani.save.domain.usecase.credit.GetPendingLoanRequestsUseCase
+import com.sanibonani.save.domain.usecase.disbursement.GetPendingPayoutsUseCase
 import com.sanibonani.save.domain.usecase.disbursement.ProcessDisbursementUseCase
 import com.sanibonani.save.domain.usecase.credit.ProcessLoanDecisionUseCase
 import com.sanibonani.save.domain.usecase.credit.ProcessLoanDisbursementUseCase
+import com.sanibonani.save.domain.usecase.member.GetEscalatedClaimsUseCase
+import com.sanibonani.save.domain.usecase.member.GetMemberByIdUseCase
 import com.sanibonani.save.domain.usecase.member.ProcessBurialClaimUseCase
 import com.sanibonani.save.features.admin.presentation.PlatformDisbursementsViewModel
 import com.sanibonani.save.features.common.presentation.UIEvent
@@ -74,15 +79,15 @@ class PlatformDisbursementsViewModelTest {
         coEvery { loanRepo.getAllPendingLoansSync() } returns Result.success(listOf<Loan>())
 
         viewModel = PlatformDisbursementsViewModel(
-            claimRepo,
-            payoutRepo,
-            memberRepo,
-            loanRepo,
+            GetEscalatedClaimsUseCase(claimRepo),
+            GetPendingPayoutsUseCase(payoutRepo),
+            GetMemberByIdUseCase(memberRepo),
+            GetPendingLoanRequestsUseCase(loanRepo),
             processLoanDecisionUseCase,
             processLoanDisbursementUseCase,
             processDisbursementUseCase,
             processBurialClaimUseCase,
-            supabaseRepo
+            GetAttributableActorIdUseCase(supabaseRepo)
         )
     }
 
@@ -105,6 +110,66 @@ class PlatformDisbursementsViewModelTest {
 
         assertTrue(errors.filterIsInstance<UIEvent.ShowError>().isNotEmpty())
         assertTrue(viewModel.state.value.payouts.isEmpty())
+    }
+
+    @Test
+    fun `a failed section refresh keeps the data already on screen`() = runTest {
+        val claim = BeneficiaryPayoutClaim(id = "c1", groupId = "g1")
+        val payout = PayoutRequest(
+            id = "p1",
+            groupId = "g1",
+            amount = Money("1000.0"),
+            status = PayoutStatus.PENDING,
+            bankName = "FNB",
+            accountNo = "123456789",
+            branchCode = "250655"
+        )
+        val loan = Loan(id = "l1", memberId = "m1", groupId = "g1", amount = Money("500.0"))
+        coEvery { claimRepo.getEscalatedClaimsSync() } returns Result.success(listOf(claim))
+        coEvery { payoutRepo.getPendingPayouts() } returns Result.success(listOf(payout))
+        coEvery { loanRepo.getAllPendingLoansSync() } returns Result.success(listOf(loan))
+
+        viewModel.load()
+        advanceUntilIdle()
+        assertEquals(1, viewModel.state.value.payouts.size)
+
+        coEvery { claimRepo.getEscalatedClaimsSync() } returns
+            Result.failure(Exception("HTTP 400 column face_photo_status does not exist"))
+        coEvery { payoutRepo.getPendingPayouts() } returns Result.success(emptyList())
+        coEvery { loanRepo.getAllPendingLoansSync() } returns Result.success(emptyList())
+        val errors = mutableListOf<UIEvent>()
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+            viewModel.events.collect { errors.add(it) }
+        }
+
+        viewModel.load()
+        advanceUntilIdle()
+
+        // A failed fetch is not a verified empty response: the claims queue keeps
+        // what is on screen, while sections that answered are replaced as usual.
+        assertEquals(listOf("c1"), viewModel.state.value.escalatedClaims.map { it.id })
+        assertTrue(viewModel.state.value.payouts.isEmpty())
+        assertTrue(viewModel.state.value.loanRequestsByGroup.isEmpty())
+        assertTrue(errors.filterIsInstance<UIEvent.ShowError>()
+            .any { it.message.contains("escalated claims") })
+    }
+
+    @Test
+    fun `the refresh error names every failed section at once`() = runTest {
+        coEvery { claimRepo.getEscalatedClaimsSync() } returns Result.failure(Exception("offline"))
+        coEvery { loanRepo.getAllPendingLoansSync() } returns Result.failure(Exception("offline"))
+        val errors = mutableListOf<UIEvent>()
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+            viewModel.events.collect { errors.add(it) }
+        }
+
+        viewModel.load()
+        advanceUntilIdle()
+
+        val shown = errors.filterIsInstance<UIEvent.ShowError>().single()
+        assertTrue(shown.message.contains("escalated claims"))
+        assertTrue(shown.message.contains("loan requests"))
+        assertFalse(shown.message.contains("payout requests"))
     }
 
     @Test
@@ -203,5 +268,38 @@ class PlatformDisbursementsViewModelTest {
                 adminId = "platform_admin"
             )
         }
+    }
+
+    @Test
+    fun `a blank session does not ask the domain to stamp an empty claim reviewer`() = runTest {
+        every { supabaseRepo.currentUserId } returns null
+        val errors = mutableListOf<UIEvent>()
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+            viewModel.events.collect { errors.add(it) }
+        }
+
+        viewModel.approveBurialClaim("c1", "documents verified")
+        advanceUntilIdle()
+
+        coVerify(exactly = 0) { processBurialClaimUseCase(any(), any(), any(), any(), any()) }
+        assertTrue(errors.filterIsInstance<UIEvent.ShowError>()
+            .any { it.message.contains("Sign in again") })
+    }
+
+    @Test
+    fun `a blank session reports a blocked loan approval instead of dropping the tap`() = runTest {
+        every { supabaseRepo.currentUserId } returns null
+        val loan = Loan(id = "l1", memberId = "m1", groupId = "g1", amount = Money("500.0"))
+        val errors = mutableListOf<UIEvent>()
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+            viewModel.events.collect { errors.add(it) }
+        }
+
+        viewModel.approveLoanRequest(loan)
+        advanceUntilIdle()
+
+        coVerify(exactly = 0) { processLoanDecisionUseCase(any(), any(), any(), any()) }
+        assertTrue(errors.filterIsInstance<UIEvent.ShowError>()
+            .any { it.message.contains("Sign in again") })
     }
 }

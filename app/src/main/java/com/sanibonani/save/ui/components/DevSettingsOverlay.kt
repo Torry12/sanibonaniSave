@@ -13,10 +13,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.sanibonani.save.data.utils.DevSettings
+import com.sanibonani.save.domain.service.DevSettingsService
 
 @Composable
-fun DevSettingsOverlay(devSettings: DevSettings) {
+fun DevSettingsOverlay(devSettings: DevSettingsService) {
     var useOnline by remember { mutableStateOf(devSettings.useOnlineDatabase) }
     val context = LocalContext.current
 

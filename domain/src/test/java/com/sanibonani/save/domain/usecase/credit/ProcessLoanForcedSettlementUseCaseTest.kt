@@ -4,11 +4,12 @@ import com.sanibonani.save.domain.model.Contribution
 import com.sanibonani.save.domain.model.Group
 import com.sanibonani.save.domain.model.GroupType
 import com.sanibonani.save.domain.model.Loan
+import com.sanibonani.save.domain.model.LoanRepayment
 import com.sanibonani.save.domain.model.LoanStatus
 import com.sanibonani.save.domain.model.Member
 import com.sanibonani.save.domain.model.MemberStatus
 import com.sanibonani.save.domain.model.Money
-import com.sanibonani.save.domain.repository.admin.AuditLogRepository
+import com.sanibonani.save.domain.model.RecordRepaymentResult
 import com.sanibonani.save.domain.repository.admin.PlatformRepository
 import com.sanibonani.save.domain.repository.credit.LoanRepository
 import com.sanibonani.save.domain.repository.equity.ContributionRepository
@@ -34,7 +35,6 @@ class ProcessLoanForcedSettlementUseCaseTest {
     private val memberRepository: MemberRepository = mockk(relaxed = true)
     private val contributionRepository: ContributionRepository = mockk(relaxed = true)
     private val platformRepository: PlatformRepository = mockk(relaxed = true)
-    private val auditLogRepository: AuditLogRepository = mockk(relaxed = true)
     private val notificationRepository: NotificationRepository = mockk(relaxed = true)
     private val paymentCalculator: PaymentCalculator = mockk(relaxed = true)
     private lateinit var useCase: ProcessLoanForcedSettlementUseCase
@@ -48,13 +48,13 @@ class ProcessLoanForcedSettlementUseCaseTest {
             memberRepository,
             contributionRepository,
             platformRepository,
-            auditLogRepository,
             notificationRepository,
             paymentCalculator
         )
         coEvery { memberRepository.getMemberById(any()) } returns Result.success(Member(id = "m1"))
-        coEvery { memberRepository.recordContribution(any()) } returns Result.success(Unit)
-        coEvery { loanRepository.updateLoanStatus(any(), any(), any(), any()) } returns Result.success(Unit)
+        coEvery { loanRepository.settleExpiredLoan(any()) } answers {
+            settled(firstArg(), "g1", "500.00")
+        }
     }
 
     private fun group(id: String, type: GroupType = GroupType.STOKVEL) = Group(
@@ -82,21 +82,32 @@ class ProcessLoanForcedSettlementUseCaseTest {
     }
 
     @Test
+    fun `expired loan settlement is performed through one atomic repository operation`() = runBlocking {
+        stubGroups(group("g1"))
+        stubGroupLoans("g1", loan("l1", "g1", "500.00"))
+
+        assertTrue(useCase().isSuccess)
+
+        coVerify(exactly = 1) { loanRepository.settleExpiredLoan("l1") }
+        coVerify(exactly = 0) { loanRepository.updateLoanStatus(any(), any(), any(), any()) }
+        coVerify(exactly = 0) { memberRepository.recordContribution(any()) }
+    }
+
+    @Test
     fun `a rejected settlement does not stop the later loans in the same group`() = runBlocking {
         stubGroups(group("g1"))
         stubGroupLoans("g1", loan("l1", "g1", "500.00"), loan("l2", "g1", "300.00"))
-        coEvery { memberRepository.recordContribution(any()) } answers {
-            if (firstArg<Contribution>().transactionId == "forced_settlement_l1")
+        coEvery { loanRepository.settleExpiredLoan(any()) } answers {
+            if (firstArg<String>() == "l1")
                 Result.failure(IllegalStateException("RPC rejected l1"))
-            else Result.success(Unit)
+            else settled("l2", "g1", "300.00")
         }
 
         val result = useCase()
 
         assertTrue(result.isSuccess)
-        // l1 never reaches its status update, so it stays ACTIVE and is retried next sweep.
-        coVerify(exactly = 0) { loanRepository.updateLoanStatus("l1", LoanStatus.COMPLETED, any(), any()) }
-        coVerify(exactly = 1) { loanRepository.updateLoanStatus("l2", LoanStatus.COMPLETED, any(), any()) }
+        coVerify(exactly = 1) { loanRepository.settleExpiredLoan("l1") }
+        coVerify(exactly = 1) { loanRepository.settleExpiredLoan("l2") }
     }
 
     @Test
@@ -104,17 +115,17 @@ class ProcessLoanForcedSettlementUseCaseTest {
         stubGroups(group("g1"), group("g2"))
         stubGroupLoans("g1", loan("l1", "g1", "500.00"))
         stubGroupLoans("g2", loan("l2", "g2", "250.00"))
-        coEvery { memberRepository.recordContribution(any()) } answers {
-            if (firstArg<Contribution>().groupId == "g1")
+        coEvery { loanRepository.settleExpiredLoan(any()) } answers {
+            if (firstArg<String>() == "l1")
                 Result.failure(IllegalStateException("RPC rejected g1"))
-            else Result.success(Unit)
+            else settled("l2", "g2", "250.00")
         }
 
         val result = useCase()
 
         assertTrue(result.isSuccess)
-        coVerify(exactly = 0) { loanRepository.updateLoanStatus("l1", LoanStatus.COMPLETED, any(), any()) }
-        coVerify(exactly = 1) { loanRepository.updateLoanStatus("l2", LoanStatus.COMPLETED, any(), any()) }
+        coVerify(exactly = 1) { loanRepository.settleExpiredLoan("l1") }
+        coVerify(exactly = 1) { loanRepository.settleExpiredLoan("l2") }
     }
 
     @Test
@@ -122,7 +133,7 @@ class ProcessLoanForcedSettlementUseCaseTest {
         coEvery { platformRepository.getAllGroups() } returns Result.failure(IllegalStateException("offline"))
 
         assertTrue(useCase().isFailure)
-        coVerify(exactly = 0) { memberRepository.recordContribution(any()) }
+        coVerify(exactly = 0) { loanRepository.settleExpiredLoan(any()) }
     }
 
     @Test
@@ -178,4 +189,17 @@ class ProcessLoanForcedSettlementUseCaseTest {
             totalDueNow = Money(shortfall)
         )
     }
+
+    private fun settled(loanId: String, groupId: String, amount: String): Result<RecordRepaymentResult> =
+        Result.success(
+            RecordRepaymentResult(
+                repayment = LoanRepayment(
+                    loanId = loanId,
+                    memberId = "m1",
+                    groupId = groupId,
+                    amount = Money(amount)
+                ),
+                newBalance = Money("500.00")
+            )
+        )
 }

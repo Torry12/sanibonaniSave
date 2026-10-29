@@ -47,6 +47,7 @@ data class Money(val amount: BigDecimal) : Comparable<Money> {
             minimumFractionDigits = 2
             maximumFractionDigits = 2
         }
+        private val HUNDRED = BigDecimal("100")
 
         // Interop door for provider payloads that still arrive as floating point numbers.
         fun fromDouble(value: Double?): Money =
@@ -69,8 +70,23 @@ data class Money(val amount: BigDecimal) : Comparable<Money> {
     operator fun div(divisor: Long): Money = dividedBy(divisor)
     operator fun div(divisor: Double): Money = dividedBy(divisor)
 
-    /** Returns a percentage of this money amount. */
-    fun percent(percentage: Double): Money = this * (percentage / 100.0)
+    /** Returns a percentage of this money amount, rounding only the final currency value. */
+    fun percent(percentage: Double): Money = percent(BigDecimal.valueOf(percentage))
+
+    fun percent(percentage: Int): Money = percent(BigDecimal.valueOf(percentage.toLong()))
+
+    fun percent(percentage: Long): Money = percent(BigDecimal.valueOf(percentage))
+
+    fun percent(percentage: BigDecimal): Money =
+        Money(amount.multiply(percentage).divide(HUNDRED, 2, RoundingMode.HALF_EVEN))
+
+    /**
+     * Returns this amount multiplied by [part] / [total] without converting the ratio to Double.
+     * A zero [total] has no defined share and returns zero, matching [ratio].
+     */
+    fun proportionOf(part: Money, total: Money): Money =
+        if (total.isZero) ZERO
+        else Money(amount.multiply(part.amount).divide(total.amount, 2, RoundingMode.HALF_EVEN))
 
     /** Returns the ratio of this money to another (Double). */
     fun ratio(other: Money): Double = if (other.isZero) 0.0 else this.amount.toDouble() / other.amount.toDouble()

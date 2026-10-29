@@ -1,8 +1,5 @@
 package com.sanibonani.save.features.group.ui
 
-import androidx.compose.ui.res.stringResource
-import com.sanibonani.save.R
-
 import androidx.compose.animation.*
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
@@ -10,46 +7,27 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.*
-import androidx.compose.ui.zIndex
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
-import com.google.accompanist.permissions.ExperimentalPermissionsApi
-import com.google.accompanist.permissions.isGranted
-import com.google.accompanist.permissions.rememberPermissionState
-import android.location.Location
-import kotlinx.coroutines.delay
-import kotlin.time.Duration.Companion.milliseconds
-import com.google.android.gms.location.*
-import android.Manifest
-import android.annotation.SuppressLint
-import android.app.Activity
-import android.content.IntentSender
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.IntentSenderRequest
-import androidx.activity.result.contract.ActivityResultContracts
-import com.google.android.gms.common.api.ResolvableApiException
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.delay
+import kotlin.time.Duration.Companion.milliseconds
 import com.sanibonani.save.ui.utils.rememberClickDebouncer
 import com.sanibonani.save.domain.config.SaReferenceData
 import com.sanibonani.save.domain.model.*
 import com.sanibonani.save.ui.components.*
-import com.sanibonani.save.features.admin.ui.components.ProvinceHeaderCard
 import com.sanibonani.save.ui.theme.*
 import com.sanibonani.save.features.group.presentation.GroupViewModel
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalPermissionsApi::class)
-@SuppressLint("MissingPermission")
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BrowseGroupsScreen(
     onGroupClick: (String) -> Unit,
@@ -58,83 +36,19 @@ fun BrowseGroupsScreen(
     vm: GroupViewModel = hiltViewModel()
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
-    val context = LocalContext.current
     val clickDebouncer = rememberClickDebouncer()
     var showMap by remember { mutableStateOf(false) }
     var showFilters by remember { mutableStateOf(false) }
     var selectedLocationGroups by remember { mutableStateOf<List<Group>>(emptyList()) }
-    var userLocation by remember { mutableStateOf<Location?>(null) }
-    var triggerLocationRequest by remember { mutableIntStateOf(0) }
     var searchQuery by remember { mutableStateOf(state.searchQuery) }
 
-    val locationPermissionState = rememberPermissionState(Manifest.permission.ACCESS_FINE_LOCATION)
-    val fusedLocationClient = remember(context) { LocationServices.getFusedLocationProviderClient(context) }
-
-    val locationSettingsLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.StartIntentSenderForResult()
-    ) { result ->
-        if (result.resultCode == Activity.RESULT_OK) {
-            triggerLocationRequest++
-        }
-    }
+    val userLocation = rememberBrowseGroupsLocation()
 
     DisposableEffect(Unit) {
         vm.setActive(true)
         onDispose {
             vm.setActive(false)
         }
-    }
-
-    fun requestLocation() {
-        if (!locationPermissionState.status.isGranted) {
-            locationPermissionState.launchPermissionRequest()
-            return
-        }
-
-        val locationRequest = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 5000)
-            .setMinUpdateDistanceMeters(10f)
-            .build()
-
-        val builder = LocationSettingsRequest.Builder()
-            .addLocationRequest(locationRequest)
-            .setAlwaysShow(true)
-
-        val client: SettingsClient = LocationServices.getSettingsClient(context)
-        client.checkLocationSettings(builder.build())
-            .addOnSuccessListener {
-                fusedLocationClient.lastLocation.addOnSuccessListener { location ->
-                    if (location != null) {
-                        userLocation = location
-                    } else {
-                        fusedLocationClient.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, null)
-                            .addOnSuccessListener { freshLocation ->
-                                userLocation = freshLocation
-                            }
-                    }
-                }
-            }
-            .addOnFailureListener { exception ->
-                if (exception is ResolvableApiException) {
-                    try {
-                        val intentSenderRequest = IntentSenderRequest.Builder(exception.resolution.intentSender).build()
-                        locationSettingsLauncher.launch(intentSenderRequest)
-                    } catch (e: IntentSender.SendIntentException) {
-                        // User dismissed the location-settings prompt; nothing to recover.
-                        com.sanibonani.save.domain.logging.AppLogger.i(
-                            "BrowseGroupsScreen",
-                            "Location settings resolution cancelled"
-                        )
-                    }
-                }
-            }
-    }
-
-    LaunchedEffect(triggerLocationRequest) {
-        if (triggerLocationRequest > 0) requestLocation()
-    }
-
-    LaunchedEffect(locationPermissionState.status) {
-        if (locationPermissionState.status.isGranted) requestLocation()
     }
 
     LaunchedEffect(searchQuery) {
@@ -173,92 +87,16 @@ fun BrowseGroupsScreen(
                 .background(MaterialTheme.colorScheme.background)
                 .padding(padding)
         ) {
-            // ── Search & View Toggle ──────────────────────────────────────────
-            Surface(
-                modifier = Modifier.fillMaxWidth().zIndex(1f),
-                color = MaterialTheme.colorScheme.surface,
-                shadowElevation = 2.dp
-            ) {
-                Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        OutlinedTextField(
-                            value = searchQuery,
-                            onValueChange = { searchQuery = it },
-                            modifier = Modifier.weight(1f),
-                            placeholder = { Text(stringResource(R.string.ui_search_groups), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) },
-                            leadingIcon = { Icon(Icons.Default.Search, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp)) },
-                            trailingIcon = {
-                                if (searchQuery.isNotEmpty()) {
-                                    IconButton(onClick = { searchQuery = "" }) {
-                                        Icon(Icons.Default.Close, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp))
-                                    }
-                                }
-                            },
-                            singleLine = true,
-                            shape = RoundedCornerShape(12.dp),
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedBorderColor = MaterialTheme.colorScheme.primary,
-                                unfocusedBorderColor = MaterialTheme.colorScheme.outline,
-                                focusedContainerColor = MaterialTheme.colorScheme.surface,
-                                unfocusedContainerColor = MaterialTheme.colorScheme.surface
-                            ),
-                            textStyle = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurface)
-                        )
-
-                        FilledTonalIconToggleButton(
-                            checked = showMap,
-                            onCheckedChange = { showMap = it },
-                            colors = IconButtonDefaults.filledTonalIconToggleButtonColors(
-                                containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                                checkedContainerColor = MaterialTheme.colorScheme.primary,
-                                checkedContentColor = MaterialTheme.colorScheme.onPrimary
-                            ),
-                            modifier = Modifier.size(48.dp),
-                            shape = RoundedCornerShape(12.dp)
-                        ) {
-                            Icon(
-                                imageVector = if (showMap) Icons.AutoMirrored.Filled.List else Icons.Default.Map,
-                                contentDescription = "Toggle View",
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
-                    }
-
-                    AnimatedVisibility(visible = showFilters) {
-                        Column(Modifier.padding(top = 12.dp)) {
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                SanibonaniDropdown(
-                                    label = stringResource(R.string.ui_province),
-                                    items = listOf(null) + SaReferenceData.PROVINCES,
-                                    selectedItem = state.provinceFilter,
-                                    onItemSelected = { vm.updateFilter(province = it) },
-                                    itemLabel = { it ?: "All Provinces" },
-                                    modifier = Modifier.weight(1f)
-                                )
-                                SanibonaniDropdown(
-                                    label = stringResource(R.string.ui_group_type),
-                                    items = listOf(null) + GroupType.entries,
-                                    selectedItem = state.typeFilter,
-                                    onItemSelected = { vm.updateFilter(type = it) },
-                                    itemLabel = { it?.displayName ?: "All Types" },
-                                    modifier = Modifier.weight(1f)
-                                )
-                            }
-                            if ((state.provinceFilter != null) || (state.typeFilter != null)) {
-                                TextButton(
-                                    onClick = { vm.updateFilter(clearProvince = true, clearType = true) },
-                                    modifier = Modifier.align(Alignment.End)
-                                ) {
-                                    Text(stringResource(R.string.ui_clear_filters), color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelSmall)
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+            BrowseGroupsSearchBar(
+                state = state,
+                vm = vm,
+                searchQuery = searchQuery,
+                onSearchQueryChange = { searchQuery = it },
+                showMap = showMap,
+                onShowMapChange = { showMap = it },
+                showFilters = showFilters,
+                onToggleFilters = { showFilters = !showFilters }
+            )
 
             // ── Main Content ──────────────────────────────────────────────────
             Box(Modifier.fillMaxSize()) {

@@ -12,6 +12,7 @@ import com.sanibonani.save.data.repository.system.LoanRepaymentOutboxHandler
 import com.sanibonani.save.data.repository.system.OutboxPolicy
 import com.sanibonani.save.data.repository.system.PayoutRequestOutboxHandler
 import com.sanibonani.save.data.repository.system.PayoutStatusUpdateOutboxHandler
+import com.sanibonani.save.domain.model.DomainPillar
 import com.sanibonani.save.domain.model.Group
 import com.sanibonani.save.domain.model.Member
 import com.sanibonani.save.domain.model.UserRole
@@ -19,27 +20,37 @@ import com.sanibonani.save.domain.repository.group.GroupRepository
 import com.sanibonani.save.domain.repository.member.MemberRepository
 import com.sanibonani.save.domain.repository.system.NotificationRepository
 import com.sanibonani.save.domain.repository.auth.SupabaseRepository
-import com.sanibonani.save.domain.repository.system.SyncStatus
+import com.sanibonani.save.domain.model.SyncStatus
 import io.github.jan.supabase.SupabaseClient
+import io.github.jan.supabase.postgrest.Postgrest
+import io.github.jan.supabase.postgrest.postgrest
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.mockkStatic
 import io.mockk.slot
+import io.mockk.spyk
+import io.mockk.unmockkStatic
+import io.mockk.verify
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
+import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import java.io.IOException
 import java.net.UnknownHostException
 
 class SyncRepositoryImplTest {
 
     private val supabase = mockk<SupabaseClient>(relaxed = true)
+    private val postgrest = mockk<Postgrest>(relaxed = true)
     private val supabaseRepo = mockk<SupabaseRepository>()
     private val memberRepo = mockk<MemberRepository>()
     private val groupRepo = mockk<GroupRepository>()
@@ -56,6 +67,8 @@ class SyncRepositoryImplTest {
     private val payoutStatusUpdateHandler = mockk<PayoutStatusUpdateOutboxHandler>(relaxed = true)
 
     private lateinit var repository: SyncRepositoryImpl
+
+    private val requestedTables = mutableListOf<String>()
 
     @Before
     fun setUp() {
@@ -75,6 +88,11 @@ class SyncRepositoryImplTest {
             beneficiaryClaimHandler = beneficiaryClaimHandler,
             payoutStatusUpdateHandler = payoutStatusUpdateHandler
         )
+    }
+
+    @After
+    fun tearDownRemoteTables() {
+        unmockkStatic("io.github.jan.supabase.postgrest.PostgrestKt")
     }
 
     @Test
@@ -144,6 +162,51 @@ class SyncRepositoryImplTest {
 
         assertTrue(results.all { it.isSuccess })
         coVerify(exactly = 1) { memberRepo.getMemberships("user_1") }
+    }
+
+    @Test
+    fun `a manual group refresh pulls every pillar regardless of role`() = runBlocking {
+        every { supabaseRepo.currentUserId } returns "user_1"
+        coEvery { supabaseRepo.getUserRole() } returns UserRole.MEMBER
+        coEvery { groupRepo.getGroupById("group_1") } returns Result.success(
+            Group(id = "group_1", name = "Group One")
+        )
+        coEvery { memberRepo.syncGroupMembers("group_1") } returns Result.success(emptyList())
+        coEvery { notificationRepo.syncNotifications("group_1") } returns Result.success(Unit)
+        val spy = spyk(repository)
+        coEvery { spy.syncRefresh(any(), any()) } returns Result.success(Unit)
+
+        assertTrue(spy.syncGroupData("group_1").isSuccess)
+
+        DomainPillar.entries
+            .filter { it != DomainPillar.GLOBAL }
+            .forEach { pillar ->
+                coVerify(exactly = 1) { spy.syncRefresh(pillar, "group_1") }
+            }
+        coVerify(exactly = 0) { spy.syncRefresh(DomainPillar.GLOBAL, any()) }
+        // A user-initiated refresh is not role-tailored, so it must not branch on the role.
+        coVerify(exactly = 0) { supabaseRepo.getUserRole() }
+    }
+
+    @Test
+    fun `startup sync keeps the role-tailored pillar set`() = runBlocking {
+        every { supabaseRepo.currentUserId } returns "user_1"
+        coEvery { supabaseRepo.getUserRole() } returns UserRole.MEMBER
+        coEvery { memberRepo.getMemberships("user_1") } returns Result.success(
+            listOf(Member(id = "m1", groupId = "group_1"))
+        )
+        coEvery { groupRepo.getGroupsByAdmin("user_1") } returns Result.success(emptyList())
+        coEvery { memberRepo.syncGroupMembers("group_1") } returns Result.success(emptyList())
+        coEvery { notificationRepo.syncNotifications("group_1") } returns Result.success(Unit)
+        val spy = spyk(repository)
+        coEvery { spy.syncRefresh(any(), any()) } returns Result.success(Unit)
+
+        assertTrue(spy.syncAllData().isSuccess)
+
+        coVerify(exactly = 1) { spy.syncRefresh(DomainPillar.CREDIT, "group_1") }
+        coVerify(exactly = 0) { spy.syncRefresh(DomainPillar.EQUITY, any()) }
+        coVerify(exactly = 0) { spy.syncRefresh(DomainPillar.TREASURY, any()) }
+        coVerify(exactly = 0) { groupRepo.getGroupById(any()) }
     }
 
     private fun queued(
@@ -257,6 +320,60 @@ class SyncRepositoryImplTest {
         repository.processOutbox()
 
         coVerify(exactly = 1) { outboxDao.upsert(match { it.retryCount == 0 }) }
+    }
+
+    /**
+     * The PostgREST builders are inline reified functions, so the server is stubbed where the table
+     * handle is resolved. That is the only place the requested relation name is observable, and a
+     * name the schema does not define fails with a 404 that [safeRunCatching] hides from the caller.
+     */
+    private fun stubRemoteTables(): List<String> {
+        mockkStatic("io.github.jan.supabase.postgrest.PostgrestKt")
+        every { supabase.postgrest } returns postgrest
+        every { postgrest[any()] } answers {
+            requestedTables += firstArg<String>()
+            throw IOException("stubbed remote relation")
+        }
+        return requestedTables
+    }
+
+    @Test
+    fun `the dynamics pillar reads the singular member behavior track table`() = runBlocking {
+        val tables = stubRemoteTables()
+
+        repository.syncRefresh(DomainPillar.DYNAMICS, "group_1")
+
+        assertEquals(listOf("member_behavior_track"), tables)
+        assertFalse(tables.contains("member_behavior_tracks"))
+    }
+
+    @Test
+    fun `the disbursement pillar reads beneficiary claims once with no second guess`() = runBlocking {
+        val tables = stubRemoteTables()
+
+        repository.syncRefresh(DomainPillar.DISBURSEMENT, "group_1")
+
+        assertEquals(listOf("payouts", "beneficiary_payout_claims"), tables)
+    }
+
+    @Test
+    fun `every pillar reads tables the schema defines`() = runBlocking {
+        val expected = mapOf(
+            DomainPillar.EQUITY to listOf("contributions", "payments"),
+            DomainPillar.CREDIT to listOf("loans"),
+            DomainPillar.TREASURY to listOf("group_ledger"),
+            // An absent connection aborts the rest of the branch, so only it is requested.
+            DomainPillar.BANK to listOf("bank_connections")
+        )
+
+        expected.forEach { (pillar, tables) ->
+            requestedTables.clear()
+            stubRemoteTables()
+
+            repository.syncRefresh(pillar, "group_1")
+
+            assertEquals(tables, requestedTables)
+        }
     }
 }
 

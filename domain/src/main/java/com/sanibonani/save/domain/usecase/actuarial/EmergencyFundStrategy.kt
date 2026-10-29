@@ -123,7 +123,7 @@ class EmergencyFundStrategy : BaseActuarialStrategy() {
 
     fun computeDetailedMetrics(group: Group, members: List<Member>): EmergencyFundMetrics {
         val n = members.size.coerceAtLeast(1)
-        val monthlyOutflowProxy = group.monthlyContribution * n * 0.1 // Assume 10% monthly churn
+        val monthlyOutflowProxy = (group.monthlyContribution * n).percent(10) // Assume 10% monthly churn
         val coverage = if (monthlyOutflowProxy.isPositive) group.balance.ratio(monthlyOutflowProxy) else 12.0
         val target = ActuarialConstants.EMERGENCY_TARGET_MONTHS
 

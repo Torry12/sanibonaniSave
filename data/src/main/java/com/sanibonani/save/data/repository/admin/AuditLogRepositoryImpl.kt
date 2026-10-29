@@ -19,6 +19,7 @@ class AuditLogRepositoryImpl @Inject constructor(
 
     override suspend fun logLedgerEntry(entry: LedgerEntry) {
         val auditLog = AuditLog(
+            actorId = SYSTEM_ACTOR,
             action = "LEDGER_ENTRY_CREATED",
             targetGroupId = entry.groupId,
             details = payloadFactory.createLedgerPayload(entry)
@@ -28,6 +29,7 @@ class AuditLogRepositoryImpl @Inject constructor(
 
     override suspend fun logPayment(payment: Payment) {
         val auditLog = AuditLog(
+            actorId = SYSTEM_ACTOR,
             action = "PAYMENT_RECORDED",
             targetGroupId = payment.groupId,
             targetMemberId = payment.memberId,
@@ -37,7 +39,10 @@ class AuditLogRepositoryImpl @Inject constructor(
     }
 
     override suspend fun logEvent(auditLog: AuditLog) {
-        remoteSource.insertAuditLog(auditLog).logFailure(auditLog.action)
+        // `actor_id` is the answer to "who did this". A blank one makes a recorded action
+        // unattributable, so an automated write is stamped as the system instead.
+        val stamped = if (auditLog.actorId.isBlank()) auditLog.copy(actorId = SYSTEM_ACTOR) else auditLog
+        remoteSource.insertAuditLog(stamped).logFailure(stamped.action)
     }
 
     /** Best-effort write: never throw, but never disappear either. */
@@ -45,6 +50,10 @@ class AuditLogRepositoryImpl @Inject constructor(
         onFailure { e ->
             AppLogger.w("AuditLogRepository", "Audit write '$action' failed; the financial mutation it describes already succeeded. ${e.message}")
         }
+    }
+
+    private companion object {
+        private const val SYSTEM_ACTOR = "SYSTEM"
     }
 }
 

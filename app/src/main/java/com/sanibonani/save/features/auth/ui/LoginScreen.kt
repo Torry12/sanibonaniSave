@@ -41,7 +41,7 @@ import com.sanibonani.save.BuildConfig
 import com.sanibonani.save.R
 import com.sanibonani.save.domain.logging.AppLogger
 import com.sanibonani.save.domain.model.UserRole
-import com.sanibonani.save.data.utils.DevSettings
+import com.sanibonani.save.domain.service.DevSettingsService
 import com.sanibonani.save.ui.components.*
 import com.sanibonani.save.ui.theme.*
 import com.sanibonani.save.ui.utils.*
@@ -56,7 +56,7 @@ fun LoginScreen(
     onNavigateRegister : () -> Unit,
     onForgotPassword   : () -> Unit,
     vm                 : AuthViewModel = hiltViewModel(),
-    devSettings        : DevSettings = hiltViewModel<DevSettingsViewModel>().devSettings
+    devSettings        : DevSettingsService = hiltViewModel<DevSettingsViewModel>().devSettings
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
     val context = LocalContext.current

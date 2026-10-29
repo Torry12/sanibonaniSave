@@ -18,7 +18,7 @@ Before a group can accept contributions or approve payouts, the following must b
 
 ## 👤 2. Member-Level Prerequisites
 
-Members are in `PROBATION` until these documents are uploaded and verified:
+Members join in `probation` whenever `group.probationMonths > 0` (`RegisterMemberUseCase`); the database default for `members.status` is `probation`. Uploading and verifying these documents is the compliance requirement — it is **not** what ends probation. Promotion to `active` is time-based and gated on the joining fee being paid; see `docs/AUTOMATED_DOCUMENTS.md`.
 
 ### Common Requirements (All Groups)
 1.  **Identity Document**: South African Green ID or Smart Card.
@@ -46,7 +46,7 @@ The app automatically generates PDF templates for the following:
 2.  In **Documents Tab**, member clicks "Download Membership Contract".
 3.  Member signs the document (physically or digitally).
 4.  Member uploads the signed copy using the **Upload** button.
-5.  Group Admin verifies the document, moving member from `PROBATION` to `ACTIVE`.
+5.  Group Admin verifies the document through `VerifyMemberDocumentUseCase` (posted from `AdminMemberViewModel.kt:148`), which writes `verified` or `rejected` to the matching `members.document_N_status`. **Verification never changes `members.status`.** Rejection does: the use case immediately suspends the member (`MemberStatus.SUSPENDED`).
 
 ---
 
