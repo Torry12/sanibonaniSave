@@ -13,17 +13,6 @@ class GroupFinancialRepositoryImpl @Inject constructor(
     private val remoteFinSource: RemoteFinancialDataSource
 ) : BaseRepository("GroupFinancialRepository"), GroupFinancialRepository {
 
-    override suspend fun incrementGroupBalance(groupId: String, amount: Money, memberId: String?, transactionId: String?): Result<Money> = authoritativeCall("increment_group_balance") {
-        require(groupId.isNotBlank()) { "Group id is required" }
-        require(amount.isPositive) { "Balance adjustment must be positive; use a disbursement for debits" }
-        val newBalance = remoteGroupSource.incrementGroupBalance(groupId, amount, memberId, transactionId).getOrThrow()
-        localGroupSource.getGroupById(groupId)?.let {
-            localGroupSource.saveGroup(it.copy(balance = newBalance))
-        }
-        EventBus.emit(LedgerEntryCreatedEvent(LedgerEntry(groupId = groupId, amount = amount, balanceAfter = newBalance, description = "Atomic balance update", category = "adjustment", transactionId = transactionId)))
-        newBalance
-    }
-
     override suspend fun recordDisbursement(groupId: String, amount: Money, description: String, category: String, transactionId: String?, memberId: String?): Result<Money> = authoritativeCall("record_disbursement") {
         require(groupId.isNotBlank()) { "Group id is required" }
         require(amount.isPositive) { "Disbursement amount must be positive" }

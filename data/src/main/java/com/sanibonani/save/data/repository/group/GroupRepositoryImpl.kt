@@ -78,16 +78,6 @@ class GroupRepositoryImpl @Inject constructor(
         groupId
     }
 
-    override suspend fun incrementGroupBalance(groupId: String, amount: Money, transactionId: String?): Result<Money> = authoritativeCall("increment_group_balance") {
-        require(groupId.isNotBlank()) { "Group id is required" }
-        require(!amount.isZero) { "Balance adjustment must be non-zero" }
-        val newBalance = remoteGroupSource.incrementGroupBalance(groupId, amount, null, transactionId).getOrThrow()
-        localGroupSource.getGroupById(groupId)?.let {
-            localGroupSource.saveGroup(it.copy(balance = newBalance))
-        }
-        newBalance
-    }
-
     override suspend fun recordDisbursement(groupId: String, amount: Money, description: String, category: String, transactionId: String?): Result<Money> = authoritativeCall("record_disbursement") {
         require(groupId.isNotBlank()) { "Group id is required" }
         require(amount.isPositive) { "Disbursement amount must be positive" }

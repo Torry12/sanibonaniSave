@@ -100,9 +100,4 @@ class MainActivity : AppCompatActivity() {
         super.onPause()
         AppDateSync.syncOnExit(this)
     }
-
-    override fun onStop() {
-        super.onStop()
-        AppDateSync.syncOnExit(this)
-    }
 }

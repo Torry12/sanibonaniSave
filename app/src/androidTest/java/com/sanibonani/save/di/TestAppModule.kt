@@ -107,8 +107,8 @@ object TestAppModule {
                 handleComplexPayment(bodyJson)
             }
 
-            path.contains("/rest/v1/rpc/increment_group_balance") -> {
-                handleIncrementGroupBalance(bodyJson)
+            path.contains("/rest/v1/rpc/record_liquidity_v") -> {
+                handleRecordLiquidity(bodyJson)
             }
 
             path.contains("/rest/v1/rpc/complete_payout_v") -> {
@@ -185,7 +185,7 @@ object TestAppModule {
         }
     }
 
-    private fun io.ktor.client.engine.mock.MockRequestHandleScope.handleIncrementGroupBalance(bodyJson: JsonObject) = respondJson {
+    private fun io.ktor.client.engine.mock.MockRequestHandleScope.handleRecordLiquidity(bodyJson: JsonObject) = respondJson {
         val groupId = bodyJson["p_group_id"]?.jsonPrimitive?.content ?: ""
         val amount = Money(bodyJson["p_amount"]?.jsonPrimitive?.content ?: "0.00")
         updateGroupBalance(groupId, amount)

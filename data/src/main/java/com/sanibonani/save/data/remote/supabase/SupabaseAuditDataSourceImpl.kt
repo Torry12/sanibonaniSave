@@ -75,24 +75,24 @@ class SupabaseAuditDataSourceImpl @Inject constructor(
         ).decodeAs<GroupAuditResult>()
     }
 
-    override suspend fun getAuditLogs(limit: Int): Result<List<AuditLog>> = safeRunCatching {
-        client.postgrest["audit_logs"].select {
-            order("created_at", order = Order.DESCENDING)
-            limit(limit.toLong())
-        }.decodeList<AuditLog>()
-    }
+    override suspend fun getAuditLogs(limit: Int): Result<List<AuditLog>> =
+        loadAuditLogs(limit = limit)
 
-    override suspend fun getAuditLogsForMember(memberId: String, limit: Int): Result<List<AuditLog>> = safeRunCatching {
-        client.postgrest["audit_logs"].select {
-            filter { eq("target_member_id", memberId) }
-            order("created_at", order = Order.DESCENDING)
-            limit(limit.toLong())
-        }.decodeList<AuditLog>()
-    }
+    override suspend fun getAuditLogsForMember(memberId: String, limit: Int): Result<List<AuditLog>> =
+        loadAuditLogs("target_member_id", memberId, limit)
 
-    override suspend fun getAuditLogsForGroup(groupId: String, limit: Int): Result<List<AuditLog>> = safeRunCatching {
+    override suspend fun getAuditLogsForGroup(groupId: String, limit: Int): Result<List<AuditLog>> =
+        loadAuditLogs("target_group_id", groupId, limit)
+
+    private suspend fun loadAuditLogs(
+        targetColumn: String? = null,
+        targetId: String? = null,
+        limit: Int
+    ): Result<List<AuditLog>> = safeRunCatching {
         client.postgrest["audit_logs"].select {
-            filter { eq("target_group_id", groupId) }
+            if (targetColumn != null && targetId != null) {
+                filter { eq(targetColumn, targetId) }
+            }
             order("created_at", order = Order.DESCENDING)
             limit(limit.toLong())
         }.decodeList<AuditLog>()
@@ -103,7 +103,5 @@ class SupabaseAuditDataSourceImpl @Inject constructor(
         Unit
     }
 }
-
-
 
 

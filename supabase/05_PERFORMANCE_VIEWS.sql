@@ -101,4 +101,5 @@ SELECT
     END as status
 FROM group_audit;
 
+REVOKE ALL ON public.vw_ledger_integrity_check FROM PUBLIC, anon;
 GRANT SELECT ON public.vw_ledger_integrity_check TO authenticated;

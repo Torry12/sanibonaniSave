@@ -14,12 +14,6 @@ interface GroupRepository {
     suspend fun createGroup(
         group: Group
     ): Result<String>
-    /** Atomically updates group balance by adding the specified amount (can be negative). */
-    suspend fun incrementGroupBalance(
-        groupId: String,
-        amount: com.sanibonani.save.domain.model.Money,
-        transactionId: String? = null
-    ): Result<com.sanibonani.save.domain.model.Money>
 
     /**
      * Atomically records a disbursement (outflow).

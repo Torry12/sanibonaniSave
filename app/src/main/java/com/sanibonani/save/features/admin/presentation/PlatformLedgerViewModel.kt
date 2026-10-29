@@ -22,10 +22,15 @@ class PlatformLedgerViewModel @Inject constructor(
 
     fun load() {
         launchJob("load_ledger") {
+            updateState { it.copy(isLoading = true) }
             getPlatformLedger()
-                .onSuccess { ledger -> updateState { it.copy(platformLedger = ledger) } }
+                .onSuccess { ledger ->
+                    updateState {
+                        it.copy(platformLedger = ledger, isLoading = false, hasLoaded = true)
+                    }
+                }
                 .onFailure { e ->
-                    // The ledger on screen stays untouched: only a verified response replaces it.
+                    updateState { it.copy(isLoading = false) }
                     handleError(e, "Could not refresh the platform ledger.")
                 }
         }

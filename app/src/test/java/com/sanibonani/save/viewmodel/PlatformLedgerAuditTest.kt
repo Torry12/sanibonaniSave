@@ -20,6 +20,7 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkStatic
 import io.mockk.unmockkAll
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.take
@@ -27,6 +28,7 @@ import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
@@ -97,6 +99,39 @@ class PlatformLedgerAuditTest {
     }
 
     @Test
+    fun `initial ledger load shows loading until an empty response succeeds`() = runTest {
+        val response = CompletableDeferred<Result<List<LedgerEntry>>>()
+        coEvery { ledgerRepo.getPlatformLedger() } coAnswers { response.await() }
+
+        viewModel.load()
+        runCurrent()
+
+        assertTrue(viewModel.state.value.isLoading)
+        assertFalse(viewModel.state.value.hasLoaded)
+        assertTrue(viewModel.state.value.platformLedger.isEmpty())
+
+        response.complete(Result.success(emptyList()))
+        advanceUntilIdle()
+
+        assertFalse(viewModel.state.value.isLoading)
+        assertTrue(viewModel.state.value.hasLoaded)
+        assertTrue(viewModel.state.value.platformLedger.isEmpty())
+    }
+
+    @Test
+    fun `failed initial ledger load is not marked as a successful empty result`() = runTest {
+        coEvery { ledgerRepo.getPlatformLedger() } returns
+            Result.failure(IllegalStateException("HTTP 503 Service Unavailable"))
+
+        viewModel.load()
+        advanceUntilIdle()
+
+        assertFalse(viewModel.state.value.isLoading)
+        assertFalse(viewModel.state.value.hasLoaded)
+        assertTrue(viewModel.state.value.platformLedger.isEmpty())
+    }
+
+    @Test
     fun `a failed platform ledger refresh keeps the rows already on screen`() = runTest {
         coEvery { ledgerRepo.getPlatformLedger() } returns Result.success(listOf(entry("l1")))
         viewModel.load()
@@ -110,6 +145,8 @@ class PlatformLedgerAuditTest {
         advanceUntilIdle()
 
         assertEquals(listOf("l1"), viewModel.state.value.platformLedger.map { it.id })
+        assertFalse(viewModel.state.value.isLoading)
+        assertTrue(viewModel.state.value.hasLoaded)
         val events = viewModel.events.take(1).toList()
         assertTrue(
             "emitted events: $events",

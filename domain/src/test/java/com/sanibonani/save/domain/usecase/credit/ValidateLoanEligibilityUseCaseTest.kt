@@ -146,4 +146,33 @@ class ValidateLoanEligibilityUseCaseTest {
         assertTrue(overPower is ValidateLoanEligibilityUseCase.EligibilityResult.Ineligible)
         assertTrue(withinPower is ValidateLoanEligibilityUseCase.EligibilityResult.Eligible)
     }
+
+    @Test
+    fun `invoke - unavailable contribution history cannot grant loan eligibility`() = runTest {
+        every { contributionRepository.observeMemberContributions("m1", "g1") } returns
+            flowOf(Result.failure(IllegalStateException("offline")))
+
+        val result = useCase(activeMember, groupWithCap(null), requestedAmount = Money("100.00"))
+
+        assertTrue(result is ValidateLoanEligibilityUseCase.EligibilityResult.Ineligible)
+        assertEquals(
+            "Unable to verify contribution history. Please retry.",
+            (result as ValidateLoanEligibilityUseCase.EligibilityResult.Ineligible).reason
+        )
+    }
+
+    @Test
+    fun `invoke - unavailable loan history cannot grant loan eligibility`() = runTest {
+        stubRecentContributions("1000.00")
+        every { loanRepository.getMemberLoans("m1") } returns
+            flowOf(Result.failure(IllegalStateException("offline")))
+
+        val result = useCase(activeMember, groupWithCap(null), requestedAmount = Money("100.00"))
+
+        assertTrue(result is ValidateLoanEligibilityUseCase.EligibilityResult.Ineligible)
+        assertEquals(
+            "Unable to verify loan history. Please retry.",
+            (result as ValidateLoanEligibilityUseCase.EligibilityResult.Ineligible).reason
+        )
+    }
 }

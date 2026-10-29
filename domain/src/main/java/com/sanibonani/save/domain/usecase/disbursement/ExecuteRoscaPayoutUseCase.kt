@@ -13,7 +13,7 @@ import com.sanibonani.save.domain.event.PayoutProcessedEvent
 import kotlinx.serialization.json.*
 import javax.inject.Inject
 import com.sanibonani.save.domain.usecase.financialResult
-import com.sanibonani.save.domain.usecase.firstValueOrNull
+import kotlinx.coroutines.flow.first
 class ExecuteRoscaPayoutUseCase @Inject constructor(
     private val groupRepository: GroupRepository,
     private val memberRepository: MemberRepository,
@@ -36,7 +36,9 @@ class ExecuteRoscaPayoutUseCase @Inject constructor(
 
         val members = memberRepository.syncGroupMembers(groupId).getOrNull() ?: throw Exception("No members")
 
-        val allContributions = contributionRepository.observeGroupContributions(groupId).firstValueOrNull() ?: emptyList()
+        val allContributions = contributionRepository.observeGroupContributions(groupId).first().getOrElse {
+            throw IllegalStateException("Contribution history unavailable; payout rotation aborted.")
+        }
         // One loan fetch for the whole rotation instead of one per payoutee. Each per-member fetch
         // is a network round-trip that re-syncs the cache, so a 30-person ROSCA used to issue thirty
         // of them and could deduct against a balance that changed partway through the loop.

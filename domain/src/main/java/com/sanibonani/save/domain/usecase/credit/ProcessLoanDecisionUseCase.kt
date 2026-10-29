@@ -38,7 +38,9 @@ class ProcessLoanDecisionUseCase @Inject constructor(
 
         if (decision is LoanDecision.Approve) {
             // 2. Fraud Check: Ensure member isn't high risk
-            val behavior = behaviorRepo.getMemberBehavior(loan.memberId).getOrNull()
+            val behavior = behaviorRepo.getMemberBehavior(loan.memberId).getOrElse {
+                throw IllegalStateException("Unable to verify member risk status. Loan approval blocked.")
+            }
             if (behavior != null && behavior.fraudRiskLevel == FraudRiskLevel.CRITICAL) {
                 throw IllegalStateException("Member has CRITICAL fraud risk. Approval blocked.")
             }

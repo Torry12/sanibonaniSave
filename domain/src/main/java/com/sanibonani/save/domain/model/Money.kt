@@ -65,6 +65,10 @@ data class Money(val amount: BigDecimal) : Comparable<Money> {
     fun dividedBy(divisor: Int): Money = Money(this.amount.divide(BigDecimal(divisor), 2, RoundingMode.HALF_EVEN))
     fun dividedBy(divisor: Long): Money = Money(this.amount.divide(BigDecimal(divisor), 2, RoundingMode.HALF_EVEN))
     fun dividedBy(divisor: Double): Money = Money(this.amount.divide(BigDecimal.valueOf(divisor), 2, RoundingMode.HALF_EVEN))
+    fun dividedBy(divisor: Money): Money {
+        require(!divisor.isZero) { "Cannot divide by zero money." }
+        return Money(this.amount.divide(divisor.amount, 2, RoundingMode.HALF_EVEN))
+    }
 
     operator fun div(divisor: Int): Money = dividedBy(divisor)
     operator fun div(divisor: Long): Money = dividedBy(divisor)

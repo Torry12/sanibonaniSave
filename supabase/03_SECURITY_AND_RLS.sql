@@ -14,8 +14,26 @@ BEGIN
 END $$;
 
 -- 2. TABLE GRANTS
+-- Views are excluded on purpose. A view runs with the rights of its defining role, so RLS on the
+-- base tables does not filter it and the grant is its only gate. Granting on ALL TABLES also hit
+-- views, which meant re-applying this file reopened any view a later module had locked down
+-- (05_PERFORMANCE_VIEWS.sql revokes vw_ledger_integrity_check from PUBLIC, anon). Exposure for a
+-- view is therefore declared where the view is defined; this file grants on ordinary and
+-- partitioned tables only. Relations created later still inherit the grants below.
 GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
-GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO anon, authenticated, service_role;
+DO $$
+DECLARE
+    v_rel text;
+BEGIN
+    FOR v_rel IN (
+        SELECT c.oid::regclass::text
+        FROM pg_class c
+        WHERE c.relnamespace = 'public'::regnamespace
+          AND c.relkind IN ('r', 'p')
+    ) LOOP
+        EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON %s TO anon, authenticated, service_role', v_rel);
+    END LOOP;
+END $$;
 GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO anon, authenticated, service_role;
 GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO anon, authenticated, service_role;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO anon, authenticated, service_role;
@@ -124,23 +142,27 @@ REVOKE EXECUTE ON FUNCTION public.is_own_member(UUID) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.is_own_member(UUID) TO authenticated, service_role;
 
 -- 2d. THE ENTRY POINTS THE CLIENT NAMES BUT THE DATABASE DID NOT HAVE
--- close_poll_v1, pay_burial_claim_v1 and record_disbursement_v1 are called by name from :data and
--- existed in no master, so those flows failed with PGRST202 before they were declared in
--- 02_FUNCTIONS_AND_TRIGGERS.sql. PostgreSQL grants EXECUTE to PUBLIC when a function is created and
--- the blanket grant in section 2 hands it to anon as well, so each one is taken back here: all three
--- move money or decide governance for a group, and all three are legitimately called by a signed-in
--- admin, so `authenticated` keeps them. record_disbursement_v1 is reachable by a member-adjacent
--- caller in name only - its own body refuses anyone who is not the group's admin, a platform admin,
--- or the service role.
+-- close_poll_v1, pay_burial_claim_v1, record_disbursement_v1 and record_liquidity_v1 are called by
+-- name from :data and existed in no master, so those flows failed with PGRST202 before they were
+-- declared in 02_FUNCTIONS_AND_TRIGGERS.sql. PostgreSQL grants EXECUTE to PUBLIC when a function is
+-- created and the blanket grant in section 2 hands it to anon as well, so each one is taken back
+-- here: all four move money or decide governance for a group, and all four are legitimately called
+-- by a signed-in admin, so `authenticated` keeps them. record_disbursement_v1 and
+-- record_liquidity_v1 are reachable by a member-adjacent caller in name only - their own bodies
+-- refuse anyone who is not the group's admin, a platform admin, or the service role, and
+-- record_liquidity_v1 exists so that the primitive withdrawn from `authenticated` in 20261029 still
+-- has a guarded way to book a non-contribution inflow.
 REVOKE EXECUTE ON FUNCTION
     public.close_poll_v1(UUID),
     public.pay_burial_claim_v1(UUID, UUID, TEXT),
-    public.record_disbursement_v1(UUID, NUMERIC, TEXT, TEXT, TEXT, UUID)
+    public.record_disbursement_v1(UUID, NUMERIC, TEXT, TEXT, TEXT, UUID),
+    public.record_liquidity_v1(UUID, NUMERIC, TEXT, TEXT, TEXT, UUID)
 FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION
     public.close_poll_v1(UUID),
     public.pay_burial_claim_v1(UUID, UUID, TEXT),
-    public.record_disbursement_v1(UUID, NUMERIC, TEXT, TEXT, TEXT, UUID)
+    public.record_disbursement_v1(UUID, NUMERIC, TEXT, TEXT, TEXT, UUID),
+    public.record_liquidity_v1(UUID, NUMERIC, TEXT, TEXT, TEXT, UUID)
 TO authenticated, service_role;
 
 -- 3. TIER 1: PUBLIC DISCOVERY

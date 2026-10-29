@@ -4,7 +4,6 @@ import com.sanibonani.save.data.repository.system.SyncRepositoryImpl
 import com.sanibonani.save.data.local.PendingOperationDao
 import com.sanibonani.save.data.local.PendingOperationEntity
 import com.sanibonani.save.data.local.SanibonaniDatabase
-import com.sanibonani.save.data.repository.system.BalanceAdjustmentOutboxHandler
 import com.sanibonani.save.data.repository.system.BeneficiaryClaimOutboxHandler
 import com.sanibonani.save.data.repository.system.ContributionOutboxHandler
 import com.sanibonani.save.data.repository.system.DisbursementOutboxHandler
@@ -62,7 +61,6 @@ class SyncRepositoryImplTest {
     private val loanRepaymentHandler = mockk<LoanRepaymentOutboxHandler>(relaxed = true)
     private val payoutHandler = mockk<PayoutRequestOutboxHandler>(relaxed = true)
     private val disbursementHandler = mockk<DisbursementOutboxHandler>(relaxed = true)
-    private val balanceAdjustmentHandler = mockk<BalanceAdjustmentOutboxHandler>(relaxed = true)
     private val beneficiaryClaimHandler = mockk<BeneficiaryClaimOutboxHandler>(relaxed = true)
     private val payoutStatusUpdateHandler = mockk<PayoutStatusUpdateOutboxHandler>(relaxed = true)
 
@@ -84,7 +82,6 @@ class SyncRepositoryImplTest {
             loanRepaymentHandler = loanRepaymentHandler,
             payoutHandler = payoutHandler,
             disbursementHandler = disbursementHandler,
-            balanceAdjustmentHandler = balanceAdjustmentHandler,
             beneficiaryClaimHandler = beneficiaryClaimHandler,
             payoutStatusUpdateHandler = payoutStatusUpdateHandler
         )

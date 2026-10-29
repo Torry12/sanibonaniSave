@@ -185,6 +185,8 @@
     <string name="ui_group_ledger">Bukana ya Ditšhelete ya Sehlopha</string>
     <string name="ui_immutable_audit_trail">Tsela ya tlhahlobo e sa fetogeng</string>
     <string name="ui_no_transactions">Ha ho ditefo</string>
+    <string name="ui_platform_ledger_unavailable">Bukana ya ditšhelete ya polatefomo ha e fumanehe</string>
+    <string name="ui_platform_ledger_load_failed">Ha rea khona ho kenya bukana ya ditšhelete ya polatefomo. Ka kopo leka hape.</string>
     <string name="ui_once_payments_start_they_will_be_logged_h">Hang ha ditefo di qala, di tla kenywa mona ka ho iketsa.</string>
     <string name="ui_edit_beneficiary">Fetola Mojalefa</string>
     <string name="ui_full_name">Lebitso le tletseng</string>
@@ -441,6 +443,5 @@
     <string name="ui_street_address">Aterese ya Seterata</string>
     <string name="ui_popia_notice">Data ya hao ya botho e sireletswa ka tlasa POPIA. SanibonaniSave e ke ke ya rekisa tlhahisoleseding ya hao.</string>
 </resources>
-
 
 

@@ -6,8 +6,8 @@ import com.sanibonani.save.domain.repository.credit.LoanRepository
 import com.sanibonani.save.domain.repository.equity.ContributionRepository
 import java.time.LocalDate
 import javax.inject.Inject
-import com.sanibonani.save.domain.usecase.firstValueOrNull
 import com.sanibonani.save.domain.utils.safeRunCatching
+import kotlinx.coroutines.flow.first
 
 class ValidateLoanEligibilityUseCase @Inject constructor(
     private val contributionRepository: ContributionRepository,
@@ -43,7 +43,14 @@ class ValidateLoanEligibilityUseCase @Inject constructor(
             )
         }
 
-        val contributions = contributionRepository.observeMemberContributions(member.id ?: "", group.id ?: "").firstValueOrNull() ?: emptyList()
+        val memberId = member.id
+            ?: return EligibilityResult.Ineligible("Member record is missing.")
+        val groupId = group.id
+            ?: return EligibilityResult.Ineligible("Group record is missing.")
+        val contributions = contributionRepository.observeMemberContributions(memberId, groupId).first()
+            .getOrElse {
+                return EligibilityResult.Ineligible("Unable to verify contribution history. Please retry.")
+            }
 
         // Enforce joining fee rule: Member must have paid their joining fee to be fully active/eligible
         // A joining fee is written with allocation type "joining_fee"; the legacy
@@ -55,9 +62,11 @@ class ValidateLoanEligibilityUseCase @Inject constructor(
             return EligibilityResult.Ineligible("Joining fee of ${group.joiningFee.format()} is outstanding. Please settle your joining fee first.")
         }
 
-        val activeLoans = loanRepository.getMemberLoans(member.id ?: "").firstValueOrNull()?.filter {
+        val activeLoans = loanRepository.getMemberLoans(memberId).first().getOrElse {
+            return EligibilityResult.Ineligible("Unable to verify loan history. Please retry.")
+        }.filter {
             it.status == LoanStatus.ACTIVE || it.status == LoanStatus.PARTIALLY_PAID || it.status == LoanStatus.APPROVED || it.status == LoanStatus.PENDING
-        } ?: emptyList()
+        }
 
         val currentActiveLoanTotal = activeLoans.fold(Money.ZERO) { acc, l -> acc + l.amount }
 

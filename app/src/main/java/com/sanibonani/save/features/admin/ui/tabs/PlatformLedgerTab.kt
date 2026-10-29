@@ -26,6 +26,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -214,14 +215,33 @@ fun PlatformLedgerTab(
                 Spacer(Modifier.height(24.dp))
             }
 
-            if (state.platformLedger.isEmpty()) {
+            if (state.platformLedger.isEmpty() && !state.hasLoaded && state.isLoading) {
+                item {
+                    Column(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 48.dp),
+                        horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        CircularProgressIndicator()
+                        Text(stringResource(R.string.ui_loading_platform_data))
+                    }
+                }
+            } else if (state.platformLedger.isEmpty() && !state.hasLoaded) {
+                item {
+                    EmptyState(
+                        icon = "⚠️",
+                        title = stringResource(R.string.ui_platform_ledger_unavailable),
+                        description = stringResource(R.string.ui_platform_ledger_load_failed),
+                        actionLabel = stringResource(R.string.ui_retry),
+                        onAction = { vm.load() }
+                    )
+                }
+            } else if (state.platformLedger.isEmpty()) {
                 item {
                     EmptyState(
                         icon = "🧾",
                         title = stringResource(R.string.ui_no_transactions),
-                        description = stringResource(R.string.ui_no_transactions_description),
-                        actionLabel = stringResource(R.string.ui_refresh),
-                        onAction = { vm.load() }
+                        description = stringResource(R.string.ui_no_transactions_description)
                     )
                 }
             }

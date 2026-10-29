@@ -5,8 +5,12 @@ import com.sanibonani.save.di.TestAuthSessionController
 import com.sanibonani.save.domain.model.*
 import com.sanibonani.save.domain.repository.admin.*
 import com.sanibonani.save.domain.repository.auth.*
-import com.sanibonani.save.domain.repository.equity.GroupFinancialRepository
 import com.sanibonani.save.domain.repository.equity.MemberContributionRepository
+import io.github.jan.supabase.SupabaseClient
+import io.github.jan.supabase.postgrest.postgrest
+import io.github.jan.supabase.postgrest.rpc
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import com.sanibonani.save.domain.repository.disbursement.PayoutRepository
 import com.sanibonani.save.domain.repository.group.*
 import com.sanibonani.save.domain.repository.member.*
@@ -44,7 +48,7 @@ class BusinessProcessSimulationTest {
     @Inject lateinit var payoutRepo: PayoutRepository
     @Inject lateinit var claimRepo: BeneficiaryClaimRepository
     @Inject lateinit var beneficiaryRepo: BeneficiaryRepository
-    @Inject lateinit var groupFinancialRepo: GroupFinancialRepository
+    @Inject lateinit var supabase: SupabaseClient
     @Inject lateinit var processDisbursementUseCase: ProcessDisbursementUseCase
     @Inject lateinit var processBurialClaimUseCase: ProcessBurialClaimUseCase
     @Inject lateinit var getGroupBusinessInsightsUseCase: GetGroupBusinessInsightsUseCase
@@ -319,7 +323,12 @@ class BusinessProcessSimulationTest {
                 Contribution(memberId = memberBId, groupId = groupId, amount = Money("5000.0"), dueDate = "2026-07-01", status = ContributionStatus.PAID, transactionId = "investment-b-$memberBId")
             ).getOrThrow()
 
-            groupFinancialRepo.incrementGroupBalance(groupId, Money("3000.0"), null).getOrThrow()
+            supabase.postgrest.rpc("record_liquidity_v1", buildJsonObject {
+                put("p_group_id", groupId)
+                put("p_amount", Money("3000.0").amount.toPlainString())
+                put("p_description", "Simulated capital appreciation")
+                put("p_category", "liquidity")
+            })
 
             val updatedMembers = listOf(memberA, memberB).map { memberRepo.getMemberById(it.id!!).getOrThrow() }
             val insight = getGroupBusinessInsightsUseCase(getGroup(groupId), updatedMembers).getOrThrow()

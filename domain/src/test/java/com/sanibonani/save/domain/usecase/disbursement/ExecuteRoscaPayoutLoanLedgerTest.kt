@@ -122,6 +122,20 @@ class ExecuteRoscaPayoutLoanLedgerTest {
     }
 
     @Test
+    fun `unavailable contribution history aborts the payout rotation`() = runBlocking {
+        every { contributionRepository.observeGroupContributions("g1") } returns
+            flowOf(Result.failure(IllegalStateException("offline")))
+        coEvery { loanRepository.getGroupLoansSync("g1") } returns Result.success(emptyList())
+
+        val result = useCase("g1")
+
+        assertTrue(result.isFailure)
+        coVerify(exactly = 0) {
+            payoutRepository.processRoscaPayout(any(), any(), any(), any(), any(), any(), any())
+        }
+    }
+
+    @Test
     fun `a readable ledger with no active loans still pays the member out`() = runBlocking {
         coEvery { loanRepository.getGroupLoansSync("g1") } returns Result.success(emptyList())
         coEvery { payoutRepository.processRoscaPayout(any(), any(), any(), any(), any(), any(), any()) } returns

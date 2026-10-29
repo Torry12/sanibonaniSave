@@ -173,7 +173,8 @@ class PaymentViewModelTest {
             member = any(),
             group = any(),
             calculation = any(),
-            method = any()
+            method = any(),
+            transactionId = any()
         ) } returns ContributionOutcome.Success(txId)
 
         viewModel.processPayment(
@@ -201,7 +202,7 @@ class PaymentViewModelTest {
         mockPaymentContext("g1")
         advanceUntilIdle()
 
-        coEvery { processContributionUseCase.invoke(any(), any(), any(), any(), any(), any(), any()) } returns ContributionOutcome.Failure("Network error")
+        coEvery { processContributionUseCase.invoke(any(), any(), any(), any(), any(), any(), any(), any()) } returns ContributionOutcome.Failure("Network error")
 
         viewModel.processPayment(
             type = "contribution",
@@ -219,5 +220,51 @@ class PaymentViewModelTest {
         assertFalse(state.isSuccess)
         assertEquals("Network error", state.error)
         assertFalse(state.isProcessing)
+    }
+
+    @Test
+    fun `processPayment - retry reuses transaction id for same intent`() = runTest {
+        mockPaymentContext("g1")
+        advanceUntilIdle()
+
+        val transactionIds = mutableListOf<String>()
+        val transactionIdSlot = slot<String>()
+        coEvery {
+            processContributionUseCase.invoke(
+                type = any(),
+                amount = any(),
+                groupId = any(),
+                member = any(),
+                group = any(),
+                calculation = any(),
+                method = any(),
+                transactionId = capture(transactionIdSlot)
+            )
+        } answers {
+            val transactionId = transactionIdSlot.captured
+            transactionIds += transactionId
+            if (transactionIds.size == 1) {
+                ContributionOutcome.Failure("Network error")
+            } else {
+                ContributionOutcome.Success(transactionId)
+            }
+        }
+
+        repeat(2) {
+            viewModel.processPayment(
+                type = "contribution",
+                amount = Money("1000"),
+                groupId = "g1",
+                cardNumber = "4242424242424242",
+                expiry = "12/28",
+                cvv = "123"
+            )
+            advanceTimeBy(2100)
+            runCurrent()
+        }
+
+        assertEquals(2, transactionIds.size)
+        assertEquals(transactionIds[0], transactionIds[1])
+        assertTrue(viewModel.state.value.isSuccess)
     }
 }

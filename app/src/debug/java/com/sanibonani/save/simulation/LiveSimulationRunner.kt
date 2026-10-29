@@ -387,9 +387,13 @@ class LiveSimulationRunner(
                 put("p_admin_id", adminUserId)
             })
         }.onFailure {
-            client.postgrest.rpc("increment_group_balance", buildJsonObject {
+            client.postgrest.rpc("record_disbursement_v1", buildJsonObject {
                 put("p_group_id", groupId)
-                put("p_amount", (-amount).amount.toPlainString())
+                put("p_amount", amount.amount.toPlainString())
+                put("p_description", "Disbursement Ref: ${refLabel ?: payoutId}")
+                put("p_category", "payout")
+                put("p_transaction_id", payoutId)
+                memberId?.let { put("p_member_id", it) }
             })
             client.postgrest["payouts"].update(buildJsonObject {
                 put("status", "completed")
@@ -449,9 +453,13 @@ class LiveSimulationRunner(
                 put("p_payment_method", "bank")
             })
         }.onFailure {
-            client.postgrest.rpc("increment_group_balance", buildJsonObject {
+            client.postgrest.rpc("record_disbursement_v1", buildJsonObject {
                 put("p_group_id", groupId)
-                put("p_amount", (-loanAmount).amount.toPlainString())
+                put("p_amount", loanAmount.amount.toPlainString())
+                put("p_description", "Loan disbursement to simulation borrower (bank)")
+                put("p_category", "loan_disbursement")
+                put("p_transaction_id", loanId)
+                put("p_member_id", borrowerId)
             })
             client.postgrest["loans"].update(buildJsonObject {
                 put("status", "active")
@@ -533,9 +541,13 @@ class LiveSimulationRunner(
                 put("p_admin_id", adminUserId)
             })
         }.onFailure {
-            client.postgrest.rpc("increment_group_balance", buildJsonObject {
+            client.postgrest.rpc("record_disbursement_v1", buildJsonObject {
                 put("p_group_id", groupId)
-                put("p_amount", (-claimAmount).amount.toPlainString())
+                put("p_amount", claimAmount.amount.toPlainString())
+                put("p_description", "Burial claim: Primary Beneficiary (Elderly Parent)")
+                put("p_category", "claim")
+                put("p_transaction_id", claimId)
+                put("p_member_id", memberId)
             })
             client.postgrest["payouts"].update(buildJsonObject {
                 put("status", "completed")
@@ -614,9 +626,11 @@ class LiveSimulationRunner(
 
         // 3. Inject Initial Liquidity (R50,000 for comprehensive multi-payout simulation)
         println("SIM_TRACE: Injecting R50,000 initial liquidity")
-        client.postgrest.rpc("increment_group_balance", buildJsonObject {
+        client.postgrest.rpc("record_liquidity_v1", buildJsonObject {
             put("p_group_id", groupId)
             put("p_amount", Money("50000.0").amount.toPlainString())
+            put("p_description", "Simulation seed liquidity")
+            put("p_category", "liquidity")
         })
 
         // 4. Register Members

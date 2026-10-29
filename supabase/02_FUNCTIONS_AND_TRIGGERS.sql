@@ -627,15 +627,20 @@ BEGIN
             HINT = 'group_admin_or_platform_admin_required';
     END IF;
 
-    -- Membership
-    SELECT COUNT(*) INTO v_total FROM public.members WHERE group_id = p_group_id;
-    SELECT COUNT(*) INTO v_active FROM public.members WHERE group_id = p_group_id AND status = 'active';
-    SELECT COUNT(*) INTO v_probation FROM public.members WHERE group_id = p_group_id AND status = 'probation';
-    SELECT COUNT(*) INTO v_suspended FROM public.members WHERE group_id = p_group_id AND status = 'suspended';
+    -- Aggregate membership and ledger totals in one scan per table.
+    SELECT COUNT(*),
+           COUNT(*) FILTER (WHERE status = 'active'),
+           COUNT(*) FILTER (WHERE status = 'probation'),
+           COUNT(*) FILTER (WHERE status = 'suspended')
+      INTO v_total, v_active, v_probation, v_suspended
+      FROM public.members
+     WHERE group_id = p_group_id;
 
-    -- Finances
-    SELECT COALESCE(SUM(amount), 0) INTO v_inflow FROM public.group_ledger WHERE group_id = p_group_id AND amount > 0;
-    SELECT COALESCE(SUM(ABS(amount)), 0) INTO v_outflow FROM public.group_ledger WHERE group_id = p_group_id AND amount < 0;
+    SELECT COALESCE(SUM(amount) FILTER (WHERE amount > 0), 0),
+           COALESCE(SUM(ABS(amount)) FILTER (WHERE amount < 0), 0)
+      INTO v_inflow, v_outflow
+      FROM public.group_ledger
+     WHERE group_id = p_group_id;
 
     -- Reconciliation
     SELECT created_at, status, discrepancy INTO v_last_check, v_recon_status, v_recon_diff
@@ -2026,6 +2031,59 @@ BEGIN
     RETURN public.increment_group_balance(
         p_group_id,
         -p_amount,
+        p_description,
+        p_category,
+        p_transaction_id,
+        p_member_id
+    );
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.record_liquidity_v1(
+    p_group_id UUID,
+    p_amount NUMERIC,
+    p_description TEXT,
+    p_category TEXT,
+    p_transaction_id TEXT DEFAULT NULL,
+    p_member_id UUID DEFAULT NULL
+) RETURNS NUMERIC
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+BEGIN
+    -- The inflow twin of record_disbursement_v1. 20261029 withdrew increment_group_balance from
+    -- `authenticated`, which closed the only HTTP route by which a signed-in group admin could
+    -- book money that is not a contribution: bank interest, a dividend, an opening balance, or
+    -- the simulation harness's seed liquidity. Seeding through record_contribution_v2 instead
+    -- would not do, because a contribution row also moves totalContributions, which is the unit
+    -- denominator in CalculateInvestmentClubValuationUseCase - the injected capital would stop
+    -- being capital and start being a unit purchase.
+    IF auth.role() IS DISTINCT FROM 'service_role'
+       AND NOT (public.is_platform_admin() OR public.is_group_admin(p_group_id)) THEN
+        RAISE EXCEPTION '[SEC_002] LIQUIDITY_ACCESS_DENIED';
+    END IF;
+
+    -- Positive here and positive in the ledger: this is an inflow, and the wrapper keeps the
+    -- caller-facing sign convention the client's guards already assume.
+    IF p_amount IS NULL OR p_amount::TEXT IN ('NaN', 'Infinity', '-Infinity')
+       OR p_amount <= 0 OR p_amount <> ROUND(p_amount, 2) THEN
+        RAISE EXCEPTION '[FIN_003] INVALID_AMOUNT: Liquidity must be positive and have at most two decimal places';
+    END IF;
+    IF p_description IS NULL OR BTRIM(p_description) = '' THEN
+        RAISE EXCEPTION '[FIN_003] INVALID_DESCRIPTION: A ledger description is required';
+    END IF;
+    -- group_ledger.category has no CHECK constraint, so the vocabulary is whatever the writers
+    -- pass; only a blank is refused here, not an unlisted value.
+    IF p_category IS NULL OR BTRIM(p_category) = '' THEN
+        RAISE EXCEPTION '[FIN_003] INVALID_CATEGORY: A ledger category is required';
+    END IF;
+
+    -- The primitive owns the FOR UPDATE group lock, the idempotency key and the ledger write, so
+    -- this wrapper adds the caller check and the sign and nothing else.
+    RETURN public.increment_group_balance(
+        p_group_id,
+        p_amount,
         p_description,
         p_category,
         p_transaction_id,

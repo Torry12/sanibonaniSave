@@ -73,9 +73,7 @@ class SanibonaniApp : Application(), Configuration.Provider {
             // Mandatory load call for OSMDroid
             config.load(this, PreferenceManager.getDefaultSharedPreferences(this))
 
-            // Wipe cache to prevent corrupted database hangs
             val mapCache = java.io.File(cacheDir, "osmdroid_safe")
-            if (mapCache.exists()) mapCache.deleteRecursively()
             mapCache.mkdirs()
 
             config.osmdroidBasePath = mapCache

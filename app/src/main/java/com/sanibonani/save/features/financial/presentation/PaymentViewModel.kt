@@ -19,6 +19,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collectLatest
 import javax.inject.Inject
+import java.util.UUID
 
 data class PaymentUiState(
     val paymentContext: AsyncResult<PaymentContextPackage> = AsyncResult.Uninitialized,
@@ -61,6 +62,20 @@ class PaymentViewModel @Inject constructor(
     private var paymentContextJob: Job? = null
     private var mutationJob: Job? = null
     private val isActive = MutableStateFlow(value = false)
+    private var pendingPaymentAttempt: PendingPaymentAttempt? = null
+
+    private data class PaymentFingerprint(
+        val groupId: String,
+        val memberId: String?,
+        val type: PaymentType,
+        val amount: Money,
+        val method: PaymentMethod
+    )
+
+    private data class PendingPaymentAttempt(
+        val fingerprint: PaymentFingerprint,
+        val transactionId: String
+    )
 
     fun setActive(active: Boolean) {
         isActive.value = active
@@ -76,6 +91,7 @@ class PaymentViewModel @Inject constructor(
     }
 
     fun clearTransactionState() {
+        pendingPaymentAttempt = null
         updateState {
             it.copy(
                 isProcessing = false,
@@ -108,7 +124,7 @@ class PaymentViewModel @Inject constructor(
                         val context = outcome.context
                         updateState { state ->
                             val preview = calculateRealtimePreview(
-                                context.group, context.contributions, context.calculation, state.currentInputAmount
+                                context.member, context.group, context.contributions, context.calculation, state.currentInputAmount
                             )
                             state.copy(
                                 paymentContext = AsyncResult.Success(
@@ -145,8 +161,9 @@ class PaymentViewModel @Inject constructor(
         val currentState = uiState.value
         val group = currentState.group ?: return
         val calculation = currentState.calculation ?: return
+        val member = currentState.member ?: return
 
-        val preview = calculateRealtimePreview(group, currentState.contributions, calculation, newAmount)
+        val preview = calculateRealtimePreview(member, group, currentState.contributions, calculation, newAmount)
         updateState { it.copy(realtimeShortfall = preview.shortfall, realtimeOverpayment = preview.overpayment, nextDueDate = preview.nextDueDate) }
     }
 
@@ -155,7 +172,10 @@ class PaymentViewModel @Inject constructor(
     }
 
     fun processPayment(type: String, amount: Money, groupId: String, cardNumber: String, expiry: String, cvv: String) {
-        if (uiState.value.selectedMethod == PaymentMethod.YOCO) {
+        val currentState = uiState.value
+        if (currentState.isProcessing) return
+
+        if (currentState.selectedMethod == PaymentMethod.YOCO) {
             val validation = ValidationUtils.validatePaymentFields(cardNumber, expiry, cvv)
             if (validation !is ValidationResult.Valid) {
                 updateState { it.copy(isSuccess = false, error = validation.getErrorMessage()) }
@@ -168,8 +188,8 @@ class PaymentViewModel @Inject constructor(
             return
         }
 
-        val group = uiState.value.group
-        val calc = uiState.value.calculation
+        val group = currentState.group
+        val calc = currentState.calculation
         if (type == "contribution" && (group != null) && (calc != null) && !group.allowPartialPayment) {
             if (amount < calc.totalDueNow) {
                 updateState { it.copy(isSuccess = false, error = "Partial payments not allowed. Min due: ${calc.totalDueNow.format()}") }
@@ -183,19 +203,41 @@ class PaymentViewModel @Inject constructor(
             else -> PaymentType.CONTRIBUTION
         }
 
-        mutationJob?.cancel()
+        val member = currentState.member
+        val selectedMethod = currentState.selectedMethod
+        val fingerprint = PaymentFingerprint(
+            groupId = groupId,
+            memberId = member?.id,
+            type = paymentType,
+            amount = amount,
+            method = selectedMethod
+        )
+        val previousAttempt = pendingPaymentAttempt
+        val transactionId = if (!currentState.isSuccess && previousAttempt?.fingerprint == fingerprint) {
+            previousAttempt.transactionId
+        } else {
+            "tx_${UUID.randomUUID()}"
+        }
+        pendingPaymentAttempt = PendingPaymentAttempt(fingerprint, transactionId)
+        updateState {
+            it.copy(
+                isProcessing = true,
+                isSuccess = false,
+                error = null,
+                checkoutUrl = null,
+                transactionId = transactionId
+            )
+        }
         mutationJob = launchJob("process_payment") {
-            updateState { it.copy(isProcessing = true, isSuccess = false, error = null, checkoutUrl = null, transactionId = null) }
-            val selectedMethod = uiState.value.selectedMethod
-
             val outcome = processContribution(
                 type = paymentType,
                 amount = amount,
                 groupId = groupId,
-                member = uiState.value.member,
-                group = uiState.value.group,
-                calculation = uiState.value.calculation,
-                method = selectedMethod
+                member = member,
+                group = group,
+                calculation = calc,
+                method = selectedMethod,
+                transactionId = transactionId
             )
 
             handleContributionOutcome(outcome)
@@ -221,10 +263,18 @@ class PaymentViewModel @Inject constructor(
         }
     }
 
-    private fun calculateRealtimePreview(group: Group, contributions: List<Contribution>, calculation: PaymentCalculation, inputAmount: Money): RealtimePaymentPreview {
-        val totalPaidBefore = contributions.asSequence()
-            .filter { it.status == ContributionStatus.PAID }
-            .fold(Money.ZERO) { acc, c -> acc + c.amount }
+    private fun calculateRealtimePreview(
+        member: Member,
+        group: Group,
+        contributions: List<Contribution>,
+        calculation: PaymentCalculation,
+        inputAmount: Money
+    ): RealtimePaymentPreview {
+        val paidContributions = contributions.filter {
+            it.status == ContributionStatus.PAID || it.status == ContributionStatus.PARTIAL
+        }
+        val totalPaidBefore = paymentCalculator.calculatePaidSavings(paidContributions, member)
+        val joinedDate = paymentCalculator.resolveJoinedDate(member, java.time.LocalDate.now(), contributions)
 
         return paymentCalculator.calculateRealtime(
             inputAmount = inputAmount,
@@ -233,7 +283,7 @@ class PaymentViewModel @Inject constructor(
             lateFee = if (calculation.isOverdue) group.lateFee else Money.ZERO,
             monthlyContribution = group.monthlyContribution,
             group = group,
-            joinedDate = java.time.LocalDate.now(), // Fallback to now for preview logic
+            joinedDate = joinedDate,
             totalPaidBefore = totalPaidBefore,
         )
     }

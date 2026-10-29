@@ -90,6 +90,21 @@ class ProcessLoanDecisionUseCaseTest {
     }
 
     @Test
+    fun `approval blocked when member risk status cannot be verified`() = runBlocking {
+        val loan = Loan(id = "l1", memberId = "m1", groupId = "g1", amount = Money("1000.0"))
+        coEvery { loanRepo.getLoanById("l1") } returns Result.success(loan)
+        coEvery { memberRepo.getMemberById("m1") } returns Result.success(Member(id = "m1"))
+        coEvery { groupRepo.getGroupById("g1") } returns Result.success(Group(id = "g1"))
+        coEvery { behaviorRepo.getMemberBehavior("m1") } returns Result.failure(IllegalStateException("offline"))
+
+        val result = useCase("l1", ProcessLoanDecisionUseCase.LoanDecision.Approve, "admin1")
+
+        assertTrue(result.isFailure)
+        assertTrue(result.exceptionOrNull()?.message?.contains("risk status") == true)
+        coVerify(exactly = 0) { loanRepo.approveLoan(any(), any()) }
+    }
+
+    @Test
     fun `approval blocked by eligibility re-validation failure`() = runBlocking {
         val loan = Loan(id = "l1", memberId = "m1", groupId = "g1", amount = Money("1000.0"))
         val member = Member(id = "m1")

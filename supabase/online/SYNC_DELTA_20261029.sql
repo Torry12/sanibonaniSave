@@ -1245,9 +1245,9 @@ TO service_role;
 
 -- The payment wrapper deployed by its own master, the two console reads, and the guard
 -- helper. All had the blanket grant; none needs it.
-REVOKE EXECUTE ON FUNCTION public.process_complex_payment_v4(UUID, UUID, NUMERIC, JSONB, TEXT)
+REVOKE EXECUTE ON FUNCTION public.process_complex_payment_v4(UUID, UUID, NUMERIC, TEXT, JSONB, TEXT, TEXT, TEXT)
   FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.process_complex_payment_v4(UUID, UUID, NUMERIC, JSONB, TEXT)
+GRANT EXECUTE ON FUNCTION public.process_complex_payment_v4(UUID, UUID, NUMERIC, TEXT, JSONB, TEXT, TEXT, TEXT)
   TO authenticated, service_role;
 
 REVOKE EXECUTE ON FUNCTION public.recalculate_all_group_financials_v3(UUID) FROM PUBLIC, anon;

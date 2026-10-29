@@ -40,7 +40,7 @@ class CalculateInvestmentClubValuationUseCase @Inject constructor() {
         val totalUnits = totalContributions
         // Determine unit price by dividing total assets by the total units (contributions)
         val unitPrice = if (totalContributions.isPositive) {
-            totalAssets.dividedBy(totalUnits.toDouble())
+            totalAssets.dividedBy(totalUnits)
         } else {
             Money("1.00")
         }

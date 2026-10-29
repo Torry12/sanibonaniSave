@@ -20,6 +20,7 @@ import java.time.temporal.ChronoUnit
 import javax.inject.Inject
 import com.sanibonani.save.domain.usecase.financialResult
 import com.sanibonani.save.domain.usecase.firstValueOrNull
+import kotlinx.coroutines.flow.first
 
 /**
  * Handles the automatic extraction of remaining loan balances after the 3-month maximum term.
@@ -34,8 +35,22 @@ class ProcessLoanForcedSettlementUseCase @Inject constructor(
 ) {
     suspend operator fun invoke(): Result<Unit> = financialResult {
         val groups = platformRepository.getAllGroups().getOrThrow()
+        val failures = mutableListOf<String>()
         for (group in groups) {
-            val loans = loanRepository.getGroupLoans(group.id ?: "").firstValueOrNull() ?: continue
+            val groupId = group.id
+            if (groupId == null) {
+                failures.add("group with missing ID")
+                continue
+            }
+            val loanRead = safeRunCatching("$TAG.loadGroupLoans") {
+                loanRepository.getGroupLoans(groupId).first().getOrThrow()
+            }
+            if (loanRead.isFailure) {
+                AppLogger.w(TAG, "Unable to read loans for group $groupId; continuing sweep.", loanRead.exceptionOrNull())
+                failures.add("group $groupId loan history")
+                continue
+            }
+            val loans = loanRead.getOrThrow()
             val expiredLoans = loans.filter { loan ->
                 (loan.status == LoanStatus.ACTIVE || loan.status == LoanStatus.PARTIALLY_PAID) &&
                 isLoanTermExceeded(loan)
@@ -47,8 +62,12 @@ class ProcessLoanForcedSettlementUseCase @Inject constructor(
                     settleLoanFromContributions(loan, group)
                 }.onFailure { e ->
                     AppLogger.w(TAG, "Forced settlement failed for loan ${loan.id}; continuing sweep.", e)
+                    failures.add("loan ${loan.id ?: "with missing ID"}")
                 }
             }
+        }
+        if (failures.isNotEmpty()) {
+            throw IllegalStateException("Forced settlement incomplete: ${failures.joinToString()}.")
         }
     }
     private fun isLoanTermExceeded(loan: Loan): Boolean {

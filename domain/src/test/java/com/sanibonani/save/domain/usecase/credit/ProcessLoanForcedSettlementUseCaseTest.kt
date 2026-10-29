@@ -105,7 +105,8 @@ class ProcessLoanForcedSettlementUseCaseTest {
 
         val result = useCase()
 
-        assertTrue(result.isSuccess)
+        assertTrue(result.isFailure)
+        assertTrue(result.exceptionOrNull()?.message?.contains("loan l1") == true)
         coVerify(exactly = 1) { loanRepository.settleExpiredLoan("l1") }
         coVerify(exactly = 1) { loanRepository.settleExpiredLoan("l2") }
     }
@@ -123,8 +124,23 @@ class ProcessLoanForcedSettlementUseCaseTest {
 
         val result = useCase()
 
-        assertTrue(result.isSuccess)
+        assertTrue(result.isFailure)
+        assertTrue(result.exceptionOrNull()?.message?.contains("loan l1") == true)
         coVerify(exactly = 1) { loanRepository.settleExpiredLoan("l1") }
+        coVerify(exactly = 1) { loanRepository.settleExpiredLoan("l2") }
+    }
+
+    @Test
+    fun `an unreadable group loan ledger is reported while the next group is still processed`() = runBlocking {
+        stubGroups(group("g1"), group("g2"))
+        every { loanRepository.getGroupLoans("g1") } returns flowOf(Result.failure(IllegalStateException("offline")))
+        stubGroupLoans("g2", loan("l2", "g2", "250.00"))
+
+        val result = useCase()
+
+        assertTrue(result.isFailure)
+        assertTrue(result.exceptionOrNull()?.message?.contains("group g1 loan history") == true)
+        coVerify(exactly = 0) { loanRepository.settleExpiredLoan("l1") }
         coVerify(exactly = 1) { loanRepository.settleExpiredLoan("l2") }
     }
 

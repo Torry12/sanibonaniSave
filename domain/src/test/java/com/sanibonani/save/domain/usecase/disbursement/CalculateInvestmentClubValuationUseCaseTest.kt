@@ -77,4 +77,14 @@ class CalculateInvestmentClubValuationUseCaseTest {
         assertEquals(Money("1.00"), valuation.unitPrice)
         assertTrue(valuation.memberValuations.isEmpty())
     }
+
+    @Test
+    fun `unit price rounds exact money division without converting currency to double`() {
+        val valuation = useCase(
+            club(Money("1000.00")),
+            listOf(member("m1", Money("1.00")), member("m2", Money("2.00")))
+        ).getOrThrow()
+
+        assertEquals(Money("333.33"), valuation.unitPrice)
+    }
 }
