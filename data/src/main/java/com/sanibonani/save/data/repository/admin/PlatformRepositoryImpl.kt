@@ -32,14 +32,18 @@ import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.postgrest.query.Columns
 import io.github.jan.supabase.postgrest.query.Order
 import io.github.jan.supabase.storage.storage
+import io.ktor.client.statement.bodyAsText
 import java.io.File
 import java.math.BigDecimal
 import javax.inject.Inject
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
@@ -151,11 +155,22 @@ class PlatformRepositoryImpl @Inject constructor(
     }
 
     override suspend fun computeSystemWideMetrics(): Result<Unit> = authoritativeCall("computeSystemWideMetrics") {
-        supabase.functions.invoke("compute-platform-metrics")
+        invokeFunction("compute-platform-metrics")
     }
 
     override suspend fun triggerCloudBackup(): Result<Unit> = authoritativeCall("triggerCloudBackup") {
-        supabase.functions.invoke("trigger-backup")
+        invokeFunction("trigger-backup")
+    }
+
+    /**
+     * `functions.invoke` hands back the raw response and throws for nothing, so without this check a
+     * refused or failed function reads as success and the console announces a backup that is not there.
+     */
+    private suspend fun invokeFunction(name: String) {
+        val response = supabase.functions.invoke(name)
+        functionFailureMessage(name, response.status.value, response.bodyAsText())?.let {
+            throw IllegalStateException(it)
+        }
     }
 
     override suspend fun getCloudBackups(): Result<List<DatabaseBackup>> = retryWithExponentialBackoff {
@@ -354,6 +369,28 @@ class PlatformRepositoryImpl @Inject constructor(
                 put("description", "Group Suspension Lifting Fee (Platform Revenue)")
             }
     }
+}
+
+private const val MAX_FUNCTION_ERROR_LENGTH = 300
+
+/**
+ * Builds the failure text for a non-2xx edge-function reply, or null when the call succeeded.
+ * Both the functions here and the Supabase gateway report the reason in `error` or `message`.
+ */
+internal fun functionFailureMessage(name: String, status: Int, body: String): String? {
+    if (status in 200..299) return null
+    val detail = extractFunctionError(body) ?: "no response body"
+    return "The '$name' function failed (HTTP $status): $detail"
+}
+
+private fun extractFunctionError(body: String): String? {
+    val text = body.trim()
+    if (text.isEmpty()) return null
+    val reported = runCatching {
+        val payload = Json.parseToJsonElement(text).jsonObject
+        (payload["error"] ?: payload["message"])?.jsonPrimitive?.contentOrNull
+    }.getOrNull()?.trim()
+    return (reported?.takeIf { it.isNotEmpty() } ?: text).take(MAX_FUNCTION_ERROR_LENGTH)
 }
 
 @Serializable
