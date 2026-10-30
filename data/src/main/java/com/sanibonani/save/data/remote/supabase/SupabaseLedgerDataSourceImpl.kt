@@ -18,22 +18,46 @@ class SupabaseLedgerDataSourceImpl @Inject constructor(
 ) : RemoteLedgerDataSource {
 
     override suspend fun getGroupLedger(groupId: String): Result<List<LedgerEntry>> = safeRunCatching {
-        client.postgrest["group_ledger"].select { filter { eq("group_id", groupId) } }.decodeList<LedgerEntry>()
+        fetchAllLedgerPages { from, to ->
+            client.postgrest["group_ledger"].select {
+                filter { eq("group_id", groupId) }
+                order("created_at", order = Order.DESCENDING)
+                order("id", order = Order.DESCENDING)
+                range(from, to)
+            }.decodeList<LedgerEntry>()
+        }
     }
 
     override suspend fun getMemberLedger(memberId: String): Result<List<LedgerEntry>> = safeRunCatching {
-        client.postgrest["group_ledger"].select { filter { eq("member_id", memberId) } }.decodeList<LedgerEntry>()
+        fetchAllLedgerPages { from, to ->
+            client.postgrest["group_ledger"].select {
+                filter { eq("member_id", memberId) }
+                order("created_at", order = Order.DESCENDING)
+                order("id", order = Order.DESCENDING)
+                range(from, to)
+            }.decodeList<LedgerEntry>()
+        }
     }
 
     override suspend fun getPlatformLedger(): Result<List<LedgerEntry>> = safeRunCatching {
-        client.postgrest["platform_ledger"].select { order("created_at", order = Order.DESCENDING) }.decodeList<LedgerEntry>().map { it.copy(isPlatform = true) }
+        fetchAllLedgerPages { from, to ->
+            client.postgrest["platform_ledger"].select {
+                order("created_at", order = Order.DESCENDING)
+                order("id", order = Order.DESCENDING)
+                range(from, to)
+            }.decodeList<LedgerEntry>()
+        }.map { it.copy(isPlatform = true) }
     }
 
     override suspend fun getConsolidatedAuditTrail(groupId: String): Result<List<LedgerEntry>> = safeRunCatching {
-        client.postgrest["vw_consolidated_audit_trail"].select {
-            filter { eq("group_id", groupId) }
-            order("created_at", order = Order.DESCENDING)
-        }.decodeList<LedgerEntry>()
+        fetchAllLedgerPages { from, to ->
+            client.postgrest["vw_consolidated_audit_trail"].select {
+                filter { eq("group_id", groupId) }
+                order("created_at", order = Order.DESCENDING)
+                order("id", order = Order.DESCENDING)
+                range(from, to)
+            }.decodeList<LedgerEntry>()
+        }
     }
 
     override suspend fun logPlatformEvent(entry: LedgerEntry): Result<Unit> = safeRunCatching {

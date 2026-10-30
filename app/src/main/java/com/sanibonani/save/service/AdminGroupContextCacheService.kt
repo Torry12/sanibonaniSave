@@ -13,18 +13,17 @@ import com.sanibonani.save.domain.repository.disbursement.PayoutRepository
 import com.sanibonani.save.domain.repository.group.GroupRepository
 import com.sanibonani.save.domain.repository.member.MemberRepository
 import com.sanibonani.save.domain.repository.system.NotificationRepository
+import com.sanibonani.save.domain.repository.system.SyncRepository
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.launch
 
 @Singleton
 class AdminGroupContextCacheService @Inject constructor(
@@ -32,7 +31,8 @@ class AdminGroupContextCacheService @Inject constructor(
     private val memberRepo: MemberRepository,
     private val notificationRepo: NotificationRepository,
     private val payoutRepo: PayoutRepository,
-    private val actuarialRepo: ActuarialRepository
+    private val actuarialRepo: ActuarialRepository,
+    private val syncRepo: SyncRepository
 ) {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -44,7 +44,7 @@ class AdminGroupContextCacheService @Inject constructor(
     val selectedGroupId: StateFlow<String?> = _selectedGroupId.asStateFlow()
 
     private var cachedUserId: String? = null
-    private val warmupJobs = java.util.concurrent.ConcurrentHashMap<String, Job>()
+    private val warmupCoordinator = GroupContextWarmupCoordinator()
 
     fun getContext(groupId: String): CachedAdminGroupContext? = _contexts.value[groupId]
 
@@ -64,10 +64,7 @@ class AdminGroupContextCacheService @Inject constructor(
         groups.forEach { group ->
             val groupId = group.id
             if (groupId.isNullOrBlank()) return@forEach
-            if (warmupJobs[groupId]?.isActive == true) return@forEach
-            if (_contexts.value[groupId]?.isFullyHydrated == true) return@forEach
-
-            warmupJobs[groupId] = scope.launch {
+            warmupCoordinator.launch(groupId, scope) {
                 warmGroupContext(group)
             }
         }
@@ -75,7 +72,11 @@ class AdminGroupContextCacheService @Inject constructor(
 
     suspend fun warmUpForUser(userId: String) {
         ensureUserSession(userId)
-        val groups = groupRepo.getGroupsByAdmin(userId).getOrElse { emptyList() }
+        val groups = groupRepo.getGroupsByAdmin(userId).getOrElse {
+            // An offline warm-up must keep the cached groups instead of pruning every context
+            // to an empty admin set.
+            groupRepo.observeGroupsByAdmin(userId).first().getOrElse { emptyList() }
+        }
         warmManagedGroupsInBackground(userId, groups)
     }
 
@@ -94,19 +95,32 @@ class AdminGroupContextCacheService @Inject constructor(
      */
     fun warmUpGroup(groupId: String, force: Boolean = false) {
         if (groupId.isBlank()) return
+        if (!force && _contexts.value[groupId]?.isFullyHydrated == true) return
 
-        if (force) {
-            warmupJobs.remove(groupId)?.cancel()
-        } else {
-            if (_contexts.value[groupId]?.isFullyHydrated == true) return
-            if (warmupJobs[groupId]?.isActive == true) return
-        }
-
-        warmupJobs[groupId] = scope.launch {
-            val group = _contexts.value[groupId]?.group
+        warmupCoordinator.launch(groupId, scope, replaceActive = force) {
+            // A forced warmup must not reuse the snapshot's group: the row may have changed since
+            // it was cached, and re-reading it is the point of the refresh.
+            val cachedGroup = if (force) null else _contexts.value[groupId]?.group
+            val group = cachedGroup
                 ?: safeRunCatching { groupRepo.getGroupById(groupId).getOrNull() }.getOrNull()
                 ?: return@launch
             warmGroupContext(group)
+        }
+    }
+
+    /**
+     * Pulls every group pillar from the network, then rebuilds the cached snapshot from the
+     * freshly synced data. Awaitable, so a pull-to-refresh only reports completion once the
+     * dashboard's source state has actually been replaced.
+     */
+    suspend fun refreshGroup(groupId: String): Result<Unit> = safeRunCatching {
+        if (groupId.isBlank()) return@safeRunCatching
+        // Hold the group's warmup slot for the whole refresh so a background sweep cannot start a
+        // second hydration that finishes after this one. The slot is a child job, never the
+        // caller's, so a session change cancels the refresh instead of the caller's scope.
+        warmupCoordinator.runExclusive(groupId) {
+            syncRepo.syncGroupData(groupId)
+            warmGroupContext(groupRepo.getGroupById(groupId).getOrThrow())
         }
     }
 
@@ -123,30 +137,37 @@ class AdminGroupContextCacheService @Inject constructor(
     private suspend fun warmGroupContext(group: Group) {
         val groupId = group.id ?: return
 
-        val members = memberRepo.getGroupMembers(groupId).first().getOrElse { emptyList() }
+        // A failed section read must keep what the snapshot already holds: replacing it
+        // with an empty list made an offline refresh look like an empty group, and the
+        // hydrated flag then suppressed every later retry.
+        val membersOutcome = memberRepo.getGroupMembers(groupId).first()
 
-        val notifications = safeRunCatching {
+        val notificationsOutcome = safeRunCatching {
             notificationRepo.syncNotifications(groupId)
-            notificationRepo.observeNotifications(groupId).first().getOrElse { emptyList() }
-        }.getOrElse { emptyList() }
-
-        val payouts = payoutRepo.observePayouts(groupId).first().getOrElse { emptyList() }
+            notificationRepo.observeNotifications(groupId).first().getOrThrow()
+        }
+        val payoutsOutcome = payoutRepo.observePayouts(groupId).first()
         val metrics = actuarialRepo.computeMetrics(groupId).getOrNull()
 
-        val (messages, systemNotifs) = notifications
-            .filter { it.memberId == null || it.triggerEvent == NotifEvent.MEMBER_MESSAGE }
-            .partition { it.triggerEvent == NotifEvent.MEMBER_MESSAGE }
-
-        updateContext(groupId) {
-            CachedAdminGroupContext(
+        updateContext(groupId) { prev ->
+            val partitioned = notificationsOutcome.getOrNull()
+                ?.filter { it.memberId == null || it.triggerEvent == NotifEvent.MEMBER_MESSAGE }
+                ?.partition { it.triggerEvent == NotifEvent.MEMBER_MESSAGE }
+            val messages = (partitioned?.first ?: prev.memberMessages)
+                .sortedByDescending { it.id ?: "" }
+            val systemNotifs = (partitioned?.second ?: prev.notifications)
+                .sortedByDescending { it.id ?: "" }
+            prev.copy(
                 group = group,
-                members = members,
-                notifications = systemNotifs.sortedByDescending { n -> n.id ?: "" },
-                memberMessages = messages.sortedByDescending { m -> m.id ?: "" },
-                payouts = payouts,
-                metrics = metrics,
+                members = membersOutcome.getOrNull() ?: prev.members,
+                notifications = systemNotifs,
+                memberMessages = messages,
+                payouts = payoutsOutcome.getOrNull() ?: prev.payouts,
+                metrics = metrics ?: prev.metrics,
                 feeStatus = group.feeStatus,
-                isFullyHydrated = true
+                isFullyHydrated = membersOutcome.isSuccess &&
+                    notificationsOutcome.isSuccess &&
+                    payoutsOutcome.isSuccess
             )
         }
     }
@@ -155,18 +176,14 @@ class AdminGroupContextCacheService @Inject constructor(
         cachedUserId = userId
         _contexts.value = emptyMap()
         _selectedGroupId.value = null
-        warmupJobs.values.forEach { it.cancel() }
-        warmupJobs.clear()
+        warmupCoordinator.cancelAll()
     }
 
     private fun pruneToGroups(groups: List<Group>) {
         val allowedGroupIds = groups.mapNotNull { it.id }.toSet()
         _contexts.update { cache -> cache.filterKeys { it in allowedGroupIds } }
 
-        val staleJobs = warmupJobs.keys.filter { it !in allowedGroupIds }
-        staleJobs.forEach { groupId ->
-            warmupJobs.remove(groupId)?.cancel()
-        }
+        warmupCoordinator.retainOnly(allowedGroupIds)
     }
 }
 
@@ -181,4 +198,3 @@ data class CachedAdminGroupContext(
     val isFullyHydrated: Boolean = false,
     val lastUpdatedMillis: Long = 0L
 )
-

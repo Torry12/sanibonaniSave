@@ -130,7 +130,7 @@ class DefaultActuarialStrategy : BaseActuarialStrategy() {
         val reach = if (progress >= 100.0) "Goal reached ✅" else "On track"
         return CommunitySavingsMetrics(
             savingsPerMember = group.balance / n,
-            annualDividendProjection = group.balance * 0.06,
+            annualDividendProjection = group.balance.percent(6),
             growthRatePct = 5.0,
             goalProgressPct = r(progress),
             projectedGoalReachDescription = reach,

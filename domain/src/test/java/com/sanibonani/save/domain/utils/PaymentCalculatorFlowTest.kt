@@ -386,6 +386,48 @@ class PaymentCalculatorFlowTest {
     }
 
     @Test
+    fun `repayments on a completed loan do not cover another loan shortfall`() {
+        val completedLoan = loan(
+            monthlyRepayment = "100.0",
+            totalRepaid = "1200.0",
+            startDate = "2023-01-01",
+            endDate = "2023-12-01",
+            status = LoanStatus.COMPLETED
+        )
+        val activeLoan = loan(
+            monthlyRepayment = "100.0",
+            totalRepaid = "0.0",
+            startDate = "2024-01-01",
+            endDate = "2024-03-01"
+        )
+
+        val status = calculator.calculateStatus(
+            group(monthly = "0.0"),
+            member(),
+            emptyList(),
+            listOf(completedLoan, activeLoan),
+            LocalDate.of(2024, 3, 20)
+        )
+
+        assertEquals(Money("300.0"), status.breakdown.loans)
+    }
+
+    @Test
+    fun `preview savings exclude platform fees and use the member join date`() {
+        val member = member(joinedAt = "2024-01-01T00:00:00Z")
+        val paid = listOf(
+            paid("1000.0", dueDate = "2024-01-15"),
+            paid("50.0", type = "member_fee", dueDate = "2024-01-15")
+        )
+
+        assertEquals(Money("1000.0"), calculator.calculatePaidSavings(paid, member))
+        assertEquals(
+            LocalDate.of(2024, 1, 1),
+            calculator.resolveJoinedDate(member, LocalDate.of(2024, 6, 1), paid)
+        )
+    }
+
+    @Test
     fun `a loan starting after the calculation date expects nothing yet`() {
         val status = calculator.calculateStatus(
             group(monthly = "0.0"),

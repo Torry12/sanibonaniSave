@@ -2,7 +2,9 @@ package com.sanibonani.save.ui.navigation
 
 import androidx.compose.material3.windowsizeclass.WindowSizeClass
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavGraphBuilder
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
@@ -39,6 +41,7 @@ internal fun NavGraphBuilder.memberRoutes(
         val memberId = backStackEntry.arguments?.getString("memberId")
         val supportMode = backStackEntry.arguments?.getBoolean("supportMode") ?: false
         val overviewVm = hiltViewModel<MemberOverviewViewModel>()
+        val overviewState by overviewVm.state.collectAsStateWithLifecycle()
 
         val entryId = backStackEntry.id
         LaunchedEffect(entryId, groupId, memberId) {
@@ -50,7 +53,7 @@ internal fun NavGraphBuilder.memberRoutes(
             windowSizeClass = windowSizeClass,
             onNavigatePayment = onNavigatePayment,
             onNavigateAdmin = {
-                val gid = overviewVm.state.value.selectedGroupId
+                val gid = overviewState.selectedGroupId
                 if (gid.isNullOrBlank()) {
                     AppLogger.e(tag = "NavGraph", message = "[MemberDashboard] No active group to navigate to admin dashboard.")
                     return@MemberDashboardScreen

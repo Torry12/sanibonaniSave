@@ -1,5 +1,7 @@
 package com.sanibonani.save.di
 
+import android.content.Context
+import androidx.work.WorkManager
 import com.sanibonani.save.BuildConfig
 import com.sanibonani.save.data.local.AuditDao
 import com.sanibonani.save.data.local.BeneficiaryClaimDao
@@ -25,6 +27,7 @@ import com.sanibonani.save.domain.repository.system.DataConnectionProtocol
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
+import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import io.github.jan.supabase.SupabaseClient
 import kotlinx.serialization.json.Json
@@ -131,4 +134,11 @@ object AppModule {
             )
         )
     }
+
+    // WorkManager is initialised on demand by SanibonaniApp's Configuration.Provider, which
+    // installs the Hilt worker factory, so getInstance() is safe from any injection point.
+    @Provides
+    @Singleton
+    fun provideWorkManager(@ApplicationContext context: Context): WorkManager =
+        WorkManager.getInstance(context)
 }

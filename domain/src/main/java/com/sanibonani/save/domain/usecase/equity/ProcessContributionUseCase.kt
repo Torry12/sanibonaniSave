@@ -18,10 +18,10 @@ import com.sanibonani.save.domain.usecase.admin.ActivateGroupUseCase
 import com.sanibonani.save.domain.service.FraudDetectionService
 import com.sanibonani.save.domain.service.PaymentAllocationService
 import com.sanibonani.save.domain.utils.PaymentCalculation
-import com.sanibonani.save.domain.utils.OperationKeys
 import javax.inject.Inject
 import com.sanibonani.save.domain.utils.safeRunCatching
 import com.sanibonani.save.domain.utils.toUserMessage
+import java.util.UUID
 
 /**
  * Orchestrates all fund inflows (contributions, fees, joining fees).
@@ -87,17 +87,18 @@ class ProcessContributionUseCase @Inject constructor(
         member: Member? = null,
         group: Group? = null,
         calculation: PaymentCalculation? = null,
-        method: PaymentMethod = PaymentMethod.BANK
+        method: PaymentMethod = PaymentMethod.BANK,
+        transactionId: String = "tx_${UUID.randomUUID()}"
     ): ContributionOutcome {
         return try {
-            val txId = buildTransactionId(type, groupId, member, amount)
+            require(transactionId.isNotBlank()) { "Transaction ID must not be blank" }
 
             // 1. Compliance/Fraud Check
-            evaluateFraudRisk(txId, groupId, member, amount)?.let { return it }
+            evaluateFraudRisk(transactionId, groupId, member, amount)?.let { return it }
 
             // 2. Process
-            confirm(txId, method, type, amount, groupId, member, group, calculation).fold(
-                onSuccess = { ContributionOutcome.Success(txId) },
+            confirm(transactionId, method, type, amount, groupId, member, group, calculation).fold(
+                onSuccess = { ContributionOutcome.Success(transactionId) },
                 onFailure = { ContributionOutcome.Failure(it.toUserMessage(), it) }
             )
         } catch (e: kotlinx.coroutines.CancellationException) {
@@ -105,10 +106,6 @@ class ProcessContributionUseCase @Inject constructor(
         } catch (e: Exception) {
             ContributionOutcome.Failure(e.toUserMessage(), e)
         }
-    }
-
-    private fun buildTransactionId(type: PaymentType, groupId: String, member: Member?, amount: Money): String {
-        return "tx_${OperationKeys.stableSuffix("contrib", type.name, groupId, member?.id, amount.toPlainString())}"
     }
 
     private fun resolveDestination(type: PaymentType): PaymentDestination {

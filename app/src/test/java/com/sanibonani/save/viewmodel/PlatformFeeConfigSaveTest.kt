@@ -7,6 +7,10 @@ import com.sanibonani.save.domain.model.Money
 import com.sanibonani.save.domain.model.PlatformConfig
 import com.sanibonani.save.domain.repository.admin.PlatformConfigRepository
 import com.sanibonani.save.domain.repository.admin.PlatformRepository
+import com.sanibonani.save.domain.usecase.admin.GetGranularFeeConfigsUseCase
+import com.sanibonani.save.domain.usecase.admin.GetPlatformSettingsUseCase
+import com.sanibonani.save.domain.usecase.admin.UpdateGlobalFeesUseCase
+import com.sanibonani.save.domain.usecase.admin.UpdateGranularFeeConfigUseCase
 import com.sanibonani.save.features.admin.presentation.PlatformFeeConfigViewModel
 import com.sanibonani.save.features.common.presentation.UIEvent
 import io.mockk.coEvery
@@ -65,7 +69,12 @@ class PlatformFeeConfigSaveTest {
         every { FirebaseCrashlytics.getInstance() } returns mockCrashlytics
 
         Dispatchers.setMain(testDispatcher)
-        viewModel = PlatformFeeConfigViewModel(platformRepo, configRepo)
+        viewModel = PlatformFeeConfigViewModel(
+            GetPlatformSettingsUseCase(platformRepo),
+            GetGranularFeeConfigsUseCase(platformRepo),
+            UpdateGlobalFeesUseCase(platformRepo, configRepo),
+            UpdateGranularFeeConfigUseCase(platformRepo)
+        )
     }
 
     @After

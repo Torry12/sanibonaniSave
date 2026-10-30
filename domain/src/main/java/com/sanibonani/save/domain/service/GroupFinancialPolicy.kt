@@ -6,6 +6,7 @@ import com.sanibonani.save.domain.model.Member
 import com.sanibonani.save.domain.model.MemberStatus
 import com.sanibonani.save.domain.model.Money
 import com.sanibonani.save.domain.model.PayoutType
+import java.math.BigDecimal
 import java.time.LocalDate
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -30,7 +31,7 @@ class GroupFinancialPolicy @Inject constructor() {
 
         val over65Count = member.beneficiaryOver65Count ?: 0
         val increasePct = group.beneficiaryIncreasePct ?: 0.0
-        val surcharge = group.monthlyContribution * (increasePct / 100.0) * over65Count.toDouble()
+        val surcharge = group.monthlyContribution.percent(BigDecimal.valueOf(increasePct)) * over65Count
         return group.monthlyContribution + surcharge
     }
 
@@ -54,8 +55,8 @@ class GroupFinancialPolicy @Inject constructor() {
      */
     fun requiredReserve(group: Group): Money = when (group.type) {
         GroupType.BURIAL_SOCIETY -> group.monthlyContribution * 5.0
-        GroupType.STOKVEL -> group.balance * 0.10
-        GroupType.EMERGENCY_FUND -> group.balance * 0.20
+        GroupType.STOKVEL -> group.balance.percent(10)
+        GroupType.EMERGENCY_FUND -> group.balance.percent(20)
         else -> Money.ZERO
     }
 
@@ -94,6 +95,6 @@ class GroupFinancialPolicy @Inject constructor() {
         if (member == null || group.balance.isZero) return Money.ZERO
         val totalPaidByAll = members.fold(Money.ZERO) { acc, m -> acc + m.totalPaid }
         if (totalPaidByAll.isZero) return Money.ZERO
-        return group.balance * member.totalPaid.ratio(totalPaidByAll)
+        return group.balance.proportionOf(member.totalPaid, totalPaidByAll)
     }
 }

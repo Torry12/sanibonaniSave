@@ -16,10 +16,9 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.sanibonani.save.R
-import com.sanibonani.save.domain.model.AsyncResult
 import com.sanibonani.save.ui.components.*
-import com.sanibonani.save.features.admin.ui.tabs.platform.*
-import com.sanibonani.save.features.audit.PlatformAuditTab
+import com.sanibonani.save.features.admin.ui.tabs.*
+import com.sanibonani.save.features.audit.ui.PlatformAuditTab
 import com.sanibonani.save.ui.theme.*
 import com.sanibonani.save.ui.utils.ToastUtils
 import com.sanibonani.save.features.admin.presentation.*
@@ -97,30 +96,7 @@ fun PlatformAdminScreen(
             when (event) {
                 is UIEvent.ShowMessage -> ToastUtils.showInfo(context, event.message)
                 is UIEvent.ShowError -> ToastUtils.showError(context, event.message)
-                is UIEvent.OpenFile -> {
-                    val uri = androidx.core.content.FileProvider.getUriForFile(
-                        context,
-                        "${context.packageName}.fileprovider",
-                        event.file
-                    )
-                    val flags = android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or
-                        android.content.Intent.FLAG_ACTIVITY_NEW_TASK
-
-                    try {
-                        val intent = android.content.Intent(android.content.Intent.ACTION_VIEW).apply {
-                            setDataAndType(uri, event.mimeType)
-                            addFlags(flags)
-                        }
-                        context.startActivity(android.content.Intent.createChooser(intent, event.chooserTitle).apply { addFlags(flags) })
-                    } catch (_: Exception) {
-                        val shareIntent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
-                            type = event.mimeType
-                            putExtra(android.content.Intent.EXTRA_STREAM, uri)
-                            addFlags(flags)
-                        }
-                        context.startActivity(android.content.Intent.createChooser(shareIntent, event.chooserTitle).addFlags(flags))
-                    }
-                }
+                is UIEvent.OpenFile -> openSharedPlatformFile(context, event.file, event.mimeType, event.chooserTitle)
                 else -> Unit
             }
         }
@@ -214,88 +190,28 @@ fun PlatformAdminScreen(
                     beyondViewportPageCount = 1
                 ) { page ->
                     when (page) {
-                        0 -> when (val analyticsRes = analyticsState.analytics) {
-                            is AsyncResult.Success -> PlatformAnalyticsTab(
-                                analytics = analyticsRes.data,
-                                totalRevenueShare = analyticsState.totalRevenueShare,
-                                provinceDistribution = analyticsState.provinceDistribution,
-                                marketSegments = analyticsState.marketSegments,
-                                vm = analyticsVm
-                            )
-                            is AsyncResult.Loading, is AsyncResult.Uninitialized -> {
-                                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                    CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
-                                }
-                            }
-                            is AsyncResult.Error -> {
-                                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(24.dp)) {
-                                        Text("⚠️", fontSize = 48.sp)
-                                        Spacer(Modifier.height(8.dp))
-                                        Text("Unable to load analytics", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                                        Spacer(Modifier.height(4.dp))
-                                        Text(analyticsRes.message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                        Spacer(Modifier.height(16.dp))
-                                        Button(onClick = { analyticsVm.load() }) {
-                                            Text("Retry")
-                                        }
-                                    }
-                                }
-                            }
-                        }
+                        0 -> PlatformAdminAnalyticsPage(analyticsState, analyticsVm)
                         1 -> AllGroupsTab(
                             state = analyticsState,
                             vm = analyticsVm,
                             onNavigateToHealthScore = onNavigateToHealthScore
                         )
-                        2 -> {
-                            val groupNames = analyticsState.groupNames
-                            val groupProvinces = analyticsState.groupProvinces
-
-                            val payoutsByProvince = remember(disbursementsState.payouts, groupProvinces) {
-                                disbursementsState.payouts.groupBy { groupProvinces[it.groupId] ?: "Other" }.toList().sortedBy { it.first }
-                            }
-                            val loanEscalations = remember(disbursementsState.loanRequestsByGroup) {
-                                disbursementsState.loanRequestsByGroup.values.flatten()
-                            }
-                            val loansByProvince = remember(loanEscalations, groupProvinces) {
-                                loanEscalations.groupBy { groupProvinces[it.groupId] ?: "Other" }.toList().sortedBy { it.first }
-                            }
-                            val claimsByProvince = remember(disbursementsState.escalatedClaims, groupProvinces) {
-                                disbursementsState.escalatedClaims.groupBy { groupProvinces[it.groupId] ?: "Other" }.toList().sortedBy { it.first }
-                            }
-
-                            DisbursementsTab(
-                                state = DisbursementsTabState(
-                                    payoutRequests = disbursementsState.payouts,
-                                    loanEscalations = loanEscalations,
-                                    claimEscalations = disbursementsState.escalatedClaims,
-                                    behaviorInsights = supportState.memberBehaviorInsights,
-                                    groupNames = groupNames,
-                                    loanMemberNames = analyticsState.loanMemberNames,
-                                    groupProvinces = groupProvinces,
-                                    isProcessingPayout = disbursementsState.isProcessingPayout,
-                                    isProcessingLoan = disbursementsState.isProcessingLoanRequest,
-                                    isProcessingClaim = disbursementsState.isProcessingClaim,
-                                    processingIds = disbursementsState.processingIds,
-                                    selectedMemberSummary = disbursementsState.selectedMemberSummary,
-                                    isLoadingMemberSummary = disbursementsState.isLoadingMemberSummary,
-                                    payoutsByProvince = payoutsByProvince,
-                                    loansByProvince = loansByProvince,
-                                    claimsByProvince = claimsByProvince
-                                ),
-                                vm = disbursementsVm,
-                                onOpenMemberPortalFromDisbursement = onOpenMemberPortalFromDisbursement,
-                                onImpersonateMember = onImpersonateMember,
-                                onNavigateToHealthScore = onNavigateToHealthScore,
-                                onNavigateToBehaviorTracking = onNavigateToBehaviorTracking
-                            )
-                        }
+                        2 -> PlatformAdminDisbursementsPage(
+                            analyticsState = analyticsState,
+                            disbursementsState = disbursementsState,
+                            supportState = supportState,
+                            vm = disbursementsVm,
+                            onOpenMemberPortalFromDisbursement = onOpenMemberPortalFromDisbursement,
+                            onImpersonateMember = onImpersonateMember,
+                            onNavigateToHealthScore = onNavigateToHealthScore,
+                            onNavigateToBehaviorTracking = onNavigateToBehaviorTracking
+                        )
                         3 -> PlatformLedgerTab(ledgerState, analyticsState, ledgerVm)
                         4 -> FeeManagementTab(feesState, feesVm)
                         5 -> PlatformAuditTab(
                             report = auditState.platformAuditReport,
-                            onRefresh = { auditVm.load() }
+                            onLoad = { auditVm.load() },
+                            onRegenerate = { auditVm.refresh() }
                         )
                         6 -> MaintenanceTab(
                             state = state,

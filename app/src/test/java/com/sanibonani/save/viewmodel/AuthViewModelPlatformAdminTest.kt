@@ -4,6 +4,7 @@ import android.util.Log
 import androidx.arch.core.executor.testing.InstantTaskExecutorRule
 import com.sanibonani.save.domain.model.UserRole
 import com.sanibonani.save.domain.repository.auth.*
+import com.sanibonani.save.domain.usecase.auth.*
 import com.sanibonani.save.domain.utils.PlatformAdminAuthPolicy
 import com.sanibonani.save.service.*
 import com.sanibonani.save.data.remote.SupabaseConnectionManager
@@ -66,15 +67,25 @@ class AuthViewModelPlatformAdminTest {
         every { supabaseRepo.sessionFlow } returns MutableStateFlow(null)
 
         viewModel = AuthViewModel(
-            supabaseRepo,
-            userProfileRepo,
-            credentialsRepo,
+            ObserveAuthSessionUseCase(supabaseRepo),
+            GetUserProfileUseCase(userProfileRepo),
+            GetCurrentUserRoleUseCase(supabaseRepo),
+            GetAttributableActorIdUseCase(supabaseRepo),
+            GetSavedLoginCredentialsUseCase(credentialsRepo),
+            SignInUseCase(supabaseRepo, credentialsRepo),
+            RegisterAccountUseCase(supabaseRepo),
+            ResendVerificationEmailUseCase(supabaseRepo),
+            RequestMagicLinkUseCase(supabaseRepo),
+            HandleAuthDeepLinkUseCase(supabaseRepo),
+            UpdatePasswordUseCase(supabaseRepo),
+            SetBiometricEnabledUseCase(credentialsRepo),
+            RebuildConnectionsUseCase(connManager),
             adminCache,
             memberCache,
             userProfileCacheService,
-            connManager,
             realtimeSyncManager,
             loadQueue,
+            mockk(relaxed = true),
             mockk(relaxed = true)
         )
     }

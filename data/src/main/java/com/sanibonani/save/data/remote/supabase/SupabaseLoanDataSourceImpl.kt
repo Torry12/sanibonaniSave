@@ -81,6 +81,18 @@ class SupabaseLoanDataSourceImpl @Inject constructor(
         }
     }
 
+    override suspend fun settleExpiredLoan(loanId: String): Result<RecordRepaymentResult> = safeRunCatching {
+        val response = client.postgrest.rpc(
+            "settle_expired_loan_v2",
+            buildJsonObject { put("p_loan_id", loanId) }
+        )
+        try {
+            response.decodeAs<RecordRepaymentResult>()
+        } catch (_: SerializationException) {
+            response.decodeList<RecordRepaymentResult>().first()
+        }
+    }
+
     override suspend fun getRepayments(loanId: String): Result<List<LoanRepayment>> = safeRunCatching {
         client.postgrest["loan_repayments"].select { filter { eq("loan_id", loanId) } }.decodeList<LoanRepayment>()
     }

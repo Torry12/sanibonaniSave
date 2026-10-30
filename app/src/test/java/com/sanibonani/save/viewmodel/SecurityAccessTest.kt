@@ -2,6 +2,9 @@ package com.sanibonani.save.viewmodel
 
 import com.sanibonani.save.domain.model.UserRole
 import com.sanibonani.save.domain.repository.auth.*
+import com.sanibonani.save.domain.service.MfaService
+import com.sanibonani.save.domain.usecase.auth.GetCurrentUserRoleUseCase
+import com.sanibonani.save.domain.usecase.auth.VerifyMfaChallengeUseCase
 import com.sanibonani.save.features.admin.presentation.PlatformAdminViewModel
 import io.mockk.*
 import kotlinx.coroutines.Dispatchers
@@ -18,6 +21,7 @@ import org.junit.Test
 class SecurityAccessTest {
 
     private val supabaseRepo = mockk<SupabaseRepository>(relaxed = true)
+    private val mfaService = mockk<MfaService>(relaxed = true)
 
     private val testDispatcher = StandardTestDispatcher()
 
@@ -37,7 +41,10 @@ class SecurityAccessTest {
     fun `PlatformAdminViewModel blocks access for non-admin user`() = runTest {
         coEvery { supabaseRepo.getUserRole() } returns UserRole.MEMBER
 
-        val viewModel = PlatformAdminViewModel(supabaseRepo)
+        val viewModel = PlatformAdminViewModel(
+            GetCurrentUserRoleUseCase(supabaseRepo),
+            VerifyMfaChallengeUseCase(mfaService)
+        )
 
         advanceUntilIdle()
 
@@ -48,7 +55,10 @@ class SecurityAccessTest {
     fun `PlatformAdminViewModel allows access for admin user`() = runTest {
         coEvery { supabaseRepo.getUserRole() } returns UserRole.PLATFORM_ADMIN
 
-        val viewModel = PlatformAdminViewModel(supabaseRepo)
+        val viewModel = PlatformAdminViewModel(
+            GetCurrentUserRoleUseCase(supabaseRepo),
+            VerifyMfaChallengeUseCase(mfaService)
+        )
 
         advanceUntilIdle()
 

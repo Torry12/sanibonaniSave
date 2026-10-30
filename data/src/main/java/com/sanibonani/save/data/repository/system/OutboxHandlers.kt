@@ -75,20 +75,6 @@ class DisbursementOutboxHandler @Inject constructor(
     }
 }
 
-class BalanceAdjustmentOutboxHandler @Inject constructor(
-    private val repository: com.sanibonani.save.domain.repository.group.GroupRepository,
-    private val json: Json
-) : OutboxOperationHandler {
-    override suspend fun handle(operation: PendingOperation): Result<Unit> = safeRunCatching {
-        val data = json.decodeFromString<Map<String, String>>(operation.payload)
-        repository.incrementGroupBalance(
-            groupId = data.requireValue("groupId"),
-            amount = Money(data.requireValue("amount")),
-            transactionId = operation.id
-        ).getOrThrow()
-    }
-}
-
 class BeneficiaryClaimOutboxHandler @Inject constructor(
     private val repository: BeneficiaryClaimRepository,
     private val json: Json

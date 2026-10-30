@@ -67,7 +67,7 @@ fun RegisterScreen(
             passwordsMatch
 
     if (state.isLoading) {
-        SanibonaniLoadingScreen(message = "Creating your account...", isOverlay = true)
+        SanibonaniLoadingScreen(message = stringResource(R.string.ui_creating_account), isOverlay = true)
     }
 
     Scaffold(topBar = { SanibonaniTopBar("Create Account", onBack = onBack) }) { padding ->

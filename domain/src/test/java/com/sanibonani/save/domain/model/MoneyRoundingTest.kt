@@ -1,7 +1,9 @@
 package com.sanibonani.save.domain.model
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertThrows
 import org.junit.Test
+import java.math.BigDecimal
 
 /**
  * Rounding contract for every financial value that enters the app. These replace the retired
@@ -28,5 +30,52 @@ class MoneyRoundingTest {
     fun `amounts built from differently written literals compare equal`() {
         assertEquals(Money("10.0"), Money("10.00"))
         assertEquals(Money(10), Money("10.00"))
+    }
+
+    @Test
+    fun `BigDecimal construction normalizes scale and equality keeps matching hash codes`() {
+        val rounded = Money(BigDecimal("1.005"))
+        val normalized = Money(BigDecimal("1.00"))
+
+        assertEquals("1.00", rounded.toPlainString())
+        assertEquals(normalized, rounded)
+        assertEquals(normalized.hashCode(), rounded.hashCode())
+    }
+
+    @Test
+    fun `non-finite floating values and zero divisors are rejected`() {
+        assertThrows(IllegalArgumentException::class.java) { Money.fromDouble(Double.NaN) }
+        assertThrows(IllegalArgumentException::class.java) { Money("1.00") * Double.POSITIVE_INFINITY }
+        assertThrows(IllegalArgumentException::class.java) { Money("1.00").dividedBy(0.0) }
+        assertThrows(IllegalArgumentException::class.java) { Money("1.00").dividedBy(Money.ZERO) }
+    }
+
+    @Test
+    fun `cent conversion fails rather than truncating an overflowing amount`() {
+        assertThrows(ArithmeticException::class.java) {
+            Money("92233720368547758.08").toCents()
+        }
+    }
+
+    @Test
+    fun `ratio does not overflow when both monetary amounts exceed double range`() {
+        assertEquals(
+            2.0,
+            Money(BigDecimal.TEN.pow(400).multiply(BigDecimal("2")))
+                .ratio(Money(BigDecimal.TEN.pow(400))),
+            0.0
+        )
+    }
+
+    @Test
+    fun `percentage calculations use decimal rates and round the final amount`() {
+        assertEquals(Money("0.02"), Money("0.05").percent(BigDecimal("33.3333333333")))
+        assertEquals(Money("0.00"), Money("0.05").percent(10))
+    }
+
+    @Test
+    fun `proportional shares avoid floating point and round half even`() {
+        assertEquals(Money("0.02"), Money("0.05").proportionOf(Money("1.00"), Money("3.00")))
+        assertEquals(Money.ZERO, Money("100.00").proportionOf(Money("1.00"), Money.ZERO))
     }
 }

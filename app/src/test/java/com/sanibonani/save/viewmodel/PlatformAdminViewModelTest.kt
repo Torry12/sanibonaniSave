@@ -4,6 +4,9 @@ import android.util.Log
 import androidx.arch.core.executor.testing.InstantTaskExecutorRule
 import com.sanibonani.save.domain.model.*
 import com.sanibonani.save.domain.repository.auth.*
+import com.sanibonani.save.domain.service.MfaService
+import com.sanibonani.save.domain.usecase.auth.GetCurrentUserRoleUseCase
+import com.sanibonani.save.domain.usecase.auth.VerifyMfaChallengeUseCase
 import com.sanibonani.save.features.admin.presentation.PlatformAdminViewModel
 import io.mockk.*
 import kotlinx.coroutines.Dispatchers
@@ -24,6 +27,7 @@ class PlatformAdminViewModelTest {
     val instantExecutorRule = InstantTaskExecutorRule()
 
     private val supabaseRepo = mockk<SupabaseRepository>(relaxed = true)
+    private val mfaService = mockk<MfaService>(relaxed = true)
 
     private lateinit var viewModel: PlatformAdminViewModel
     private val testDispatcher = StandardTestDispatcher()
@@ -49,7 +53,10 @@ class PlatformAdminViewModelTest {
         every { supabaseRepo.sessionFlow } returns sessionFlow
         coEvery { supabaseRepo.getUserRole() } returns UserRole.PLATFORM_ADMIN
 
-        viewModel = PlatformAdminViewModel(supabaseRepo)
+        viewModel = PlatformAdminViewModel(
+            GetCurrentUserRoleUseCase(supabaseRepo),
+            VerifyMfaChallengeUseCase(mfaService)
+        )
     }
 
     @After

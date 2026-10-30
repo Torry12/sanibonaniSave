@@ -12,9 +12,9 @@ import java.io.File
  *
  * Presentation is allowed to depend on `:domain`, but reaching straight into a
  * repository port or a `:data` implementation keeps business rules in ViewModels.
- * Both lists below are the state of the code when this test was introduced; they
- * may only shrink. Adding a new offender fails the build until the dependency is
- * routed through a use case or policy.
+ * Both lists below held the files that did when this test was introduced; every one
+ * of them has since been routed through a use case or a domain port, so they are
+ * empty and a new offender fails the build.
  */
 class PresentationLayeringTest {
 
@@ -93,55 +93,9 @@ class PresentationLayeringTest {
         }
 
     private companion object {
-        val KNOWN_DATA_IMPORTS = setOf(
-            "auth/presentation/AuthSessionHydrator.kt",
-            "admin/presentation/AdminOverviewViewModel.kt",
-            "common/presentation/SplashViewModel.kt",
-            "financial/presentation/PaymentSandboxViewModel.kt",
-            "common/presentation/DevSettingsViewModel.kt"
-        )
+        val KNOWN_DATA_IMPORTS = emptySet<String>()
 
-        val KNOWN_REPOSITORY_IMPORTS = setOf(
-            "common/presentation/StartupDataViewModel.kt",
-            "common/presentation/SplashViewModel.kt",
-            "common/presentation/GlobalSyncViewModel.kt",
-            "member/presentation/state/MemberUiState.kt",
-            "member/presentation/MemberRegistrationViewModel.kt",
-            "member/presentation/MemberProfileViewModel.kt",
-            "member/presentation/MemberOverviewViewModel.kt",
-            "member/presentation/MemberBeneficiaryViewModel.kt",
-            "member/presentation/coordination/MemberMessagingCoordinator.kt",
-            "member/presentation/coordination/MemberDocumentCoordinator.kt",
-            "group/presentation/GroupVotingViewModel.kt",
-            "group/presentation/GroupViewModel.kt",
-            "group/presentation/GroupRegistrationViewModel.kt",
-            "group/presentation/GroupRegistrationSubmitter.kt",
-            "auth/presentation/PasswordRecoveryViewModel.kt",
-            "auth/presentation/AuthViewModel.kt",
-            "auth/presentation/AuthSessionHydrator.kt",
-            "admin/presentation/PlatformDisbursementsViewModel.kt",
-            "admin/presentation/PlatformBackupViewModel.kt",
-            "admin/presentation/PlatformAuditViewModel.kt",
-            "admin/presentation/PlatformAnalyticsViewModel.kt",
-            "admin/presentation/PlatformAdminViewModel.kt",
-            "admin/presentation/AdminOverviewViewModel.kt",
-            "admin/presentation/CreatePlatformAdminViewModel.kt",
-            "admin/presentation/AdminMemberViewModel.kt",
-            "admin/presentation/BehaviorTrackingViewModel.kt",
-            "admin/presentation/PlatformSupportViewModel.kt",
-            "admin/presentation/PlatformLedgerViewModel.kt",
-            "admin/presentation/PlatformFeeConfigViewModel.kt",
-            "admin/presentation/actions/AdminBankActions.kt",
-            "admin/presentation/actions/AdminClaimActions.kt",
-            "admin/presentation/actions/AdminPayoutActions.kt",
-            "admin/presentation/actions/AdminLedgerActions.kt",
-            "admin/presentation/actions/AdminLoanActions.kt",
-            "admin/presentation/coordination/AdminGroupOperationsCoordinator.kt",
-            "admin/presentation/coordination/AdminReportingCoordinator.kt",
-            "admin/presentation/coordination/AdminPlatformFeeCoordinator.kt",
-            "financial/presentation/PaymentSandboxViewModel.kt",
-            "financial/presentation/FinancialProviderViewModel.kt"
-        )
+        val KNOWN_REPOSITORY_IMPORTS = emptySet<String>()
 
         val BLOCK_COMMENT = Regex("""/\*.*?\*/""", RegexOption.DOT_MATCHES_ALL)
         val LINE_COMMENT = Regex("""//[^\n]*""")

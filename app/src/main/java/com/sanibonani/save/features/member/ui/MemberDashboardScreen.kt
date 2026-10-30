@@ -41,7 +41,7 @@ import com.sanibonani.save.features.member.presentation.MemberBeneficiaryViewMod
 import com.sanibonani.save.features.member.presentation.MemberProfileViewModel
 import com.sanibonani.save.features.member.presentation.MemberOverviewViewModel
 import com.sanibonani.save.features.member.presentation.state.MemberUiState
-import com.sanibonani.save.features.admin.ui.tabs.platform.LedgerEntryDetailDialog
+import com.sanibonani.save.features.admin.ui.tabs.LedgerEntryDetailDialog
 import com.sanibonani.save.features.member.presentation.state.MemberEvent
 import com.sanibonani.save.features.common.presentation.UIEvent
 import kotlinx.coroutines.launch

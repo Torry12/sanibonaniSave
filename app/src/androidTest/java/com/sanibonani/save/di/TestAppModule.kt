@@ -107,8 +107,12 @@ object TestAppModule {
                 handleComplexPayment(bodyJson)
             }
 
-            path.contains("/rest/v1/rpc/increment_group_balance") -> {
-                handleIncrementGroupBalance(bodyJson)
+            path.contains("/rest/v1/rpc/record_liquidity_v") -> {
+                handleRecordLiquidity(bodyJson)
+            }
+
+            path.contains("/rest/v1/rpc/record_disbursement_v") -> {
+                handleRecordDisbursement(bodyJson)
             }
 
             path.contains("/rest/v1/rpc/complete_payout_v") -> {
@@ -185,10 +189,23 @@ object TestAppModule {
         }
     }
 
-    private fun io.ktor.client.engine.mock.MockRequestHandleScope.handleIncrementGroupBalance(bodyJson: JsonObject) = respondJson {
+    private fun io.ktor.client.engine.mock.MockRequestHandleScope.handleRecordLiquidity(bodyJson: JsonObject) = respondJson {
         val groupId = bodyJson["p_group_id"]?.jsonPrimitive?.content ?: ""
         val amount = Money(bodyJson["p_amount"]?.jsonPrimitive?.content ?: "0.00")
         updateGroupBalance(groupId, amount)
+        val newBalance = TestDataStore.getMoney(TestDataStore.mockGroups[groupId]?.get("balance"))
+        JsonPrimitive(newBalance.amount.toPlainString())
+    }
+
+    // record_disbursement_v1 is the debit twin of record_liquidity_v1: positive on the wire,
+    // negated in the ledger, returning the resulting balance as a bare numeric. Without this
+    // route the call fell through to the "{}" default, which MoneySerializer reads as R0.00 -
+    // the disbursement reported success, the mocked balance never moved, and the repository
+    // then cached that zero as the group's balance.
+    private fun io.ktor.client.engine.mock.MockRequestHandleScope.handleRecordDisbursement(bodyJson: JsonObject) = respondJson {
+        val groupId = bodyJson["p_group_id"]?.jsonPrimitive?.content ?: ""
+        val amount = Money(bodyJson["p_amount"]?.jsonPrimitive?.content ?: "0.00")
+        updateGroupBalance(groupId, -amount)
         val newBalance = TestDataStore.getMoney(TestDataStore.mockGroups[groupId]?.get("balance"))
         JsonPrimitive(newBalance.amount.toPlainString())
     }
@@ -250,11 +267,18 @@ object TestAppModule {
 
     private fun io.ktor.client.engine.mock.MockRequestHandleScope.handleAuditBalance(bodyJson: JsonObject) = respondJson {
         val groupId = bodyJson["p_group_id"]?.jsonPrimitive?.content ?: ""
-        val group = TestDataStore.mockGroups[groupId]
-        val balance = TestDataStore.getMoney(group?.get("balance"))
+        val balance = TestDataStore.getMoney(TestDataStore.mockGroups[groupId]?.get("balance"))
 
-        // Either return a string (Money) or a JsonObject with ledger_sum
-        TestDataStore.buildMoney(balance)
+        // The real function returns jsonb keyed group_id/ledger_sum/current_balance/discrepancy/
+        // fixed, and the client decodes it as GroupAuditResult. A bare numeric here failed that
+        // decode, so the audit screen could never be exercised through the harness.
+        buildJsonObject {
+            put("group_id", groupId)
+            put("ledger_sum", TestDataStore.buildMoney(balance))
+            put("current_balance", TestDataStore.buildMoney(balance))
+            put("discrepancy", TestDataStore.buildMoney(Money.ZERO))
+            put("fixed", false)
+        }
     }
 
     private fun io.ktor.client.engine.mock.MockRequestHandleScope.handlePayBurialClaim(bodyJson: JsonObject) = respondJson {

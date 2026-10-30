@@ -75,7 +75,7 @@ class StokvelStrategy : BaseActuarialStrategy() {
         if (m.monthsToTarget <= 2) recommendations += "Liquidity Alert: Group is approaching payout date. Ensure funds are in a high-interest, accessible account."
 
         val n = members.size.coerceAtLeast(1)
-        val annualTarget = group.monthlyContribution * n * 12.0
+        val annualTarget = group.monthlyContribution * n * 12
         val breakdowns = listOf(
             ActuarialFormulaBreakdown(
                 title = "1. Annual Pot Milestone Target",

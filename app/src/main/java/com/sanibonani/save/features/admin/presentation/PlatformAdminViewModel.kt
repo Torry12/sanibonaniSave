@@ -1,7 +1,8 @@
 package com.sanibonani.save.features.admin.presentation
 
 import com.sanibonani.save.domain.model.UserRole
-import com.sanibonani.save.domain.repository.auth.SupabaseRepository
+import com.sanibonani.save.domain.usecase.auth.GetCurrentUserRoleUseCase
+import com.sanibonani.save.domain.usecase.auth.VerifyMfaChallengeUseCase
 import com.sanibonani.save.domain.utils.toUserMessage
 import com.sanibonani.save.features.admin.presentation.state.PlatformAdminUiState
 import com.sanibonani.save.features.common.presentation.BaseViewModel
@@ -11,7 +12,8 @@ import javax.inject.Inject
 
 @HiltViewModel
 class PlatformAdminViewModel @Inject constructor(
-    private val supabaseRepo: SupabaseRepository
+    getCurrentUserRole: GetCurrentUserRoleUseCase,
+    private val verifyMfa: VerifyMfaChallengeUseCase
 ) : BaseViewModel<PlatformAdminUiState>(PlatformAdminUiState()) {
 
     val state: StateFlow<PlatformAdminUiState> = uiState
@@ -21,8 +23,7 @@ class PlatformAdminViewModel @Inject constructor(
 
     init {
         launchJob("init_authorization") {
-            val role = supabaseRepo.getUserRole()
-            val authorized = role == UserRole.PLATFORM_ADMIN
+            val authorized = getCurrentUserRole() == UserRole.PLATFORM_ADMIN
             updateState { it.copy(isAuthorized = authorized) }
         }
     }
@@ -42,26 +43,10 @@ class PlatformAdminViewModel @Inject constructor(
     fun verifyMfaChallenge(code: String) {
         launchJob("verify_mfa") {
             updateState { it.copy(isVerifyingMfa = true) }
-            supabaseRepo.getMfaFactors().onSuccess { factors ->
-                val factor = factors.firstOrNull()
-                if (factor == null) {
-                    updateState {
-                        it.copy(
-                            isVerifyingMfa = false,
-                            mfaChallengeError = IllegalStateException(
-                                "No authenticator is enrolled on this account. Set up two-step verification before authorising this action."
-                            ).toUserMessage()
-                        )
-                    }
-                    return@onSuccess
-                }
-                supabaseRepo.verifyMfa(factor.id, code, true).onSuccess {
-                    updateState { it.copy(isVerifyingMfa = false, showMfaChallenge = false) }
-                    _mfaVerified.tryEmit(Unit)
-                    showMessage("MFA Verified")
-                }.onFailure { e ->
-                    updateState { it.copy(isVerifyingMfa = false, mfaChallengeError = e.toUserMessage()) }
-                }
+            verifyMfa(code).onSuccess {
+                updateState { it.copy(isVerifyingMfa = false, showMfaChallenge = false) }
+                _mfaVerified.tryEmit(Unit)
+                showMessage("MFA Verified")
             }.onFailure { e ->
                 updateState { it.copy(isVerifyingMfa = false, mfaChallengeError = e.toUserMessage()) }
             }

@@ -1,24 +1,28 @@
 package com.sanibonani.save.features.member.presentation.coordination
 
 import com.sanibonani.save.domain.model.AsyncResult
-import com.sanibonani.save.domain.repository.admin.AuditRepository
-import com.sanibonani.save.domain.repository.system.ExportRepository
-import com.sanibonani.save.domain.repository.treasury.LedgerRepository
 import com.sanibonani.save.domain.utils.toUserMessage
+import com.sanibonani.save.domain.usecase.admin.GenerateMemberAuditReportUseCase
+import com.sanibonani.save.domain.usecase.system.BuildGroupLedgerStatementUseCase
+import com.sanibonani.save.domain.usecase.system.ExportGroupConstitutionUseCase
+import com.sanibonani.save.domain.usecase.system.ExportLedgerStatementUseCase
+import com.sanibonani.save.domain.usecase.system.ExportMembershipContractUseCase
 import com.sanibonani.save.features.common.presentation.UIEvent
 import javax.inject.Inject
 
 class MemberDocumentCoordinator @Inject constructor(
-    private val exportRepo: ExportRepository,
-    private val ledgerRepo: LedgerRepository,
-    private val auditRepo: AuditRepository
+    private val generateMemberAuditReport: GenerateMemberAuditReportUseCase,
+    private val exportMembershipContract: ExportMembershipContractUseCase,
+    private val exportGroupConstitution: ExportGroupConstitutionUseCase,
+    private val exportLedgerStatement: ExportLedgerStatementUseCase,
+    private val buildGroupLedgerStatement: BuildGroupLedgerStatementUseCase
 ) {
 
     fun loadAuditReport(host: MemberActionHost) {
         val memberId = host.memberState.value.member?.id ?: return
         host.launchMemberSafeJob("audit_report", "Failed to load audit report") {
             host.updateMemberState { it.copy(memberAuditReport = AsyncResult.Loading) }
-            auditRepo.triggerMemberAudit(memberId)
+            generateMemberAuditReport(memberId)
                 .onSuccess { report ->
                     host.updateMemberState { it.copy(memberAuditReport = AsyncResult.Success(report)) }
                 }
@@ -36,7 +40,7 @@ class MemberDocumentCoordinator @Inject constructor(
         val group = s.group ?: return
         host.launchMemberSafeJob("download_contract", "Failed to download contract") {
             host.updateMemberState { it.copy(isExporting = true) }
-            exportRepo.exportMembershipContract(member, group).onSuccess { file ->
+            exportMembershipContract(member, group).onSuccess { file ->
                 host.updateMemberState { it.copy(isExporting = false) }
                 host.sendUiEvent(UIEvent.OpenFile(file, "application/pdf", "Membership Certificate"))
             }.onFailure {
@@ -52,7 +56,7 @@ class MemberDocumentCoordinator @Inject constructor(
         val ledger = s.memberLedger
         host.launchMemberSafeJob("download_statement", "Failed to download statement") {
             host.updateMemberState { it.copy(isExporting = true) }
-            exportRepo.exportLedgerToPdf(group, ledger).onSuccess { file ->
+            exportLedgerStatement(group, ledger, ExportLedgerStatementUseCase.Format.PDF).onSuccess { file ->
                 host.updateMemberState { it.copy(isExporting = false) }
                 host.sendUiEvent(UIEvent.OpenFile(file, "application/pdf", "Statement"))
             }.onFailure {
@@ -68,7 +72,7 @@ class MemberDocumentCoordinator @Inject constructor(
         val ledger = s.memberLedger
         host.launchMemberSafeJob("download_csv_statement", "Failed to export statement") {
             host.updateMemberState { it.copy(isExporting = true) }
-            exportRepo.exportLedgerToCsv(group, ledger).onSuccess { file ->
+            exportLedgerStatement(group, ledger, ExportLedgerStatementUseCase.Format.CSV).onSuccess { file ->
                 host.updateMemberState { it.copy(isExporting = false) }
                 host.sendUiEvent(UIEvent.OpenFile(file, "text/csv", "Statement"))
             }.onFailure {
@@ -80,20 +84,11 @@ class MemberDocumentCoordinator @Inject constructor(
 
     fun downloadGroupStatement(host: MemberActionHost) {
         val group = host.memberState.value.group ?: return
-        val groupId = group.id ?: run {
-            host.reportError(
-                IllegalStateException("No server id for group"),
-                "This group is not saved on the server yet. Please sync and try again."
-            )
-            return
-        }
         host.launchMemberSafeJob("download_group_ledger", "Failed to download group ledger") {
             host.updateMemberState { it.copy(isExporting = true) }
-            ledgerRepo.getGroupLedger(groupId).onSuccess { entries ->
-                exportRepo.exportLedgerToPdf(group, entries).onSuccess { file ->
-                    host.updateMemberState { it.copy(isExporting = false) }
-                    host.sendUiEvent(UIEvent.OpenFile(file, "application/pdf", "Group Ledger"))
-                }
+            buildGroupLedgerStatement(group).onSuccess { file ->
+                host.updateMemberState { it.copy(isExporting = false) }
+                host.sendUiEvent(UIEvent.OpenFile(file, "application/pdf", "Group Ledger"))
             }.onFailure {
                 host.updateMemberState { it.copy(isExporting = false) }
                 host.reportError(it)
@@ -105,7 +100,7 @@ class MemberDocumentCoordinator @Inject constructor(
         val group = host.memberState.value.group ?: return
         host.launchMemberSafeJob("download_constitution", "Failed to download constitution") {
             host.updateMemberState { it.copy(isLoading = true) }
-            exportRepo.exportGroupConstitution(group).onSuccess { file ->
+            exportGroupConstitution(group).onSuccess { file ->
                 host.updateMemberState { it.copy(isLoading = false) }
                 host.sendUiEvent(UIEvent.OpenFile(file, "application/pdf", "Constitution"))
             }.onFailure {

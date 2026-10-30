@@ -2,6 +2,7 @@
 
 package com.sanibonani.save.domain.model
 
+import java.math.BigDecimal
 import kotlinx.serialization.*
 import kotlinx.serialization.descriptors.PrimitiveKind
 import kotlinx.serialization.descriptors.PrimitiveSerialDescriptor
@@ -211,9 +212,9 @@ data class HybridPotAllocation(
         get() = Math.abs((personalSavingsPct + lendingPoolPct + socialFundPct + investmentPct) - 100.0) < 0.01
 
     fun calculateSplit(total: Money): HybridPotSplit {
-        val personal = total * (personalSavingsPct / 100.0)
-        val lending = total * (lendingPoolPct / 100.0)
-        val social = total * (socialFundPct / 100.0)
+        val personal = total.percent(BigDecimal.valueOf(personalSavingsPct))
+        val lending = total.percent(BigDecimal.valueOf(lendingPoolPct))
+        val social = total.percent(BigDecimal.valueOf(socialFundPct))
         val investment = (total - personal - lending - social).let { if (it.isNegative) Money.ZERO else it }
         return HybridPotSplit(
             personalSavings = personal,

@@ -10,16 +10,17 @@ import androidx.compose.material3.windowsizeclass.WindowSizeClass
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.sanibonani.save.R
 import com.sanibonani.save.domain.model.*
 import com.sanibonani.save.ui.components.*
 import com.sanibonani.save.features.admin.ui.components.*
 import com.sanibonani.save.features.admin.ui.tabs.*
-import com.sanibonani.save.features.admin.ui.tabs.platform.*
-import com.sanibonani.save.features.audit.GroupAuditTab
+import com.sanibonani.save.features.audit.ui.GroupAuditTab
 import com.sanibonani.save.ui.theme.*
 import com.sanibonani.save.ui.utils.rememberClickDebouncer
 
@@ -171,7 +172,7 @@ fun AdminDashboardScreen(
     val selectedRoute = overviewState.selectedTab.toString()
 
     if ((overviewState.isLoading) && (overviewState.group == null)) {
-        SanibonaniLoadingScreen(message = "Loading dashboard...")
+        SanibonaniLoadingScreen(message = stringResource(R.string.ui_loading_dashboard))
     } else {
         AdaptiveScaffold(
             windowSizeClass = windowSizeClass,
@@ -194,7 +195,7 @@ fun AdminDashboardScreen(
                         // ⚡ Non-blocking visual feedback for refreshes
                         SoftLoadingOverlay(
                             isLoading = overviewState.isLoading && (overviewState.group != null) && !overviewState.isSupportMode,
-                            message = "Refreshing group data..."
+                            message = stringResource(R.string.ui_refreshing_group_data)
                         )
 
                         AdminDashboardBannerSection(

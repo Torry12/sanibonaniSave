@@ -63,9 +63,9 @@ fun RegisterMemberScreen(
     }
 
     if (state.isLoading && state.targetGroupId.isNullOrBlank()) {
-        SanibonaniLoadingScreen(message = "Fetching group details...")
+        SanibonaniLoadingScreen(message = stringResource(R.string.ui_fetching_group_details))
     } else if (state.isSubmitting && !state.success) {
-        SanibonaniLoadingScreen(message = "Registering you in group...")
+        SanibonaniLoadingScreen(message = stringResource(R.string.ui_registering_in_group))
     } else {
         Scaffold(
             topBar = {
@@ -74,7 +74,10 @@ fun RegisterMemberScreen(
                         title = stringResource(R.string.ui_join_group),
                         onBack = onNavigateBack
                     )
-                    SoftLoadingOverlay(isLoading = state.isLoading, message = "Loading group settings...")
+                    SoftLoadingOverlay(
+                        isLoading = state.isLoading,
+                        message = stringResource(R.string.ui_loading_group_settings)
+                    )
                 }
             }
         ) { padding ->

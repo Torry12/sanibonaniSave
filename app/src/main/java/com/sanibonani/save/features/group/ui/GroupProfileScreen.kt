@@ -11,10 +11,12 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.sanibonani.save.R
 import com.sanibonani.save.ui.components.*
 import com.sanibonani.save.ui.theme.*
 import com.sanibonani.save.ui.utils.rememberClickDebouncer
@@ -45,7 +47,7 @@ fun GroupProfileScreen(
         topBar = { SanibonaniTopBar("Group Profile", onBack = { clickDebouncer.processClick(onBack) }) }
     ) { padding ->
         if (state.isLoadingDetail && state.selectedGroup == null) {
-            SanibonaniLoadingScreen(message = "Loading group profile...")
+            SanibonaniLoadingScreen(message = stringResource(R.string.ui_loading_group_profile))
         } else if (state.detailError != null && state.selectedGroup == null) {
             Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
                 EmptyState(icon = "❌", title = "Error", description = state.detailError ?: "Unknown error")

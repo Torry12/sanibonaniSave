@@ -44,8 +44,8 @@ The Membership Contract is a legally binding agreement between the individual me
 2. **Download**: Members/Admins download the tailored PDFs from their dashboard.
 3. **Execution**: The document is signed (physical signature or digital acceptance).
 4. **Upload**: The signed document is uploaded to the "Documents" tab.
-5. **Verification**: An administrator (or the platform) verifies the document.
-6. **Full Membership**: Once the **Membership Contract** and **ID Document** are marked as `VERIFIED`, the member's status is automatically transitioned from `PROBATION` to `ACTIVE`.
+5. **Verification**: An administrator (or the platform) verifies the document, writing `verified` / `rejected` to `members.document_N_status` and `contract_status` — lowercase in Postgres, `DocumentStatus` in Kotlin.
+6. **Full Membership**: Verification does **not** promote the member. Promotion off `probation` is time-based: `ProbationCompletionWorker` compares `probation_end_at` to now and requires the joining fee to be `paid` (type `joining_fee` or the legacy `registration_contribution`) before it posts `MemberStatus.ACTIVE`.
 
-> [!IMPORTANT]
-> A member cannot receive payouts, take loans, or participate in voting unless their Membership Contract is `VERIFIED`.
+> [!WARNING]
+> `ProbationCompletionWorker` is one of the six `app/…/worker` classes that no code path enqueues, so today the promotion only happens when an admin changes status explicitly. The same is true of the document gate: nothing in `PayoutGuard`, `ValidateLoanEligibilityUseCase` or the voting RLS policy refuses an unverified contract — `LoansTabSections.kt:227` only shows the admin a `document1Status == VERIFIED || idNumber is set` hint. The one real consequence lives in `VerifyMemberDocumentUseCase`: rejecting a document immediately suspends the member, while verifying one changes nothing beyond the document column.

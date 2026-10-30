@@ -10,10 +10,18 @@ import com.sanibonani.save.domain.repository.member.BeneficiaryRepository
 import com.sanibonani.save.domain.repository.member.MemberDocumentRepository
 import com.sanibonani.save.domain.repository.member.MemberRepository
 import com.sanibonani.save.domain.repository.system.ExportRepository
+import com.sanibonani.save.domain.usecase.auth.BuildDocumentAuthHeadersUseCase
 import com.sanibonani.save.domain.usecase.credit.ValidateLoanEligibilityUseCase
+import com.sanibonani.save.domain.usecase.equity.ObserveGroupContributionsUseCase
+import com.sanibonani.save.domain.usecase.equity.ObserveMemberContributionsUseCase
+import com.sanibonani.save.domain.usecase.member.ObserveBeneficiariesUseCase
+import com.sanibonani.save.domain.usecase.member.ObserveMemberDocumentsUseCase
+import com.sanibonani.save.domain.usecase.member.UpdateBeneficiaryUseCase
+import com.sanibonani.save.domain.usecase.member.UpdateMemberBankingDetailsUseCase
 import com.sanibonani.save.domain.usecase.member.UpdateMemberStatusUseCase
 import com.sanibonani.save.domain.usecase.member.VerifyMemberDocumentUseCase
 import com.sanibonani.save.domain.usecase.member.VerifyRelationalDocumentUseCase
+import com.sanibonani.save.domain.usecase.system.ExportMemberStatementUseCase
 import com.sanibonani.save.domain.usecase.system.SendNotificationUseCase
 import com.sanibonani.save.domain.utils.PaymentCalculator
 import com.sanibonani.save.features.admin.presentation.AdminMemberViewModel
@@ -92,17 +100,19 @@ class AdminMemberViewModelTest {
 
         viewModel = AdminMemberViewModel(
             adminContextCacheService,
-            memberRepo,
-            contributionRepo,
-            beneficiaryRepo,
-            memberDocumentRepo,
+            UpdateMemberBankingDetailsUseCase(memberRepo),
+            ObserveGroupContributionsUseCase(contributionRepo),
+            ObserveMemberContributionsUseCase(contributionRepo),
+            ObserveBeneficiariesUseCase(beneficiaryRepo),
+            UpdateBeneficiaryUseCase(beneficiaryRepo),
+            ObserveMemberDocumentsUseCase(memberDocumentRepo),
+            ExportMemberStatementUseCase(exportRepo),
+            BuildDocumentAuthHeadersUseCase(supabaseRepo),
             updateMemberStatusUseCase,
             verifyMemberDocumentUseCase,
             verifyRelationalDocumentUseCase,
             validateLoanEligibilityUseCase,
             sendNotificationUseCase,
-            exportRepo,
-            supabaseRepo,
             paymentCalculator
         )
     }

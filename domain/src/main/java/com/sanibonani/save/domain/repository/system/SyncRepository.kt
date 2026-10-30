@@ -1,14 +1,8 @@
 package com.sanibonani.save.domain.repository.system
 
 import com.sanibonani.save.domain.model.DomainPillar
+import com.sanibonani.save.domain.model.SyncStatus
 import kotlinx.coroutines.flow.StateFlow
-
-sealed class SyncStatus {
-    object Idle : SyncStatus()
-    data class Progress(val message: String, val progress: Float) : SyncStatus()
-    object Completed : SyncStatus()
-    data class Error(val message: String) : SyncStatus()
-}
 
 interface SyncRepository {
     val syncStatus: StateFlow<SyncStatus>

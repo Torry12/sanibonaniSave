@@ -13,16 +13,26 @@ import com.sanibonani.save.domain.repository.group.*
 import com.sanibonani.save.domain.repository.member.*
 import com.sanibonani.save.domain.repository.system.*
 import com.sanibonani.save.domain.usecase.payment.SyncBankTransactionsUseCase
+import com.sanibonani.save.domain.usecase.payment.IgnoreBankTransactionUseCase
+import com.sanibonani.save.domain.usecase.payment.ReconcileBankTransactionUseCase
 import com.sanibonani.save.domain.usecase.disbursement.ProcessDisbursementUseCase
 import com.sanibonani.save.domain.usecase.disbursement.RequestPayoutUseCase
+import com.sanibonani.save.domain.usecase.disbursement.VerifyPayoutDocumentUseCase
 import com.sanibonani.save.domain.usecase.credit.ProcessLoanDisbursementUseCase
 import com.sanibonani.save.domain.usecase.member.ProcessBurialClaimUseCase
+import com.sanibonani.save.domain.usecase.member.VerifyBurialClaimDocumentUseCase
+import com.sanibonani.save.domain.usecase.system.BuildGroupLedgerStatementUseCase
+import com.sanibonani.save.domain.usecase.treasury.ConsolidateGroupLedgerUseCase
+import com.sanibonani.save.domain.usecase.treasury.PerformGroupReconciliationUseCase
+import com.sanibonani.save.domain.usecase.treasury.ResolveLedgerDiscrepancyUseCase
 import com.sanibonani.save.domain.service.MfaService
 import com.sanibonani.save.domain.usecase.admin.ObserveAdminFinancialSnapshotUseCase
+import com.sanibonani.save.domain.usecase.auth.GetAttributableActorIdUseCase
 import com.sanibonani.save.domain.usecase.auth.VerifyMfaChallengeUseCase
 import com.sanibonani.save.service.AdminGroupContextCacheService
 import com.sanibonani.save.service.CachedAdminGroupContext
 import com.sanibonani.save.features.admin.presentation.AdminFinancialViewModel
+import com.sanibonani.save.features.common.presentation.UIEvent
 import com.sanibonani.save.features.admin.presentation.actions.AdminBankActions
 import com.sanibonani.save.features.admin.presentation.actions.AdminClaimActions
 import com.sanibonani.save.features.admin.presentation.actions.AdminLedgerActions
@@ -33,13 +43,16 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -100,6 +113,7 @@ class AdminFinancialViewModelTest {
 
         Dispatchers.setMain(testDispatcher)
         every { supabaseRepo.sessionFlow } returns MutableStateFlow(null)
+        every { supabaseRepo.currentUserId } returns "admin-1"
 
         every { adminContextCacheService.selectedGroupId } returns selectedGroupIdFlow
         every { adminContextCacheService.contexts } returns contextsFlow
@@ -126,33 +140,34 @@ class AdminFinancialViewModelTest {
         AdminLoanActions(
             processLoanDecisionUseCase,
             processLoanDisbursementUseCase,
-            supabaseRepo,
+            GetAttributableActorIdUseCase(supabaseRepo),
             adminContextCacheService
         ),
         AdminClaimActions(
             processBurialClaimUseCase,
-            claimRepo,
-            supabaseRepo,
+            VerifyBurialClaimDocumentUseCase(claimRepo),
+            GetAttributableActorIdUseCase(supabaseRepo),
             adminContextCacheService
         ),
         AdminPayoutActions(
             requestPayoutUseCase,
-            payoutRepo,
+            VerifyPayoutDocumentUseCase(payoutRepo),
             processDisbursementUseCase,
-            supabaseRepo,
+            GetAttributableActorIdUseCase(supabaseRepo),
             adminContextCacheService
         ),
         AdminBankActions(
             syncBankTransactionsUseCase,
             finalizeBankConnectionUseCase,
-            bankRepo,
+            IgnoreBankTransactionUseCase(bankRepo),
             adminContextCacheService
         ),
         AdminLedgerActions(
-            reconRepo,
-            bankRepo,
-            ledgerRepo,
-            exportRepo,
+            PerformGroupReconciliationUseCase(reconRepo),
+            ResolveLedgerDiscrepancyUseCase(reconRepo),
+            ReconcileBankTransactionUseCase(bankRepo),
+            ConsolidateGroupLedgerUseCase(ledgerRepo),
+            BuildGroupLedgerStatementUseCase(ledgerRepo, exportRepo),
             adminContextCacheService
         )
     )
@@ -190,7 +205,7 @@ class AdminFinancialViewModelTest {
             branchCode = "250655"
         )
         coEvery {
-            processDisbursementUseCase(payoutId, groupId, PayoutStatus.GROUP_APPROVED, any(), any(), any())
+            processDisbursementUseCase(payoutId, PayoutStatus.GROUP_APPROVED, any(), any())
         } returns Result.success(approved)
 
         val vm = createViewModel()
@@ -199,7 +214,7 @@ class AdminFinancialViewModelTest {
         advanceUntilIdle()
 
         coVerify(exactly = 1) {
-            processDisbursementUseCase(payoutId, groupId, PayoutStatus.GROUP_APPROVED, any(), any(), any())
+            processDisbursementUseCase(payoutId, PayoutStatus.GROUP_APPROVED, any(), any())
         }
         // The raw write bypasses transition, liquidity and audit checks, so it must not be used.
         coVerify(exactly = 0) { payoutRepo.updatePayoutStatus(any(), any(), any(), any()) }
@@ -212,7 +227,7 @@ class AdminFinancialViewModelTest {
         val payoutId = "payout-1"
         selectedGroupIdFlow.value = groupId
         coEvery {
-            processDisbursementUseCase(payoutId, groupId, PayoutStatus.GROUP_APPROVED, any(), any(), any())
+            processDisbursementUseCase(payoutId, PayoutStatus.GROUP_APPROVED, any(), any())
         } returns Result.failure(Exception("INSUFFICIENT_LIQUIDITY: balance is below the required amount"))
 
         val vm = createViewModel()
@@ -223,6 +238,24 @@ class AdminFinancialViewModelTest {
         assertEquals(null, vm.state.value.successMessage)
         assertEquals(false, vm.state.value.isLoading)
         assertEquals(emptySet<String>(), vm.state.value.processingIds)
+    }
+
+    @Test
+    fun `escalation without a signed-in administrator reports an error and never calls the use case`() = runTest {
+        val groupId = "group-1"
+        selectedGroupIdFlow.value = groupId
+        every { supabaseRepo.currentUserId } returns null
+        val vm = createViewModel()
+        val errors = mutableListOf<UIEvent>()
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+            vm.events.collect { errors.add(it) }
+        }
+
+        vm.approveAndEscalatePayoutRequest("payout-1")
+        advanceUntilIdle()
+
+        coVerify(exactly = 0) { processDisbursementUseCase(any(), any(), any()) }
+        assertTrue(errors.filterIsInstance<UIEvent.ShowError>().isNotEmpty())
     }
 
     @Test
@@ -274,5 +307,41 @@ class AdminFinancialViewModelTest {
 
         coVerify(exactly = 1) { syncBankTransactionsUseCase(groupId) }
         assertEquals(true, vm.state.value.bankRefreshSuccess)
+    }
+
+    @Test
+    fun `processClaim reports a blocked review instead of stamping a blank reviewer`() = runTest {
+        selectedGroupIdFlow.value = "group-1"
+        every { supabaseRepo.currentUserId } returns "   "
+
+        val vm = createViewModel()
+        val errors = mutableListOf<UIEvent>()
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+            vm.events.collect { errors.add(it) }
+        }
+        vm.processClaim("claim-1", approve = true)
+        advanceUntilIdle()
+
+        coVerify(exactly = 0) { processBurialClaimUseCase(any(), any(), any(), any(), any()) }
+        assertTrue(errors.filterIsInstance<UIEvent.ShowError>()
+            .any { it.message.contains("Sign in again") })
+    }
+
+    @Test
+    fun `approveLoan reports a blocked decision instead of dropping the tap`() = runTest {
+        selectedGroupIdFlow.value = "group-1"
+        every { supabaseRepo.currentUserId } returns null
+
+        val vm = createViewModel()
+        val errors = mutableListOf<UIEvent>()
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+            vm.events.collect { errors.add(it) }
+        }
+        vm.approveLoan("loan-1")
+        advanceUntilIdle()
+
+        coVerify(exactly = 0) { processLoanDecisionUseCase(any(), any(), any(), any()) }
+        assertTrue(errors.filterIsInstance<UIEvent.ShowError>()
+            .any { it.message.contains("Sign in again") })
     }
 }

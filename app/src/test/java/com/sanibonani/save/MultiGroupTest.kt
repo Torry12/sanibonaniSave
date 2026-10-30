@@ -16,6 +16,7 @@ import com.sanibonani.save.domain.usecase.actuarial.ApplyViabilityPlanUseCase
 import com.sanibonani.save.domain.usecase.actuarial.CalculateViabilityUseCase
 import com.sanibonani.save.domain.usecase.disbursement.ExecuteRoscaPayoutUseCase
 import com.sanibonani.save.domain.usecase.payment.ProcessGroupPlatformFeePaymentUseCase
+import com.sanibonani.save.domain.usecase.auth.*
 import com.sanibonani.save.domain.usecase.group.*
 import com.sanibonani.save.domain.usecase.member.*
 import com.sanibonani.save.domain.usecase.system.*
@@ -53,6 +54,12 @@ import org.junit.Before
 import org.junit.Test
 import com.google.firebase.crashlytics.FirebaseCrashlytics
 import com.sanibonani.save.domain.usecase.admin.ActivateGroupUseCase
+import com.sanibonani.save.domain.usecase.admin.GenerateGroupAuditReportUseCase
+import com.sanibonani.save.domain.usecase.admin.GetPlatformSettingsUseCase
+import com.sanibonani.save.domain.usecase.admin.ObserveGroupHealthScoreUseCase
+import com.sanibonani.save.domain.usecase.payment.GetOutstandingPlatformFeesUseCase
+import com.sanibonani.save.domain.usecase.treasury.ConsolidateGroupLedgerUseCase
+import com.sanibonani.save.domain.usecase.treasury.ObserveGroupLedgerUseCase
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class MultiGroupTest {
@@ -224,24 +231,30 @@ class MultiGroupTest {
                 adminContextCacheService,
                 getManagedGroupsUseCase,
                 getGroupBusinessInsightsUseCase,
-                healthScoreRepo,
-                supabaseRepo,
-                ledgerRepo,
+                ObserveGroupHealthScoreUseCase(healthScoreRepo),
+                GetAttributableActorIdUseCase(supabaseRepo),
+                GetCurrentUserRoleUseCase(supabaseRepo),
+                ObserveGroupLedgerUseCase(ledgerRepo),
                 devSettings,
                 syncManager,
                 AdminViabilityCoordinator(calculateViabilityUseCase, applyViabilityPlanUseCase),
                 AdminMessagingCoordinator(sendNotificationUseCase),
                 AdminPlatformFeeCoordinator(
-                    platformRepo,
-                    financialRepo,
+                    GetPlatformSettingsUseCase(platformRepo),
+                    GetOutstandingPlatformFeesUseCase(financialRepo),
                     processPlatformFeePaymentUseCase,
                     feeService,
                     adminContextCacheService
                 ),
-                AdminReportingCoordinator(auditRepo, ledgerRepo, exportRepo, verificationService),
+                AdminReportingCoordinator(
+                    GenerateGroupAuditReportUseCase(auditRepo),
+                    BuildGroupLedgerStatementUseCase(ledgerRepo, exportRepo),
+                    ExportGroupConstitutionUseCase(exportRepo),
+                    verificationService
+                ),
                 AdminGroupOperationsCoordinator(
-                    memberRepo,
-                    ledgerRepo,
+                    SyncGroupMembersUseCase(memberRepo),
+                    ConsolidateGroupLedgerUseCase(ledgerRepo),
                     executeRoscaPayoutUseCase,
                     adminContextCacheService
                 ),
@@ -296,7 +309,9 @@ class MultiGroupTest {
                 activateGroupUseCase,
                 feeService,
                 locationService,
-                supabaseRepo
+                IsLoggedInUseCase(supabaseRepo),
+                GetCurrentSessionEmailUseCase(supabaseRepo),
+                GetAttributableActorIdUseCase(supabaseRepo)
             )
         )
 

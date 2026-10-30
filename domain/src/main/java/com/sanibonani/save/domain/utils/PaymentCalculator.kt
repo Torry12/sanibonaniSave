@@ -98,9 +98,8 @@ class PaymentCalculator @Inject constructor(
 
         // 1. Calculate Totals Paid by Category
         val paidContributions = contributions.filter { it.status == ContributionStatus.PAID || it.status == ContributionStatus.PARTIAL }
-        val totalPaidSavings = paidSavings(paidContributions, member)
+        val totalPaidSavings = calculatePaidSavings(paidContributions, member)
         val totalPaidPlatform = paidPlatformFees(paidContributions)
-        val totalPaidLoans = loans.fold(Money.ZERO) { acc, l -> acc + l.totalRepaid }
         val servicingLoans = loans.filter { it.isBeingRepaid() }
 
         // 2. Calculate expectations and fees up to now
@@ -115,15 +114,13 @@ class PaymentCalculator @Inject constructor(
         )
         val totalExpectedSavings = expectations.expectedSavings
         val totalExpectedPlatform = expectations.expectedPlatform
-        val totalExpectedLoans = expectations.expectedLoans
+        val loanShortfall = expectations.loanShortfall
         val totalLateFees = expectations.totalLateFees
         val isCurrentlyOverdue = expectations.isCurrentlyOverdue
 
         // 3. Category-specific shortfall calculation
         val savingsShortfall = (totalExpectedSavings - totalPaidSavings).max(Money.ZERO)
         val platformShortfall = (totalExpectedPlatform - totalPaidPlatform).max(Money.ZERO)
-        val loanShortfall = (totalExpectedLoans - totalPaidLoans).max(Money.ZERO)
-
         // Savings overpayment (credit)
         val savingsBalance = totalPaidSavings - totalExpectedSavings
         val overpayment = if (savingsBalance.isPositive) savingsBalance else Money.ZERO
@@ -174,7 +171,7 @@ class PaymentCalculator @Inject constructor(
     private data class DetailedExpectations(
         val expectedSavings: Money,
         val expectedPlatform: Money,
-        val expectedLoans: Money,
+        val loanShortfall: Money,
         val totalLateFees: Money,
         val isCurrentlyOverdue: Boolean
     )
@@ -190,7 +187,7 @@ class PaymentCalculator @Inject constructor(
     ): DetailedExpectations {
         var totalExpectedSavings = Money.ZERO
         var totalExpectedPlatform = Money.ZERO
-        var totalExpectedLoans = Money.ZERO
+        val expectedLoanAmounts = MutableList(loans.size) { Money.ZERO }
         var totalLateFees = Money.ZERO
         var isCurrentlyOverdue = false
 
@@ -204,7 +201,7 @@ class PaymentCalculator @Inject constructor(
                 totalExpectedSavings += expectedSavingsPerMonth
                 totalExpectedPlatform += platformFeePerMonth
 
-                for (loan in loans) {
+                for ((index, loan) in loans.withIndex()) {
                     val loanStartDate = loan.startDate?.let { safeRunCatching { LocalDate.parse(it.substringBefore("T")) }.getOrNull() }
                     val loanEndDate = loan.endDate?.let { safeRunCatching { LocalDate.parse(it.substringBefore("T")) }.getOrNull() }
 
@@ -214,7 +211,7 @@ class PaymentCalculator @Inject constructor(
                             val effectiveEndDate = loanEndDate ?: loanStartDate.plusMonths(12)
                             val isPastTerm = tempDate.isAfter(effectiveEndDate.withDayOfMonth(1))
                             if (!isPastTerm) {
-                                totalExpectedLoans += loan.monthlyRepayment
+                                expectedLoanAmounts[index] += loan.monthlyRepayment
                             }
                         }
                     }
@@ -231,7 +228,11 @@ class PaymentCalculator @Inject constructor(
             tempDate = tempDate.plusMonths(1)
         }
 
-        return DetailedExpectations(totalExpectedSavings, totalExpectedPlatform, totalExpectedLoans, totalLateFees, isCurrentlyOverdue)
+        val loanShortfall = loans.indices.fold(Money.ZERO) { total, index ->
+            total + (expectedLoanAmounts[index] - loans[index].totalRepaid).max(Money.ZERO)
+        }
+
+        return DetailedExpectations(totalExpectedSavings, totalExpectedPlatform, loanShortfall, totalLateFees, isCurrentlyOverdue)
     }
 
     fun calculateNextDueDate(
@@ -279,7 +280,7 @@ class PaymentCalculator @Inject constructor(
         return RealtimePaymentPreview(newShortfall, newOverpayment, nextDate)
     }
 
-    private fun paidSavings(paidContributions: List<Contribution>, member: Member): Money {
+    fun calculatePaidSavings(paidContributions: List<Contribution>, member: Member): Money {
         // Note: For loan_settlement_extraction, the amount is negative so it reduces the total paid savings.
         val calculated = paidContributions
             .filter { it.type == "contribution" || it.type == "registration_contribution" || it.type == "loan_settlement_extraction" }
@@ -302,7 +303,7 @@ class PaymentCalculator @Inject constructor(
             month.withDayOfMonth(month.lengthOfMonth())
         }
 
-    private fun resolveJoinedDate(member: Member, fallback: LocalDate, contributions: List<Contribution> = emptyList()): LocalDate {
+    fun resolveJoinedDate(member: Member, fallback: LocalDate, contributions: List<Contribution> = emptyList()): LocalDate {
         return try {
             val rawStr = member.joinedAt ?: member.createdAt
             val parsedJoined = safeRunCatching {

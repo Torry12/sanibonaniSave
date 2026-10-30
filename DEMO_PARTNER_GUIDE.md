@@ -67,8 +67,8 @@ Unlike generic banking apps, SanibonaniSave delivers **group-type specific busin
 
 | Layer | Technology |
 | :--- | :--- |
-| **Mobile Client** | Kotlin 2.4.20, Jetpack Compose (Material 3 + Adaptive Layouts) |
+| **Mobile Client** | Kotlin 2.4.21, Jetpack Compose (Material 3 + Adaptive Layouts) |
 | **Dependency Injection** | Dagger Hilt 2.60.1 |
-| **Local Persistence** | Room SQLite (v78 schema with precision converters) |
+| **Local Persistence** | Room SQLite (v82 schema with precision converters) |
 | **Backend & Cloud** | Supabase (PostgreSQL + PostgREST + Realtime + Storage + Auth) |
 | **Networking** | Ktor Client & Retrofit with OkHttp Logging |

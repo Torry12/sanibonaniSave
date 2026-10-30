@@ -18,8 +18,8 @@ import com.sanibonani.save.features.auth.ui.RegisterScreen
 import com.sanibonani.save.features.auth.ui.PasswordRecoveryScreen
 import com.sanibonani.save.features.auth.ui.UpdatePasswordScreen
 import com.sanibonani.save.features.group.ui.BrowseGroupsScreen
-import com.sanibonani.save.features.landing.LandingScreen
-import com.sanibonani.save.features.landing.LandingViewModel
+import com.sanibonani.save.features.landing.ui.LandingScreen
+import com.sanibonani.save.features.landing.presentation.LandingViewModel
 import com.sanibonani.save.service.UserProfileCacheService
 
 fun NavGraphBuilder.authRoutes(

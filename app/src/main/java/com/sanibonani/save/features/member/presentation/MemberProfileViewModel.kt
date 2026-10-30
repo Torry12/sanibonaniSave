@@ -1,12 +1,15 @@
 package com.sanibonani.save.features.member.presentation
 
 import com.sanibonani.save.domain.model.*
-
-import com.sanibonani.save.domain.repository.system.*
-import com.sanibonani.save.domain.repository.auth.*
-import com.sanibonani.save.domain.repository.member.*
-import com.sanibonani.save.domain.repository.group.*
-import com.sanibonani.save.domain.utils.buildSupabaseAuthHeaders
+import com.sanibonani.save.domain.usecase.auth.BuildDocumentAuthHeadersUseCase
+import com.sanibonani.save.domain.usecase.auth.GetAttributableActorIdUseCase
+import com.sanibonani.save.domain.usecase.auth.IsBiometricEnabledUseCase
+import com.sanibonani.save.domain.usecase.auth.SetBiometricEnabledUseCase
+import com.sanibonani.save.domain.usecase.member.ObserveMemberDocumentsUseCase
+import com.sanibonani.save.domain.usecase.member.UpdateMemberBankingDetailsUseCase
+import com.sanibonani.save.domain.usecase.member.UploadMemberDocumentUseCase
+import com.sanibonani.save.domain.usecase.member.UploadRelationalDocumentUseCase
+import com.sanibonani.save.domain.usecase.system.ObserveSyncStatusUseCase
 import com.sanibonani.save.service.MemberGroupContextCacheService
 import com.sanibonani.save.features.common.presentation.BaseViewModel
 import com.sanibonani.save.features.member.presentation.state.MemberUiState
@@ -18,27 +21,24 @@ import javax.inject.Inject
 @HiltViewModel
 class MemberProfileViewModel @Inject constructor(
     private val memberContextCacheService: MemberGroupContextCacheService,
-    private val memberRepo: MemberRepository,
-    private val documentRepo: MemberDocumentRepository,
-    private val supabaseRepo: SupabaseRepository,
-    private val credentialsRepo: CredentialsRepository,
-    private val syncRepository: SyncRepository
+    private val observeMemberDocuments: ObserveMemberDocumentsUseCase,
+    private val updateMemberBankingDetails: UpdateMemberBankingDetailsUseCase,
+    private val uploadMemberDocument: UploadMemberDocumentUseCase,
+    private val uploadRelationalDocumentUseCase: UploadRelationalDocumentUseCase,
+    private val observeSyncStatus: ObserveSyncStatusUseCase,
+    private val getAttributableActorId: GetAttributableActorIdUseCase,
+    private val isBiometricEnabled: IsBiometricEnabledUseCase,
+    private val setBiometricEnabled: SetBiometricEnabledUseCase,
+    private val buildDocumentAuthHeaders: BuildDocumentAuthHeadersUseCase
 ) : BaseViewModel<MemberUiState>(MemberUiState()) {
 
     val state: StateFlow<MemberUiState> = uiState
 
     init {
         observeContext()
-        updateState { it.copy(biometricEnabled = credentialsRepo.isBiometricEnabled()) }
+        updateState { it.copy(biometricEnabled = isBiometricEnabled()) }
         launchJob("sync_status_observation") {
-            syncRepository.syncStatus.collect { status -> updateState { it.copy(syncStatus = status) } }
-        }
-    }
-
-    fun syncAllData() {
-        launchJob("sync_all") {
-            val groupId = uiState.value.selectedGroupId
-            if (groupId != null) syncRepository.syncGroupData(groupId) else syncRepository.syncAllData()
+            observeSyncStatus().collect { status -> updateState { it.copy(syncStatus = status) } }
         }
     }
 
@@ -60,7 +60,7 @@ class MemberProfileViewModel @Inject constructor(
 
     private fun observeDocuments(memberId: String) {
         launchJob("documents_observation") {
-            documentRepo.observeMemberDocuments(memberId).collect { res ->
+            observeMemberDocuments(memberId).collect { res ->
                 res.onSuccess { docs -> updateState { it.copy(documents = docs) } }
             }
         }
@@ -70,11 +70,11 @@ class MemberProfileViewModel @Inject constructor(
         val memberId = uiState.value.member?.let { it.id.serverIdOrReport("member") } ?: return
         launchJob("update_banking") {
             updateState { it.copy(isLoading = true) }
-            memberRepo.updateMemberBankingDetails(memberId, bank, account, branch).onSuccess {
+            updateMemberBankingDetails(memberId, bank, account, branch).onSuccess {
                 updateState { s -> s.copy(isLoading = false) }
                 sendEvent(UIEvent.ShowMessage("Banking details updated"))
                 // The session can end before this callback runs; the warm-up is best-effort.
-                supabaseRepo.currentUserId?.let { memberContextCacheService.warmUpForUser(it) }
+                getAttributableActorId()?.let { memberContextCacheService.warmUpForUser(it) }
             }.onFailure {
                 updateState { s -> s.copy(isLoading = false) }
                 handleError(it)
@@ -86,7 +86,7 @@ class MemberProfileViewModel @Inject constructor(
         val memberId = uiState.value.member?.let { it.id.serverIdOrReport("member") } ?: return
         launchJob("upload_doc_$index") {
             updateState { it.copy(isUploading = true) }
-            memberRepo.uploadMemberDocument(memberId, index, data, name, mime).onSuccess { url ->
+            uploadMemberDocument(memberId, index, data, name, mime).onSuccess { url ->
                 val updatedMember = when (index) {
                     0 -> uiState.value.member?.copy(profilePhotoUrl = url)
                     1 -> uiState.value.member?.copy(document1Url = url, document1Type = mime)
@@ -116,7 +116,7 @@ class MemberProfileViewModel @Inject constructor(
         val groupId = uiState.value.selectedGroupId ?: return
         launchJob("upload_relational_doc_$label") {
             updateState { it.copy(isUploading = true) }
-            documentRepo.uploadAndAddMemberDocument(memberId, groupId, label, data, fileName, mime).onSuccess {
+            uploadRelationalDocumentUseCase(memberId, groupId, label, data, fileName, mime).onSuccess {
                 updateState { it.copy(isUploading = false) }
                 sendEvent(UIEvent.ShowMessage("'$label' uploaded successfully"))
             }.onFailure {
@@ -126,11 +126,10 @@ class MemberProfileViewModel @Inject constructor(
         }
     }
 
-    fun getDownloadParams(url: String): Map<String, String> =
-        buildSupabaseAuthHeaders(url, supabaseRepo.accessToken)
+    fun getDownloadParams(url: String): Map<String, String> = buildDocumentAuthHeaders(url)
 
     fun toggleBiometric(enabled: Boolean) {
-        credentialsRepo.setBiometricEnabled(enabled)
+        setBiometricEnabled(enabled)
         updateState { it.copy(biometricEnabled = enabled) }
     }
 }

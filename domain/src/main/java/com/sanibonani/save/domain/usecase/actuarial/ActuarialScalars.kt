@@ -43,7 +43,7 @@ object ActuarialScalars {
         val apv = ActuarialMath.calculateAPV(expectedAnnualClaims, annualDiscountRatePct, 1.0)
 
         val purePremiumMonthly = (expectedAnnualClaims / n) / 12.0
-        val safetyLoadingMonthly = purePremiumMonthly * (safetyLoadingPct / 100.0)
+        val safetyLoadingMonthly = purePremiumMonthly.percent(safetyLoadingPct)
         val grossPremiumMonthly = purePremiumMonthly + safetyLoadingMonthly + adminCostPerMemberMonthly
 
         val reserveAdequacyPct = if (expectedAnnualClaims.isPositive) balance.ratio(expectedAnnualClaims) * 100.0 else 1000.0
@@ -55,7 +55,7 @@ object ActuarialScalars {
             paymentCompliancePct = paymentRatePct
         )
 
-        val monthlyInflow = (totalExpectedContributionsAnnual / 12.0) * (paymentRatePct / 100.0)
+        val monthlyInflow = (totalExpectedContributionsAnnual / 12).percent(paymentRatePct)
         val monthlyClaimsOutflow = expectedAnnualClaims / 12.0
         val monthlyAdminOutflow = adminCostPerMemberMonthly * n
         val monthlyNetFlow = monthlyInflow - monthlyClaimsOutflow - monthlyAdminOutflow

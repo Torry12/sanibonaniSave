@@ -145,7 +145,8 @@ class BurialSocietyStrategy : BaseActuarialStrategy() {
         val purePremiumMonthly = (expectedAnnualClaimsValue / n) / 12.0
 
         // 3. Safety Loading & Admin Fees
-        val safetyLoadedPremiumMonthly = purePremiumMonthly * (1.0 + ActuarialConstants.BURIAL_SAFETY_LOADING_PCT / 100.0)
+        val safetyLoadedPremiumMonthly =
+            purePremiumMonthly + purePremiumMonthly.percent(ActuarialConstants.BURIAL_SAFETY_LOADING_PCT)
         val adminFeeMonthly = ActuarialConstants.ADMIN_COST_PER_MEMBER_MONTHLY
         val grossPremiumMonthly = safetyLoadedPremiumMonthly + adminFeeMonthly
 
@@ -176,7 +177,7 @@ class BurialSocietyStrategy : BaseActuarialStrategy() {
 
         // 9. Recommended Monthly Premium
         val recommendedMonthlyContribution = if (!isSolvent) {
-            grossPremiumMonthly.max(group.monthlyContribution * 1.25)
+            grossPremiumMonthly.max(group.monthlyContribution.percent(125))
         } else {
             grossPremiumMonthly
         }

@@ -1,5 +1,6 @@
 package com.sanibonani.save.features.common.presentation
 
+import androidx.lifecycle.ViewModel
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -70,7 +71,7 @@ object LoadingManager {
 
 @HiltViewModel
 class GlobalLoadingViewModel @Inject constructor(
-    private val loadingService: GlobalLoadingService
-) : BaseViewModel<Boolean>(false) {
+    loadingService: GlobalLoadingService
+) : ViewModel() {
     val showSpinner = loadingService.showSpinner
 }

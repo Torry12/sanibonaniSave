@@ -60,8 +60,8 @@ This document defines the specialized business rules and financial logic applied
 *Primary Goal: Quick access to funds for unexpected life events.*
 
 ### ⚡ Disbursal Rules
-- **Withdrawal Validation**: Managed by `ProcessEmergencyWithdrawalUseCase`.
-- **Limits**: Maximum single withdrawal capped at 50% of available group liquidity to ensure fund survival.
+- **Withdrawal Validation**: Managed by `RequestWithdrawalUseCase`, which delegates treasury and eligibility checks to `PayoutGuard`.
+- **Limits**: A single emergency withdrawal is capped at 50% of the live group balance. `PayoutGuard` rejects anything above the cap with `WithdrawalLimitExceededException` before the request is queued.
 - **Eligibility**: Restricted to `ACTIVE` status members only.
 
 ---

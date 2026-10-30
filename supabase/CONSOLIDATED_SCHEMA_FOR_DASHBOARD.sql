@@ -1,6 +1,6 @@
 -- ─────────────────────────────────────────────────────────────────────────────
 -- SanibonaniSave — GROUND ZERO MASTER MIGRATION (Consolidated)
--- Generated: 2026-10-24
+-- Generated: 2026-10-30
 -- Version: 2.2 (Regenerated from the authoritative master scripts)
 --
 -- Applied in this order, mirroring supabase/00_REBUILD_ALL.sql and
@@ -280,9 +280,13 @@ CREATE TABLE IF NOT EXISTS public.beneficiary_payout_claims (
     beneficiary_id    UUID NOT NULL,
     beneficiary_name  TEXT NOT NULL,
     face_photo_url    TEXT,
+    face_photo_status TEXT NOT NULL DEFAULT 'pending' CHECK (face_photo_status IN ('pending', 'verified', 'rejected')),
     beneficiary_id_url TEXT,
+    beneficiary_id_status TEXT NOT NULL DEFAULT 'pending' CHECK (beneficiary_id_status IN ('pending', 'verified', 'rejected')),
     death_certificate_url TEXT,
+    death_certificate_status TEXT NOT NULL DEFAULT 'pending' CHECK (death_certificate_status IN ('pending', 'verified', 'rejected')),
     member_id_url      TEXT,
+    member_id_status   TEXT NOT NULL DEFAULT 'pending' CHECK (member_id_status IN ('pending', 'verified', 'rejected')),
     cause_of_death    TEXT,
     date_of_death     DATE,
     claim_amount      NUMERIC(12,2) NOT NULL CHECK (claim_amount > 0),
@@ -775,7 +779,7 @@ ON CONFLICT (id) DO NOTHING;
 -- ─────────────────────────────────────────────────────────────────────────────
 -- ─────────────────────────────────────────────────────────────────────────────
 -- SanibonaniSave — SUPABASE MASTER FUNCTIONS & TRIGGERS
--- Version: 11.0 (Gold Standard Integrated - August 2026)
+-- Version: 11.1 (Money RPCs carry caller-identity checks - October 2026)
 -- ─────────────────────────────────────────────────────────────────────────────
 
 -- 1. SECURITY & AUTH HELPERS
@@ -805,6 +809,17 @@ CREATE OR REPLACE FUNCTION public.is_group_member(p_group_id UUID)
 RETURNS BOOLEAN AS $$
 BEGIN
     RETURN EXISTS (SELECT 1 FROM public.members WHERE group_id = p_group_id AND user_id = auth.uid());
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER STABLE SET search_path = public, pg_temp;
+
+-- The rows a caller may move money for are the rows linked to its own login, not any member id
+-- it happens to be able to type into a request.
+CREATE OR REPLACE FUNCTION public.is_own_member(p_member_id UUID)
+RETURNS BOOLEAN AS $$
+BEGIN
+    RETURN p_member_id IS NOT NULL AND EXISTS (
+        SELECT 1 FROM public.members WHERE id = p_member_id AND user_id = auth.uid()
+    );
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER STABLE SET search_path = public, pg_temp;
 
@@ -849,24 +864,37 @@ SET search_path = public, pg_temp
 AS $$
 DECLARE
     v_new_balance NUMERIC;
-    v_existing_amount NUMERIC;
+    v_existing RECORD;
 BEGIN
-    IF p_transaction_id IS NOT NULL THEN
-        PERFORM 1 FROM public.groups WHERE id = p_group_id FOR UPDATE;
-        IF NOT FOUND THEN RAISE EXCEPTION '[SYS_001] GROUP_NOT_FOUND'; END IF;
+    IF p_amount IS NULL OR p_amount::TEXT IN ('NaN', 'Infinity', '-Infinity') OR p_amount <> ROUND(p_amount, 2) THEN
+        RAISE EXCEPTION '[FIN_003] INVALID_AMOUNT: Ledger amount must have at most two decimal places';
+    END IF;
 
-        SELECT amount INTO v_existing_amount
+    SELECT balance INTO v_new_balance
+    FROM public.groups
+    WHERE id = p_group_id
+    FOR UPDATE;
+    IF NOT FOUND THEN RAISE EXCEPTION '[SYS_001] GROUP_NOT_FOUND'; END IF;
+
+    IF p_transaction_id IS NOT NULL THEN
+        SELECT * INTO v_existing
         FROM public.group_ledger
         WHERE group_id = p_group_id AND transaction_id = p_transaction_id
         LIMIT 1;
 
         IF FOUND THEN
-            IF v_existing_amount <> p_amount THEN
-                RAISE EXCEPTION '[SYS_002] TRANSACTION_ID_REUSED_WITH_DIFFERENT_AMOUNT';
+            IF v_existing.amount IS DISTINCT FROM p_amount
+               OR v_existing.category IS DISTINCT FROM p_category
+               OR v_existing.member_id IS DISTINCT FROM p_member_id THEN
+                RAISE EXCEPTION '[SYS_002] TRANSACTION_ID_REUSED_WITH_DIFFERENT_LEDGER_ENTRY';
             END IF;
-            SELECT balance INTO v_new_balance FROM public.groups WHERE id = p_group_id;
             RETURN v_new_balance;
         END IF;
+    END IF;
+
+    IF p_amount < 0 AND COALESCE(v_new_balance, 0) < ABS(p_amount) THEN
+        RAISE EXCEPTION '[FIN_002] INSUFFICIENT_FUNDS: Group balance is %, requested debit is %',
+            COALESCE(v_new_balance, 0), ABS(p_amount);
     END IF;
 
     UPDATE public.groups SET balance = balance + p_amount, updated_at = NOW()
@@ -892,6 +920,20 @@ DECLARE
     v_new_balance NUMERIC;
     v_existing RECORD;
 BEGIN
+    -- Reached directly over PostgREST and nested from the fee/contribution paths, so the session
+    -- decides: a platform admin or the group's own people may book revenue for a group, and the
+    -- billing worker books it as service_role. An anonymous caller has no claim on this ledger.
+    IF auth.role() IS DISTINCT FROM 'service_role'
+       AND NOT (public.is_platform_admin()
+                OR (p_group_id IS NOT NULL AND (public.is_group_admin(p_group_id) OR public.is_group_member(p_group_id)))) THEN
+        RAISE EXCEPTION '[SEC_002] PLATFORM_REVENUE_ACCESS_DENIED';
+    END IF;
+
+    IF p_amount IS NULL OR p_amount::TEXT IN ('NaN', 'Infinity', '-Infinity')
+       OR p_amount <= 0 OR p_amount <> ROUND(p_amount, 2) THEN
+        RAISE EXCEPTION '[FIN_003] INVALID_AMOUNT: Platform revenue must be positive and have at most two decimal places';
+    END IF;
+
     -- Serialises every writer of this running total: two concurrent fee payments would otherwise
     -- read the same SUM and each store it as their own balance_after.
     PERFORM pg_advisory_xact_lock(hashtext('platform_ledger')::bigint);
@@ -899,6 +941,11 @@ BEGIN
     IF p_transaction_id IS NOT NULL THEN
         SELECT * INTO v_existing FROM public.platform_ledger WHERE transaction_id = p_transaction_id LIMIT 1;
         IF FOUND THEN
+            IF v_existing.amount IS DISTINCT FROM p_amount
+               OR v_existing.category IS DISTINCT FROM p_category
+               OR v_existing.group_id IS DISTINCT FROM p_group_id THEN
+                RAISE EXCEPTION '[SYS_002] TRANSACTION_ID_REUSED_WITH_DIFFERENT_PLATFORM_REVENUE';
+            END IF;
             RETURN jsonb_build_object('amount', v_existing.amount, 'balance_after', v_existing.balance_after, 'idempotent', true);
         END IF;
     END IF;
@@ -936,6 +983,26 @@ DECLARE
     v_l_desc TEXT;
     v_l_cat TEXT;
 BEGIN
+    -- No client calls this by name today, but the blanket grant makes it callable, and it is the
+    -- function that actually moves money: it is the one an anonymous request should not reach.
+    IF auth.role() IS DISTINCT FROM 'service_role'
+       AND NOT (public.is_platform_admin()
+                OR public.is_group_admin(p_group_id)
+                OR public.is_own_member(p_member_id)) THEN
+        RAISE EXCEPTION '[SEC_002] CONTRIBUTION_ACCESS_DENIED';
+    END IF;
+
+    IF p_amount IS NULL OR p_amount::TEXT IN ('NaN', 'Infinity', '-Infinity')
+       OR p_amount <= 0 OR p_amount <> ROUND(p_amount, 2) THEN
+        RAISE EXCEPTION '[FIN_003] INVALID_AMOUNT: Contribution amount must be positive and have at most two decimal places';
+    END IF;
+    IF p_status IS NULL OR p_status NOT IN ('paid', 'due', 'overdue', 'partial', 'missed') THEN
+        RAISE EXCEPTION '[FIN_003] INVALID_STATUS: Unsupported contribution status %', p_status;
+    END IF;
+    IF p_type IS NULL OR p_type NOT IN ('contribution', 'joining_fee', 'registration_contribution', 'late_fee', 'member_fee', 'member_fee_ledger', 'loan_settlement_extraction') THEN
+        RAISE EXCEPTION '[FIN_003] INVALID_TYPE: Unsupported contribution type %', p_type;
+    END IF;
+
     SELECT full_name INTO v_m_name FROM public.members WHERE id = p_member_id AND group_id = p_group_id;
     IF NOT FOUND THEN RAISE EXCEPTION '[SYS_001] Member not found in group'; END IF;
 
@@ -974,10 +1041,29 @@ DECLARE
     v_contrib RECORD;
     v_new_bal NUMERIC;
 BEGIN
+    IF auth.role() IS DISTINCT FROM 'service_role'
+       AND NOT (public.is_platform_admin()
+                OR public.is_group_admin(p_group_id)
+                OR public.is_own_member(p_member_id)) THEN
+        RAISE EXCEPTION '[SEC_002] CONTRIBUTION_ACCESS_DENIED';
+    END IF;
+
+    IF p_amount IS NULL OR p_amount::TEXT IN ('NaN', 'Infinity', '-Infinity')
+       OR p_amount <= 0 OR p_amount <> ROUND(p_amount, 2) THEN
+        RAISE EXCEPTION '[FIN_003] INVALID_AMOUNT: Contribution amount must be positive and have at most two decimal places';
+    END IF;
+
     SELECT balance INTO v_new_bal FROM public.groups WHERE id = p_group_id FOR UPDATE;
     IF p_tx_id IS NOT NULL THEN
         SELECT * INTO v_contrib FROM public.contributions WHERE group_id = p_group_id AND transaction_id = p_tx_id;
         IF FOUND THEN
+            IF v_contrib.member_id IS DISTINCT FROM p_member_id
+               OR v_contrib.amount IS DISTINCT FROM p_amount
+               OR v_contrib.type IS DISTINCT FROM p_type
+               OR v_contrib.status IS DISTINCT FROM p_status
+               OR v_contrib.due_date IS DISTINCT FROM p_due_date THEN
+                RAISE EXCEPTION '[SYS_002] TRANSACTION_ID_REUSED_WITH_DIFFERENT_CONTRIBUTION';
+            END IF;
             SELECT balance INTO v_new_bal FROM public.groups WHERE id = p_group_id;
             RETURN jsonb_build_object('contribution', to_jsonb(v_contrib), 'new_balance', v_new_bal, 'idempotent', true);
         END IF;
@@ -999,23 +1085,62 @@ SET search_path = public, pg_temp
 AS $$
 DECLARE
     v_repay RECORD;
+    v_loan RECORD;
     v_m_name TEXT;
     v_new_bal NUMERIC;
+    v_remaining NUMERIC;
 BEGIN
+    -- The loan-ownership check below proves the loan belongs to p_member_id, but p_member_id is
+    -- whatever the caller typed. This proves the caller is allowed to speak for that member.
+    IF auth.role() IS DISTINCT FROM 'service_role'
+       AND NOT (public.is_platform_admin()
+                OR public.is_group_admin(p_group_id)
+                OR public.is_own_member(p_member_id)) THEN
+        RAISE EXCEPTION '[SEC_002] LOAN_REPAYMENT_ACCESS_DENIED';
+    END IF;
+
+    IF p_amount IS NULL OR p_amount <= 0 OR p_amount <> ROUND(p_amount, 2) THEN
+        RAISE EXCEPTION '[FIN_003] INVALID_AMOUNT: Repayment amount must be positive and have at most two decimal places';
+    END IF;
+
     SELECT balance INTO v_new_bal FROM public.groups WHERE id = p_group_id FOR UPDATE;
     IF NOT FOUND THEN RAISE EXCEPTION '[SYS_001] GROUP_NOT_FOUND'; END IF;
 
+    SELECT * INTO v_loan
+    FROM public.loans
+    WHERE id = p_loan_id
+    FOR UPDATE;
+    IF NOT FOUND THEN RAISE EXCEPTION '[SYS_001] LOAN_NOT_FOUND'; END IF;
+    IF v_loan.group_id IS DISTINCT FROM p_group_id OR v_loan.member_id IS DISTINCT FROM p_member_id THEN
+        RAISE EXCEPTION '[FIN_003] LOAN_OWNERSHIP_MISMATCH';
+    END IF;
     IF p_transaction_id IS NOT NULL THEN
         SELECT * INTO v_repay
         FROM public.loan_repayments
-        WHERE group_id = p_group_id AND transaction_id = p_transaction_id;
+        WHERE group_id = p_group_id AND transaction_id = p_transaction_id
+        FOR UPDATE;
         IF FOUND THEN
+            IF v_repay.loan_id IS DISTINCT FROM p_loan_id
+               OR v_repay.member_id IS DISTINCT FROM p_member_id
+               OR v_repay.amount IS DISTINCT FROM p_amount THEN
+                RAISE EXCEPTION '[SYS_002] TRANSACTION_ID_REUSED_WITH_DIFFERENT_REPAYMENT';
+            END IF;
             SELECT balance INTO v_new_bal FROM public.groups WHERE id = p_group_id;
             RETURN jsonb_build_object('repayment', to_jsonb(v_repay), 'new_balance', v_new_bal, 'idempotent', true);
         END IF;
     END IF;
 
+    IF v_loan.status IS NULL OR v_loan.status NOT IN ('active', 'partially_paid', 'overdue', 'defaulted') THEN
+        RAISE EXCEPTION '[FIN_002] INVALID_STATUS: Loan cannot accept repayments from status %', v_loan.status;
+    END IF;
+
+    v_remaining := v_loan.total_to_repay - COALESCE(v_loan.total_repaid, 0);
+    IF p_amount > v_remaining THEN
+        RAISE EXCEPTION '[FIN_003] REPAYMENT_EXCEEDS_BALANCE: remaining %, requested %', v_remaining, p_amount;
+    END IF;
+
     SELECT full_name INTO v_m_name FROM public.members WHERE id = p_member_id;
+    IF NOT FOUND THEN RAISE EXCEPTION '[SYS_001] MEMBER_NOT_FOUND'; END IF;
     INSERT INTO public.loan_repayments (loan_id, member_id, group_id, amount, payment_method, transaction_id)
     VALUES (p_loan_id, p_member_id, p_group_id, p_amount, p_payment_method, p_transaction_id)
     RETURNING * INTO v_repay;
@@ -1072,6 +1197,14 @@ DECLARE
     v_current_bal NUMERIC;
     v_diff NUMERIC;
 BEGIN
+    -- With p_fix this rewrites public.groups.balance, and even read-only it reports the exact
+    -- ledger sum of any group, so the caller must control that group.
+    IF NOT (public.is_platform_admin() OR public.is_group_admin(p_group_id)) THEN
+        RAISE EXCEPTION '[SEC_002] AUDIT_ACCESS_DENIED' USING
+            DETAIL = 'audit_and_fix_group_balance_v1() may only be run by that group''s administrator or a platform administrator.',
+            HINT = 'group_admin_or_platform_admin_required';
+    END IF;
+
     SELECT COALESCE(SUM(amount), 0) INTO v_ledger_sum FROM public.group_ledger WHERE group_id = p_group_id;
     SELECT balance INTO v_current_bal FROM public.groups WHERE id = p_group_id;
     v_diff := v_current_bal - v_ledger_sum;
@@ -1180,12 +1313,29 @@ DECLARE
     v_total_members INT;
     v_report JSONB;
 BEGIN
-    SELECT COALESCE(SUM(balance), 0) INTO v_liquidity FROM public.groups;
+    -- SECURITY DEFINER and reachable by any role PostgREST hands a request to, so the platform
+    -- snapshot has to carry the check that RLS would apply to the rows it reads and writes.
+    IF NOT public.is_platform_admin() THEN
+        RAISE EXCEPTION '[SEC_002] PLATFORM_ADMIN_ONLY' USING
+            DETAIL = 'generate_platform_audit_report_v1() reads every group balance and writes the platform snapshot rows.',
+            HINT = 'platform_admin_role_required';
+    END IF;
+
+    -- One pass over groups and one over the behaviour track: the three earlier scans of
+    -- public.groups and two of member_behavior_track were the same rows read again.
+    SELECT COALESCE(SUM(balance), 0),
+           COUNT(*),
+           COUNT(*) FILTER (WHERE is_platform_suspended)
+      INTO v_liquidity, v_total_groups, v_suspended_groups
+      FROM public.groups;
+
     SELECT COALESCE(SUM(amount), 0) INTO v_revenue FROM public.platform_ledger;
-    SELECT COUNT(*) INTO v_high_risk FROM public.member_behavior_track WHERE behavior_score <= 40;
-    SELECT COUNT(*) INTO v_critical_risk FROM public.member_behavior_track WHERE behavior_score <= 20;
-    SELECT COUNT(*) INTO v_total_groups FROM public.groups;
-    SELECT COUNT(*) INTO v_suspended_groups FROM public.groups WHERE is_platform_suspended = true;
+
+    SELECT COUNT(*) FILTER (WHERE behavior_score <= 40),
+           COUNT(*) FILTER (WHERE behavior_score <= 20)
+      INTO v_high_risk, v_critical_risk
+      FROM public.member_behavior_track;
+
     SELECT COUNT(*) INTO v_total_members FROM public.members;
 
     v_report := jsonb_build_object(
@@ -1248,15 +1398,28 @@ BEGIN
     SELECT * INTO v_group FROM public.groups WHERE id = p_group_id;
     IF NOT FOUND THEN RETURN NULL; END IF;
 
-    -- Membership
-    SELECT COUNT(*) INTO v_total FROM public.members WHERE group_id = p_group_id;
-    SELECT COUNT(*) INTO v_active FROM public.members WHERE group_id = p_group_id AND status = 'active';
-    SELECT COUNT(*) INTO v_probation FROM public.members WHERE group_id = p_group_id AND status = 'probation';
-    SELECT COUNT(*) INTO v_suspended FROM public.members WHERE group_id = p_group_id AND status = 'suspended';
+    -- SECURITY DEFINER: the ledger flows, reconciliation and actuarial position this report
+    -- assembles sit outside the caller's RLS bubble, so repeat the group-admin check here.
+    IF NOT (public.is_platform_admin() OR public.is_group_admin(p_group_id)) THEN
+        RAISE EXCEPTION '[SEC_002] AUDIT_ACCESS_DENIED' USING
+            DETAIL = 'A group audit report may only be read by that group''s administrator or a platform administrator.',
+            HINT = 'group_admin_or_platform_admin_required';
+    END IF;
 
-    -- Finances
-    SELECT COALESCE(SUM(amount), 0) INTO v_inflow FROM public.group_ledger WHERE group_id = p_group_id AND amount > 0;
-    SELECT COALESCE(SUM(ABS(amount)), 0) INTO v_outflow FROM public.group_ledger WHERE group_id = p_group_id AND amount < 0;
+    -- Aggregate membership and ledger totals in one scan per table.
+    SELECT COUNT(*),
+           COUNT(*) FILTER (WHERE status = 'active'),
+           COUNT(*) FILTER (WHERE status = 'probation'),
+           COUNT(*) FILTER (WHERE status = 'suspended')
+      INTO v_total, v_active, v_probation, v_suspended
+      FROM public.members
+     WHERE group_id = p_group_id;
+
+    SELECT COALESCE(SUM(amount) FILTER (WHERE amount > 0), 0),
+           COALESCE(SUM(ABS(amount)) FILTER (WHERE amount < 0), 0)
+      INTO v_inflow, v_outflow
+      FROM public.group_ledger
+     WHERE group_id = p_group_id;
 
     -- Reconciliation
     SELECT created_at, status, discrepancy INTO v_last_check, v_recon_status, v_recon_diff
@@ -1322,6 +1485,16 @@ DECLARE
 BEGIN
     SELECT * INTO v_member FROM public.members WHERE id = p_member_id;
     IF NOT FOUND THEN RETURN NULL; END IF;
+
+    -- SECURITY DEFINER: this report assembles a member's name, contribution and loan position and
+    -- the last audit-log rows, all of which RLS would otherwise filter per member.
+    IF NOT (public.is_platform_admin()
+            OR public.is_group_admin(v_member.group_id)
+            OR v_member.user_id = auth.uid()) THEN
+        RAISE EXCEPTION '[SEC_002] AUDIT_ACCESS_DENIED' USING
+            DETAIL = 'A member audit report may only be read by the member, that member''s group administrator, or a platform administrator.',
+            HINT = 'member_self_or_admin_required';
+    END IF;
 
     SELECT * INTO v_behavior FROM public.member_behavior_track WHERE member_id = p_member_id;
 
@@ -1478,7 +1651,14 @@ BEGIN
     WHERE id = p_bank_tx_id;
 
     IF v_group_id IS NULL THEN
-        RAISE EXCEPTION 'Bank transaction % not found', p_bank_tx_id;
+        RAISE EXCEPTION '[SYS_001] BANK_TRANSACTION_NOT_FOUND: %', p_bank_tx_id;
+    END IF;
+
+    -- Reconciling marks real money as matched, and the row is picked by an id the caller supplies,
+    -- so only the people who run that group may do it.
+    IF auth.role() IS DISTINCT FROM 'service_role'
+       AND NOT (public.is_platform_admin() OR public.is_group_admin(v_group_id)) THEN
+        RAISE EXCEPTION '[SEC_002] BANK_RECONCILE_ACCESS_DENIED';
     END IF;
 
     UPDATE public.bank_transactions
@@ -1515,6 +1695,21 @@ DECLARE
     v_fee RECORD;
     v_group_name TEXT;
 BEGIN
+    -- A fee submission debits the group's balance and credits the platform ledger, so the caller
+    -- must either run the platform, run that group, or be the service role the billing worker uses.
+    IF auth.role() IS DISTINCT FROM 'service_role'
+       AND NOT (public.is_platform_admin() OR public.is_group_admin(p_group_id)) THEN
+        RAISE EXCEPTION '[SEC_002] PLATFORM_FEE_ACCESS_DENIED';
+    END IF;
+
+    IF p_amount IS NULL OR p_amount::TEXT IN ('NaN', 'Infinity', '-Infinity')
+       OR p_amount <= 0 OR p_amount <> ROUND(p_amount, 2) THEN
+        RAISE EXCEPTION '[FIN_003] INVALID_AMOUNT: Platform fee must be positive and have at most two decimal places';
+    END IF;
+    IF p_fee_type IS NULL OR p_fee_type NOT IN ('monthly', 'registration') THEN
+        RAISE EXCEPTION '[FIN_003] INVALID_FEE_TYPE: Unsupported platform fee type %', p_fee_type;
+    END IF;
+
     -- Row lock first: serialises concurrent submissions of the same tx_id.
     SELECT name, balance INTO v_group_name, v_current_bal FROM public.groups WHERE id = p_group_id FOR UPDATE;
 
@@ -1525,17 +1720,41 @@ BEGIN
     -- ── Idempotency guard ────────────────────────────────────────────────
     -- A NULL tx_id cannot be deduplicated, so fall through to normal processing;
     -- callers are expected to always supply a deterministic reference.
-    IF p_tx_id IS NOT NULL AND (
-        EXISTS (SELECT 1 FROM public.group_ledger   WHERE group_id = p_group_id AND transaction_id = p_tx_id)
-        OR EXISTS (SELECT 1 FROM public.platform_ledger WHERE transaction_id = p_tx_id)
-        OR EXISTS (SELECT 1 FROM public.platform_fees  WHERE group_id = p_group_id AND transaction_id = p_tx_id)
-    ) THEN
-        RETURN jsonb_build_object(
-            'paid', p_amount,
-            'remaining_allocated', p_amount,
-            'transaction_id', p_tx_id,
-            'status', 'idempotent'
-        );
+    IF p_tx_id IS NOT NULL THEN
+        IF EXISTS (SELECT 1 FROM public.platform_ledger WHERE transaction_id = p_tx_id) THEN
+            IF NOT EXISTS (
+                SELECT 1 FROM public.platform_ledger
+                WHERE transaction_id = p_tx_id
+                  AND amount = p_amount
+                  AND category = p_fee_type || '_fee'
+                  AND group_id = p_group_id
+            ) OR (
+                p_from_group_fund AND NOT EXISTS (
+                    SELECT 1 FROM public.group_ledger
+                    WHERE group_id = p_group_id
+                      AND transaction_id = p_tx_id
+                      AND amount = -p_amount
+                      AND category = 'platform_fee'
+                )
+            ) THEN
+                RAISE EXCEPTION '[SYS_002] TRANSACTION_ID_REUSED_WITH_DIFFERENT_PLATFORM_FEE';
+            END IF;
+
+            RETURN jsonb_build_object(
+                'paid', p_amount,
+                'remaining_allocated', p_amount,
+                'transaction_id', p_tx_id,
+                'status', 'idempotent'
+            );
+        ELSIF EXISTS (
+            SELECT 1 FROM public.group_ledger
+            WHERE group_id = p_group_id AND transaction_id = p_tx_id
+        ) OR EXISTS (
+            SELECT 1 FROM public.platform_fees
+            WHERE group_id = p_group_id AND transaction_id = p_tx_id
+        ) THEN
+            RAISE EXCEPTION '[SYS_002] TRANSACTION_ID_REUSED_WITH_DIFFERENT_PLATFORM_FEE';
+        END IF;
     END IF;
 
     IF p_from_group_fund THEN
@@ -1619,6 +1838,15 @@ DECLARE
     v_count INT := 0;
     v_monthly_fee NUMERIC;
 BEGIN
+    -- This bills every group on the platform at once. It belongs to the scheduler, and to nobody
+    -- else who can reach the RPC endpoint. A caller with no JWT at all is a database-side job
+    -- (pg_cron runs the documented monthly schedule without one), not an HTTP request.
+    IF auth.jwt() IS NOT NULL
+       AND auth.role() IS DISTINCT FROM 'service_role'
+       AND NOT public.is_platform_admin() THEN
+        RAISE EXCEPTION '[SEC_002] MONTHLY_BILLING_ACCESS_DENIED';
+    END IF;
+
     -- Get default monthly fee from platform_settings
     SELECT (value)::NUMERIC INTO v_monthly_fee FROM public.platform_settings WHERE key = 'monthly_per_member';
 
@@ -1822,6 +2050,52 @@ CREATE TRIGGER tr_poll_audit AFTER INSERT ON public.group_polls FOR EACH ROW EXE
 DROP TRIGGER IF EXISTS tr_vote_audit ON public.group_poll_votes;
 CREATE TRIGGER tr_vote_audit AFTER INSERT ON public.group_poll_votes FOR EACH ROW EXECUTE FUNCTION public.fn_trigger_voting_audit();
 
+-- 10.1.1 GOVERNANCE: EXPLICIT POLL CLOSE
+-- The voting screen's Close button calls this by name (VotingRepositoryImpl.closePoll), and until
+-- it existed the call resolved to nothing on any tier. The only close path was
+-- fn_trigger_sync_poll_status flipping a poll at its own ends_at, so a poll with a deadline months
+-- away could not be closed early even though the screen offered it - and the screen renders that
+-- button for every viewer, with no membership or admin check around it, so the entitlement had to
+-- be decided here rather than trusted from the client.
+CREATE OR REPLACE FUNCTION public.close_poll_v1(p_poll_id UUID)
+RETURNS VOID
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+    v_poll RECORD;
+BEGIN
+    SELECT * INTO v_poll FROM public.group_polls WHERE id = p_poll_id;
+    IF v_poll.id IS NULL THEN RAISE EXCEPTION '[SYS_001] POLL_NOT_FOUND'; END IF;
+
+    -- The worker that expires polls runs as service_role, so the exemption is what lets the
+    -- scheduler close a poll on a device with no login attached to the request.
+    IF auth.role() IS DISTINCT FROM 'service_role'
+       AND NOT (public.is_platform_admin() OR public.is_group_admin(v_poll.group_id)) THEN
+        RAISE EXCEPTION '[SEC_002] POLL_CLOSE_ACCESS_DENIED';
+    END IF;
+
+    IF v_poll.status <> 'open' THEN
+        RAISE EXCEPTION '[FIN_002] BAD_STATUS: Poll in % cannot be closed', v_poll.status;
+    END IF;
+
+    -- The tally is already maintained per vote by tr_sync_poll_vote_count, and the BEFORE UPDATE
+    -- trigger only writes its auto-close audit for a poll it finds open, so closing here arrives
+    -- with the status already set and produces no second audit row.
+    UPDATE public.group_polls SET status = 'closed', updated_at = NOW() WHERE id = p_poll_id;
+
+    PERFORM public.log_audit_event(
+        'POLL_CLOSED',
+        COALESCE(auth.uid()::text, 'system_gov'),
+        NULL,
+        v_poll.group_id,
+        jsonb_build_object('poll_id', p_poll_id, 'title', v_poll.title),
+        p_poll_id
+    );
+END;
+$$;
+
 -- 10.2 SIGNUP BOOTSTRAP
 -- Defined for baseline parity. No trigger is attached to auth.users here, matching the
 -- baseline: Supabase provisions that attachment out of band per project.
@@ -1912,6 +2186,129 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
+CREATE OR REPLACE FUNCTION public.settle_expired_loan_v2(
+    p_loan_id UUID
+) RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+    v_group_id UUID;
+    v_loan RECORD;
+    v_contribution RECORD;
+    v_repayment RECORD;
+    v_member_name TEXT;
+    v_has_contribution BOOLEAN;
+    v_has_repayment BOOLEAN;
+    v_remaining NUMERIC;
+    v_extraction_tx_id TEXT := 'forced-settlement-extraction:' || p_loan_id::text;
+    v_repayment_tx_id TEXT := 'forced-settlement-repayment:' || p_loan_id::text;
+    v_result JSONB;
+BEGIN
+    IF p_loan_id IS NULL THEN
+        RAISE EXCEPTION '[FIN_003] INVALID_LOAN_ID';
+    END IF;
+
+    SELECT group_id INTO v_group_id
+    FROM public.loans
+    WHERE id = p_loan_id;
+    IF NOT FOUND THEN RAISE EXCEPTION '[SYS_001] LOAN_NOT_FOUND'; END IF;
+
+    PERFORM id FROM public.groups WHERE id = v_group_id FOR UPDATE;
+    IF NOT FOUND THEN RAISE EXCEPTION '[SYS_001] GROUP_NOT_FOUND'; END IF;
+
+    SELECT * INTO v_loan
+    FROM public.loans
+    WHERE id = p_loan_id
+    FOR UPDATE;
+    IF NOT FOUND THEN RAISE EXCEPTION '[SYS_001] LOAN_NOT_FOUND'; END IF;
+    IF v_loan.group_id IS DISTINCT FROM v_group_id THEN
+        RAISE EXCEPTION '[SYS_002] LOAN_GROUP_CHANGED';
+    END IF;
+    IF auth.role() IS DISTINCT FROM 'service_role'
+       AND NOT (public.is_platform_admin() OR public.is_group_admin(v_group_id)) THEN
+        RAISE EXCEPTION '[SEC_002] LOAN_SETTLEMENT_ACCESS_DENIED';
+    END IF;
+
+    SELECT * INTO v_contribution
+    FROM public.contributions
+    WHERE group_id = v_group_id AND transaction_id = v_extraction_tx_id
+    FOR UPDATE;
+    v_has_contribution := FOUND;
+    SELECT * INTO v_repayment
+    FROM public.loan_repayments
+    WHERE group_id = v_group_id AND transaction_id = v_repayment_tx_id
+    FOR UPDATE;
+    v_has_repayment := FOUND;
+
+    IF v_has_contribution AND v_contribution.id IS NOT NULL THEN
+        IF v_contribution.member_id IS DISTINCT FROM v_loan.member_id
+           OR v_contribution.amount >= 0
+           OR v_contribution.type IS DISTINCT FROM 'loan_settlement_extraction'
+           OR v_contribution.status IS DISTINCT FROM 'paid'
+           OR v_repayment.id IS NULL
+           OR v_repayment.loan_id IS DISTINCT FROM p_loan_id
+           OR v_repayment.member_id IS DISTINCT FROM v_loan.member_id
+           OR v_repayment.amount IS DISTINCT FROM ABS(v_contribution.amount) THEN
+            RAISE EXCEPTION '[SYS_002] INCOMPLETE_OR_MISMATCHED_LOAN_SETTLEMENT';
+        END IF;
+        RETURN public.record_loan_repayment_v1(
+            p_loan_id, v_loan.member_id, v_group_id, v_repayment.amount,
+            'wallet', v_repayment_tx_id
+        );
+    ELSIF v_has_repayment AND v_repayment.id IS NOT NULL THEN
+        RAISE EXCEPTION '[SYS_002] INCOMPLETE_OR_MISMATCHED_LOAN_SETTLEMENT';
+    END IF;
+
+    IF v_loan.status IS NULL OR v_loan.status NOT IN ('active', 'partially_paid', 'overdue', 'defaulted') THEN
+        RAISE EXCEPTION '[FIN_002] INVALID_STATUS: Loan cannot be settled from status %', v_loan.status;
+    END IF;
+    IF v_loan.start_date IS NULL OR CURRENT_DATE < (v_loan.start_date + INTERVAL '3 months')::date THEN
+        RAISE EXCEPTION '[FIN_002] LOAN_TERM_NOT_EXPIRED';
+    END IF;
+
+    v_remaining := v_loan.total_to_repay - COALESCE(v_loan.total_repaid, 0);
+    IF v_remaining IS NULL OR v_remaining <= 0
+       OR v_remaining::text IN ('NaN', 'Infinity', '-Infinity')
+       OR v_remaining <> ROUND(v_remaining, 2) THEN
+        RAISE EXCEPTION '[FIN_003] INVALID_REMAINING_BALANCE';
+    END IF;
+
+    SELECT full_name INTO v_member_name
+    FROM public.members
+    WHERE id = v_loan.member_id AND group_id = v_group_id;
+    IF NOT FOUND THEN RAISE EXCEPTION '[SYS_001] MEMBER_NOT_FOUND'; END IF;
+
+    INSERT INTO public.contributions (
+        member_id, group_id, amount, due_date, paid_at, payment_method,
+        status, type, transaction_id
+    ) VALUES (
+        v_loan.member_id, v_group_id, -v_remaining, CURRENT_DATE, NOW(), 'wallet',
+        'paid', 'loan_settlement_extraction', v_extraction_tx_id
+    ) RETURNING * INTO v_contribution;
+
+    PERFORM public.increment_group_balance(
+        v_group_id, -v_remaining,
+        'Forced loan settlement extraction for ' || v_member_name,
+        'loan_settlement_extraction', v_extraction_tx_id, v_loan.member_id
+    );
+
+    v_result := public.record_loan_repayment_v1(
+        p_loan_id, v_loan.member_id, v_group_id, v_remaining,
+        'wallet', v_repayment_tx_id
+    );
+
+    PERFORM public.log_audit_event(
+        'LOAN_FORCED_SETTLEMENT', 'system', v_loan.member_id, v_group_id,
+        jsonb_build_object('loan_id', p_loan_id, 'amount', v_remaining),
+        p_loan_id
+    );
+
+    RETURN v_result;
+END;
+$$;
+
 
 CREATE OR REPLACE FUNCTION public.approve_and_disburse_loan_v2(
     p_loan_id UUID,
@@ -1926,6 +2323,9 @@ DECLARE
     v_loan RECORD;
     v_m_name TEXT;
     v_group RECORD;
+    -- The session is the authority on who approved this; p_admin_id is only the fallback a
+    -- service_role worker has no login of its own to offer.
+    v_actor UUID := COALESCE(auth.uid(), p_admin_id);
 BEGIN
     -- Groups-first, the same order complete_payout_v2 and increment_group_balance use: the status
     -- and liquidity guards below must be evaluated with the lock already held.
@@ -1934,6 +2334,12 @@ BEGIN
 
     SELECT * INTO v_loan FROM public.loans WHERE id = p_loan_id;
     IF v_loan.id IS NULL THEN RAISE EXCEPTION '[SYS_001] LOAN_NOT_FOUND'; END IF;
+
+    IF auth.role() IS DISTINCT FROM 'service_role'
+       AND NOT (public.is_platform_admin() OR public.is_group_admin(v_loan.group_id)) THEN
+        RAISE EXCEPTION '[SEC_002] LOAN_DISBURSEMENT_ACCESS_DENIED';
+    END IF;
+
     IF v_loan.status NOT IN ('pending', 'approved') THEN RAISE EXCEPTION '[FIN_002] INVALID_STATUS: Loan cannot be disbursed from status %', v_loan.status; END IF;
 
     PERFORM public.assert_mfa_for_disbursement_v1(v_loan.amount);
@@ -1943,10 +2349,10 @@ BEGIN
 
     SELECT full_name INTO v_m_name FROM public.members WHERE id = v_loan.member_id;
 
-    UPDATE public.loans SET status = 'active', reviewed_by = p_admin_id, reviewed_at = NOW(), start_date = NOW(), updated_at = NOW() WHERE id = p_loan_id;
+    UPDATE public.loans SET status = 'active', reviewed_by = v_actor, reviewed_at = NOW(), start_date = NOW(), updated_at = NOW() WHERE id = p_loan_id;
     PERFORM public.increment_group_balance(v_loan.group_id, -v_loan.amount, 'Loan disbursement to ' || v_m_name || ' (' || p_payment_method || ')', 'loan_disbursement', p_loan_id::text, v_loan.member_id);
 
-    PERFORM public.log_audit_event('LOAN_DISBURSED', p_admin_id::text, v_loan.member_id, v_loan.group_id, jsonb_build_object('loan_id', p_loan_id, 'amount', v_loan.amount), p_loan_id);
+    PERFORM public.log_audit_event('LOAN_DISBURSED', COALESCE(v_actor::text, 'system_admin'), v_loan.member_id, v_loan.group_id, jsonb_build_object('loan_id', p_loan_id, 'amount', v_loan.amount), p_loan_id);
 END;
 $$;
 
@@ -1966,12 +2372,18 @@ AS $$
 DECLARE
     v_payout RECORD;
     v_group RECORD;
-    v_eff_admin_id UUID := COALESCE(p_admin_id, auth.uid());
+    v_eff_admin_id UUID := COALESCE(auth.uid(), p_admin_id);
 BEGIN
     PERFORM id FROM public.groups WHERE id = (SELECT group_id FROM public.payouts WHERE id = p_payout_id) FOR UPDATE;
 
     SELECT * INTO v_payout FROM public.payouts WHERE id = p_payout_id;
     IF v_payout.id IS NULL THEN RAISE EXCEPTION '[SYS_001] PAYOUT_NOT_FOUND'; END IF;
+
+    IF auth.role() IS DISTINCT FROM 'service_role'
+       AND NOT (public.is_platform_admin() OR public.is_group_admin(v_payout.group_id)) THEN
+        RAISE EXCEPTION '[SEC_002] PAYOUT_COMPLETION_ACCESS_DENIED';
+    END IF;
+
     IF v_payout.status NOT IN ('group_approved', 'processing') THEN RAISE EXCEPTION '[FIN_002] BAD_STATUS: Payout in % cannot be completed', v_payout.status; END IF;
 
     PERFORM public.assert_mfa_for_disbursement_v1(v_payout.amount);
@@ -2003,6 +2415,14 @@ DECLARE
     v_loan RECORD;
     v_p_id UUID;
 BEGIN
+    -- v2 has no period key and no amount checks, so it is the more dangerous of the two rotations
+    -- to leave anonymously callable. Builds already in the field sign in as a group admin, which is
+    -- what the guard still admits; only the service role passes without a login.
+    IF auth.role() IS DISTINCT FROM 'service_role'
+       AND NOT (public.is_platform_admin() OR public.is_group_admin(p_group_id)) THEN
+        RAISE EXCEPTION '[SEC_002] ROSCA_PAYOUT_ACCESS_DENIED';
+    END IF;
+
     PERFORM id FROM public.groups WHERE id = p_group_id FOR UPDATE;
 
     FOR v_loan IN (SELECT * FROM jsonb_to_recordset(p_loan_deductions) AS x(loan_id uuid, amount numeric)) LOOP
@@ -2045,45 +2465,132 @@ AS $$
 DECLARE
     v_loan RECORD;
     v_p_id UUID;
-    v_existing UUID;
+    v_existing RECORD;
     v_claimed UUID;
     v_offset_total NUMERIC := 0;
+    v_repayment_count BIGINT;
 BEGIN
-    PERFORM id FROM public.groups WHERE id = p_group_id FOR UPDATE;
-
-    SELECT COALESCE(sum(x.amount), 0) INTO v_offset_total
-      FROM jsonb_to_recordset(p_loan_deductions) AS x(loan_id uuid, amount numeric)
-     WHERE x.amount > 0;
-
-    -- Whatever the offsets do not absorb becomes the payout. A caller that sends a split which
-    -- exceeds the pot would spend the same group money twice.
-    IF v_offset_total + COALESCE(p_payout_amount, 0) > p_total_pot THEN
-        RAISE EXCEPTION '[FIN_003] POT_IMBALANCE: offsets % and payout % exceed pot %',
-            v_offset_total, COALESCE(p_payout_amount, 0), p_total_pot;
+    IF p_period IS NULL OR p_period !~ '^[0-9]{4}-(0[1-9]|1[0-2])$' THEN
+        RAISE EXCEPTION '[FIN_003] INVALID_PERIOD: Expected YYYY-MM';
+    END IF;
+    IF p_total_pot IS NULL OR p_total_pot::TEXT IN ('NaN', 'Infinity', '-Infinity')
+       OR p_total_pot <= 0 OR p_total_pot <> ROUND(p_total_pot, 2) THEN
+        RAISE EXCEPTION '[FIN_003] INVALID_AMOUNT: ROSCA pot must be positive and have at most two decimal places';
+    END IF;
+    IF p_payout_amount IS NULL OR p_payout_amount::TEXT IN ('NaN', 'Infinity', '-Infinity')
+       OR p_payout_amount < 0 OR p_payout_amount <> ROUND(p_payout_amount, 2) THEN
+        RAISE EXCEPTION '[FIN_003] INVALID_AMOUNT: ROSCA payout must be non-negative and have at most two decimal places';
+    END IF;
+    IF p_loan_deductions IS NULL OR jsonb_typeof(p_loan_deductions) <> 'array' THEN
+        RAISE EXCEPTION '[FIN_003] INVALID_LOAN_DEDUCTIONS: Expected a JSON array';
+    END IF;
+    IF p_payout_data IS NULL OR jsonb_typeof(p_payout_data) <> 'object' THEN
+        RAISE EXCEPTION '[FIN_003] INVALID_PAYOUT_DATA: Expected a JSON object';
     END IF;
 
-    -- Claim the period. The group lock above serialises concurrent rotations, so a conflict here
-    -- means the period has genuinely already been executed.
+    -- A rotation moves the whole group's pot to one member, so only the people who run the group
+    -- may start it. Checking before the lock keeps a refused caller from queueing writers behind it.
+    IF auth.role() IS DISTINCT FROM 'service_role'
+       AND NOT (public.is_platform_admin() OR public.is_group_admin(p_group_id)) THEN
+        RAISE EXCEPTION '[SEC_002] ROSCA_PAYOUT_ACCESS_DENIED';
+    END IF;
+
+    PERFORM id FROM public.groups WHERE id = p_group_id FOR UPDATE;
+    IF NOT FOUND THEN RAISE EXCEPTION '[SYS_001] GROUP_NOT_FOUND'; END IF;
+    IF NOT EXISTS (SELECT 1 FROM public.members WHERE id = p_member_id AND group_id = p_group_id) THEN
+        RAISE EXCEPTION '[FIN_003] MEMBER_NOT_IN_GROUP';
+    END IF;
+
+    IF EXISTS (
+        SELECT 1
+        FROM jsonb_to_recordset(p_loan_deductions) AS x(loan_id uuid, amount numeric)
+        WHERE x.loan_id IS NULL OR x.amount IS NULL
+           OR x.amount::TEXT IN ('NaN', 'Infinity', '-Infinity')
+           OR x.amount <= 0 OR x.amount <> ROUND(x.amount, 2)
+    ) THEN
+        RAISE EXCEPTION '[FIN_003] INVALID_LOAN_DEDUCTION: Each offset must have a loan ID and positive cent amount';
+    END IF;
+    IF (
+        SELECT COUNT(*) <> COUNT(DISTINCT x.loan_id)
+        FROM jsonb_to_recordset(p_loan_deductions) AS x(loan_id uuid, amount numeric)
+    ) THEN
+        RAISE EXCEPTION '[FIN_003] DUPLICATE_LOAN_DEDUCTION';
+    END IF;
+
+    SELECT COALESCE(sum(x.amount), 0) INTO v_offset_total
+    FROM jsonb_to_recordset(p_loan_deductions) AS x(loan_id uuid, amount numeric);
+
+    IF v_offset_total + p_payout_amount <> p_total_pot THEN
+        RAISE EXCEPTION '[FIN_003] POT_IMBALANCE: offsets % plus payout % must equal pot %',
+            v_offset_total, p_payout_amount, p_total_pot;
+    END IF;
+
+    SELECT * INTO v_existing
+    FROM public.rosca_rotation_executions
+    WHERE group_id = p_group_id AND member_id = p_member_id AND period = p_period;
+
+    IF FOUND THEN
+        SELECT COUNT(*) INTO v_repayment_count
+        FROM public.loan_repayments
+        WHERE transaction_id LIKE 'rosca:' || p_group_id::text || ':' || p_member_id::text || ':' || p_period || ':%';
+
+        IF v_existing.total_pot IS DISTINCT FROM p_total_pot
+           OR v_existing.net_amount IS DISTINCT FROM p_payout_amount
+           OR v_existing.loan_offsets IS DISTINCT FROM v_offset_total
+           OR v_repayment_count <> jsonb_array_length(p_loan_deductions)
+           OR EXISTS (
+               SELECT 1
+               FROM jsonb_to_recordset(p_loan_deductions) AS x(loan_id uuid, amount numeric)
+               LEFT JOIN public.loan_repayments r
+                 ON r.transaction_id = 'rosca:' || p_group_id::text || ':' || p_member_id::text || ':' || p_period || ':' || x.loan_id::text
+                AND r.group_id = p_group_id
+                AND r.member_id = p_member_id
+                AND r.loan_id = x.loan_id
+                AND r.amount = x.amount
+               WHERE r.id IS NULL
+           ) THEN
+            RAISE EXCEPTION '[SYS_002] ROSCA_PERIOD_REPLAY_MISMATCH';
+        END IF;
+
+        RETURN jsonb_build_object('success', true, 'payout_id', v_existing.payout_id, 'duplicate', true);
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1 FROM public.members
+        WHERE id = p_member_id AND group_id = p_group_id AND status = 'active'
+    ) THEN
+        RAISE EXCEPTION '[FIN_003] MEMBER_NOT_ACTIVE';
+    END IF;
+
     INSERT INTO public.rosca_rotation_executions (group_id, member_id, period, total_pot, net_amount)
-    VALUES (p_group_id, p_member_id, p_period, p_total_pot, COALESCE(p_payout_amount, 0))
+    VALUES (p_group_id, p_member_id, p_period, p_total_pot, p_payout_amount)
     ON CONFLICT (group_id, member_id, period) DO NOTHING
     RETURNING group_id INTO v_claimed;
 
     IF NOT FOUND THEN
-        SELECT payout_id INTO v_existing FROM public.rosca_rotation_executions
-         WHERE group_id = p_group_id AND member_id = p_member_id AND period = p_period;
-        PERFORM public.log_audit_event('ROSCA_PAYOUT_SKIPPED_DUPLICATE', 'system_rosca', p_member_id, p_group_id, jsonb_build_object('period', p_period, 'existing_payout_id', v_existing), v_existing);
-        RETURN jsonb_build_object('success', true, 'payout_id', v_existing, 'duplicate', true);
+        RAISE EXCEPTION '[SYS_002] ROSCA_PERIOD_ALREADY_CLAIMED';
     END IF;
 
     FOR v_loan IN (SELECT * FROM jsonb_to_recordset(p_loan_deductions) AS x(loan_id uuid, amount numeric)) LOOP
-        IF v_loan.amount > 0 THEN
-            PERFORM public.increment_group_balance(p_group_id, -v_loan.amount, 'ROSCA Offset', 'rosca_payout_offset', 'off-' || v_loan.loan_id::text, p_member_id);
-            PERFORM public.record_loan_repayment_v1(v_loan.loan_id, p_member_id, p_group_id, v_loan.amount, 'wallet');
-        END IF;
+        PERFORM public.increment_group_balance(
+            p_group_id,
+            -v_loan.amount,
+            'ROSCA Offset',
+            'rosca_payout_offset',
+            'rosca-offset:' || p_group_id::text || ':' || p_member_id::text || ':' || p_period || ':' || v_loan.loan_id::text,
+            p_member_id
+        );
+        PERFORM public.record_loan_repayment_v1(
+            v_loan.loan_id,
+            p_member_id,
+            p_group_id,
+            v_loan.amount,
+            'wallet',
+            'rosca:' || p_group_id::text || ':' || p_member_id::text || ':' || p_period || ':' || v_loan.loan_id::text
+        );
     END LOOP;
 
-    IF COALESCE(p_payout_amount, 0) > 0 THEN
+    IF p_payout_amount > 0 THEN
         INSERT INTO public.payouts (group_id, member_id, amount, bank_name, account_no, branch_code, description, status, payout_type)
         VALUES (p_group_id, p_member_id, p_payout_amount, p_payout_data->>'bank_name', p_payout_data->>'account_no', p_payout_data->>'branch_code', 'ROSCA rotation ' || p_period, 'pending', 'rosca') RETURNING id INTO v_p_id;
     END IF;
@@ -2170,6 +2677,200 @@ END;
 $$;
 
 
+-- 10.3.2.2 CLAIM PAYMENT & NAMED DISBURSEMENT
+-- Both are called by name from :data and resolved to nothing on any tier, so a burial claim could
+-- not be paid and a disbursement could not be booked over HTTP at all. Neither invents a rule: the
+-- claim machine below is the one ProcessBurialClaimUseCase already enforces, the ledger row is the
+-- one consolidate_group_ledger_v1 reconstructs, and the disbursement is a guarded wrapper around
+-- increment_group_balance - which 20261029 withdrew from `authenticated`, so a named wrapper is
+-- the only way a signed-in admin may reach it.
+
+CREATE OR REPLACE FUNCTION public.pay_burial_claim_v1(
+    p_claim_id UUID,
+    p_admin_id UUID DEFAULT NULL,
+    p_notes TEXT DEFAULT NULL
+) RETURNS VOID
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+    v_claim RECORD;
+    v_balance NUMERIC;
+    -- The client sends the nil UUID whenever the reviewer is not a login it can name (the platform
+    -- console passes the literal "PLATFORM_ADMIN" and the param builder falls back to nil), and a
+    -- nil reviewer would break the reviewed_by foreign key, so only a session or a real typed id
+    -- survives. Same shape as complete_payout_v2: the session decides who paid.
+    v_eff_admin_id UUID := COALESCE(
+        auth.uid(),
+        NULLIF(p_admin_id, '00000000-0000-0000-0000-000000000000'::uuid)
+    );
+BEGIN
+    SELECT * INTO v_claim FROM public.beneficiary_payout_claims WHERE id = p_claim_id;
+    IF v_claim.id IS NULL THEN RAISE EXCEPTION '[SYS_001] CLAIM_NOT_FOUND'; END IF;
+
+    -- Groups are locked before claims everywhere else (approve_and_disburse_loan_v2,
+    -- complete_payout_v2), so a concurrent payout and claim on one group cannot deadlock.
+    PERFORM id FROM public.groups WHERE id = v_claim.group_id FOR UPDATE;
+
+    IF auth.role() IS DISTINCT FROM 'service_role'
+       AND NOT (public.is_platform_admin() OR public.is_group_admin(v_claim.group_id)) THEN
+        RAISE EXCEPTION '[SEC_002] CLAIM_PAYMENT_ACCESS_DENIED';
+    END IF;
+
+    -- Exactly the statuses the client's own machine pays from: a group admin may approve and pay
+    -- in one step, an escalated claim must be approved by the platform before money moves, and the
+    -- three terminal states accept no further decision - paying twice would draw the cover twice.
+    IF v_claim.status NOT IN ('submitted', 'under_review', 'approved') THEN
+        RAISE EXCEPTION '[FIN_002] BAD_STATUS: Claim in % cannot be paid', v_claim.status;
+    END IF;
+
+    IF v_claim.claim_amount IS NULL OR v_claim.claim_amount::TEXT IN ('NaN', 'Infinity', '-Infinity')
+       OR v_claim.claim_amount <= 0 OR v_claim.claim_amount <> ROUND(v_claim.claim_amount, 2) THEN
+        RAISE EXCEPTION '[FIN_003] INVALID_AMOUNT: Claim amount must be positive and have at most two decimal places';
+    END IF;
+
+    PERFORM public.assert_mfa_for_disbursement_v1(v_claim.claim_amount);
+
+    SELECT balance INTO v_balance FROM public.groups WHERE id = v_claim.group_id;
+    IF COALESCE(v_balance, 0) < v_claim.claim_amount THEN
+        RAISE EXCEPTION '[FIN_001] NO_CASH: Group balance insufficient for burial claim.';
+    END IF;
+
+    UPDATE public.beneficiary_payout_claims
+        SET status = 'paid',
+            reviewed_by = v_eff_admin_id,
+            reviewed_at = NOW(),
+            admin_notes = COALESCE(p_notes, admin_notes),
+            updated_at = NOW()
+        WHERE id = p_claim_id;
+
+    -- Category, description and transaction id are the same ones consolidate_group_ledger_v1
+    -- reconstructs for a paid claim, so the live write and a ledger rebuild cannot diverge. The
+    -- claim id as the key also means a replayed call cannot debit the group a second time.
+    PERFORM public.increment_group_balance(
+        v_claim.group_id,
+        -v_claim.claim_amount,
+        'Burial claim: ' || v_claim.beneficiary_name,
+        'claim',
+        p_claim_id::text,
+        v_claim.member_id
+    );
+
+    PERFORM public.log_audit_event(
+        'CLAIM_PAID',
+        COALESCE(v_eff_admin_id::text, 'system_admin'),
+        v_claim.member_id,
+        v_claim.group_id,
+        jsonb_build_object('claim_id', p_claim_id, 'amount', v_claim.claim_amount, 'beneficiary_id', v_claim.beneficiary_id),
+        p_claim_id
+    );
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.record_disbursement_v1(
+    p_group_id UUID,
+    p_amount NUMERIC,
+    p_description TEXT,
+    p_category TEXT,
+    p_transaction_id TEXT DEFAULT NULL,
+    p_member_id UUID DEFAULT NULL
+) RETURNS NUMERIC
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+BEGIN
+    -- A disbursement is a decision about someone else's money, so it is an admin action: unlike the
+    -- contribution path there is no is_own_member allowance here, and a member calling it for their
+    -- own group is refused.
+    IF auth.role() IS DISTINCT FROM 'service_role'
+       AND NOT (public.is_platform_admin() OR public.is_group_admin(p_group_id)) THEN
+        RAISE EXCEPTION '[SEC_002] DISBURSEMENT_ACCESS_DENIED';
+    END IF;
+
+    -- Positive on the wire, negative in the ledger: the client's own guard is "Disbursement amount
+    -- must be positive", and the returned balance is what GroupRepositoryImpl caches as Money.
+    IF p_amount IS NULL OR p_amount::TEXT IN ('NaN', 'Infinity', '-Infinity')
+       OR p_amount <= 0 OR p_amount <> ROUND(p_amount, 2) THEN
+        RAISE EXCEPTION '[FIN_003] INVALID_AMOUNT: Disbursement must be positive and have at most two decimal places';
+    END IF;
+    IF p_description IS NULL OR BTRIM(p_description) = '' THEN
+        RAISE EXCEPTION '[FIN_003] INVALID_DESCRIPTION: A ledger description is required';
+    END IF;
+    -- group_ledger.category has no CHECK constraint, so the vocabulary is whatever the writers
+    -- pass; only a blank is refused here, not an unlisted value.
+    IF p_category IS NULL OR BTRIM(p_category) = '' THEN
+        RAISE EXCEPTION '[FIN_003] INVALID_CATEGORY: A ledger category is required';
+    END IF;
+
+    -- The primitive owns the FOR UPDATE group lock, the idempotency key and the insufficient-funds
+    -- check ([FIN_002] INSUFFICIENT_FUNDS), so this wrapper adds the caller check and the sign and
+    -- nothing else.
+    RETURN public.increment_group_balance(
+        p_group_id,
+        -p_amount,
+        p_description,
+        p_category,
+        p_transaction_id,
+        p_member_id
+    );
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.record_liquidity_v1(
+    p_group_id UUID,
+    p_amount NUMERIC,
+    p_description TEXT,
+    p_category TEXT,
+    p_transaction_id TEXT DEFAULT NULL,
+    p_member_id UUID DEFAULT NULL
+) RETURNS NUMERIC
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+BEGIN
+    -- The inflow twin of record_disbursement_v1. 20261029 withdrew increment_group_balance from
+    -- `authenticated`, which closed the only HTTP route by which a signed-in group admin could
+    -- book money that is not a contribution: bank interest, a dividend, an opening balance, or
+    -- the simulation harness's seed liquidity. Seeding through record_contribution_v2 instead
+    -- would not do, because a contribution row also moves totalContributions, which is the unit
+    -- denominator in CalculateInvestmentClubValuationUseCase - the injected capital would stop
+    -- being capital and start being a unit purchase.
+    IF auth.role() IS DISTINCT FROM 'service_role'
+       AND NOT (public.is_platform_admin() OR public.is_group_admin(p_group_id)) THEN
+        RAISE EXCEPTION '[SEC_002] LIQUIDITY_ACCESS_DENIED';
+    END IF;
+
+    -- Positive here and positive in the ledger: this is an inflow, and the wrapper keeps the
+    -- caller-facing sign convention the client's guards already assume.
+    IF p_amount IS NULL OR p_amount::TEXT IN ('NaN', 'Infinity', '-Infinity')
+       OR p_amount <= 0 OR p_amount <> ROUND(p_amount, 2) THEN
+        RAISE EXCEPTION '[FIN_003] INVALID_AMOUNT: Liquidity must be positive and have at most two decimal places';
+    END IF;
+    IF p_description IS NULL OR BTRIM(p_description) = '' THEN
+        RAISE EXCEPTION '[FIN_003] INVALID_DESCRIPTION: A ledger description is required';
+    END IF;
+    -- group_ledger.category has no CHECK constraint, so the vocabulary is whatever the writers
+    -- pass; only a blank is refused here, not an unlisted value.
+    IF p_category IS NULL OR BTRIM(p_category) = '' THEN
+        RAISE EXCEPTION '[FIN_003] INVALID_CATEGORY: A ledger category is required';
+    END IF;
+
+    -- The primitive owns the FOR UPDATE group lock, the idempotency key and the ledger write, so
+    -- this wrapper adds the caller check and the sign and nothing else.
+    RETURN public.increment_group_balance(
+        p_group_id,
+        p_amount,
+        p_description,
+        p_category,
+        p_transaction_id,
+        p_member_id
+    );
+END;
+$$;
+
 -- 10.3.3 LEDGER CHECKPOINTS
 
 CREATE OR REPLACE FUNCTION public.create_ledger_checkpoint_v1(p_group_id UUID)
@@ -2215,6 +2916,15 @@ SECURITY DEFINER
 SET search_path = public, pg_temp
 AS $$
 BEGIN
+    -- This reads every group's roster and behaviour track past RLS, so it is the platform console's
+    -- function and nobody else's. Without the check, a signed-in member could enumerate strangers by
+    -- typing a surname.
+    IF NOT public.is_platform_admin() THEN
+        RAISE EXCEPTION '[SEC_002] PLATFORM_ADMIN_ONLY' USING
+            DETAIL = 'search_members_v1 reads members and behaviour scores across every group.',
+            HINT = 'platform_admin_role_required';
+    END IF;
+
     RETURN QUERY
     SELECT jsonb_build_object(
         'member_id', m.id,
@@ -2224,7 +2934,8 @@ BEGIN
         'overdue_loans', COALESCE(bt.overdue_loans, 0),
         'outstanding_amount', COALESCE(bt.total_outstanding_amount, 0),
         'completion_ratio', COALESCE(bt.loan_completion_rate, 0) / 100.0,
-        'risk_band', COALESCE(bt.fraud_risk_level, 'low')
+        'risk_band', COALESCE(bt.fraud_risk_level, 'low'),
+        'behavior_score', COALESCE(bt.behavior_score, 100.0)
     )
     FROM public.members m
     LEFT JOIN public.member_behavior_track bt ON m.id = bt.member_id
@@ -2303,6 +3014,16 @@ DECLARE
     v_all RECORD;
     v_total_sum NUMERIC := 0;
 BEGIN
+    -- This one call can post a contribution, repay a loan, and charge a joining fee for whichever
+    -- member id the request names, so the caller has to be the platform, that group's admin, the
+    -- member themself, or the service role the sync worker signs in as.
+    IF auth.role() IS DISTINCT FROM 'service_role'
+       AND NOT (public.is_platform_admin()
+                OR public.is_group_admin(p_group_id)
+                OR public.is_own_member(p_member_id)) THEN
+        RAISE EXCEPTION '[SEC_002] COMPLEX_PAYMENT_ACCESS_DENIED';
+    END IF;
+
     SELECT balance INTO v_bal FROM public.groups WHERE id = p_group_id FOR UPDATE;
     IF NOT FOUND THEN
         RAISE EXCEPTION '[SYS_001] GROUP_NOT_FOUND';
@@ -2353,7 +3074,10 @@ BEGIN
 END;
 $$;
 
-GRANT EXECUTE ON FUNCTION public.process_complex_payment_v4(UUID, UUID, NUMERIC, TEXT, JSONB, TEXT, TEXT, TEXT) TO anon, authenticated, service_role;
+-- No anonymous payment posting: the grant that shipped with this function included `anon`, which is
+-- how an unauthenticated request could credit any member and drain any group balance.
+REVOKE EXECUTE ON FUNCTION public.process_complex_payment_v4(UUID, UUID, NUMERIC, TEXT, JSONB, TEXT, TEXT, TEXT) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.process_complex_payment_v4(UUID, UUID, NUMERIC, TEXT, JSONB, TEXT, TEXT, TEXT) TO authenticated, service_role;
 COMMENT ON FUNCTION public.process_complex_payment_v4(UUID, UUID, NUMERIC, TEXT, JSONB, TEXT, TEXT, TEXT) IS 'Atomically records an allocated group payment and its ledger entries.';
 NOTIFY pgrst, 'reload schema';
 
@@ -2362,7 +3086,7 @@ NOTIFY pgrst, 'reload schema';
 -- ─────────────────────────────────────────────────────────────────────────────
 -- ─────────────────────────────────────────────────────────────────────────────
 -- SanibonaniSave — MASTER RLS & SECURITY (Consolidated)
--- Version: 8.0 (Tiered Hardened Security - August 2026)
+-- Version: 8.1 (Money RPC execute grants withdrawn - October 2026)
 -- ─────────────────────────────────────────────────────────────────────────────
 
 -- 1. ENABLE RLS GLOBALLY
@@ -2376,13 +3100,156 @@ BEGIN
 END $$;
 
 -- 2. TABLE GRANTS
+-- Views are excluded on purpose. A view runs with the rights of its defining role, so RLS on the
+-- base tables does not filter it and the grant is its only gate. Granting on ALL TABLES also hit
+-- views, which meant re-applying this file reopened any view a later module had locked down
+-- (05_PERFORMANCE_VIEWS.sql revokes vw_ledger_integrity_check from PUBLIC, anon). Exposure for a
+-- view is therefore declared where the view is defined; this file grants on ordinary and
+-- partitioned tables only. Relations created later still inherit the grants below.
 GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
-GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO anon, authenticated, service_role;
+DO $$
+DECLARE
+    v_rel text;
+BEGIN
+    FOR v_rel IN (
+        SELECT c.oid::regclass::text
+        FROM pg_class c
+        WHERE c.relnamespace = 'public'::regnamespace
+          AND c.relkind IN ('r', 'p')
+    ) LOOP
+        EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON %s TO anon, authenticated, service_role', v_rel);
+    END LOOP;
+END $$;
 GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO anon, authenticated, service_role;
 GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO anon, authenticated, service_role;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO anon, authenticated, service_role;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO anon, authenticated, service_role;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO anon, authenticated, service_role;
+
+-- 2b. AUDIT RPCs: TAKE THE ANONYMOUS EXECUTE BACK
+-- The four audit report functions are SECURITY DEFINER, so RLS does not filter what they read;
+-- they now carry their own platform-admin / group-admin / member checks in
+-- 02_FUNCTIONS_AND_TRIGGERS.sql. The blanket grant above still hands EXECUTE to every role, and a
+-- guard that relies on auth.uid() can never pass for a request with no JWT at all, so the grant is
+-- withdrawn: an unauthenticated caller must not be able to regenerate the platform snapshot, read
+-- any group's or member's financial position by id, or rewrite groups.balance with p_fix = true.
+-- PUBLIC is revoked as well: PostgreSQL grants EXECUTE to PUBLIC when a function is created, so
+-- revoking only the explicit "anon" entry leaves anon executing through the PUBLIC entry.
+REVOKE EXECUTE ON FUNCTION
+    public.generate_platform_audit_report_v1(),
+    public.generate_group_audit_report_v1(UUID),
+    public.generate_member_audit_report_v1(UUID),
+    public.audit_and_fix_group_balance_v1(UUID, BOOLEAN)
+FROM PUBLIC, anon;
+
+REVOKE EXECUTE ON FUNCTION public.settle_expired_loan_v2(UUID) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.settle_expired_loan_v2(UUID) TO authenticated, service_role;
+
+-- Retire the pre-v2 settlement entry point. Its caller-supplied member, group, and amount
+-- parameters are not validated as one atomic settlement and must not remain an RPC bypass.
+REVOKE EXECUTE ON FUNCTION
+    public.record_loan_settlement_extraction_v1(UUID, UUID, NUMERIC, UUID)
+FROM PUBLIC, anon, authenticated, service_role;
+
+-- 2c. MONEY RPCs: THE SAME TREATMENT
+-- Every function below either moves a balance or rewrites a ledger, and the blanket grant in
+-- section 2 handed all of them to `anon` as well. Each one now carries its own caller check
+-- (02_FUNCTIONS_AND_TRIGGERS.sql, [SEC_002] *_ACCESS_DENIED), and the anonymous grant is withdrawn
+-- so a request with no JWT cannot even reach that check.
+--
+-- Two lists, and the difference between them is deliberate:
+--   * The first group stays granted to `authenticated`, because a signed-in member legitimately
+--     calls it: paying a contribution, repaying a loan, posting an allocated payment.
+--   * The second group is withdrawn from `authenticated` too. These are the ledger primitives and
+--     maintenance jobs that only ever run from inside a SECURITY DEFINER wrapper or from the
+--     scheduler. A nested call is authorised against the wrapper's owner role, not the session
+--     role, so revoking the client grant does not break the wrappers - it only closes the HTTP
+--     door on a function the app has no business calling by name.
+REVOKE EXECUTE ON FUNCTION
+    public.record_platform_revenue_v2(NUMERIC, TEXT, TEXT, TEXT, UUID),
+    public.internal_post_contribution(UUID, UUID, NUMERIC, DATE, TIMESTAMPTZ, TEXT, TEXT, TEXT, TEXT),
+    public.record_contribution_v2(UUID, UUID, NUMERIC, DATE, TIMESTAMPTZ, TEXT, TEXT, TEXT, TEXT),
+    public.record_loan_repayment_v1(UUID, UUID, UUID, NUMERIC, TEXT, TEXT),
+    public.approve_and_disburse_loan_v2(UUID, UUID, TEXT),
+    public.complete_payout_v2(UUID, UUID, TEXT),
+    public.process_rosca_payout_v2(UUID, UUID, NUMERIC, JSONB, NUMERIC, JSONB),
+    public.process_rosca_payout_v3(UUID, UUID, NUMERIC, JSONB, NUMERIC, JSONB, TEXT),
+    public.pay_platform_fee_v2(UUID, NUMERIC, TEXT, TEXT, BOOLEAN),
+    public.reconcile_bank_transaction_v1(UUID, UUID)
+FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION
+    public.record_platform_revenue_v2(NUMERIC, TEXT, TEXT, TEXT, UUID),
+    public.internal_post_contribution(UUID, UUID, NUMERIC, DATE, TIMESTAMPTZ, TEXT, TEXT, TEXT, TEXT),
+    public.record_contribution_v2(UUID, UUID, NUMERIC, DATE, TIMESTAMPTZ, TEXT, TEXT, TEXT, TEXT),
+    public.record_loan_repayment_v1(UUID, UUID, UUID, NUMERIC, TEXT, TEXT),
+    public.approve_and_disburse_loan_v2(UUID, UUID, TEXT),
+    public.complete_payout_v2(UUID, UUID, TEXT),
+    public.process_rosca_payout_v2(UUID, UUID, NUMERIC, JSONB, NUMERIC, JSONB),
+    public.process_rosca_payout_v3(UUID, UUID, NUMERIC, JSONB, NUMERIC, JSONB, TEXT),
+    public.pay_platform_fee_v2(UUID, NUMERIC, TEXT, TEXT, BOOLEAN),
+    public.reconcile_bank_transaction_v1(UUID, UUID)
+TO authenticated, service_role;
+
+REVOKE EXECUTE ON FUNCTION
+    public.increment_group_balance(UUID, NUMERIC, TEXT, TEXT, TEXT, UUID),
+    public.recompute_ledger_running_balances_v2(UUID),
+    public.perform_group_reconciliation_v1(UUID),
+    public.consolidate_group_ledger_v1(UUID),
+    public.create_ledger_checkpoint_v1(UUID),
+    public.automate_monthly_billing_v1(),
+    public.simulate_bulk_activity_v2(UUID, INT, INT),
+    public.record_platform_revenue_v1(NUMERIC, TEXT, TEXT, TEXT, UUID)
+FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION
+    public.increment_group_balance(UUID, NUMERIC, TEXT, TEXT, TEXT, UUID),
+    public.recompute_ledger_running_balances_v2(UUID),
+    public.perform_group_reconciliation_v1(UUID),
+    public.consolidate_group_ledger_v1(UUID),
+    public.create_ledger_checkpoint_v1(UUID),
+    public.automate_monthly_billing_v1(),
+    public.simulate_bulk_activity_v2(UUID, INT, INT),
+    public.record_platform_revenue_v1(NUMERIC, TEXT, TEXT, TEXT, UUID)
+TO service_role;
+
+-- Re-derives aggregates from the ledger, so it moves no money, but the platform console calls it
+-- over HTTP: the anonymous grant goes, the signed-in one stays.
+REVOKE EXECUTE ON FUNCTION public.recalculate_all_group_financials_v3(UUID) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.recalculate_all_group_financials_v3(UUID) TO authenticated, service_role;
+
+-- Cross-group member search: the platform console's own endpoint, and the console is signed in.
+REVOKE EXECUTE ON FUNCTION public.search_members_v1(TEXT) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.search_members_v1(TEXT) TO authenticated, service_role;
+
+-- `is_own_member` is the predicate the money guards call, not an endpoint. It reads only the caller's
+-- own row through auth.uid(), so an anonymous request gets FALSE and no data, but it should not be
+-- part of the callable anonymous surface either. Wrappers keep working: inside a SECURITY DEFINER
+-- function PostgreSQL authorises the nested call against the wrapper's owner, not the session role.
+REVOKE EXECUTE ON FUNCTION public.is_own_member(UUID) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.is_own_member(UUID) TO authenticated, service_role;
+
+-- 2d. THE ENTRY POINTS THE CLIENT NAMES BUT THE DATABASE DID NOT HAVE
+-- close_poll_v1, pay_burial_claim_v1, record_disbursement_v1 and record_liquidity_v1 are called by
+-- name from :data and existed in no master, so those flows failed with PGRST202 before they were
+-- declared in 02_FUNCTIONS_AND_TRIGGERS.sql. PostgreSQL grants EXECUTE to PUBLIC when a function is
+-- created and the blanket grant in section 2 hands it to anon as well, so each one is taken back
+-- here: all four move money or decide governance for a group, and all four are legitimately called
+-- by a signed-in admin, so `authenticated` keeps them. record_disbursement_v1 and
+-- record_liquidity_v1 are reachable by a member-adjacent caller in name only - their own bodies
+-- refuse anyone who is not the group's admin, a platform admin, or the service role, and
+-- record_liquidity_v1 exists so that the primitive withdrawn from `authenticated` in 20261029 still
+-- has a guarded way to book a non-contribution inflow.
+REVOKE EXECUTE ON FUNCTION
+    public.close_poll_v1(UUID),
+    public.pay_burial_claim_v1(UUID, UUID, TEXT),
+    public.record_disbursement_v1(UUID, NUMERIC, TEXT, TEXT, TEXT, UUID),
+    public.record_liquidity_v1(UUID, NUMERIC, TEXT, TEXT, TEXT, UUID)
+FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION
+    public.close_poll_v1(UUID),
+    public.pay_burial_claim_v1(UUID, UUID, TEXT),
+    public.record_disbursement_v1(UUID, NUMERIC, TEXT, TEXT, TEXT, UUID),
+    public.record_liquidity_v1(UUID, NUMERIC, TEXT, TEXT, TEXT, UUID)
+TO authenticated, service_role;
 
 -- 3. TIER 1: PUBLIC DISCOVERY
 DROP POLICY IF EXISTS "Groups: Discover public" ON public.groups;
@@ -2696,6 +3563,7 @@ SELECT
     END as status
 FROM group_audit;
 
+REVOKE ALL ON public.vw_ledger_integrity_check FROM PUBLIC, anon;
 GRANT SELECT ON public.vw_ledger_integrity_check TO authenticated;
 
 -- ─────────────────────────────────────────────────────────────────────────────

@@ -4,6 +4,7 @@ import com.sanibonani.save.data.repository.BaseRepository
 import com.sanibonani.save.data.local.*
 import com.sanibonani.save.data.local.toEntity
 import com.sanibonani.save.data.local.toLedgerEntity
+import com.sanibonani.save.data.remote.supabase.fetchAllLedgerPages
 import com.sanibonani.save.domain.logging.AppLogger
 import com.sanibonani.save.domain.model.*
 import com.sanibonani.save.domain.utils.toUserMessage
@@ -14,6 +15,7 @@ import com.sanibonani.save.domain.repository.system.*
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.postgrest.query.Columns
+import io.github.jan.supabase.postgrest.query.Order
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -43,7 +45,6 @@ class SyncRepositoryImpl @Inject constructor(
     private val loanRepaymentHandler: LoanRepaymentOutboxHandler,
     private val payoutHandler: PayoutRequestOutboxHandler,
     private val disbursementHandler: DisbursementOutboxHandler,
-    private val balanceAdjustmentHandler: BalanceAdjustmentOutboxHandler,
     private val beneficiaryClaimHandler: BeneficiaryClaimOutboxHandler,
     private val payoutStatusUpdateHandler: PayoutStatusUpdateOutboxHandler
 ) : BaseRepository("SyncRepository"), SyncRepository {
@@ -55,7 +56,6 @@ class SyncRepositoryImpl @Inject constructor(
             "payout" to payoutHandler,
             "payout_status_update" to payoutStatusUpdateHandler,
             "disbursement" to disbursementHandler,
-            "balance_adjustment" to balanceAdjustmentHandler,
             "beneficiary_claim" to beneficiaryClaimHandler
         )
     }
@@ -120,7 +120,11 @@ class SyncRepositoryImpl @Inject constructor(
                             async {
                                 semaphore.acquire()
                                 try {
-                                    syncGroupDataInternal(groupId, userRole)
+                                    syncGroupDataInternal(
+                                        groupId = groupId,
+                                        pillars = GroupHydrationPlan.startupPillars(userRole),
+                                        includeGroupMetadata = userRole == UserRole.PLATFORM_ADMIN
+                                    )
                                 } finally {
                                     semaphore.release()
                                 }
@@ -148,52 +152,32 @@ class SyncRepositoryImpl @Inject constructor(
         _syncStatus.value = SyncStatus.Error(userMessage)
     }
 
-    private suspend fun syncGroupDataInternal(groupId: String, role: UserRole) = coroutineScope {
-        if (role == UserRole.PLATFORM_ADMIN) {
-            // Step 1: Core Group Metadata & Permissions
-            val metadataJob = async { groupRepo.getGroupById(groupId) }
-            val membersJob = async { memberRepo.syncGroupMembers(groupId) }
-            awaitAll(metadataJob, membersJob)
+    private suspend fun syncGroupDataInternal(
+        groupId: String,
+        pillars: List<DomainPillar>,
+        includeGroupMetadata: Boolean
+    ) = coroutineScope {
+        val jobs = mutableListOf<Deferred<*>>()
 
-            // Step 2: Parallel sync of all financial pillars for Platform Admin (Complete Hydration)
-            val notifsJob = async { notificationRepo.syncNotifications(groupId) }
-            val equityJob = async { syncRefresh(DomainPillar.EQUITY, groupId) }
-            val creditJob = async { syncRefresh(DomainPillar.CREDIT, groupId) }
-            val treasuryJob = async { syncRefresh(DomainPillar.TREASURY, groupId) }
-            val disbursementJob = async { syncRefresh(DomainPillar.DISBURSEMENT, groupId) }
-            val bankJob = async { syncRefresh(DomainPillar.BANK, groupId) }
-            val dynamicsJob = async { syncRefresh(DomainPillar.DYNAMICS, groupId) }
-
-            // Wait for all to complete
-            awaitAll(notifsJob, equityJob, creditJob, treasuryJob, disbursementJob, bankJob, dynamicsJob)
-        } else {
-            // Tailored hydration per group admin or member to drastically speed up app launch.
-            // Map and group details, as well as ledger/equity are kept in cache storage.
-            // RealtimeSyncManager will handle incremental updates.
-            // We only fetch high-priority immediate updates (like notifications and member status).
-            val membersJob = async { memberRepo.syncGroupMembers(groupId) }
-            val notifsJob = async { notificationRepo.syncNotifications(groupId) }
-
-            val jobs = mutableListOf(membersJob, notifsJob)
-
-            if (role == UserRole.GROUP_ADMIN) {
-                // Group admins need to see pending payouts and bank issues immediately upon launch
-                jobs.add(async { syncRefresh(DomainPillar.DISBURSEMENT, groupId) })
-                jobs.add(async { syncRefresh(DomainPillar.BANK, groupId) })
-            } else {
-                // Members just need their personal credit info updated
-                jobs.add(async { syncRefresh(DomainPillar.CREDIT, groupId) })
-            }
-
-            jobs.awaitAll()
+        if (includeGroupMetadata) {
+            jobs += async { groupRepo.getGroupById(groupId) }
         }
+        jobs += async { memberRepo.syncGroupMembers(groupId) }
+        jobs += async { notificationRepo.syncNotifications(groupId) }
+        pillars.forEach { pillar ->
+            jobs += async { syncRefresh(pillar, groupId) }
+        }
+
+        jobs.forEach { it.await() }
     }
 
     override suspend fun syncGroupData(groupId: String): Result<Unit> = safeRunCatching {
-        AppLogger.i(tag, "Targeted refresh for group $groupId")
-        val userRole = supabaseRepo.getUserRole()
-        syncGroupDataInternal(groupId, userRole)
-        Unit
+        AppLogger.i(tag, "Full refresh for group $groupId")
+        syncGroupDataInternal(
+            groupId = groupId,
+            pillars = GroupHydrationPlan.fullRefreshPillars,
+            includeGroupMetadata = true
+        )
     }
 
     override suspend fun syncRefresh(pillar: DomainPillar, groupId: String): Result<Unit> = safeRunCatching {
@@ -224,23 +208,25 @@ class SyncRepositoryImpl @Inject constructor(
                 }
 
                 safeRunCatching("$tag.claims") {
-                    val claims = safeRunCatching("$tag.beneficiaryClaims") {
-                        supabase.postgrest["beneficiary_payout_claims"].select(columns = Columns.raw("*")) {
-                            filter { eq("group_id", groupId) }
-                        }.decodeList<BeneficiaryPayoutClaim>()
-                    }.getOrElse {
-                        supabase.postgrest["burial_claims"].select(columns = Columns.raw("*")) {
-                            filter { eq("group_id", groupId) }
-                        }.decodeList<BeneficiaryPayoutClaim>()
-                    }
+                    // One read, one outcome. The old fallback re-issued the same rows against
+                    // `burial_claims`, a table no schema defines, so it could only ever 404 too -
+                    // and the second failure is what reached the log instead of the real cause.
+                    val claims = supabase.postgrest["beneficiary_payout_claims"].select(columns = Columns.raw("*")) {
+                        filter { eq("group_id", groupId) }
+                    }.decodeList<BeneficiaryPayoutClaim>()
                     db.beneficiaryClaimDao().syncForGroup(groupId, claims.map { it.toEntity() })
                 }
             }
             DomainPillar.TREASURY -> {
                 safeRunCatching("$tag.treasuryLedger") {
-                    val data = supabase.postgrest["group_ledger"].select(columns = Columns.raw("*")) {
-                        filter { eq("group_id", groupId) }
-                    }.decodeList<LedgerEntry>()
+                    val data = fetchAllLedgerPages { from, to ->
+                        supabase.postgrest["group_ledger"].select(columns = Columns.raw("*")) {
+                            filter { eq("group_id", groupId) }
+                            order("created_at", order = Order.DESCENDING)
+                            order("id", order = Order.DESCENDING)
+                            range(from, to)
+                        }.decodeList<LedgerEntry>()
+                    }
                     db.ledgerDao().syncLedger(groupId, data.map { it.toLedgerEntity() })
                 }
             }
@@ -266,13 +252,12 @@ class SyncRepositoryImpl @Inject constructor(
             }
             DomainPillar.DYNAMICS -> {
                 safeRunCatching("$tag.memberBehaviorTracks") {
-                    val tracks = supabase.postgrest["member_behavior_tracks"].select(columns = Columns.raw("*")) {
+                    val tracks = supabase.postgrest["member_behavior_track"].select(columns = Columns.raw("*")) {
                         filter { eq("group_id", groupId) }
                     }.decodeList<MemberBehaviorTrack>()
                     db.memberBehaviorTrackDao().syncForGroup(groupId, tracks.map { it.toEntity() })
                 }
             }
-            else -> {}
         }
     }
 
@@ -298,10 +283,24 @@ class SyncRepositoryImpl @Inject constructor(
 
         for ((groupId, lane) in lanes) {
             for (op in lane) {
+                val handler = handlers[op.type.lowercase()]
+                if (handler == null) {
+                    // A type this build has no handler for is a row written by a version that did.
+                    // Replaying it can never succeed, so it parks on first sight: the row is kept
+                    // for investigation without halting the group's lane for the full ceiling while
+                    // real money movements queue up behind an operation that will never apply.
+                    val reason = "No handler for operation type: ${op.type}"
+                    AppLogger.e(tag, "OUTBOX DEAD-LETTER: ${op.type} ${op.id} has no handler in this build; parked.")
+                    db.pendingOperationDao().upsert(
+                        op.copy(
+                            retryCount = OutboxPolicy.MAX_PERMANENT_ATTEMPTS,
+                            lastError = reason
+                        )
+                    )
+                    break
+                }
                 try {
                     AppLogger.d(tag, "Attempting to process ${op.type} for group ${op.groupId}")
-                    val handler = handlers[op.type.lowercase()]
-                        ?: throw IllegalArgumentException("No handler for operation type: ${op.type}")
 
                     handler.handle(op.toModel()).getOrThrow()
 

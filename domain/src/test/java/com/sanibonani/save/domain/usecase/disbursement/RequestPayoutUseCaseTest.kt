@@ -131,6 +131,42 @@ class RequestPayoutUseCaseTest {
     }
 
     @Test
+    fun `an unavailable investment valuation never becomes a zero-amount fallback`() = runBlocking {
+        val group = Group(id = "group-1", type = GroupType.INVESTMENT_CLUB)
+        val member = Member(
+            id = "m-1",
+            groupId = "group-1",
+            fullName = "Nomsa Dlamini",
+            bankName = "FNB",
+            accountNo = "1234567890",
+            branchCode = "250655"
+        )
+        coEvery { groupRepository.getGroupById("group-1") } returns Result.success(group)
+        coEvery { memberRepository.syncGroupMembers("group-1") } returns Result.success(listOf(member))
+        every { calculateInvestmentClubValuationUseCase(any(), any()) } returns
+            Result.failure(IllegalStateException("valuation unavailable"))
+
+        val result = requestPayoutUseCase(groupId = "group-1", memberId = "m-1")
+
+        assertTrue(result.isFailure)
+        coVerify(exactly = 0) { payoutRepository.requestPayout(any()) }
+    }
+
+    @Test
+    fun `an unavailable member roster never becomes an empty roster for a payout`() = runBlocking {
+        coEvery { groupRepository.getGroupById("group-1") } returns Result.success(
+            Group(id = "group-1", type = GroupType.STOKVEL)
+        )
+        coEvery { memberRepository.syncGroupMembers("group-1") } returns
+            Result.failure(IllegalStateException("offline"))
+
+        val result = requestPayoutUseCase(groupId = "group-1", memberId = "m-1")
+
+        assertTrue(result.isFailure)
+        coVerify(exactly = 0) { payoutRepository.requestPayout(any()) }
+    }
+
+    @Test
     fun `a member payout never falls back to the group bank account`() = runBlocking {
         val group = Group(
             id = "group-1",

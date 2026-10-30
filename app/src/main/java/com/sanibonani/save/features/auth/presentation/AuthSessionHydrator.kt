@@ -1,10 +1,10 @@
 package com.sanibonani.save.features.auth.presentation
 
-import com.sanibonani.save.data.sync.RealtimeSyncManager
 import com.sanibonani.save.domain.model.AsyncResult
-import com.sanibonani.save.domain.model.UserRole
-import com.sanibonani.save.domain.repository.auth.SupabaseRepository
-import com.sanibonani.save.domain.repository.auth.UserProfileRepository
+import com.sanibonani.save.domain.service.RealtimeSyncService
+import com.sanibonani.save.domain.usecase.auth.GetCurrentUserRoleUseCase
+import com.sanibonani.save.domain.usecase.auth.GetUserProfileUseCase
+import com.sanibonani.save.domain.usecase.auth.ObserveAuthSessionUseCase
 import com.sanibonani.save.domain.utils.safeRunCatching
 import com.sanibonani.save.domain.utils.toUserMessage
 import com.sanibonani.save.features.auth.presentation.AuthViewModel.AuthenticatedAccount
@@ -25,17 +25,18 @@ import kotlinx.coroutines.flow.flowOf
  * role resolved fail-closed, and domain caches warmed before Success is emitted.
  */
 internal class AuthSessionHydrator(
-    private val supabaseRepo: SupabaseRepository,
-    private val userProfileRepo: UserProfileRepository,
+    private val observeAuthSession: ObserveAuthSessionUseCase,
+    private val getUserProfile: GetUserProfileUseCase,
+    private val getCurrentUserRole: GetCurrentUserRoleUseCase,
     private val adminGroupContextCacheService: AdminGroupContextCacheService,
     private val memberGroupContextCacheService: MemberGroupContextCacheService,
     private val userProfileCache: UserProfileCacheService,
-    private val realtimeSyncManager: RealtimeSyncManager,
+    private val realtimeSyncService: RealtimeSyncService,
     private val loadQueue: LoadStateQueue,
 ) {
 
     fun accountStatus(): Flow<AsyncResult<AuthenticatedAccount>> =
-        supabaseRepo.sessionFlow.flatMapLatest { session ->
+        observeAuthSession().flatMapLatest { session ->
             if (session == null) {
                 loadQueue.reset()
                 flowOf<AsyncResult<AuthenticatedAccount>>(AsyncResult.Uninitialized)
@@ -45,7 +46,7 @@ internal class AuthSessionHydrator(
                     val userId = session.userId
 
                     loadQueue.startStep("User Profile")
-                    userProfileRepo.getProfile(userId).onSuccess { profile ->
+                    getUserProfile(userId).onSuccess { profile ->
                         profile?.let { userProfileCache.save(it.fullName ?: "", it.email ?: "") }
                         loadQueue.completeStep("User Profile")
                     }.onFailure { loadQueue.failStep("User Profile", it.toUserMessage()) }
@@ -53,7 +54,7 @@ internal class AuthSessionHydrator(
                     loadQueue.startStep("Security Permissions")
                     // Fail closed on privilege: an unreadable role is the least privileged role,
                     // never a guessed admin.
-                    val role = safeRunCatching { supabaseRepo.getUserRole() }.getOrDefault(UserRole.MEMBER)
+                    val role = getCurrentUserRole()
                     loadQueue.completeStep("Security Permissions")
 
                     // A cold cache or an unreachable realtime socket does not make the session
@@ -65,7 +66,7 @@ internal class AuthSessionHydrator(
                             val adminWarmup = async { adminGroupContextCacheService.warmUpForUser(userId) }
                             awaitAll(memberWarmup, adminWarmup)
                         }
-                        realtimeSyncManager.start()
+                        realtimeSyncService.start()
                     }
                     if (warmup.isSuccess) {
                         loadQueue.completeStep("Domain Context")

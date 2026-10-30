@@ -6,8 +6,8 @@ import com.sanibonani.save.domain.repository.credit.LoanRepository
 import com.sanibonani.save.domain.repository.equity.ContributionRepository
 import java.time.LocalDate
 import javax.inject.Inject
-import com.sanibonani.save.domain.usecase.firstValueOrNull
 import com.sanibonani.save.domain.utils.safeRunCatching
+import kotlinx.coroutines.flow.first
 
 class ValidateLoanEligibilityUseCase @Inject constructor(
     private val contributionRepository: ContributionRepository,
@@ -34,7 +34,23 @@ class ValidateLoanEligibilityUseCase @Inject constructor(
         if (member.status != MemberStatus.ACTIVE) return EligibilityResult.Ineligible("Member not active.")
         if (termMonths != null && termMonths > 3) return EligibilityResult.Ineligible("Loan term exceeds the 3-month maximum limit.")
 
-        val contributions = contributionRepository.observeMemberContributions(member.id ?: "", group.id ?: "").firstValueOrNull() ?: emptyList()
+        // The group's own ceiling on a single loan. Zero is the schema default for "not configured",
+        // so only a positive cap tightens the 30%-of-contributions rule.
+        val perLoanCap = group.loanMaxAmount?.takeIf { it.isPositive }
+        if (requestedAmount != null && perLoanCap != null && requestedAmount > perLoanCap) {
+            return EligibilityResult.Ineligible(
+                "Requested amount (${requestedAmount.format()}) exceeds the group's maximum loan amount (${perLoanCap.format()})."
+            )
+        }
+
+        val memberId = member.id
+            ?: return EligibilityResult.Ineligible("Member record is missing.")
+        val groupId = group.id
+            ?: return EligibilityResult.Ineligible("Group record is missing.")
+        val contributions = contributionRepository.observeMemberContributions(memberId, groupId).first()
+            .getOrElse {
+                return EligibilityResult.Ineligible("Unable to verify contribution history. Please retry.")
+            }
 
         // Enforce joining fee rule: Member must have paid their joining fee to be fully active/eligible
         // A joining fee is written with allocation type "joining_fee"; the legacy
@@ -46,9 +62,11 @@ class ValidateLoanEligibilityUseCase @Inject constructor(
             return EligibilityResult.Ineligible("Joining fee of ${group.joiningFee.format()} is outstanding. Please settle your joining fee first.")
         }
 
-        val activeLoans = loanRepository.getMemberLoans(member.id ?: "").firstValueOrNull()?.filter {
+        val activeLoans = loanRepository.getMemberLoans(memberId).first().getOrElse {
+            return EligibilityResult.Ineligible("Unable to verify loan history. Please retry.")
+        }.filter {
             it.status == LoanStatus.ACTIVE || it.status == LoanStatus.PARTIALLY_PAID || it.status == LoanStatus.APPROVED || it.status == LoanStatus.PENDING
-        } ?: emptyList()
+        }
 
         val currentActiveLoanTotal = activeLoans.fold(Money.ZERO) { acc, l -> acc + l.amount }
 
@@ -60,7 +78,7 @@ class ValidateLoanEligibilityUseCase @Inject constructor(
             }.getOrDefault(false)
         }
         val totalLast6Months = last6MonthsContributions.fold(Money.ZERO) { acc, c -> acc + c.amount }
-        val maxBorrowingPower = totalLast6Months * 0.3
+        val maxBorrowingPower = totalLast6Months.percent(30)
         val availableBorrowingPower = (maxBorrowingPower - currentActiveLoanTotal).max(Money.ZERO)
 
         if (!availableBorrowingPower.isPositive && requestedAmount != null) {

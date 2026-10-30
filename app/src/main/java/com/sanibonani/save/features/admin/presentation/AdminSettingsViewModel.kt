@@ -15,8 +15,8 @@ import com.sanibonani.save.features.admin.presentation.state.AdminSettingsState
 class AdminSettingsViewModel @Inject constructor(
     private val adminContextCacheService: AdminGroupContextCacheService,
     private val bankRepo: com.sanibonani.save.domain.repository.payment.BankRepository,
-    private val linkBankAccountUseCase: com.sanibonani.save.domain.usecase.payment.LinkBankAccountUseCase,
-    private val updateGroupSettingsUseCase: UpdateGroupSettingsUseCase,
+    private val linkBankAccount: com.sanibonani.save.domain.usecase.payment.LinkBankAccountUseCase,
+    private val updateGroupSettings: UpdateGroupSettingsUseCase,
     private val syncRepo: com.sanibonani.save.domain.repository.system.SyncRepository,
     private val supabaseRepo: com.sanibonani.save.domain.repository.auth.SupabaseRepository
 ) : BaseViewModel<AdminSettingsState>(AdminSettingsState()) {
@@ -74,7 +74,7 @@ class AdminSettingsViewModel @Inject constructor(
         val groupId = uiState.value.group?.id ?: return
         launchJob("bank_linking") {
             updateState { it.copy(isLinkingBank = true) }
-            linkBankAccountUseCase(groupId, providerId)
+            linkBankAccount(groupId, providerId)
                 .onSuccess { result ->
                     updateState { it.copy(isLinkingBank = false) }
                     sendEvent(UIEvent.OpenUrl(result.authUrl))
@@ -139,7 +139,7 @@ class AdminSettingsViewModel @Inject constructor(
         val groupId = uiState.value.group?.id ?: return
         launchJob("save_settings") {
             updateState { it.copy(isSaving = true, saveSuccess = false) }
-            updateGroupSettingsUseCase(groupId, uiState.value.settings).onSuccess {
+            updateGroupSettings(groupId, uiState.value.settings).onSuccess {
                 updateState { it.copy(isSaving = false, saveSuccess = true) }
                 sendEvent(UIEvent.ShowMessage("Settings saved"))
                 adminContextCacheService.warmUpGroup(groupId)

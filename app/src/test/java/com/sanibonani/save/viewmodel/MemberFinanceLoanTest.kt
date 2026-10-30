@@ -57,7 +57,8 @@ class MemberFinanceLoanTest {
     private val calculateSchedule = mockk<CalculateLoanRepaymentScheduleUseCase>(relaxed = true)
     private val platformRepo = mockk<PlatformRepository>(relaxed = true)
     private val validateLoanEligibility = mockk<ValidateLoanEligibilityUseCase>(relaxed = true)
-    private val requestLoanUseCase = RequestLoanUseCase(loanRepo, platformRepo, calculateSchedule)
+    private val requestLoanUseCase =
+        RequestLoanUseCase(loanRepo, platformRepo, calculateSchedule, validateLoanEligibility)
 
     private val testDispatcher = StandardTestDispatcher()
     private lateinit var viewModel: MemberFinanceViewModel
@@ -85,6 +86,9 @@ class MemberFinanceLoanTest {
         every { FirebaseCrashlytics.getInstance() } returns mockCrashlytics
 
         Dispatchers.setMain(testDispatcher)
+
+        coEvery { validateLoanEligibility(any(), any(), any(), any()) } returns
+            ValidateLoanEligibilityUseCase.EligibilityResult.Eligible()
 
         viewModel = MemberFinanceViewModel(
             requestLoanUseCase,

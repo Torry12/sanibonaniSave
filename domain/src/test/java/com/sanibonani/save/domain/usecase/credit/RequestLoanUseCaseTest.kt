@@ -17,19 +17,28 @@ import java.time.LocalDate
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Test
 
 /**
  * Pins the loan-application rules that used to live inside `MemberFinanceViewModel`:
- * which interest rate wins, how the schedule prices the loan, and what a failed
- * settings read means for the request.
+ * eligibility gates the request, which interest rate wins, how the schedule prices the
+ * loan, and what a failed settings read means for the request.
  */
 class RequestLoanUseCaseTest {
 
     private val loanRepository: LoanRepository = mockk()
     private val platformRepository: PlatformRepository = mockk()
+    private val validateEligibility: ValidateLoanEligibilityUseCase = mockk()
     private val calculateSchedule = CalculateLoanRepaymentScheduleUseCase()
-    private val useCase = RequestLoanUseCase(loanRepository, platformRepository, calculateSchedule)
+    private val useCase =
+        RequestLoanUseCase(loanRepository, platformRepository, calculateSchedule, validateEligibility)
+
+    @Before
+    fun stubEligibility() {
+        coEvery { validateEligibility(any(), any(), any(), any()) } returns
+            ValidateLoanEligibilityUseCase.EligibilityResult.Eligible()
+    }
 
     private val startDate = LocalDate.of(2026, 10, 25)
     private val config = PlatformConfig(
@@ -151,5 +160,36 @@ class RequestLoanUseCaseTest {
 
         assertTrue(result.isFailure)
         assertEquals("queue full", result.exceptionOrNull()?.message)
+    }
+
+    @Test
+    fun `the request is validated with its own amount and term`() = runBlocking {
+        stubSettings()
+        stubSave()
+
+        useCase(params(termMonths = 6)).getOrThrow()
+
+        coVerify {
+            validateEligibility(
+                match { it.id == "member-1" },
+                match { it.id == "group-1" },
+                match { it == Money("10000.00") },
+                match { it == 6 }
+            )
+        }
+    }
+
+    @Test
+    fun `an ineligible request fails before pricing or saving`() = runBlocking {
+        val reason = "Requested amount (R10 000.00) exceeds the group's maximum loan amount (R5 000.00)."
+        coEvery { validateEligibility(any(), any(), any(), any()) } returns
+            ValidateLoanEligibilityUseCase.EligibilityResult.Ineligible(reason)
+
+        val result = useCase(params(groupRate = 12.0))
+
+        assertTrue(result.isFailure)
+        assertEquals(reason, result.exceptionOrNull()?.message)
+        coVerify(exactly = 0) { platformRepository.getPlatformSettings() }
+        coVerify(exactly = 0) { loanRepository.requestLoan(any()) }
     }
 }

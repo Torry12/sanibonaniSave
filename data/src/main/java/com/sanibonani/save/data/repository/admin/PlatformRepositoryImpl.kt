@@ -1,19 +1,17 @@
 package com.sanibonani.save.data.repository.admin
 
-import com.sanibonani.save.data.datasource.RemoteAuditDataSource
 import com.sanibonani.save.data.local.SanibonaniDatabase
 import com.sanibonani.save.data.local.toEntity
 import com.sanibonani.save.data.local.toModel
 import com.sanibonani.save.data.remote.PostgrestColumns
+import com.sanibonani.save.data.remote.supabase.fetchAllLedgerPages
 import com.sanibonani.save.data.repository.BaseRepository
 import com.sanibonani.save.domain.logging.AppLogger
 import com.sanibonani.save.domain.model.ActuarialMetrics
 import com.sanibonani.save.domain.model.AdminFeeState
 import com.sanibonani.save.domain.model.AppNotification
-import com.sanibonani.save.domain.model.AuditLog
 import com.sanibonani.save.domain.model.DatabaseBackup
 import com.sanibonani.save.domain.model.Group
-import com.sanibonani.save.domain.model.GroupAuditResult
 import com.sanibonani.save.domain.model.LedgerEntry
 import com.sanibonani.save.domain.model.MemberBehaviorInsight
 import com.sanibonani.save.domain.model.Money
@@ -22,7 +20,6 @@ import com.sanibonani.save.domain.model.NotifEvent
 import com.sanibonani.save.domain.model.Payment
 import com.sanibonani.save.domain.model.PlatformAnalytics
 import com.sanibonani.save.domain.model.PlatformAnalyticsSummary
-import com.sanibonani.save.domain.model.PlatformAuditReport
 import com.sanibonani.save.domain.model.PlatformConfig
 import com.sanibonani.save.domain.model.PlatformFeeConfig
 import com.sanibonani.save.domain.repository.admin.ActuarialRepository
@@ -36,14 +33,20 @@ import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.postgrest.query.Columns
 import io.github.jan.supabase.postgrest.query.Order
 import io.github.jan.supabase.storage.storage
+import io.ktor.client.statement.bodyAsText
 import java.io.File
 import java.math.BigDecimal
 import javax.inject.Inject
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 import com.sanibonani.save.domain.utils.safeRunCatching
 
@@ -52,7 +55,6 @@ class PlatformRepositoryImpl @Inject constructor(
     private val db: SanibonaniDatabase,
     private val actuarialRepo: ActuarialRepository,
     private val notifRepo: NotificationRepository,
-    private val auditRemoteSource: RemoteAuditDataSource,
 ) : BaseRepository("PlatformRepository"), PlatformRepository {
 
     private val supabase: SupabaseClient
@@ -153,60 +155,59 @@ class PlatformRepositoryImpl @Inject constructor(
         }
     }
 
-    override suspend fun getPlatformAuditReport(): Result<PlatformAuditReport> = retryWithExponentialBackoff {
-        var report = auditRemoteSource.getLatestPlatformAuditReport().getOrNull()
-
-        if (report == null) {
-            // Force generate if missing
-            triggerPlatformAudit().getOrNull()
-            report = auditRemoteSource.getLatestPlatformAuditReport().getOrNull()
-        }
-        report ?: PlatformAuditReport()
-    }
-
-    override suspend fun triggerPlatformAudit(): Result<Unit> = authoritativeCall("triggerPlatformAudit") {
-        auditRemoteSource.generatePlatformAudit().getOrThrow()
-    }
-
     override suspend fun computeSystemWideMetrics(): Result<Unit> = authoritativeCall("computeSystemWideMetrics") {
-        supabase.functions.invoke("compute-platform-metrics")
+        invokeFunction("compute-platform-metrics")
     }
 
     override suspend fun triggerCloudBackup(): Result<Unit> = authoritativeCall("triggerCloudBackup") {
-        supabase.functions.invoke("trigger-backup")
+        invokeFunction("trigger-backup")
+    }
+
+    /**
+     * `functions.invoke` hands back the raw response and throws for nothing, so without this check a
+     * refused or failed function reads as success and the console announces a backup that is not there.
+     */
+    private suspend fun invokeFunction(name: String) {
+        val response = supabase.functions.invoke(name)
+        functionFailureMessage(name, response.status.value, response.bodyAsText())?.let {
+            throw IllegalStateException(it)
+        }
     }
 
     override suspend fun getCloudBackups(): Result<List<DatabaseBackup>> = retryWithExponentialBackoff {
-        safeRunCatching {
-            supabase.postgrest["database_backups"].select {
-                order("created_at", order = Order.DESCENDING)
-            }.decodeList<DatabaseBackup>()
-        }.getOrElse { emptyList() }
+        // A dump is a storage object: `deleteCloudBackup` removes it from the `backups` bucket, and the
+        // edge function that produces it writes there too. There is no `database_backups` table, so the
+        // old read answered "no backups" for every project and, wrapped in getOrElse, never failed.
+        supabase.storage["backups"]
+            .list("")
+            .sortedByDescending { file -> file.updatedAt }
+            .map { file ->
+                DatabaseBackup(
+                    name = file.name,
+                    size = file.metadata?.get("size")?.jsonPrimitive?.longOrNull ?: 0L,
+                    lastModified = file.updatedAt?.toString().orEmpty()
+                )
+            }
     }
 
     override suspend fun deleteCloudBackup(name: String): Result<Unit> = authoritativeCall("deleteCloudBackup") {
         supabase.storage["backups"].delete(name)
     }
 
-    override suspend fun auditGroup(groupId: String): Result<GroupAuditResult> = retryWithExponentialBackoff {
-        auditRemoteSource.auditAndFixGroupBalance(groupId, false).getOrThrow()
-    }
-
-    override suspend fun repairGroup(groupId: String): Result<GroupAuditResult> = authoritativeCall("repairGroup") {
-        auditRemoteSource.auditAndFixGroupBalance(groupId, true).getOrThrow()
-    }
-
     override suspend fun repairGroupData(groupId: String): Result<Unit> = authoritativeCall("repairGroupData") {
         supabase.postgrest.rpc("recalculate_all_group_financials_v3", buildJsonObject { put("p_group_id", groupId) })
     }
 
-    override suspend fun searchMembers(query: String): Result<List<MemberBehaviorInsight>> = retryWithExponentialBackoff {
-        safeRunCatching {
-            supabase.postgrest["platform_member_behavior_insights_v1"].select {
-                filter { ilike("full_name", "%$query%") }
-            }.decodeList<MemberBehaviorInsight>()
-        }.getOrElse { emptyList() }
-    }
+    override suspend fun searchMembers(query: String): Result<List<MemberBehaviorInsight>> =
+        retryWithExponentialBackoff {
+            // `platform_member_behavior_insights_v1` was never a view this schema creates, so the read
+            // could only ever 404 - and `getOrElse` turned that into an empty roster. The server has
+            // had the answer all along in `search_members_v1`, which joins the behaviour track.
+            supabase.postgrest.rpc(
+                function = "search_members_v1",
+                parameters = buildJsonObject { put("p_query", query) }
+            ).decodeList<MemberBehaviorInsight>()
+        }
 
     override suspend fun getGranularFeeConfigs(): Result<List<PlatformFeeConfig>> = retryWithExponentialBackoff {
         safeRunCatching {
@@ -323,10 +324,6 @@ class PlatformRepositoryImpl @Inject constructor(
         actuarialRepo.computeMetrics(groupId).getOrThrow()
     }
 
-    override suspend fun logAuditEvent(auditLog: AuditLog): Result<Unit> = authoritativeCall("logAuditEvent") {
-        supabase.postgrest["audit_logs"].insert(auditLog) { select() }
-    }
-
     override suspend fun broadcastPlatformMessage(message: String): Result<Unit> = authoritativeCall("broadcastPlatformMessage") {
         val groups = getAllGroups().getOrThrow()
         groups.forEach { group ->
@@ -339,18 +336,14 @@ class PlatformRepositoryImpl @Inject constructor(
         }
     }
 
-    override suspend fun getAuditLogs(limit: Int): Result<List<AuditLog>> = retryWithExponentialBackoff {
-        safeRunCatching { auditRemoteSource.getAuditLogs(limit).getOrThrow() }.getOrElse { emptyList() }
-    }
-
     override suspend fun getPlatformLedger(): Result<List<LedgerEntry>> = retryWithExponentialBackoff {
-        safeRunCatching {
+        fetchAllLedgerPages { from, to ->
             supabase.postgrest["platform_ledger"].select {
                 order("created_at", order = Order.DESCENDING)
+                order("id", order = Order.DESCENDING)
+                range(from, to)
             }.decodeList<LedgerEntry>()
-        }.recoverCatching {
-            db.ledgerDao().observePlatformLedger().firstOrNull()?.map { it.toModel() } ?: emptyList()
-        }.getOrElse { emptyList() }
+        }.map { it.copy(isPlatform = true) }
     }
 
     override suspend fun deleteGroupFromPlatform(groupId: String): Result<Unit> = authoritativeCall("deleteGroupFromPlatform") {
@@ -377,6 +370,28 @@ class PlatformRepositoryImpl @Inject constructor(
                 put("description", "Group Suspension Lifting Fee (Platform Revenue)")
             }
     }
+}
+
+private const val MAX_FUNCTION_ERROR_LENGTH = 300
+
+/**
+ * Builds the failure text for a non-2xx edge-function reply, or null when the call succeeded.
+ * Both the functions here and the Supabase gateway report the reason in `error` or `message`.
+ */
+internal fun functionFailureMessage(name: String, status: Int, body: String): String? {
+    if (status in 200..299) return null
+    val detail = extractFunctionError(body) ?: "no response body"
+    return "The '$name' function failed (HTTP $status): $detail"
+}
+
+private fun extractFunctionError(body: String): String? {
+    val text = body.trim()
+    if (text.isEmpty()) return null
+    val reported = runCatching {
+        val payload = Json.parseToJsonElement(text).jsonObject
+        (payload["error"] ?: payload["message"])?.jsonPrimitive?.contentOrNull
+    }.getOrNull()?.trim()
+    return (reported?.takeIf { it.isNotEmpty() } ?: text).take(MAX_FUNCTION_ERROR_LENGTH)
 }
 
 @Serializable

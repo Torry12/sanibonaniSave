@@ -45,7 +45,7 @@ class VerifyMfaChallengeUseCaseTest {
         val result = useCase("123456")
 
         assertEquals(
-            "No authenticator is enrolled on this account. Set up two-step verification before authorising this payment.",
+            "No authenticator is enrolled on this account. Set up two-step verification before authorising this action.",
             result.exceptionOrNull()?.message
         )
         coVerify(exactly = 0) { mfaService.verifyMfa(any(), any(), any()) }

@@ -1,8 +1,9 @@
 package com.sanibonani.save.domain.usecase.credit
 import com.sanibonani.save.domain.model.LoanRepaymentScheduleEntry
 import com.sanibonani.save.domain.model.Money
+import java.math.BigDecimal
+import java.math.MathContext
 import java.time.LocalDate
-import kotlin.math.pow
 
 /**
  * Strategy interface for calculating loan amortization schedules.
@@ -14,6 +15,18 @@ interface AmortizationStrategy {
         termMonths: Int,
         startDate: LocalDate
     ): AmortizationResult
+}
+
+private fun validateAmortizationInputs(
+    principal: Money,
+    annualInterestRate: Double,
+    termMonths: Int
+) {
+    require(principal.isPositive) { "Loan principal must be positive." }
+    require(annualInterestRate.isFinite() && annualInterestRate >= 0.0) {
+        "Annual interest rate must be finite and non-negative."
+    }
+    require(termMonths > 0) { "Loan term must be at least one month." }
 }
 
 data class AmortizationResult(
@@ -30,9 +43,12 @@ class FlatAmortizationStrategy : AmortizationStrategy {
         termMonths: Int,
         startDate: LocalDate
     ): AmortizationResult {
-        val rate = annualInterestRate / 100.0
-        val time = termMonths / 12.0
-        val totalInterest = principal * (rate * time)
+        validateAmortizationInputs(principal, annualInterestRate, termMonths)
+        val annualRate = BigDecimal.valueOf(annualInterestRate)
+        val totalRate = annualRate
+            .multiply(BigDecimal.valueOf(termMonths.toLong()))
+            .divide(BigDecimal("1200"), MathContext.DECIMAL128)
+        val totalInterest = principal * totalRate
         val totalToRepay = principal + totalInterest
         val principalPerMonth = principal / termMonths
         val interestPerMonth = totalInterest / termMonths
@@ -65,10 +81,19 @@ class ReducingBalanceAmortizationStrategy : AmortizationStrategy {
         termMonths: Int,
         startDate: LocalDate
     ): AmortizationResult {
-        val monthlyRate = (annualInterestRate / 100.0) / 12.0
-        val numerator = monthlyRate * (1 + monthlyRate).pow(termMonths)
-        val denominator = (1 + monthlyRate).pow(termMonths) - 1
-        val monthlyInstallment = principal * (numerator / denominator)
+        validateAmortizationInputs(principal, annualInterestRate, termMonths)
+        val monthlyRate = BigDecimal.valueOf(annualInterestRate)
+            .divide(BigDecimal("1200"), MathContext.DECIMAL128)
+        val monthlyInstallment = if (monthlyRate.signum() == 0) {
+            principal / termMonths
+        } else {
+            val onePlusRate = BigDecimal.ONE.add(monthlyRate, MathContext.DECIMAL128)
+            val compound = onePlusRate.pow(termMonths, MathContext.DECIMAL128)
+            val factor = monthlyRate
+                .multiply(compound, MathContext.DECIMAL128)
+                .divide(compound.subtract(BigDecimal.ONE, MathContext.DECIMAL128), MathContext.DECIMAL128)
+            principal * factor
+        }
 
         val schedule = mutableListOf<LoanRepaymentScheduleEntry>()
         var remainingBalance = principal

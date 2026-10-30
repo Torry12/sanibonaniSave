@@ -92,7 +92,7 @@ fun PaymentScreen(
     }
 
     if (state.isProcessing && state.member == null) {
-        SanibonaniLoadingScreen(message = "Preparing secure checkout...")
+        SanibonaniLoadingScreen(message = stringResource(R.string.ui_preparing_checkout))
     } else {
         Scaffold(
             topBar = {

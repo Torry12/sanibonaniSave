@@ -18,11 +18,11 @@ import com.sanibonani.save.domain.repository.group.GroupRepository
 import com.sanibonani.save.domain.repository.member.BeneficiaryRepository
 import com.sanibonani.save.domain.repository.member.MemberRepository
 import com.sanibonani.save.domain.repository.system.NotificationRepository
+import com.sanibonani.save.domain.repository.system.SyncRepository
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -31,7 +31,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.launch
 
 @Singleton
 class MemberGroupContextCacheService @Inject constructor(
@@ -41,7 +40,8 @@ class MemberGroupContextCacheService @Inject constructor(
 	private val contributionRepo: MemberContributionRepository,
 	private val notificationRepo: NotificationRepository,
 	private val loanRepo: LoanRepository,
-	private val paymentCalculator: PaymentCalculator
+	private val paymentCalculator: PaymentCalculator,
+	private val syncRepo: SyncRepository
 ) {
 
 	private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -50,7 +50,7 @@ class MemberGroupContextCacheService @Inject constructor(
 	val contexts: StateFlow<Map<String, CachedGroupContext>> = _contexts.asStateFlow()
 
 	private var cachedUserId: String? = null
-	private val warmupJobs = java.util.concurrent.ConcurrentHashMap<String, Job>()
+	private val warmupCoordinator = GroupContextWarmupCoordinator()
 
 	fun getContext(groupId: String): CachedGroupContext? = _contexts.value[groupId]
 
@@ -69,10 +69,8 @@ class MemberGroupContextCacheService @Inject constructor(
 
 		memberships.forEach { membership ->
 			val groupId = membership.groupId
-			if (groupId.isBlank() || warmupJobs[groupId]?.isActive == true) return@forEach
-			if (_contexts.value[groupId]?.isFullyHydrated == true) return@forEach
-
-			warmupJobs[groupId] = scope.launch {
+			if (groupId.isBlank()) return@forEach
+			warmupCoordinator.launch(groupId, scope) {
 				warmGroupContext(userId = userId, groupId = groupId, membership = membership)
 			}
 		}
@@ -80,9 +78,47 @@ class MemberGroupContextCacheService @Inject constructor(
 
 	suspend fun warmUpForUser(userId: String) {
 		ensureUserSession(userId)
-		val memberships = memberRepo.getMemberships(userId).getOrElse { emptyList() }
+		val memberships = memberRepo.getMemberships(userId).getOrElse {
+			// An offline warm-up must keep the cached memberships instead of pruning every
+			// context to an empty membership set.
+			memberRepo.observeMemberships(userId).first().getOrElse { emptyList() }
+		}
 		warmMembershipsInBackground(userId, memberships)
 	}
+
+	/**
+	 * Pulls every group pillar from the network, then rebuilds the snapshot of [userId]'s
+	 * membership. Unlike [warmMembershipsInBackground] this always re-hydrates, even when
+	 * the context is already marked as fully hydrated.
+	 */
+	suspend fun refreshGroup(userId: String, groupId: String): Result<Unit> = safeRunCatching {
+		if (groupId.isBlank()) return@safeRunCatching
+		// Hold the group's warmup slot for the whole refresh so a background sweep cannot start a
+		// second hydration that finishes after this one. The slot is a child job, never the
+		// caller's, so a session change cancels the refresh instead of the caller's scope.
+		warmupCoordinator.runExclusive(groupId) {
+			syncRepo.syncGroupData(groupId)
+			val membership = _contexts.value[groupId]?.member
+				?: memberRepo.getMemberByUserId(userId, groupId).getOrElse { throw it }
+			warmGroupContext(userId = userId, groupId = groupId, membership = membership)
+		}
+	}
+
+	/**
+	 * Re-syncs the group and rebuilds the portal for the member an admin is impersonating.
+	 * The member is re-read by id, never by the operator's user id.
+	 */
+	suspend fun refreshImpersonatedMember(memberId: String, groupId: String): Result<Unit> =
+		safeRunCatching {
+			if (memberId.isBlank() || groupId.isBlank()) return@safeRunCatching
+			warmupCoordinator.runExclusive(groupId) {
+				syncRepo.syncGroupData(groupId)
+				check(hydrateImpersonatedMember(memberId, groupId).member?.id == memberId) {
+					"The selected member could not be verified after hydration."
+				}
+				Unit
+			}
+		}
 
 	/**
 	 * Hydrates the cache for a member an admin is impersonating (support mode).
@@ -91,10 +127,24 @@ class MemberGroupContextCacheService @Inject constructor(
 	 */
 	suspend fun impersonateMember(memberId: String, groupId: String): Result<CachedGroupContext> =
 		safeRunCatching {
-			val member = memberRepo.getMemberById(memberId).getOrThrow()
-			warmGroupContext(userId = member.userId.orEmpty(), groupId = groupId, membership = member)
-			_contexts.value[groupId] ?: error("Support context was not hydrated for group $groupId")
+			require(memberId.isNotBlank() && groupId.isNotBlank()) { "A member and group must be selected." }
+			warmupCoordinator.runExclusive(groupId) {
+				hydrateImpersonatedMember(memberId, groupId)
+			}
 		}
+
+	private suspend fun hydrateImpersonatedMember(memberId: String, groupId: String): CachedGroupContext {
+		val member = memberRepo.getMemberById(memberId).getOrThrow()
+		require(member.id == memberId) { "The selected member could not be verified." }
+		require(member.groupId == groupId) { "The selected member does not belong to this group." }
+		warmGroupContext(
+			userId = member.userId.orEmpty(),
+			groupId = groupId,
+			membership = member,
+			authoritativeMember = member
+		)
+		return _contexts.value[groupId] ?: error("Support context was not hydrated for group $groupId")
+	}
 
 	fun updateContext(
 		groupId: String,
@@ -106,38 +156,53 @@ class MemberGroupContextCacheService @Inject constructor(
 		}
 	}
 
-	private suspend fun warmGroupContext(userId: String, groupId: String, membership: Member) {
-		val (group, member) = coroutineScope {
-			val groupTask = async { groupRepo.getGroupById(groupId).getOrNull() }
+	private suspend fun warmGroupContext(
+		userId: String,
+		groupId: String,
+		membership: Member,
+		authoritativeMember: Member? = null
+	) {
+		// A failed section read must keep what the snapshot already holds: replacing it with an
+		// empty list made an offline refresh look like an empty portal, and the hydrated flag
+		// then suppressed every later retry.
+		val (groupOutcome, memberOutcome) = coroutineScope {
+			val groupTask = async {
+				safeRunCatching { groupRepo.getGroupById(groupId).getOrThrow() }
+			}
 			val memberTask = async {
-				if (userId.isBlank()) membership
-				else memberRepo.getMemberByUserId(userId, groupId).getOrNull() ?: membership
+				when {
+					authoritativeMember != null -> Result.success(authoritativeMember)
+					userId.isBlank() -> Result.success(membership)
+					else -> safeRunCatching {
+						memberRepo.getMemberByUserId(userId, groupId).getOrThrow()
+					}
+				}
 			}
 			groupTask.await() to memberTask.await()
 		}
-		val memberId = member.id
+		val member = memberOutcome.getOrNull() ?: membership
 
-		val (contributions, beneficiaries, loans, notifications) = coroutineScope {
+		val hydrated = coroutineScope {
 			val contributionsTask = async {
-				memberId?.takeIf { it.isNotBlank() }?.let {
-					contributionRepo.getMemberContributions(it, groupId).first().getOrElse { emptyList() }
-				} ?: emptyList()
+				member.id?.takeIf { it.isNotBlank() }?.let {
+					safeRunCatching { contributionRepo.getMemberContributions(it, groupId).first().getOrThrow() }
+				} ?: Result.success(emptyList())
 			}
 			val beneficiariesTask = async {
-				memberId?.takeIf { it.isNotBlank() }?.let {
-					beneficiaryRepo.syncBeneficiaries(it).getOrElse { emptyList() }
-				} ?: emptyList()
+				member.id?.takeIf { it.isNotBlank() }?.let {
+					safeRunCatching { beneficiaryRepo.syncBeneficiaries(it).getOrThrow() }
+				} ?: Result.success(emptyList())
 			}
 			val loansTask = async {
-				memberId?.takeIf { it.isNotBlank() }?.let {
-					loanRepo.getMemberLoans(it).first().getOrElse { emptyList() }
-				} ?: emptyList()
+				member.id?.takeIf { it.isNotBlank() }?.let {
+					safeRunCatching { loanRepo.getMemberLoans(it).first().getOrThrow() }
+				} ?: Result.success(emptyList())
 			}
 			val notificationsTask = async {
 				safeRunCatching {
 					notificationRepo.syncNotifications(groupId)
-					notificationRepo.observeNotifications(groupId).first().getOrElse { emptyList() }
-				}.getOrElse { emptyList() }
+					notificationRepo.observeNotifications(groupId).first().getOrThrow()
+				}
 			}
 			HydratedMemberData(
 				contributions = contributionsTask.await(),
@@ -147,25 +212,34 @@ class MemberGroupContextCacheService @Inject constructor(
 			)
 		}
 
-		val (messages, systemNotifs) = partitionMemberNotifications(
-			filterNotificationsForMember(notifications, memberId)
-		)
-
-		val calculation = group?.let {
-			paymentCalculator.calculateStatus(it, member, contributions)
-		}
-
-		updateContext(groupId) {
-			CachedGroupContext(
+		updateContext(groupId) { prev ->
+			val group = groupOutcome.getOrNull() ?: prev.group
+			val notifications = hydrated.notifications.getOrNull()
+			val (messages, systemNotifs) = if (notifications != null) {
+				partitionMemberNotifications(filterNotificationsForMember(notifications, member.id))
+			} else {
+				prev.messages to prev.notifications
+			}
+			val contributions = hydrated.contributions.getOrNull() ?: prev.contributions
+			prev.copy(
 				member = member,
 				group = group,
 				contributions = contributions,
-				beneficiaries = beneficiaries,
-				loans = loans,
+				beneficiaries = hydrated.beneficiaries.getOrNull() ?: prev.beneficiaries,
+				loans = hydrated.loans.getOrNull() ?: prev.loans,
 				notifications = systemNotifs,
 				messages = messages,
-				calculation = calculation,
-				isFullyHydrated = true
+				calculation = if (group != null) {
+					paymentCalculator.calculateStatus(group, member, contributions)
+				} else {
+					prev.calculation
+				},
+				isFullyHydrated = groupOutcome.isSuccess &&
+					memberOutcome.isSuccess &&
+					hydrated.contributions.isSuccess &&
+					hydrated.beneficiaries.isSuccess &&
+					hydrated.loans.isSuccess &&
+					hydrated.notifications.isSuccess
 			)
 		}
 	}
@@ -173,26 +247,22 @@ class MemberGroupContextCacheService @Inject constructor(
 	private fun clearForUser(userId: String?) {
 		cachedUserId = userId
 		_contexts.value = emptyMap()
-		warmupJobs.values.forEach { it.cancel() }
-		warmupJobs.clear()
+		warmupCoordinator.cancelAll()
 	}
 
 	private fun pruneToMemberships(memberships: List<Member>) {
 		val allowedGroupIds = memberships.map { it.groupId }.toSet()
 		_contexts.update { cache -> cache.filterKeys { it in allowedGroupIds } }
 
-		val staleJobs = warmupJobs.keys.filter { it !in allowedGroupIds }
-		staleJobs.forEach { groupId ->
-			warmupJobs.remove(groupId)?.cancel()
-		}
+		warmupCoordinator.retainOnly(allowedGroupIds)
 	}
 }
 
 private data class HydratedMemberData(
-	val contributions: List<Contribution>,
-	val beneficiaries: List<Beneficiary>,
-	val loans: List<Loan>,
-	val notifications: List<AppNotification>
+	val contributions: Result<List<Contribution>>,
+	val beneficiaries: Result<List<Beneficiary>>,
+	val loans: Result<List<Loan>>,
+	val notifications: Result<List<AppNotification>>
 )
 
 data class CachedGroupContext(
@@ -208,4 +278,3 @@ data class CachedGroupContext(
 	val isFullyHydrated: Boolean = false,
 	val lastUpdatedMillis: Long = 0L
 )
-

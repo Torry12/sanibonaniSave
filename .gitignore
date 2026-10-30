@@ -98,3 +98,6 @@ app/release/mapping.txt
 
 # Gradle user-home override created by a local run (holds only a wrapper stub)
 .gradle-cache/
+
+# Node tooling (the Supabase CLI dev dependency)
+node_modules/

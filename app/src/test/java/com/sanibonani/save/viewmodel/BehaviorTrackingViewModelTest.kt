@@ -3,6 +3,15 @@ package com.sanibonani.save.viewmodel
 import com.sanibonani.save.domain.model.MemberBehaviorTrack
 import com.sanibonani.save.domain.repository.admin.BehaviorTrackingRepository
 import com.sanibonani.save.domain.repository.member.MemberRepository
+import com.sanibonani.save.domain.usecase.admin.FlagMemberForReviewUseCase
+import com.sanibonani.save.domain.usecase.admin.GenerateBehaviorFinetuningDatasetUseCase
+import com.sanibonani.save.domain.usecase.admin.GetMemberBehaviorTrackUseCase
+import com.sanibonani.save.domain.usecase.admin.ObserveFraudEventsByMemberUseCase
+import com.sanibonani.save.domain.usecase.admin.UnflagMemberUseCase
+import com.sanibonani.save.domain.usecase.member.GetMemberByIdUseCase
+import com.sanibonani.save.domain.usecase.member.SuspendMemberUseCase
+import com.sanibonani.save.domain.usecase.member.UnsuspendMemberUseCase
+import com.sanibonani.save.domain.usecase.member.UpdateMemberStatusUseCase
 import com.sanibonani.save.features.admin.presentation.BehaviorTrackingViewModel
 import io.mockk.*
 import kotlinx.coroutines.Dispatchers
@@ -39,9 +48,20 @@ class BehaviorTrackingViewModelTest {
         unmockkAll()
     }
 
+    private fun viewModel() = BehaviorTrackingViewModel(
+        getMemberBehaviorTrack = GetMemberBehaviorTrackUseCase(repository),
+        getMemberById = GetMemberByIdUseCase(memberRepository),
+        observeFraudEventsByMember = ObserveFraudEventsByMemberUseCase(repository),
+        generateBehaviorFinetuningDataset = GenerateBehaviorFinetuningDatasetUseCase(repository),
+        flagMemberForReview = FlagMemberForReviewUseCase(repository),
+        unflagMemberUseCase = UnflagMemberUseCase(repository),
+        suspendMemberUseCase = SuspendMemberUseCase(UpdateMemberStatusUseCase(memberRepository), repository),
+        unsuspendMemberUseCase = UnsuspendMemberUseCase(UpdateMemberStatusUseCase(memberRepository), repository)
+    )
+
     @Test
     fun `loadTrack clears loading when refresh fails`() = runTest {
-        val viewModel = BehaviorTrackingViewModel(repository, memberRepository)
+        val viewModel = viewModel()
 
         coEvery { repository.getMemberBehavior("member-1") } returns Result.failure(IllegalStateException("refresh failed"))
         coEvery { memberRepository.getMemberById("member-1") } returns Result.failure(IllegalStateException("not found"))
@@ -56,7 +76,7 @@ class BehaviorTrackingViewModelTest {
 
     @Test
     fun `loadTrack updates state on success`() = runTest {
-        val viewModel = BehaviorTrackingViewModel(repository, memberRepository)
+        val viewModel = viewModel()
         val track = MemberBehaviorTrack(memberId = "m1", groupId = "g1")
         val member = com.sanibonani.save.domain.model.Member(id = "m1", groupId = "g1", fullName = "Test User")
 

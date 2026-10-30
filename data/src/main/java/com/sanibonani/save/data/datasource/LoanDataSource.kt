@@ -16,6 +16,7 @@ interface RemoteLoanDataSource {
     suspend fun disburseLoan(loanId: String, adminId: String, paymentMethod: PaymentMethod): Result<Unit>
     suspend fun updateLoanContract(loanId: String, contractUrl: String): Result<Unit>
     suspend fun recordRepayment(repayment: LoanRepayment): Result<com.sanibonani.save.domain.model.RecordRepaymentResult>
+    suspend fun settleExpiredLoan(loanId: String): Result<com.sanibonani.save.domain.model.RecordRepaymentResult>
     suspend fun getRepayments(loanId: String): Result<List<LoanRepayment>>
 }
 

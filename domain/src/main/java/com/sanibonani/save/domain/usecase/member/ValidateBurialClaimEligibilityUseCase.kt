@@ -28,7 +28,7 @@ class ValidateBurialClaimEligibilityUseCase @Inject constructor() {
         // 2. Min Reserve Percentage Requirement
         val claimAmount = group.burialClaimAmount
         if (group.minReservePercentage > 0.0 && group.balance.isPositive) {
-            val requiredReserve = claimAmount * (group.minReservePercentage / 100.0)
+            val requiredReserve = claimAmount.percent(group.minReservePercentage)
             if (group.balance < requiredReserve) {
                 return EligibilityResult.Ineligible("Group reserves (${group.balance.format()}) are below required ${group.minReservePercentage}% minimum threshold (${requiredReserve.format()}).")
             }

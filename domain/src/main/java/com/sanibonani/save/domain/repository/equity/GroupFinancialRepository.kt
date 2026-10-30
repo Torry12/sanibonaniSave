@@ -3,14 +3,6 @@ import com.sanibonani.save.domain.model.Money
 import com.sanibonani.save.domain.model.PlatformFee
 
 interface GroupFinancialRepository {
-    /** Atomically updates group balance by adding the specified amount (can be negative). */
-    suspend fun incrementGroupBalance(
-        groupId: String,
-        amount: Money,
-        memberId: String? = null,
-        transactionId: String? = null
-    ): Result<Money>
-
     /**
      * Atomically records a disbursement (outflow).
      * Decrements group balance and records a ledger entry.

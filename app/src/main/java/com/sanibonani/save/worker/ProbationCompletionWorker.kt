@@ -68,7 +68,7 @@ class ProbationCompletionWorker @AssistedInject constructor(
                     val joiningFeeDue = group != null && group.joiningFee.isPositive && !joiningFeePaid
 
                     if (joiningFeeDue) {
-                        AppLogger.w("ProbationWorker", "Cannot promote member ${member.fullName}: joining fee of ${group?.joiningFee?.format()} is outstanding")
+                        AppLogger.w("ProbationWorker", "Cannot promote member ${member.fullName}: joining fee of ${group.joiningFee.format()} is outstanding")
                         return@forEach
                     }
 
@@ -118,7 +118,11 @@ class ProbationCompletionWorker @AssistedInject constructor(
     companion object {
         const val WORK_NAME = "probation_completion_check"
 
-        fun schedule(context: Context): Operation {
+        /**
+         * Scheduled once per session by [BackgroundWorkScheduler]; the member roster it walks is
+         * the one RLS lets this login read, so the schedule is not role-dependent.
+         */
+        fun schedule(workManager: WorkManager) {
             val request = PeriodicWorkRequestBuilder<ProbationCompletionWorker>(
                 repeatInterval = 1, repeatIntervalTimeUnit = TimeUnit.DAYS
             )
@@ -129,8 +133,7 @@ class ProbationCompletionWorker @AssistedInject constructor(
                 )
                 .build()
 
-            val workManager = WorkManager.getInstance(context)
-            return workManager.enqueueUniquePeriodicWork(
+            workManager.enqueueUniquePeriodicWork(
                 WORK_NAME,
                 ExistingPeriodicWorkPolicy.KEEP,
                 request

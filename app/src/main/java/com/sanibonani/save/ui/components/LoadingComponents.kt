@@ -10,46 +10,18 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
+import com.sanibonani.save.R
 
 @Composable
 fun SanibonaniLoadingScreen(
-    message: String = "Please wait...",
+    message: String = stringResource(R.string.ui_please_wait),
     isOverlay: Boolean = false
 ) {
     if (isOverlay) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .navigationBarsPadding()
-                .padding(bottom = 24.dp, start = 16.dp, end = 16.dp)
-                .zIndex(100f),
-            contentAlignment = Alignment.BottomCenter
-        ) {
-            Surface(
-                color = MaterialTheme.colorScheme.surfaceVariant,
-                contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                shape = RoundedCornerShape(28.dp),
-                tonalElevation = 6.dp,
-                shadowElevation = 8.dp
-            ) {
-                Row(
-                    Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.Center
-                ) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(20.dp),
-                        color = MaterialTheme.colorScheme.primary,
-                        strokeWidth = 2.5.dp
-                    )
-                    Spacer(Modifier.width(12.dp))
-                    Text(message, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
-                }
-            }
-        }
+        SoftLoadingOverlay(isLoading = true, message = message)
     } else {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -64,7 +36,7 @@ fun SanibonaniLoadingScreen(
 @Composable
 fun SoftLoadingOverlay(
     isLoading: Boolean,
-    message: String = "Syncing..."
+    message: String = stringResource(R.string.ui_syncing)
 ) {
     AnimatedVisibility(
         visible = isLoading,

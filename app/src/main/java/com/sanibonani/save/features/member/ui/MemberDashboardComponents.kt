@@ -3,7 +3,7 @@ package com.sanibonani.save.features.member.ui
 import androidx.compose.runtime.Composable
 import com.sanibonani.save.domain.model.*
 import com.sanibonani.save.features.member.ui.tabs.*
-import com.sanibonani.save.features.audit.MemberAuditTab
+import com.sanibonani.save.features.audit.ui.MemberAuditTab
 import com.sanibonani.save.features.member.presentation.MemberOverviewViewModel
 import com.sanibonani.save.features.member.presentation.MemberProfileViewModel
 import com.sanibonani.save.features.member.presentation.MemberFinanceViewModel

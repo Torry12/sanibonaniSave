@@ -7,14 +7,11 @@ This document provides a deep dive into the data layer of the SanibonaniSave app
 ## 🏗 1. Core Data Structures (Domain Models)
 
 The domain layer (`:domain`) defines the fundamental business entities. Models are
-annotated `@Serializable` for network/disk transport. Most also use `@Parcelize`
-so they can travel through Compose navigation arguments — this is the reason
-`:domain` still depends on the Android framework, and it is the main outstanding
-item in moving `:domain` to a pure-JVM module.
-
-> Models do **not** reference the Supabase SDK. Session state crosses the module
-> boundary as the domain-owned `AuthSession` / `AuthSessionStatus`, which `:data`
-> maps from the SDK types.
+annotated `@Serializable` for network/disk transport only. They no longer carry
+`@Parcelize`: `:domain` compiles with no `android.*` imports, navigation arguments
+are ids, and each screen re-loads the model from Room. Session state crosses the
+boundary as the domain-owned `AuthSession` / `AuthSessionStatus`, which `:data`
+maps from the SDK types, and logging crosses through the `AppLogSink` port.
 
 ### Primary Entities:
 - **`Group`**: The central container for all cooperative activities. Contains configuration (fees, probation, type) and financial state (balance).
@@ -57,6 +54,14 @@ The local data layer (`:data`) mirrors the Supabase backend for offline capabili
 - **Enums**: Roles, Statuses, and Prefs are converted to/from Strings (using snake_case to match Supabase).
 - **Booleans**: Stored as Integers (0/1) for SQLite compatibility.
 - **Dates**: Stored as ISO-8601 Strings for consistent parsing across JVM and Postgres.
+
+### Status casing
+The Postgres CHECK constraints all use **lowercase snake_case** literals — `active`, `pending_payment`, `paid`, `due`, `overdue`, `partial`, `missed`, `partially_paid`, `group_approved`, `pending`/`verified`/`rejected`. Kotlin enum constants are UPPERCASE and reach the wire through `@SerialName`, so `MemberStatus.ACTIVE` posts `"active"`. Two columns deliberately break the pattern and are uppercase in the database: `audit_logs.action` (`POLL_CREATED`, `VOTE_CAST`, …) and `fraud_detection_events.severity` (`LOW`/`MEDIUM`/`HIGH`/`CRITICAL`), the latter despite `member_behavior_track.fraud_risk_level` being lowercase.
+
+### Tables that are not full mirrors
+`member_behavior_track`, `behavior_analytics_summary` and `fraud_detection_events` have no upload path — nothing writes them back to Supabase, and the local `member_behavior_track.id` primary key has no counterpart column in Postgres (whose PK there is `member_id`). Treat the local copies as on-device ML feature storage. `DYNAMICS` sync does read behavior rows down, but it currently requests the table `member_behavior_tracks` (plural) while every SQL master defines `member_behavior_track` (singular), so that read 404s and is swallowed by `safeRunCatching` — a known defect, not a design choice.
+
+> The local `user_profiles` table is the Room name for the remote **`profiles`** table; `user_profiles` does not exist in Postgres. `members.user_id` references `auth.users(id)` directly.
 
 ---
 
@@ -129,12 +134,16 @@ fun <T, E> observeAndSync(
 ### Backend Enforcement (Supabase RPCs):
 Critical financial operations are performed via **Postgres Functions (RPCs)** to ensure atomicity.
 - **`record_contribution_v2`**: Atomically creates a contribution, updates group balance, and creates a ledger entry. If any step fails, the whole transaction rolls back.
-- **`approve_and_disburse_loan_v2` / `complete_payout_v2`**: Outflows post through these RPCs; their spend guards treat a NULL cached balance as zero and raise on insufficient funds.
+- **`approve_and_disburse_loan_v2` / `complete_payout_v2`**: Outflows post through these RPCs; their spend guards treat a NULL cached balance as zero and raise on insufficient funds, and each asserts MFA (`[SEC_001]`) above R10,000.
+- **`settle_expired_loan_v2`**: The only loan-settlement path. `record_loan_settlement_extraction_v1` was retired because its caller-supplied member, group and amount were never validated as one atomic write.
+- **Validate before write**: `[FIN_003]` rejects a non-positive amount, a third decimal place, or an unknown `status`/`type` literal before the first row is touched.
 - **`groups.balance`**: `NUMERIC(12,2) NOT NULL DEFAULT 0`, a cache of `group_ledger` — never the authority, and never written directly.
 
-### Frontend Validation (`ValidationUtils`):
-- **SA ID Number**: Validated via Luhn Algorithm.
-- **Banking**: Regex-based validation for Account Numbers (7-13 digits) and Branch Codes (6 digits).
+### Frontend Validation (`InputValidator`, surfaced as `ValidationUtils`):
+`InputValidator` owns every rule. `ValidationUtils` is the convenience surface most call sites use and forwards to it; neither restates a rule twice.
+- **SA ID Number**: 13 digits, a real date of birth in the first six, and a valid Luhn check digit — the same rule for registration, group creation and KYC.
+- **Banking**: Account numbers are validated per bank against `BankAccountValidation.ACCOUNT_NUMBER_LENGTHS` (7–13 digits), branch codes as 6 digits.
+- **Payments**: Card number (Luhn), expiry and CVV rules live in `InputValidator`, not in a ViewModel or a Compose field.
 - **Currency Precision**: Use the `Money` domain class (BigDecimal). Never use `Double` for financial arithmetic. Use `amount.toPlainString()` when serializing for Supabase RPCs.
 
 ---

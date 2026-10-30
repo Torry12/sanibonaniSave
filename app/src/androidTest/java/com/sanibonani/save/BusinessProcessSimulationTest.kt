@@ -5,14 +5,17 @@ import com.sanibonani.save.di.TestAuthSessionController
 import com.sanibonani.save.domain.model.*
 import com.sanibonani.save.domain.repository.admin.*
 import com.sanibonani.save.domain.repository.auth.*
-import com.sanibonani.save.domain.repository.equity.GroupFinancialRepository
 import com.sanibonani.save.domain.repository.equity.MemberContributionRepository
+import io.github.jan.supabase.SupabaseClient
+import io.github.jan.supabase.postgrest.postgrest
+import io.github.jan.supabase.postgrest.rpc
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import com.sanibonani.save.domain.repository.disbursement.PayoutRepository
 import com.sanibonani.save.domain.repository.group.*
 import com.sanibonani.save.domain.repository.member.*
 import com.sanibonani.save.domain.service.*
 import com.sanibonani.save.domain.usecase.disbursement.ProcessDisbursementUseCase
-import com.sanibonani.save.domain.usecase.disbursement.ProcessEmergencyWithdrawalUseCase
 import com.sanibonani.save.domain.usecase.member.*
 import com.sanibonani.save.domain.usecase.group.GetGroupBusinessInsightsUseCase
 import com.sanibonani.save.domain.utils.PaymentCalculator
@@ -45,10 +48,9 @@ class BusinessProcessSimulationTest {
     @Inject lateinit var payoutRepo: PayoutRepository
     @Inject lateinit var claimRepo: BeneficiaryClaimRepository
     @Inject lateinit var beneficiaryRepo: BeneficiaryRepository
-    @Inject lateinit var groupFinancialRepo: GroupFinancialRepository
+    @Inject lateinit var supabase: SupabaseClient
     @Inject lateinit var processDisbursementUseCase: ProcessDisbursementUseCase
     @Inject lateinit var processBurialClaimUseCase: ProcessBurialClaimUseCase
-    @Inject lateinit var processEmergencyWithdrawalUseCase: ProcessEmergencyWithdrawalUseCase
     @Inject lateinit var getGroupBusinessInsightsUseCase: GetGroupBusinessInsightsUseCase
     @Inject lateinit var behaviorRepo: BehaviorTrackingRepository
     @Inject lateinit var governanceService: GovernanceService
@@ -131,8 +133,8 @@ class BusinessProcessSimulationTest {
             )
             val payoutId = payoutRepo.requestPayout(payout).getOrThrow()
 
-            processDisbursementUseCase(payoutId, groupId, PayoutStatus.PROCESSING, TestAuthSessionController.mockedUserId!!).getOrThrow()
-            processDisbursementUseCase(payoutId, groupId, PayoutStatus.COMPLETED, TestAuthSessionController.mockedUserId!!).getOrThrow()
+            processDisbursementUseCase(payoutId, PayoutStatus.PROCESSING, TestAuthSessionController.mockedUserId!!).getOrThrow()
+            processDisbursementUseCase(payoutId, PayoutStatus.COMPLETED, TestAuthSessionController.mockedUserId!!).getOrThrow()
 
             val finalGroup = getGroup(groupId)
             assertEquals(0.0, finalGroup.balance.toDouble(), 0.01)
@@ -321,7 +323,12 @@ class BusinessProcessSimulationTest {
                 Contribution(memberId = memberBId, groupId = groupId, amount = Money("5000.0"), dueDate = "2026-07-01", status = ContributionStatus.PAID, transactionId = "investment-b-$memberBId")
             ).getOrThrow()
 
-            groupFinancialRepo.incrementGroupBalance(groupId, Money("3000.0"), null).getOrThrow()
+            supabase.postgrest.rpc("record_liquidity_v1", buildJsonObject {
+                put("p_group_id", groupId)
+                put("p_amount", Money("3000.0").amount.toPlainString())
+                put("p_description", "Simulated capital appreciation")
+                put("p_category", "liquidity")
+            })
 
             val updatedMembers = listOf(memberA, memberB).map { memberRepo.getMemberById(it.id!!).getOrThrow() }
             val insight = getGroupBusinessInsightsUseCase(getGroup(groupId), updatedMembers).getOrThrow()
@@ -352,47 +359,9 @@ class BusinessProcessSimulationTest {
                 bankName = "Sim", accountNo = "1", branchCode = "1"
             )).getOrThrow()
 
-            val result = processDisbursementUseCase(payoutId, groupId, PayoutStatus.COMPLETED, TestAuthSessionController.mockedUserId!!)
+            val result = processDisbursementUseCase(payoutId, PayoutStatus.COMPLETED, TestAuthSessionController.mockedUserId!!)
             assertTrue(result.isFailure)
             assertTrue(result.exceptionOrNull()?.message?.contains("MFA_REQUIRED") == true)
-        }
-    }
-
-    @Test
-    fun simulateEmergencyFundWithdrawalLimit() {
-        runBlocking {
-            val groupId = UUID.randomUUID().toString()
-            val group = Group(
-                id = groupId,
-                name = "SIM-Emergency-Limit",
-                type = GroupType.EMERGENCY_FUND,
-                adminUserId = TestAuthSessionController.mockedUserId,
-                registrationPaid = true,
-                balance = Money("10000.0")
-            )
-            groupRepo.createGroup(group).getOrThrow()
-            testGroupIds.add(groupId)
-
-            val member = memberRepo.registerMember(
-                Member(
-                    groupId = groupId,
-                    fullName = "SIM-Emergency-Member",
-                    status = MemberStatus.ACTIVE
-                )
-            ).getOrThrow()
-
-            // 1. Success: Within 50% limit (R4000)
-            val result1 = processEmergencyWithdrawalUseCase(group, member, Money("4000.0"), "Medical")
-            assertTrue(result1 is ProcessEmergencyWithdrawalUseCase.WithdrawalResult.Success)
-
-            // 2. Failure: Exceeds 50% limit (R6000)
-            val result2 = processEmergencyWithdrawalUseCase(group, member, Money("6000.0"), "Car Repair")
-            assertTrue(result2 is ProcessEmergencyWithdrawalUseCase.WithdrawalResult.Failure)
-            assertTrue(
-                (result2 as ProcessEmergencyWithdrawalUseCase.WithdrawalResult.Failure).reason.contains(
-                    "exceeds single-transaction limit"
-                )
-            )
         }
     }
 

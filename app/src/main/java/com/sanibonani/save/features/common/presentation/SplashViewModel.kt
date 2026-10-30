@@ -1,30 +1,27 @@
 package com.sanibonani.save.features.common.presentation
 
-import com.sanibonani.save.domain.utils.safeRunCatching
 import com.sanibonani.save.domain.logging.AppLogger
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.sanibonani.save.data.BuildConfig
-import com.sanibonani.save.domain.repository.auth.SupabaseRepository
-import com.sanibonani.save.domain.repository.system.SyncRepository
+import com.sanibonani.save.domain.usecase.auth.IsLoggedInUseCase
+import com.sanibonani.save.domain.usecase.system.CheckBackendReachabilityUseCase
+import com.sanibonani.save.domain.usecase.system.ObserveSyncStatusUseCase
+import com.sanibonani.save.domain.usecase.system.SyncAllDataUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.withContext
 import javax.inject.Inject
-import java.net.InetSocketAddress
-import java.net.Socket
-import java.net.URI
 import kotlinx.coroutines.delay
 
 @HiltViewModel
 class SplashViewModel @Inject constructor(
-    private val supabaseRepo: SupabaseRepository,
-    private val syncRepository: SyncRepository
+    private val isLoggedIn: IsLoggedInUseCase,
+    private val observeSyncStatus: ObserveSyncStatusUseCase,
+    private val syncAllData: SyncAllDataUseCase,
+    private val checkBackendReachability: CheckBackendReachabilityUseCase
 ) : ViewModel() {
 
     private val _isConnecting = MutableStateFlow(true)
@@ -33,7 +30,7 @@ class SplashViewModel @Inject constructor(
     private val _connectionError = MutableStateFlow<String?>(null)
     val connectionError = _connectionError.asStateFlow()
 
-    val syncStatus = syncRepository.syncStatus
+    val syncStatus = observeSyncStatus()
 
     private var connectionJob: Job? = null
 
@@ -54,34 +51,17 @@ class SplashViewModel @Inject constructor(
             val startTime = System.currentTimeMillis()
             val minDisplayDurationMs = 3000L // 3s branding display
 
-            val hasAuthenticatedSession = supabaseRepo.isLoggedIn
+            val hasAuthenticatedSession = isLoggedIn()
 
             // Start background data sync immediately in parallel
             if (hasAuthenticatedSession && !backgroundSyncStarted) {
                 backgroundSyncStarted = true
                 viewModelScope.launch(Dispatchers.IO) {
-                    safeRunCatching { syncRepository.syncAllData() }
+                    syncAllData()
                 }
             }
 
-            val url = BuildConfig.SUPABASE_URL_ONLINE.trim().removeSurrounding("\"")
-            val isReachable = withContext(Dispatchers.IO) {
-                try {
-                    val uri = URI(url)
-                    val host = uri.host ?: "google.com"
-                    val port = if (uri.port != -1) uri.port else 443
-
-                    Socket().use { socket ->
-                        socket.connect(InetSocketAddress(host, port), 3000)
-                    }
-                    true
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    AppLogger.w("SplashViewModel", "Connectivity check skipped/failed: ${e.message}")
-                    hasAuthenticatedSession
-                }
-            }
+            val isReachable = checkBackendReachability(fallbackResult = hasAuthenticatedSession)
 
             if (!isReachable) {
                 // Offline-first startup continues with the local Room cache. Network recovery

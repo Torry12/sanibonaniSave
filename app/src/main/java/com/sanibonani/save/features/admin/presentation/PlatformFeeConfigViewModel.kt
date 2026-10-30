@@ -3,8 +3,10 @@ package com.sanibonani.save.features.admin.presentation
 import com.sanibonani.save.domain.utils.safeRunCatching
 import com.sanibonani.save.domain.logging.AppLogger
 import com.sanibonani.save.domain.model.*
-import com.sanibonani.save.domain.repository.admin.PlatformConfigRepository
-import com.sanibonani.save.domain.repository.admin.PlatformRepository
+import com.sanibonani.save.domain.usecase.admin.GetGranularFeeConfigsUseCase
+import com.sanibonani.save.domain.usecase.admin.GetPlatformSettingsUseCase
+import com.sanibonani.save.domain.usecase.admin.UpdateGlobalFeesUseCase
+import com.sanibonani.save.domain.usecase.admin.UpdateGranularFeeConfigUseCase
 import com.sanibonani.save.domain.validation.InputValidator
 import com.sanibonani.save.domain.validation.ValidationResult
 import com.sanibonani.save.features.admin.presentation.state.PlatformFeeConfigUiState
@@ -15,15 +17,17 @@ import javax.inject.Inject
 
 @HiltViewModel
 class PlatformFeeConfigViewModel @Inject constructor(
-    private val platformRepo: PlatformRepository,
-    private val platformConfigRepo: PlatformConfigRepository
+    private val getPlatformSettings: GetPlatformSettingsUseCase,
+    private val getGranularFeeConfigs: GetGranularFeeConfigsUseCase,
+    private val updateGlobalFees: UpdateGlobalFeesUseCase,
+    private val updateGranularFeeConfig: UpdateGranularFeeConfigUseCase
 ) : BaseViewModel<PlatformFeeConfigUiState>(PlatformFeeConfigUiState()) {
 
     val state: StateFlow<PlatformFeeConfigUiState> = uiState
 
     fun loadSettings() {
         launchJob("load_settings") {
-            platformRepo.getPlatformSettings().onSuccess { config ->
+            getPlatformSettings().onSuccess { config ->
                 updateState { it.copy(
                     memberCharge = config.monthlyMemberFee.toPlainString(),
                     registrationFee = config.registrationFee.toPlainString(),
@@ -41,7 +45,7 @@ class PlatformFeeConfigViewModel @Inject constructor(
                     platformAccountHolder = config.accountHolder
                 ) }
             }
-            platformRepo.getGranularFeeConfigs().onSuccess { loaded ->
+            getGranularFeeConfigs().onSuccess { loaded ->
                 val configs = if (loaded.isNotEmpty()) loaded else createDefaultGranularFeeConfigs()
                 val inputs = buildGranularFeeInputs(configs)
                 updateState { it.copy(granularFees = configs, granularFeeInputs = inputs) }
@@ -103,9 +107,7 @@ class PlatformFeeConfigViewModel @Inject constructor(
                 branchCode = uiState.value.platformBranchCode,
                 accountHolder = uiState.value.platformAccountHolder
             )
-            platformRepo.updateGlobalFees(config).onSuccess {
-                // Billing reads this snapshot, so the admin's own session must not keep quoting the old fees.
-                platformConfigRepo.hydrate(config)
+            updateGlobalFees(config).onSuccess {
                 updateState { it.copy(isSaving = false, saveSuccess = true) }
                 showMessage("Global fees and platform bank details updated")
             }.onFailure {
@@ -199,7 +201,7 @@ class PlatformFeeConfigViewModel @Inject constructor(
         launchJob("save_granular_fees") {
             updateState { it.copy(isSavingGranularFee = true) }
             uiState.value.granularFees.forEach {
-                platformRepo.updateGranularFeeConfig(it).onFailure { e -> AppLogger.e("PlatformFeeConfigVM", "Failed to save fee for ${it.groupType}", e) }
+                updateGranularFeeConfig(it).onFailure { e -> AppLogger.e("PlatformFeeConfigVM", "Failed to save fee for ${it.groupType}", e) }
             }
             updateState { it.copy(isSavingGranularFee = false) }
             showMessage("Granular fees saved")

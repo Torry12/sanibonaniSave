@@ -168,18 +168,26 @@ class SupabaseGroupDataSourceImpl @Inject constructor(
         }
     }
 
-    override suspend fun incrementGroupBalance(groupId: String, amount: Money, memberId: String?, transactionId: String?): Result<Money> = safeRunCatching {
-        val rpcParams = buildJsonObject {
-            put("p_group_id", groupId)
-            put("p_amount", amount.amount.toPlainString())
-            memberId?.let { put("p_member_id", it) }
-            transactionId?.let { put("p_transaction_id", it) }
-        }
-        client.postgrest.rpc("increment_group_balance", rpcParams).decodeAs<Money>()
+    override suspend fun recordDisbursement(groupId: String, amount: Money, description: String, category: String, transactionId: String?, memberId: String?): Result<Money> = safeRunCatching {
+        client.postgrest.rpc(DISBURSEMENT_RPC, buildDisbursementRpcParams(groupId, amount, description, category, transactionId, memberId)).decodeAs<Money>()
     }
 
-    override suspend fun recordDisbursement(groupId: String, amount: Money, description: String, category: String, transactionId: String?, memberId: String?): Result<Money> = safeRunCatching {
-        val rpcParams = buildJsonObject {
+    companion object {
+        const val DISBURSEMENT_RPC = "record_disbursement_v1"
+
+        /**
+         * The keys are the RPC's declared parameter names, and the amount crosses as a fixed
+         * scale decimal string, never a float - the same wire shape
+         * [SupabasePayoutDataSourceImpl.buildRoscaPayoutRpcParams] uses for the rotation.
+         */
+        fun buildDisbursementRpcParams(
+            groupId: String,
+            amount: Money,
+            description: String,
+            category: String,
+            transactionId: String?,
+            memberId: String?
+        ): JsonObject = buildJsonObject {
             put("p_group_id", groupId)
             put("p_amount", amount.amount.toPlainString())
             put("p_description", description)
@@ -187,7 +195,6 @@ class SupabaseGroupDataSourceImpl @Inject constructor(
             transactionId?.let { put("p_transaction_id", it) }
             memberId?.let { put("p_member_id", it) }
         }
-        client.postgrest.rpc("record_disbursement_v1", rpcParams).decodeAs<Money>()
     }
 
     override suspend fun deleteGroup(groupId: String): Result<Unit> = safeRunCatching {

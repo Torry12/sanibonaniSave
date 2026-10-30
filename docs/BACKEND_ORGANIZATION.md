@@ -35,7 +35,9 @@ From the repository root, regenerate in this order:
 .\supabase\scripts\generate_integrated_seed.ps1
 ```
 
-For an existing online database, use the dated additive deltas in `online/` (`SYNC_DELTA_20261014.sql`, `20261021`, `20261022`); do not run either full rebuild against an existing tier, and never rewrite or re-run an applied delta. Each delta carries a read-only pre-flight and a fingerprint gate: compare the reported hashes with the ones recorded in the file, and stop for review if any body differs. Back up the database and inspect the SQL before applying it.
+For an existing database, use the dated additive deltas in `online/` — `SYNC_DELTA_20261014`, `_20261021`, `_20261022`, `_20261026`, `_20261026B`, `_20261027`, `_20261028` and `_20261029`. All seven through `20261028` are applied on the Local tier; **Cloud still owes `20261027` and `20261028`**, which are pasted into the Dashboard SQL editor by hand, and `20261029` has been cut but applied on neither tier. Do not run either full rebuild against an existing tier, and never rewrite or re-run an applied delta. Each delta carries a read-only pre-flight and a fingerprint gate: compare the reported hashes with the ones recorded in the file, and stop for review if any body differs. Back up the database and inspect the SQL before applying it.
+
+Two read-only probes live in `supabase/maintenance/`: `SCHEMA_PARITY_DIGEST.sql` returns one row of per-kind object counts plus a digest hash (its header records the expected baseline — bump it when the masters move), and `SCHEMA_OBJECT_FINGERPRINTS.sql` lists the exact function bodies that differ. After a function body changes on a live tier, reload PostgREST with `SELECT pg_notify('pgrst','reload schema');`. Never probe a `SECURITY DEFINER` RPC as `anon` on the Local stack — it crashes Local Postgres; check privileges with `has_function_privilege` instead.
 
 ## Consistency rules
 

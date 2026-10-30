@@ -1,7 +1,9 @@
 package com.sanibonani.save.features.admin.presentation
 
-import com.sanibonani.save.domain.model.*
-import com.sanibonani.save.domain.repository.admin.PlatformRepository
+import com.sanibonani.save.domain.usecase.admin.DeleteCloudBackupUseCase
+import com.sanibonani.save.domain.usecase.admin.ExportLocalDatabaseUseCase
+import com.sanibonani.save.domain.usecase.admin.GetCloudBackupsUseCase
+import com.sanibonani.save.domain.usecase.admin.TriggerCloudBackupUseCase
 import com.sanibonani.save.features.admin.presentation.state.PlatformBackupUiState
 import com.sanibonani.save.features.common.presentation.BaseViewModel
 import com.sanibonani.save.features.common.presentation.UIEvent
@@ -11,7 +13,10 @@ import javax.inject.Inject
 
 @HiltViewModel
 class PlatformBackupViewModel @Inject constructor(
-    private val platformRepo: PlatformRepository
+    private val getCloudBackups: GetCloudBackupsUseCase,
+    private val triggerCloudBackupUseCase: TriggerCloudBackupUseCase,
+    private val deleteCloudBackup: DeleteCloudBackupUseCase,
+    private val exportLocalDatabaseUseCase: ExportLocalDatabaseUseCase
 ) : BaseViewModel<PlatformBackupUiState>(PlatformBackupUiState()) {
 
     val state: StateFlow<PlatformBackupUiState> = uiState
@@ -19,7 +24,7 @@ class PlatformBackupViewModel @Inject constructor(
     fun loadBackups() {
         launchJob("load_backups") {
             updateState { it.copy(isFetchingBackups = true) }
-            platformRepo.getCloudBackups().onSuccess { list ->
+            getCloudBackups().onSuccess { list ->
                 updateState { it.copy(backups = list, isFetchingBackups = false) }
             }.onFailure {
                 updateState { it.copy(isFetchingBackups = false) }
@@ -31,7 +36,7 @@ class PlatformBackupViewModel @Inject constructor(
     fun triggerCloudBackup() {
         launchJob("backup") {
             updateState { it.copy(isBackingUp = true) }
-            platformRepo.triggerCloudBackup().onSuccess {
+            triggerCloudBackupUseCase().onSuccess {
                 loadBackups()
                 showMessage("Cloud backup triggered")
             }.onFailure { handleError(it) }
@@ -41,7 +46,7 @@ class PlatformBackupViewModel @Inject constructor(
 
     fun deleteBackup(name: String) {
         launchJob("delete_backup") {
-            platformRepo.deleteCloudBackup(name).onSuccess {
+            deleteCloudBackup(name).onSuccess {
                 loadBackups()
                 showMessage("Backup deleted")
             }.onFailure { handleError(it) }
@@ -50,7 +55,7 @@ class PlatformBackupViewModel @Inject constructor(
 
     fun exportLocalDatabase(useOnline: Boolean) {
         launchJob("export_db") {
-            platformRepo.exportLocalDatabase(useOnline).onSuccess {
+            exportLocalDatabaseUseCase(useOnline).onSuccess {
                 sendEvent(UIEvent.OpenFile(it, "application/octet-stream", "DB Export"))
             }.onFailure { handleError(it) }
         }

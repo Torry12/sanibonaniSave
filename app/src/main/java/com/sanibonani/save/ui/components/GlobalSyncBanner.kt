@@ -12,7 +12,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
-import com.sanibonani.save.domain.repository.system.SyncStatus
+import com.sanibonani.save.domain.model.SyncStatus
 import com.sanibonani.save.ui.theme.AccentBlue
 import com.sanibonani.save.ui.theme.Navy
 

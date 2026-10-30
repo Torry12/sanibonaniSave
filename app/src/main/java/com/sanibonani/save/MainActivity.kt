@@ -12,7 +12,7 @@ import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.sanibonani.save.data.utils.AppDateSync
 import com.sanibonani.save.features.common.presentation.SplashViewModel
-import com.sanibonani.save.ui.AppBootloader
+import com.sanibonani.save.ui.components.AppBootloader
 import com.sanibonani.save.features.common.presentation.StartupDataViewModel
 import com.sanibonani.save.features.auth.presentation.AuthViewModel
 import com.sanibonani.save.ui.navigation.SanibonaniNavGraph
@@ -98,11 +98,6 @@ class MainActivity : AppCompatActivity() {
 
     override fun onPause() {
         super.onPause()
-        AppDateSync.syncOnExit(this)
-    }
-
-    override fun onStop() {
-        super.onStop()
         AppDateSync.syncOnExit(this)
     }
 }

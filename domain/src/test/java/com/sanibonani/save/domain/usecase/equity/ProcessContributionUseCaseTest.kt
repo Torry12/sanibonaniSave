@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertNotEquals
 import org.junit.Before
 import org.junit.Test
 import com.sanibonani.save.domain.repository.credit.LoanRepository
@@ -94,5 +95,25 @@ class ProcessContributionUseCaseTest {
         // Then
         assertTrue(result is ContributionOutcome.Success)
         coVerify { activateGroupUseCase("g1", any()) }
+    }
+
+    @Test
+    fun `identical payment intents receive distinct transaction ids`() = runBlocking {
+        val group = Group(id = "g1", probationMonths = 3)
+        val member = Member(id = "m1", groupId = "g1", status = MemberStatus.PENDING_PAYMENT)
+        val amount = Money("150.0")
+
+        coEvery { contributionRepository.processComplexPayment(any(), any(), any(), any(), any(), any(), any(), any()) } returns Result.success(amount)
+        coEvery { memberRepository.updateMemberStatus(any(), any()) } returns Result.success(Unit)
+
+        val first = useCase(PaymentType.JOINING_FEE, amount, "g1", member, group)
+        val second = useCase(PaymentType.JOINING_FEE, amount, "g1", member, group)
+
+        assertTrue(first is ContributionOutcome.Success)
+        assertTrue(second is ContributionOutcome.Success)
+        assertNotEquals(
+            (first as ContributionOutcome.Success).transactionId,
+            (second as ContributionOutcome.Success).transactionId
+        )
     }
 }

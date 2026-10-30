@@ -24,7 +24,9 @@ import kotlinx.serialization.json.*
  * and free from floating-point drift, which is essential for accurate ledger reconstruction.
  */
 @Serializable(with = MoneySerializer::class)
-data class Money(val amount: BigDecimal) : Comparable<Money> {
+class Money(amount: BigDecimal) : Comparable<Money> {
+    val amount: BigDecimal = amount.setScale(2, RoundingMode.HALF_EVEN)
+
 
     /**
      * Permanently blocked entry point: binary floating point cannot hold rand exactly, so a
@@ -47,33 +49,72 @@ data class Money(val amount: BigDecimal) : Comparable<Money> {
             minimumFractionDigits = 2
             maximumFractionDigits = 2
         }
+        private val HUNDRED = BigDecimal("100")
 
         // Interop door for provider payloads that still arrive as floating point numbers.
         fun fromDouble(value: Double?): Money =
-            value?.let { Money(BigDecimal.valueOf(it).setScale(2, RoundingMode.HALF_EVEN)) } ?: ZERO
+            value?.let {
+                require(it.isFinite()) { "Money value must be finite." }
+                Money(BigDecimal.valueOf(it))
+            } ?: ZERO
     }
 
-    operator fun plus(other: Money): Money = Money(this.amount.add(other.amount).setScale(2, RoundingMode.HALF_EVEN))
-    operator fun minus(other: Money): Money = Money(this.amount.subtract(other.amount).setScale(2, RoundingMode.HALF_EVEN))
-    operator fun unaryMinus(): Money = Money(this.amount.negate().setScale(2, RoundingMode.HALF_EVEN))
-    operator fun times(multiplier: Double): Money = Money(this.amount.multiply(BigDecimal.valueOf(multiplier)).setScale(2, RoundingMode.HALF_EVEN))
-    operator fun times(multiplier: Int): Money = Money(this.amount.multiply(BigDecimal.valueOf(multiplier.toLong())).setScale(2, RoundingMode.HALF_EVEN))
-    operator fun times(multiplier: Long): Money = Money(this.amount.multiply(BigDecimal.valueOf(multiplier)).setScale(2, RoundingMode.HALF_EVEN))
-    operator fun times(multiplier: BigDecimal): Money = Money(this.amount.multiply(multiplier).setScale(2, RoundingMode.HALF_EVEN))
+    operator fun plus(other: Money): Money = Money(amount.add(other.amount))
+    operator fun minus(other: Money): Money = Money(amount.subtract(other.amount))
+    operator fun unaryMinus(): Money = Money(amount.negate())
+    operator fun times(multiplier: Double): Money {
+        require(multiplier.isFinite()) { "Money multiplier must be finite." }
+        return Money(amount.multiply(BigDecimal.valueOf(multiplier)))
+    }
+    operator fun times(multiplier: Int): Money = Money(amount.multiply(BigDecimal.valueOf(multiplier.toLong())))
+    operator fun times(multiplier: Long): Money = Money(amount.multiply(BigDecimal.valueOf(multiplier)))
+    operator fun times(multiplier: BigDecimal): Money = Money(amount.multiply(multiplier))
 
-    fun dividedBy(divisor: Int): Money = Money(this.amount.divide(BigDecimal(divisor), 2, RoundingMode.HALF_EVEN))
-    fun dividedBy(divisor: Long): Money = Money(this.amount.divide(BigDecimal(divisor), 2, RoundingMode.HALF_EVEN))
-    fun dividedBy(divisor: Double): Money = Money(this.amount.divide(BigDecimal.valueOf(divisor), 2, RoundingMode.HALF_EVEN))
+    fun dividedBy(divisor: Int): Money {
+        require(divisor != 0) { "Cannot divide money by zero." }
+        return Money(amount.divide(BigDecimal(divisor), 2, RoundingMode.HALF_EVEN))
+    }
+    fun dividedBy(divisor: Long): Money {
+        require(divisor != 0L) { "Cannot divide money by zero." }
+        return Money(amount.divide(BigDecimal.valueOf(divisor), 2, RoundingMode.HALF_EVEN))
+    }
+    fun dividedBy(divisor: Double): Money {
+        require(divisor.isFinite() && divisor != 0.0) { "Money divisor must be finite and non-zero." }
+        return Money(amount.divide(BigDecimal.valueOf(divisor), 2, RoundingMode.HALF_EVEN))
+    }
+    fun dividedBy(divisor: Money): Money {
+        require(!divisor.isZero) { "Cannot divide by zero money." }
+        return Money(this.amount.divide(divisor.amount, 2, RoundingMode.HALF_EVEN))
+    }
 
     operator fun div(divisor: Int): Money = dividedBy(divisor)
     operator fun div(divisor: Long): Money = dividedBy(divisor)
     operator fun div(divisor: Double): Money = dividedBy(divisor)
 
-    /** Returns a percentage of this money amount. */
-    fun percent(percentage: Double): Money = this * (percentage / 100.0)
+    /** Returns a percentage of this money amount, rounding only the final currency value. */
+    fun percent(percentage: Double): Money {
+        require(percentage.isFinite()) { "Percentage must be finite." }
+        return percent(BigDecimal.valueOf(percentage))
+    }
+
+    fun percent(percentage: Int): Money = percent(BigDecimal.valueOf(percentage.toLong()))
+
+    fun percent(percentage: Long): Money = percent(BigDecimal.valueOf(percentage))
+
+    fun percent(percentage: BigDecimal): Money =
+        Money(amount.multiply(percentage).divide(HUNDRED, 2, RoundingMode.HALF_EVEN))
+
+    /**
+     * Returns this amount multiplied by [part] / [total] without converting the ratio to Double.
+     * A zero [total] has no defined share and returns zero, matching [ratio].
+     */
+    fun proportionOf(part: Money, total: Money): Money =
+        if (total.isZero) ZERO
+        else Money(amount.multiply(part.amount).divide(total.amount, 2, RoundingMode.HALF_EVEN))
 
     /** Returns the ratio of this money to another (Double). */
-    fun ratio(other: Money): Double = if (other.isZero) 0.0 else this.amount.toDouble() / other.amount.toDouble()
+    fun ratio(other: Money): Double = if (other.isZero) 0.0
+    else amount.divide(other.amount, java.math.MathContext.DECIMAL128).toDouble()
 
     fun max(other: Money): Money = if (this >= other) this else other
     fun min(other: Money): Money = if (this <= other) this else other
@@ -81,7 +122,7 @@ data class Money(val amount: BigDecimal) : Comparable<Money> {
 
     fun toDouble(): Double = amount.toDouble()
     fun toPlainString(): String = amount.setScale(2, RoundingMode.HALF_EVEN).toPlainString()
-    fun toCents(): Long = amount.multiply(BigDecimal("100")).toLong()
+    fun toCents(): Long = amount.movePointRight(2).longValueExact()
 
     fun format(): String = zarFormatter.format(amount)
 
@@ -96,7 +137,16 @@ data class Money(val amount: BigDecimal) : Comparable<Money> {
         }
     }
 
-    override operator fun compareTo(other: Money): Int = this.amount.compareTo(other.amount)
+    override operator fun compareTo(other: Money): Int = amount.compareTo(other.amount)
+
+    operator fun component1(): BigDecimal = amount
+
+    fun copy(amount: BigDecimal = this.amount): Money = Money(amount)
+
+    override fun equals(other: Any?): Boolean =
+        this === other || (other is Money && amount.compareTo(other.amount) == 0)
+
+    override fun hashCode(): Int = amount.stripTrailingZeros().hashCode()
 
     /**
      * A data class otherwise renders as `Money(amount=250.00)`, which leaks into any string

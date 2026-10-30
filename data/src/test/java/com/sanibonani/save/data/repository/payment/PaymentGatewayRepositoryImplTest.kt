@@ -1,7 +1,7 @@
 package com.sanibonani.save.data.repository.payment
 
-import com.sanibonani.save.data.remote.gateway.BankBackendSimulationModule
 import com.sanibonani.save.data.remote.gateway.SimulationGateway
+import com.sanibonani.save.domain.gateway.BankBackendSimulationModule
 import com.sanibonani.save.domain.model.Money
 import com.sanibonani.save.domain.model.PaymentMethod
 import com.sanibonani.save.domain.model.PaymentType

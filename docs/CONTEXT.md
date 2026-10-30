@@ -9,11 +9,11 @@ SanibonaniSave is a specialized South African Savings Groups Administration Plat
 ---
 
 ## 🏗️ Architecture Stack
-- **Frontend**: Native Android (Kotlin 2.4.20, Jetpack Compose 2026.09.00 BOM, Material 3).
+- **Frontend**: Native Android (Kotlin 2.4.21, Jetpack Compose 2026.09.00 BOM, Material 3).
 - **Backend**: Supabase (PostgreSQL 17, Auth, Realtime, Storage).
-- **Database**: Room 2.8.5 (Local Cache, schema version 81) + PostgREST (Remote).
+- **Database**: Room 2.8.5 (Local Cache, schema version 82) + PostgREST (Remote).
 - **DI**: Hilt 2.60.1 (with WorkManager and Navigation-Compose integrations).
-- **Build**: Gradle 9.8.0, AGP 9.4.1, KSP 2.3.12, JVM Toolchain 17.
+- **Build**: Gradle 9.8.1, AGP 9.4.1, KSP 2.3.12, JVM Toolchain 17.
 - **Logic**: Clean Architecture (Layered: UI → ViewModel → UseCase → Repository).
 
 ---

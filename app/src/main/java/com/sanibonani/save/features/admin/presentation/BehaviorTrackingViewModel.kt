@@ -1,13 +1,19 @@
 package com.sanibonani.save.features.admin.presentation
 
 import com.sanibonani.save.domain.model.*
-import com.sanibonani.save.domain.repository.admin.BehaviorTrackingRepository
+import com.sanibonani.save.domain.usecase.admin.FlagMemberForReviewUseCase
+import com.sanibonani.save.domain.usecase.admin.GenerateBehaviorFinetuningDatasetUseCase
+import com.sanibonani.save.domain.usecase.admin.GetMemberBehaviorTrackUseCase
+import com.sanibonani.save.domain.usecase.admin.ObserveFraudEventsByMemberUseCase
+import com.sanibonani.save.domain.usecase.admin.UnflagMemberUseCase
+import com.sanibonani.save.domain.usecase.member.GetMemberByIdUseCase
+import com.sanibonani.save.domain.usecase.member.SuspendMemberUseCase
+import com.sanibonani.save.domain.usecase.member.UnsuspendMemberUseCase
 import com.sanibonani.save.features.common.presentation.BaseViewModel
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.StateFlow
 import javax.inject.Inject
 
-import com.sanibonani.save.domain.repository.member.MemberRepository
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.firstOrNull
@@ -23,8 +29,14 @@ data class BehaviorTrackingUiState(
 
 @HiltViewModel
 class BehaviorTrackingViewModel @Inject constructor(
-    private val behaviorRepo: BehaviorTrackingRepository,
-    private val memberRepo: MemberRepository
+    private val getMemberBehaviorTrack: GetMemberBehaviorTrackUseCase,
+    private val getMemberById: GetMemberByIdUseCase,
+    private val observeFraudEventsByMember: ObserveFraudEventsByMemberUseCase,
+    private val generateBehaviorFinetuningDataset: GenerateBehaviorFinetuningDatasetUseCase,
+    private val flagMemberForReview: FlagMemberForReviewUseCase,
+    private val unflagMemberUseCase: UnflagMemberUseCase,
+    private val suspendMemberUseCase: SuspendMemberUseCase,
+    private val unsuspendMemberUseCase: UnsuspendMemberUseCase
 ) : BaseViewModel<BehaviorTrackingUiState>(BehaviorTrackingUiState()) {
 
     val state: StateFlow<BehaviorTrackingUiState> = uiState
@@ -34,9 +46,9 @@ class BehaviorTrackingViewModel @Inject constructor(
             updateState { it.copy(isLoading = true, error = null) }
 
             coroutineScope {
-                val trackDeferred = async<MemberBehaviorTrack?> { behaviorRepo.getMemberBehavior(memberId).getOrNull() }
-                val memberDeferred = async<Member?> { memberRepo.getMemberById(memberId).getOrNull() }
-                val eventsDeferred = async<List<FraudDetectionEvent>> { behaviorRepo.observeFraudEventsByMember(memberId).firstOrNull()?.getOrNull() ?: emptyList() }
+                val trackDeferred = async<MemberBehaviorTrack?> { getMemberBehaviorTrack(memberId).getOrNull() }
+                val memberDeferred = async<Member?> { getMemberById(memberId).getOrNull() }
+                val eventsDeferred = async<List<FraudDetectionEvent>> { observeFraudEventsByMember(memberId).firstOrNull()?.getOrNull() ?: emptyList() }
 
                 val track = trackDeferred.await()
                 val member = memberDeferred.await()
@@ -55,7 +67,7 @@ class BehaviorTrackingViewModel @Inject constructor(
     fun exportDataset(groupId: String) {
         launchJob("export_dataset") {
             updateState { it.copy(isExporting = true) }
-            behaviorRepo.generateFinetuningDataset(groupId)
+            generateBehaviorFinetuningDataset(groupId)
                 .onSuccess { dataset ->
                     updateState { it.copy(isExporting = false) }
                     showMessage("Dataset generated with ${dataset.size} examples")
@@ -69,7 +81,7 @@ class BehaviorTrackingViewModel @Inject constructor(
 
     fun flagMember(memberId: String, reason: String) {
         launchJob("flag_member") {
-            behaviorRepo.flagMemberForReview(memberId, reason).onSuccess {
+            flagMemberForReview(memberId, reason).onSuccess {
                 loadMemberData(memberId)
             }.onFailure { handleError(it) }
         }
@@ -77,7 +89,7 @@ class BehaviorTrackingViewModel @Inject constructor(
 
     fun unflagMember(memberId: String) {
         launchJob("unflag_member") {
-            behaviorRepo.unflagMember(memberId).onSuccess {
+            unflagMemberUseCase(memberId).onSuccess {
                 loadMemberData(memberId)
             }.onFailure { handleError(it) }
         }
@@ -85,7 +97,7 @@ class BehaviorTrackingViewModel @Inject constructor(
 
     fun suspendMember(memberId: String, reason: String) {
         launchJob("suspend_member") {
-            behaviorRepo.suspendMember(memberId, reason).onSuccess {
+            suspendMemberUseCase(memberId, reason).onSuccess {
                 loadMemberData(memberId)
             }.onFailure { handleError(it) }
         }
@@ -93,7 +105,7 @@ class BehaviorTrackingViewModel @Inject constructor(
 
     fun unsuspendMember(memberId: String) {
         launchJob("unsuspend_member") {
-            behaviorRepo.unsuspendMember(memberId).onSuccess {
+            unsuspendMemberUseCase(memberId).onSuccess {
                 loadMemberData(memberId)
             }.onFailure { handleError(it) }
         }

@@ -10,6 +10,18 @@ class InsufficientFundsException(
     val available: Money
 ) : PayoutException("Insufficient funds: Requested ${requested.format()} but only ${available.format()} is available.")
 
+/**
+ * Raised when one withdrawal would release more than its payout kind allows. An emergency
+ * withdrawal may take at most half the live treasury balance, so a single request cannot drain
+ * the fund even when the balance covers it.
+ */
+class WithdrawalLimitExceededException(
+    val requested: Money,
+    val limit: Money
+) : PayoutException(
+    "Withdrawal limit exceeded: Requested ${requested.format()} but a single emergency withdrawal is capped at ${limit.format()} (50% of the fund)."
+)
+
 class MemberNotEligibleException(
     val memberId: String,
     val reason: String

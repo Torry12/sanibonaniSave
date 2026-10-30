@@ -144,6 +144,17 @@ class LoanRepositoryImpl @Inject constructor(
         }
     }
 
+    override suspend fun settleExpiredLoan(loanId: String): Result<com.sanibonani.save.domain.model.RecordRepaymentResult> =
+        authoritativeCall("settleExpiredLoan") {
+            val result = remoteSource.settleExpiredLoan(loanId).getOrThrow()
+            localSource.saveRepayments(listOf(result.repayment))
+            localSource.saveLoan(remoteSource.getLoanById(loanId).getOrThrow())
+            groupDao.getGroupById(result.repayment.groupId)?.let {
+                groupDao.upsertGroup(it.copy(balance = result.newBalance))
+            }
+            result
+        }
+
     override suspend fun getRepayments(loanId: String): Flow<Result<List<LoanRepayment>>> = observeAndSync(
         dbFlow = localSource.observeRepayments(loanId),
         mapper = { it },

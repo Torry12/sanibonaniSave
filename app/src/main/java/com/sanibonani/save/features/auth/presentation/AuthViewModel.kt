@@ -4,11 +4,20 @@ import androidx.lifecycle.viewModelScope
 import com.sanibonani.save.domain.model.AsyncResult
 import com.sanibonani.save.domain.logging.AppLogger
 import com.sanibonani.save.domain.model.UserRole
-import com.sanibonani.save.domain.repository.auth.CredentialsRepository
-import com.sanibonani.save.domain.repository.auth.SupabaseRepository
-import com.sanibonani.save.domain.repository.auth.UserProfileRepository
-import com.sanibonani.save.domain.utils.UserRoleMapper
-import com.sanibonani.save.domain.utils.safeRunCatching
+import com.sanibonani.save.domain.service.RealtimeSyncService
+import com.sanibonani.save.domain.usecase.auth.GetAttributableActorIdUseCase
+import com.sanibonani.save.domain.usecase.auth.GetCurrentUserRoleUseCase
+import com.sanibonani.save.domain.usecase.auth.GetSavedLoginCredentialsUseCase
+import com.sanibonani.save.domain.usecase.auth.GetUserProfileUseCase
+import com.sanibonani.save.domain.usecase.auth.HandleAuthDeepLinkUseCase
+import com.sanibonani.save.domain.usecase.auth.ObserveAuthSessionUseCase
+import com.sanibonani.save.domain.usecase.auth.RebuildConnectionsUseCase
+import com.sanibonani.save.domain.usecase.auth.RegisterAccountUseCase
+import com.sanibonani.save.domain.usecase.auth.ResendVerificationEmailUseCase
+import com.sanibonani.save.domain.usecase.auth.RequestMagicLinkUseCase
+import com.sanibonani.save.domain.usecase.auth.SetBiometricEnabledUseCase
+import com.sanibonani.save.domain.usecase.auth.SignInUseCase
+import com.sanibonani.save.domain.usecase.auth.UpdatePasswordUseCase
 import com.sanibonani.save.domain.validation.InputValidator
 import com.sanibonani.save.domain.validation.ValidationUtils
 import com.sanibonani.save.service.AdminGroupContextCacheService
@@ -17,7 +26,8 @@ import com.sanibonani.save.service.UserProfileCacheService
 import com.sanibonani.save.features.common.presentation.BaseViewModel
 import com.sanibonani.save.features.auth.presentation.state.AuthState
 import com.sanibonani.save.features.common.presentation.LoadStateQueue
-import com.sanibonani.save.usecase.SignOutUseCase
+import com.sanibonani.save.features.auth.usecase.SignOutUseCase
+import com.sanibonani.save.worker.BackgroundWorkScheduler
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
@@ -31,16 +41,26 @@ import javax.inject.Inject
  */
 @HiltViewModel
 class AuthViewModel @Inject constructor(
-    private val supabaseRepo: SupabaseRepository,
-    private val userProfileRepo: UserProfileRepository,
-    private val credentialsRepo: CredentialsRepository,
-    private val adminGroupContextCacheService: AdminGroupContextCacheService,
-    private val memberGroupContextCacheService: MemberGroupContextCacheService,
+    observeAuthSession: ObserveAuthSessionUseCase,
+    getUserProfile: GetUserProfileUseCase,
+    private val getCurrentUserRole: GetCurrentUserRoleUseCase,
+    private val getAttributableActorId: GetAttributableActorIdUseCase,
+    private val getSavedLoginCredentials: GetSavedLoginCredentialsUseCase,
+    private val signInUseCase: SignInUseCase,
+    private val registerAccount: RegisterAccountUseCase,
+    private val resendVerificationEmail: ResendVerificationEmailUseCase,
+    private val requestMagicLink: RequestMagicLinkUseCase,
+    private val handleAuthDeepLink: HandleAuthDeepLinkUseCase,
+    private val updatePasswordUseCase: UpdatePasswordUseCase,
+    private val setBiometricEnabled: SetBiometricEnabledUseCase,
+    private val rebuildConnections: RebuildConnectionsUseCase,
+    adminGroupContextCacheService: AdminGroupContextCacheService,
+    memberGroupContextCacheService: MemberGroupContextCacheService,
     private val userProfileCache: UserProfileCacheService,
-    private val connManager: com.sanibonani.save.data.remote.SupabaseConnectionManager,
-    private val realtimeSyncManager: com.sanibonani.save.data.sync.RealtimeSyncManager,
+    realtimeSyncService: RealtimeSyncService,
     private val loadQueue: LoadStateQueue,
-    private val signOutUseCase: SignOutUseCase
+    private val signOutUseCase: SignOutUseCase,
+    private val backgroundWorkScheduler: BackgroundWorkScheduler
 ) : BaseViewModel<AuthState>(AuthState()) {
 
     val state: StateFlow<AuthState> = uiState
@@ -48,12 +68,13 @@ class AuthViewModel @Inject constructor(
     val hydrationSteps = loadQueue.steps
 
     private val sessionHydrator = AuthSessionHydrator(
-        supabaseRepo = supabaseRepo,
-        userProfileRepo = userProfileRepo,
+        observeAuthSession = observeAuthSession,
+        getUserProfile = getUserProfile,
+        getCurrentUserRole = getCurrentUserRole,
         adminGroupContextCacheService = adminGroupContextCacheService,
         memberGroupContextCacheService = memberGroupContextCacheService,
         userProfileCache = userProfileCache,
-        realtimeSyncManager = realtimeSyncManager,
+        realtimeSyncService = realtimeSyncService,
         loadQueue = loadQueue
     )
 
@@ -72,11 +93,14 @@ class AuthViewModel @Inject constructor(
     }
 
     private fun loadSavedCredentials() {
-        val email = credentialsRepo.getSavedEmail()
-        val pass = credentialsRepo.getSavedPassword()
-        val remember = credentialsRepo.getRememberMe()
-        val hasCreds = credentialsRepo.hasSavedCredentials()
-        updateState { it.copy(email = email, password = if (remember) pass else "", rememberMe = remember, hasSavedCredentials = hasCreds, biometricEnabled = credentialsRepo.isBiometricEnabled()) }
+        val saved = getSavedLoginCredentials()
+        updateState { it.copy(
+            email = saved.email,
+            password = if (saved.rememberMe) saved.password else "",
+            rememberMe = saved.rememberMe,
+            hasSavedCredentials = saved.hasSavedCredentials,
+            biometricEnabled = saved.biometricEnabled
+        ) }
     }
 
     private fun syncLegacyStateWithAccountStatus() {
@@ -86,6 +110,12 @@ class AuthViewModel @Inject constructor(
                 when (status) {
                     is AsyncResult.Success -> {
                         updateState { it.copy(isLoggedIn = true, userId = status.data.userId, userRole = status.data.role, isLoading = false) }
+                        // The session is proven now, so this is the point at which the background
+                        // automations the role is entitled to are enqueued. Off the main thread:
+                        // WorkManager is initialised on demand and its first call does disk I/O.
+                        viewModelScope.launch(Dispatchers.IO) {
+                            backgroundWorkScheduler.refresh()
+                        }
                     }
                     is AsyncResult.Loading -> {
                         updateState { it.copy(isLoading = true) }
@@ -118,12 +148,7 @@ class AuthViewModel @Inject constructor(
         launchJob("auth_operation") {
             updateState { it.copy(isLoading = true, error = null) }
             val email = s.email.trim().lowercase()
-            supabaseRepo.signIn(email, s.password).onSuccess {
-                if (s.rememberMe) {
-                    credentialsRepo.saveCredentials(email, s.password, true)
-                } else {
-                    credentialsRepo.clearCredentials()
-                }
+            signInUseCase(email, s.password, s.rememberMe).onSuccess {
                 // isLoggedIn and userRole are published by [accountStatus] once the session has
                 // hydrated. Setting them here would route the login screen on a role that has
                 // not been resolved yet, sending admins to the member dashboard first.
@@ -162,7 +187,7 @@ class AuthViewModel @Inject constructor(
 
         launchJob("auth_operation") {
             updateState { it.copy(isLoading = true, error = null) }
-            supabaseRepo.signUp(email, password, mapOf("role" to UserRoleMapper.toStorageValue(role), "full_name" to fullName))
+            registerAccount(email, password, fullName, role)
                 .onSuccess {
                     userProfileCache.save(fullName, email, "")
                     updateState { it.copy(isLoading = false, isNewRegistration = true, userRole = role, isLoggedIn = true) }
@@ -200,15 +225,15 @@ class AuthViewModel @Inject constructor(
      * until this runs.
      */
     fun refreshUserRole() {
-        val userId = supabaseRepo.currentUserId ?: uiState.value.userId ?: return
+        val userId = getAttributableActorId() ?: uiState.value.userId ?: return
         launchJob("refresh_role") {
-            val role = safeRunCatching { supabaseRepo.getUserRole() }.getOrElse { UserRole.MEMBER }
+            val role = getCurrentUserRole()
             updateState { it.copy(userId = userId, userRole = role) }
         }
     }
 
     fun toggleBiometric(enabled: Boolean) {
-        credentialsRepo.setBiometricEnabled(enabled)
+        setBiometricEnabled(enabled)
         updateState { it.copy(biometricEnabled = enabled) }
     }
 
@@ -216,10 +241,9 @@ class AuthViewModel @Inject constructor(
      * Automatically logs in using saved credentials (if available).
      */
     fun quickLogin() {
-        val email = credentialsRepo.getSavedEmail()
-        val pass = credentialsRepo.getSavedPassword()
-        if (email.isBlank() || pass.isBlank()) return
-        updateState { it.copy(email = email, password = pass) }
+        val saved = getSavedLoginCredentials()
+        if (saved.email.isBlank() || saved.password.isBlank()) return
+        updateState { it.copy(email = saved.email, password = saved.password) }
         signIn()
     }
 
@@ -227,14 +251,16 @@ class AuthViewModel @Inject constructor(
      * Forces a reconnection to Supabase and retries sign-in.
      */
     fun reconnect() {
-        connManager.rebuildConnections()
-        signIn()
+        launchJob("rebuild_connections") {
+            rebuildConnections()
+            signIn()
+        }
     }
 
     fun resendVerification() {
         launchJob("resend_verification") {
             updateState { it.copy(isLoading = true, error = null) }
-            supabaseRepo.resendVerificationEmail(uiState.value.email).onSuccess {
+            resendVerificationEmail(uiState.value.email).onSuccess {
                 updateState { it.copy(isLoading = false, error = null) }
                 showMessage("Verification email sent! Please check your inbox.")
             }.onFailure { handleError(it) }
@@ -244,7 +270,7 @@ class AuthViewModel @Inject constructor(
     fun signInWithMagicLink() {
         launchJob("magic_link") {
             updateState { it.copy(isLoading = true, error = null) }
-            supabaseRepo.signInWithMagicLink(uiState.value.email).onSuccess {
+            requestMagicLink(uiState.value.email).onSuccess {
                 updateState { it.copy(isLoading = false, error = null) }
                 showMessage("Login link sent! Please check your inbox.")
             }.onFailure { handleError(it) }
@@ -255,7 +281,7 @@ class AuthViewModel @Inject constructor(
         launchSafeJob("deep_link", "Could not process the link") {
             if (url.contains("reset-password")) {
                 updateState { it.copy(isResettingPassword = true) }
-                supabaseRepo.handleDeepLink(url)
+                handleAuthDeepLink(url)
                     .onFailure { AppLogger.w("AuthViewModel", "Reset-password deep link failed: ${it.message}") }
             } else if (url.contains("bank/linked")) {
                 val uri = android.net.Uri.parse(url)
@@ -263,7 +289,7 @@ class AuthViewModel @Inject constructor(
                 val status = uri.getQueryParameter("status") ?: ""
                 com.sanibonani.save.domain.event.EventBus.emit(com.sanibonani.save.domain.event.BankCallbackEvent(connectionId, status))
             } else {
-                supabaseRepo.handleDeepLink(url)
+                handleAuthDeepLink(url)
                     .onFailure { AppLogger.w("AuthViewModel", "Deep link failed: ${it.message}") }
             }
         }
@@ -273,7 +299,7 @@ class AuthViewModel @Inject constructor(
         val s = uiState.value
         launchJob("update_password") {
             updateState { it.copy(isLoading = true) }
-            supabaseRepo.updatePassword(s.password).onSuccess {
+            updatePasswordUseCase(s.password).onSuccess {
                 // Re-arm the login route guard, otherwise RouteGuard keeps bypassing
                 // the auth-entry check for the rest of this ViewModel's lifetime.
                 updateState { it.copy(isLoading = false, isResettingPassword = false, navigateTo = "login") }

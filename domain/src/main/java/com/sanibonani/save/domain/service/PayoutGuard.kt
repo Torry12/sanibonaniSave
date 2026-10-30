@@ -72,7 +72,18 @@ class PayoutGuardImpl @Inject constructor(
             throw InsufficientFundsException(amount, balance)
         }
 
-        // 4. Reserve Adequacy Check
+        // 4. Emergency Single-Withdrawal Cap
+        // Half the live balance is the most one request may release, so an emergency withdrawal
+        // cannot drain the fund even though the balance covers it. This is the "50% liquidity cap"
+        // the member screen advertises; the balance check above only stops overdrafts.
+        if (type == PayoutType.EMERGENCY) {
+            val cap = balance.percent(50)
+            if (amount > cap) {
+                throw WithdrawalLimitExceededException(amount, cap)
+            }
+        }
+
+        // 5. Reserve Adequacy Check
         if (type != PayoutType.EMERGENCY && type != PayoutType.CLAIM) {
             val reserve = treasuryService.calculateRequiredReserve(group.id ?: "").getOrThrow()
             if (balance - amount < reserve) {

@@ -24,7 +24,6 @@ class ProcessDisbursementUseCase @Inject constructor(
 
     suspend operator fun invoke(
         payoutId: String,
-        groupId: String,
         status: PayoutStatus,
         adminId: String,
         payoutReference: String? = null,
@@ -47,9 +46,8 @@ class ProcessDisbursementUseCase @Inject constructor(
 
         // 3. Security and Liquidity Check
         if (status in listOf(PayoutStatus.GROUP_APPROVED, PayoutStatus.PROCESSING, PayoutStatus.COMPLETED)) {
-            // The payout's own group is the treasury the money leaves. A caller-supplied context
-            // can point at another group (support mode, a stale screen), so it is never trusted
-            // for the balance check.
+            // The payout's own group is the treasury the money leaves; the caller's screen context
+            // is never part of this use case's inputs.
             val treasuryGroupId = payout.groupId
             // Calculate effective liquidity by subtracting already committed payouts. An
             // unreadable queue is not an empty one: treating it as empty would let a payout

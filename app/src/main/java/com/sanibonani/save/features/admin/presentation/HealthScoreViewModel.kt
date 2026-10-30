@@ -16,7 +16,7 @@ data class HealthScoreUiState(
 
 @HiltViewModel
 class HealthScoreViewModel @Inject constructor(
-    private val calculateGroupHealthScoreUseCase: CalculateGroupHealthScoreUseCase
+    private val calculateGroupHealthScore: CalculateGroupHealthScoreUseCase
 ) : BaseViewModel<HealthScoreUiState>(HealthScoreUiState()) {
 
     val state: StateFlow<HealthScoreUiState> = uiState
@@ -26,7 +26,7 @@ class HealthScoreViewModel @Inject constructor(
         mutationJob?.cancel()
         mutationJob = launchJob("load_health_score") {
             updateState { it.copy(isLoading = true, error = null) }
-            calculateGroupHealthScoreUseCase(groupId)
+            calculateGroupHealthScore(groupId)
                 .onSuccess { score ->
                     updateState { it.copy(score = score, isLoading = false) }
                 }

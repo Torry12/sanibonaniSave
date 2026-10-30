@@ -1,9 +1,10 @@
 package com.sanibonani.save.features.admin.presentation.actions
 
-import com.sanibonani.save.domain.repository.payment.BankRepository
-import com.sanibonani.save.domain.repository.treasury.LedgerRepository
-import com.sanibonani.save.domain.repository.treasury.ReconciliationRepository
-import com.sanibonani.save.domain.repository.system.ExportRepository
+import com.sanibonani.save.domain.usecase.payment.ReconcileBankTransactionUseCase
+import com.sanibonani.save.domain.usecase.system.BuildGroupLedgerStatementUseCase
+import com.sanibonani.save.domain.usecase.treasury.ConsolidateGroupLedgerUseCase
+import com.sanibonani.save.domain.usecase.treasury.PerformGroupReconciliationUseCase
+import com.sanibonani.save.domain.usecase.treasury.ResolveLedgerDiscrepancyUseCase
 import com.sanibonani.save.features.common.presentation.UIEvent
 import com.sanibonani.save.service.AdminGroupContextCacheService
 import javax.inject.Inject
@@ -13,10 +14,11 @@ import javax.inject.Inject
  * deep consolidation and statement export.
  */
 class AdminLedgerActions @Inject constructor(
-    private val reconRepo: ReconciliationRepository,
-    private val bankRepo: BankRepository,
-    private val ledgerRepo: LedgerRepository,
-    private val exportRepo: ExportRepository,
+    private val performReconciliationUseCase: PerformGroupReconciliationUseCase,
+    private val resolveDiscrepancyUseCase: ResolveLedgerDiscrepancyUseCase,
+    private val reconcileManualUseCase: ReconcileBankTransactionUseCase,
+    private val consolidateGroupLedger: ConsolidateGroupLedgerUseCase,
+    private val buildGroupLedgerStatement: BuildGroupLedgerStatementUseCase,
     private val adminContextCacheService: AdminGroupContextCacheService,
 ) {
 
@@ -24,7 +26,7 @@ class AdminLedgerActions @Inject constructor(
         val groupId = adminContextCacheService.selectedGroupId.value ?: return
         host.launchAction("perform_reconciliation") {
             host.updateActionState { it.copy(isReconciling = true) }
-            reconRepo.performReconciliation(groupId)
+            performReconciliationUseCase(groupId)
                 .onSuccess { record ->
                     host.updateActionState { it.copy(isReconciling = false, successMessage = "Reconciliation complete: ${record.status.name}") }
                 }
@@ -38,7 +40,7 @@ class AdminLedgerActions @Inject constructor(
     fun resolveDiscrepancy(host: AdminFinancialActionHost, reconciliationId: String, notes: String) {
         host.launchAction("resolve_discrepancy") {
             host.updateActionState { it.copy(isReconciling = true) }
-            reconRepo.resolveDiscrepancy(reconciliationId, notes)
+            resolveDiscrepancyUseCase(reconciliationId, notes)
                 .onSuccess {
                     host.updateActionState { it.copy(isReconciling = false, successMessage = "Discrepancy resolved and documented.") }
                 }
@@ -53,7 +55,7 @@ class AdminLedgerActions @Inject constructor(
         val groupId = adminContextCacheService.selectedGroupId.value ?: return
         host.launchAction("consolidate_ledger") {
             host.updateActionState { it.copy(isConsolidating = true, error = null) }
-            ledgerRepo.consolidateGroupLedger(groupId)
+            consolidateGroupLedger(groupId)
                 .onSuccess { report ->
                     host.updateActionState {
                         it.copy(
@@ -74,7 +76,7 @@ class AdminLedgerActions @Inject constructor(
     fun reconcileManual(host: AdminFinancialActionHost, bankTxId: String, ledgerId: String) {
         host.launchAction("reconcile_manual") {
             host.updateActionState { it.copy(isLoading = true, error = null) }
-            bankRepo.reconcileManual(bankTxId, ledgerId)
+            reconcileManualUseCase(bankTxId, ledgerId)
                 .onSuccess {
                     host.updateActionState { it.copy(isLoading = false, successMessage = "Transaction reconciled successfully") }
                 }
@@ -93,17 +95,11 @@ class AdminLedgerActions @Inject constructor(
             return
         }
 
-        val groupId = group.id ?: return
         host.launchAction("download_statement") {
             host.updateActionState { it.copy(isExporting = true, error = null) }
-            ledgerRepo.getGroupLedger(groupId).onSuccess { entries ->
-                exportRepo.exportLedgerToPdf(group, entries).onSuccess { file ->
-                    host.updateActionState { it.copy(isExporting = false, exportFile = file) }
-                    host.publishEvent(UIEvent.OpenFile(file, "application/pdf", "Group Statement"))
-                }.onFailure { e ->
-                    host.updateActionState { it.copy(isExporting = false) }
-                    host.reportError(e)
-                }
+            buildGroupLedgerStatement(group).onSuccess { file ->
+                host.updateActionState { it.copy(isExporting = false, exportFile = file) }
+                host.publishEvent(UIEvent.OpenFile(file, "application/pdf", "Group Statement"))
             }.onFailure { e ->
                 host.updateActionState { it.copy(isExporting = false) }
                 host.reportError(e)

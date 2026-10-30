@@ -1,16 +1,16 @@
 package com.sanibonani.save.features.admin.presentation
 
 import com.sanibonani.save.domain.model.*
-import com.sanibonani.save.domain.repository.admin.HealthScoreRepository
-import com.sanibonani.save.domain.repository.auth.SupabaseRepository
-import com.sanibonani.save.domain.repository.treasury.LedgerRepository
+import com.sanibonani.save.domain.service.DevSettingsService
 import com.sanibonani.save.domain.service.NetworkConnectivityService
+import com.sanibonani.save.domain.service.RealtimeSyncService
+import com.sanibonani.save.domain.usecase.admin.ObserveGroupHealthScoreUseCase
+import com.sanibonani.save.domain.usecase.auth.GetAttributableActorIdUseCase
+import com.sanibonani.save.domain.usecase.auth.GetCurrentUserRoleUseCase
 import com.sanibonani.save.domain.usecase.group.GetManagedGroupsUseCase
 import com.sanibonani.save.domain.usecase.group.GetGroupBusinessInsightsUseCase
+import com.sanibonani.save.domain.usecase.treasury.ObserveGroupLedgerUseCase
 import com.sanibonani.save.domain.utils.toUserMessage
-import com.sanibonani.save.data.utils.DevSettings
-import com.sanibonani.save.domain.logging.AppLogger
-import com.sanibonani.save.data.sync.RealtimeSyncManager
 import com.sanibonani.save.service.AdminGroupContextCacheService
 import com.sanibonani.save.features.common.presentation.BaseViewModel
 import com.sanibonani.save.features.common.presentation.UIEvent
@@ -37,13 +37,14 @@ import kotlin.time.Duration.Companion.seconds
 @HiltViewModel
 class AdminOverviewViewModel @Inject constructor(
     private val adminContextCacheService: AdminGroupContextCacheService,
-    private val getManagedGroupsUseCase: GetManagedGroupsUseCase,
-    private val getGroupBusinessInsightsUseCase: GetGroupBusinessInsightsUseCase,
-    private val healthScoreRepo: HealthScoreRepository,
-    private val supabaseRepo: SupabaseRepository,
-    private val ledgerRepo: LedgerRepository,
-    private val devSettings: DevSettings,
-    private val syncManager: RealtimeSyncManager,
+    private val getManagedGroups: GetManagedGroupsUseCase,
+    private val getGroupBusinessInsights: GetGroupBusinessInsightsUseCase,
+    private val observeGroupHealthScore: ObserveGroupHealthScoreUseCase,
+    private val getAttributableActorId: GetAttributableActorIdUseCase,
+    private val getCurrentUserRole: GetCurrentUserRoleUseCase,
+    private val observeGroupLedger: ObserveGroupLedgerUseCase,
+    private val devSettings: DevSettingsService,
+    private val syncManager: RealtimeSyncService,
     private val viabilityCoordinator: AdminViabilityCoordinator,
     private val messagingCoordinator: AdminMessagingCoordinator,
     private val platformFeeCoordinator: AdminPlatformFeeCoordinator,
@@ -80,7 +81,7 @@ class AdminOverviewViewModel @Inject constructor(
     }
 
     init {
-        updateState { it.copy(currentUserId = supabaseRepo.currentUserId) }
+        updateState { it.copy(currentUserId = getAttributableActorId()) }
         platformFeeCoordinator.applyRegistrationFee(host)
         observeContext()
         loadManagedGroups()
@@ -184,10 +185,10 @@ class AdminOverviewViewModel @Inject constructor(
             kotlinx.coroutines.coroutineScope {
                 val members = uiState.value.members
                 val insightsTask = async(kotlinx.coroutines.Dispatchers.Default) {
-                    getGroupBusinessInsightsUseCase(group, members)
+                    getGroupBusinessInsights(group, members)
                 }
                 val healthScoreTask = async {
-                    healthScoreRepo.observeGroupHealthScore(groupId).firstOrNull()?.getOrNull()
+                    observeGroupHealthScore(groupId).firstOrNull()?.getOrNull()
                 }
 
                 val insights = insightsTask.await()
@@ -201,13 +202,13 @@ class AdminOverviewViewModel @Inject constructor(
 
             // Continuous observation for real-time updates
             launch {
-                healthScoreRepo.observeGroupHealthScore(groupId).collect { res ->
+                observeGroupHealthScore(groupId).collect { res ->
                     res.onSuccess { score -> updateState { it.copy(healthScore = score) } }
                 }
             }
 
             launch {
-                ledgerRepo.observeGroupLedger(groupId)
+                observeGroupLedger(groupId)
                     .flowOn(kotlinx.coroutines.Dispatchers.Default)
                     .collect { res ->
                         val ledger = res.getOrDefault(emptyList())
@@ -218,12 +219,12 @@ class AdminOverviewViewModel @Inject constructor(
     }
 
     private fun loadManagedGroups() {
-        val userId = supabaseRepo.currentUserId ?: return
+        val userId = getAttributableActorId() ?: return
         launchSafeJob("managed_groups_loading", "Failed to load managed groups") {
             updateState { it.copy(managedGroups = AsyncResult.Loading) }
-            val role = supabaseRepo.getUserRole()
+            val role = getCurrentUserRole()
             val isPlatformAdmin = role == UserRole.PLATFORM_ADMIN
-            getManagedGroupsUseCase.observeManagedGroups(userId, adminOnly = true, isPlatformAdmin = isPlatformAdmin).collectLatest { res: Result<List<Group>> ->
+            getManagedGroups.observeManagedGroups(userId, adminOnly = true, isPlatformAdmin = isPlatformAdmin).collectLatest { res: Result<List<Group>> ->
                 res.onSuccess { groups ->
                     updateState { it.copy(managedGroups = AsyncResult.Success(groups)) }
                     val currentId = adminContextCacheService.selectedGroupId.value
@@ -251,9 +252,14 @@ class AdminOverviewViewModel @Inject constructor(
     }
 
     fun refreshData() {
-        val groupId = uiState.value.group?.id ?: return
+        val groupId = uiState.value.group?.id
+            ?: adminContextCacheService.selectedGroupId.value
+            ?: return
+        updateState { it.copy(isLoading = true, error = null) }
         launchJob("refresh_data") {
-            adminContextCacheService.warmUpGroup(groupId, force = true)
+            adminContextCacheService.refreshGroup(groupId)
+                .onFailure { e -> updateState { state -> state.copy(error = e.toUserMessage()) } }
+            updateState { it.copy(isLoading = false) }
         }
         loadGroupAuditReport()
     }

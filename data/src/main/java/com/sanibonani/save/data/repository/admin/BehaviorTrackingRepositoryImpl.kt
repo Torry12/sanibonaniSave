@@ -74,7 +74,11 @@ class BehaviorTrackingRepositoryImpl @Inject constructor(
 
     override suspend fun unsuspendMember(memberId: String): Result<Unit> = safeRunCatching {
         val track = getMemberBehavior(memberId).getOrNull() ?: throw Exception("Not found")
-        db.memberBehaviorTrackDao().upsert(track.copy(isSuspended = false, suspensionReason = null).toEntity())
+        val cleared = track.copy(isSuspended = false, suspensionReason = null)
+        // memberStatus is the label the finetuning dataset trains on, so lifting the suspension has
+        // to re-derive it: leaving it SUSPENDED would score the member as suspended forever.
+        val status = BehaviorScoringUtils.determineBehaviorStatus(cleared.behaviorScore, cleared.fraudScore, cleared)
+        db.memberBehaviorTrackDao().upsert(cleared.copy(memberStatus = status).toEntity())
     }
 
     /**

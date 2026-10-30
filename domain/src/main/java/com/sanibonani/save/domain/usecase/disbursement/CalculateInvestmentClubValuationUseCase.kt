@@ -40,7 +40,7 @@ class CalculateInvestmentClubValuationUseCase @Inject constructor() {
         val totalUnits = totalContributions
         // Determine unit price by dividing total assets by the total units (contributions)
         val unitPrice = if (totalContributions.isPositive) {
-            totalAssets.dividedBy(totalUnits.toDouble())
+            totalAssets.dividedBy(totalUnits)
         } else {
             Money("1.00")
         }
@@ -53,7 +53,7 @@ class CalculateInvestmentClubValuationUseCase @Inject constructor() {
                 memberId = member.id ?: "",
                 memberName = member.fullName,
                 unitsOwned = memberContribution, // 1 unit per R1 contributed
-                marketValue = totalAssets * weight,
+                marketValue = totalAssets.proportionOf(memberContribution, totalContributions),
                 contributionWeight = weight * 100.0
             )
         }
@@ -68,4 +68,3 @@ class CalculateInvestmentClubValuationUseCase @Inject constructor() {
         )
     }
 }
-

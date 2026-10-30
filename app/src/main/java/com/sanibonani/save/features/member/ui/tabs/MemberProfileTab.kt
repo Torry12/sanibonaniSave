@@ -29,7 +29,7 @@ import com.sanibonani.save.ui.utils.formatDate
 import com.sanibonani.save.features.admin.ui.components.maskAccountNumberForDisplay
 import com.sanibonani.save.R
 import com.sanibonani.save.domain.model.*
-import com.sanibonani.save.domain.repository.system.SyncStatus
+import com.sanibonani.save.domain.model.SyncStatus
 import com.sanibonani.save.ui.components.*
 import com.sanibonani.save.features.member.ui.handleProfilePhotoSelection
 import com.sanibonani.save.features.member.ui.BankingDetailsDialog
