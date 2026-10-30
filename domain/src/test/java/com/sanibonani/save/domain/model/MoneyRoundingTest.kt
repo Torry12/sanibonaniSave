@@ -1,6 +1,7 @@
 package com.sanibonani.save.domain.model
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertThrows
 import org.junit.Test
 import java.math.BigDecimal
 
@@ -29,6 +30,41 @@ class MoneyRoundingTest {
     fun `amounts built from differently written literals compare equal`() {
         assertEquals(Money("10.0"), Money("10.00"))
         assertEquals(Money(10), Money("10.00"))
+    }
+
+    @Test
+    fun `BigDecimal construction normalizes scale and equality keeps matching hash codes`() {
+        val rounded = Money(BigDecimal("1.005"))
+        val normalized = Money(BigDecimal("1.00"))
+
+        assertEquals("1.00", rounded.toPlainString())
+        assertEquals(normalized, rounded)
+        assertEquals(normalized.hashCode(), rounded.hashCode())
+    }
+
+    @Test
+    fun `non-finite floating values and zero divisors are rejected`() {
+        assertThrows(IllegalArgumentException::class.java) { Money.fromDouble(Double.NaN) }
+        assertThrows(IllegalArgumentException::class.java) { Money("1.00") * Double.POSITIVE_INFINITY }
+        assertThrows(IllegalArgumentException::class.java) { Money("1.00").dividedBy(0.0) }
+        assertThrows(IllegalArgumentException::class.java) { Money("1.00").dividedBy(Money.ZERO) }
+    }
+
+    @Test
+    fun `cent conversion fails rather than truncating an overflowing amount`() {
+        assertThrows(ArithmeticException::class.java) {
+            Money("92233720368547758.08").toCents()
+        }
+    }
+
+    @Test
+    fun `ratio does not overflow when both monetary amounts exceed double range`() {
+        assertEquals(
+            2.0,
+            Money(BigDecimal.TEN.pow(400).multiply(BigDecimal("2")))
+                .ratio(Money(BigDecimal.TEN.pow(400))),
+            0.0
+        )
     }
 
     @Test

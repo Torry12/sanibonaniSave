@@ -51,6 +51,14 @@ class CalculateLoanRepaymentScheduleUseCaseTest {
 
     @Test
     fun `flat schedule with processing fee bills the fee through the instalments`() {
+        val withoutFee = useCase(
+            CalculateLoanRepaymentScheduleUseCase.Params(
+                principal = Money("1000.00"),
+                annualInterestRate = 12.0,
+                termMonths = 12,
+                startDate = startDate
+            )
+        )
         val result = useCase(
             CalculateLoanRepaymentScheduleUseCase.Params(
                 principal = Money("1000.00"),
@@ -71,6 +79,8 @@ class CalculateLoanRepaymentScheduleUseCaseTest {
         val feeBilled = sum(result.schedule) { it.totalInstallment } -
             sum(result.schedule) { it.principal + it.interest }
         assertEquals(Money("50.00"), feeBilled)
+        assertTrue("Fee-inclusive cashflows should have a higher effective APR.", result.effectiveApr > withoutFee.effectiveApr)
+        assertTrue("Effective APR should be positive for an interest-bearing loan.", withoutFee.effectiveApr > 0.0)
     }
 
     @Test

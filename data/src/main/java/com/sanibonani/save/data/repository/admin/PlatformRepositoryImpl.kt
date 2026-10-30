@@ -4,6 +4,7 @@ import com.sanibonani.save.data.local.SanibonaniDatabase
 import com.sanibonani.save.data.local.toEntity
 import com.sanibonani.save.data.local.toModel
 import com.sanibonani.save.data.remote.PostgrestColumns
+import com.sanibonani.save.data.remote.supabase.fetchAllLedgerPages
 import com.sanibonani.save.data.repository.BaseRepository
 import com.sanibonani.save.domain.logging.AppLogger
 import com.sanibonani.save.domain.model.ActuarialMetrics
@@ -336,13 +337,13 @@ class PlatformRepositoryImpl @Inject constructor(
     }
 
     override suspend fun getPlatformLedger(): Result<List<LedgerEntry>> = retryWithExponentialBackoff {
-        safeRunCatching {
+        fetchAllLedgerPages { from, to ->
             supabase.postgrest["platform_ledger"].select {
                 order("created_at", order = Order.DESCENDING)
+                order("id", order = Order.DESCENDING)
+                range(from, to)
             }.decodeList<LedgerEntry>()
-        }.recoverCatching {
-            db.ledgerDao().observePlatformLedger().firstOrNull()?.map { it.toModel() } ?: emptyList()
-        }.getOrElse { emptyList() }
+        }.map { it.copy(isPlatform = true) }
     }
 
     override suspend fun deleteGroupFromPlatform(groupId: String): Result<Unit> = authoritativeCall("deleteGroupFromPlatform") {

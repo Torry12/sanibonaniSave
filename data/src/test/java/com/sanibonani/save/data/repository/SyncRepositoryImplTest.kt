@@ -319,6 +319,32 @@ class SyncRepositoryImplTest {
         coVerify(exactly = 1) { outboxDao.upsert(match { it.retryCount == 0 }) }
     }
 
+    @Test
+    fun `an operation type this build cannot handle parks on first sight`() = runBlocking {
+        val retired = PendingOperationEntity(
+            id = "adjust-1",
+            type = "balance_adjustment",
+            payload = "{}",
+            groupId = "group_a",
+            createdAt = 1
+        )
+        val behind = queued("behind", "group_a", 2)
+        coEvery { outboxDao.getAll() } returns listOf(retired, behind)
+        coEvery { contributionHandler.handle(any()) } returns Result.success(Unit)
+
+        repository.processOutbox()
+
+        val stored = slot<PendingOperationEntity>()
+        coVerify(exactly = 1) { outboxDao.upsert(capture(stored)) }
+        assertEquals(OutboxPolicy.MAX_PERMANENT_ATTEMPTS, stored.captured.retryCount)
+        coVerify(exactly = 0) { contributionHandler.handle(any()) }
+
+        // The parked row is skipped on the next pass, so the money queued behind it drains.
+        coEvery { outboxDao.getAll() } returns listOf(stored.captured, behind)
+        repository.processOutbox()
+        coVerify(exactly = 1) { outboxDao.delete(behind) }
+    }
+
     /**
      * The PostgREST builders are inline reified functions, so the server is stubbed where the table
      * handle is resolved. That is the only place the requested relation name is observable, and a

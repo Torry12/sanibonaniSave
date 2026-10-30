@@ -54,10 +54,10 @@ data class ReconciliationRecordEntity(
 
 @Dao
 interface LedgerDao {
-    @Query("SELECT * FROM group_ledger WHERE group_id = :groupId ORDER BY created_at DESC")
+    @Query("SELECT * FROM group_ledger WHERE group_id = :groupId AND is_platform = 0 ORDER BY created_at DESC")
     fun observeLedger(groupId: String): kotlinx.coroutines.flow.Flow<List<LedgerEntryEntity>>
 
-    @Query("SELECT * FROM group_ledger WHERE member_id = :memberId ORDER BY created_at DESC")
+    @Query("SELECT * FROM group_ledger WHERE member_id = :memberId AND is_platform = 0 ORDER BY created_at DESC")
     fun observeMemberLedger(memberId: String): kotlinx.coroutines.flow.Flow<List<LedgerEntryEntity>>
 
     @Query("SELECT * FROM group_ledger WHERE is_platform = 1 ORDER BY created_at DESC")
@@ -69,7 +69,7 @@ interface LedgerDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertLedger(entries: List<LedgerEntryEntity>)
 
-    @Query("DELETE FROM group_ledger WHERE group_id = :groupId")
+    @Query("DELETE FROM group_ledger WHERE group_id = :groupId AND is_platform = 0")
     suspend fun clearLedger(groupId: String)
 
     @RoomTransaction

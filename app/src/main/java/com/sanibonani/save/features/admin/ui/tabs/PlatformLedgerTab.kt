@@ -241,7 +241,9 @@ fun PlatformLedgerTab(
                     EmptyState(
                         icon = "🧾",
                         title = stringResource(R.string.ui_no_transactions),
-                        description = stringResource(R.string.ui_no_transactions_description)
+                        description = stringResource(R.string.ui_no_transactions_description),
+                        actionLabel = stringResource(R.string.ui_refresh),
+                        onAction = { vm.load() }
                     )
                 }
             }

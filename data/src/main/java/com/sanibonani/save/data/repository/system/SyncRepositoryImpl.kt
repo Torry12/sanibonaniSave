@@ -4,6 +4,7 @@ import com.sanibonani.save.data.repository.BaseRepository
 import com.sanibonani.save.data.local.*
 import com.sanibonani.save.data.local.toEntity
 import com.sanibonani.save.data.local.toLedgerEntity
+import com.sanibonani.save.data.remote.supabase.fetchAllLedgerPages
 import com.sanibonani.save.domain.logging.AppLogger
 import com.sanibonani.save.domain.model.*
 import com.sanibonani.save.domain.utils.toUserMessage
@@ -14,6 +15,7 @@ import com.sanibonani.save.domain.repository.system.*
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.postgrest.query.Columns
+import io.github.jan.supabase.postgrest.query.Order
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -217,9 +219,14 @@ class SyncRepositoryImpl @Inject constructor(
             }
             DomainPillar.TREASURY -> {
                 safeRunCatching("$tag.treasuryLedger") {
-                    val data = supabase.postgrest["group_ledger"].select(columns = Columns.raw("*")) {
-                        filter { eq("group_id", groupId) }
-                    }.decodeList<LedgerEntry>()
+                    val data = fetchAllLedgerPages { from, to ->
+                        supabase.postgrest["group_ledger"].select(columns = Columns.raw("*")) {
+                            filter { eq("group_id", groupId) }
+                            order("created_at", order = Order.DESCENDING)
+                            order("id", order = Order.DESCENDING)
+                            range(from, to)
+                        }.decodeList<LedgerEntry>()
+                    }
                     db.ledgerDao().syncLedger(groupId, data.map { it.toLedgerEntity() })
                 }
             }
@@ -276,10 +283,24 @@ class SyncRepositoryImpl @Inject constructor(
 
         for ((groupId, lane) in lanes) {
             for (op in lane) {
+                val handler = handlers[op.type.lowercase()]
+                if (handler == null) {
+                    // A type this build has no handler for is a row written by a version that did.
+                    // Replaying it can never succeed, so it parks on first sight: the row is kept
+                    // for investigation without halting the group's lane for the full ceiling while
+                    // real money movements queue up behind an operation that will never apply.
+                    val reason = "No handler for operation type: ${op.type}"
+                    AppLogger.e(tag, "OUTBOX DEAD-LETTER: ${op.type} ${op.id} has no handler in this build; parked.")
+                    db.pendingOperationDao().upsert(
+                        op.copy(
+                            retryCount = OutboxPolicy.MAX_PERMANENT_ATTEMPTS,
+                            lastError = reason
+                        )
+                    )
+                    break
+                }
                 try {
                     AppLogger.d(tag, "Attempting to process ${op.type} for group ${op.groupId}")
-                    val handler = handlers[op.type.lowercase()]
-                        ?: throw IllegalArgumentException("No handler for operation type: ${op.type}")
 
                     handler.handle(op.toModel()).getOrThrow()
 
