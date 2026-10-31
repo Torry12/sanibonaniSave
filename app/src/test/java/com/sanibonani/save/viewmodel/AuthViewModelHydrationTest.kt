@@ -29,6 +29,7 @@ import com.sanibonani.save.service.AdminGroupContextCacheService
 import com.sanibonani.save.service.MemberGroupContextCacheService
 import com.sanibonani.save.service.UserProfileCacheService
 import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkStatic
@@ -168,6 +169,28 @@ class AuthViewModelHydrationTest {
 
         assertTrue(viewModel.state.value.isLoggedIn)
         assertEquals(UserRole.GROUP_ADMIN, viewModel.state.value.userRole)
+    }
+
+    @Test
+    fun `a member boot warms the member cache but not the admin cache`() = runTest {
+        coEvery { supabaseRepo.getUserRole() } returns UserRole.MEMBER
+
+        sessions.value = AuthSession(userId = "u1", email = "member@example.com", accessToken = "token")
+        advanceUntilIdle()
+
+        assertEquals(UserRole.MEMBER, viewModel.state.value.userRole)
+        coVerify(exactly = 1) { memberCache.warmUpForUser("u1") }
+        coVerify(exactly = 0) { adminCache.warmUpForUser(any()) }
+    }
+
+    @Test
+    fun `an admin boot warms both context caches`() = runTest {
+        sessions.value = AuthSession(userId = "u1", email = "admin@example.com", accessToken = "token")
+        advanceUntilIdle()
+
+        assertEquals(UserRole.GROUP_ADMIN, viewModel.state.value.userRole)
+        coVerify(exactly = 1) { memberCache.warmUpForUser("u1") }
+        coVerify(exactly = 1) { adminCache.warmUpForUser("u1") }
     }
 
     @Test

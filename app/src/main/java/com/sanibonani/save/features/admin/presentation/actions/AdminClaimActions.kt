@@ -41,7 +41,7 @@ class AdminClaimActions @Inject constructor(
                         successMessage = "Claim ${if (approve) "processed as PAID" else "rejected"}"
                     )
                 }
-                if (approve) adminContextCacheService.warmUpGroup(groupId)
+                if (approve) adminContextCacheService.warmUpGroup(groupId, force = true)
             }.onFailure { e ->
                 host.updateActionState { it.copy(isLoading = false) }
                 host.reportActionError(e)

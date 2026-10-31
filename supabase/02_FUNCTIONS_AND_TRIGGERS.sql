@@ -1850,6 +1850,23 @@ END;
 $$;
 
 
+-- Rebuilds one group's ledger from the five source tables and re-derives its cached balance.
+-- The contract is that this and the live write paths produce the SAME rows, because a rebuild is
+-- how a corrupted ledger gets repaired (SYNC_DELTA_20261101B ran it over 49 groups). Three ways it
+-- used to break that:
+--   * it replayed every contribution into group_ledger, so registration/member-fee money - which
+--     internal_post_contribution (line 238) books to platform_ledger instead - was re-filed into
+--     the group on each rebuild, and the platform side was never rebuilt at all.
+--   * it replayed only status = 'paid' while the live path books 'partial' too, so a rebuild lost
+--     that money.
+--   * it stamped balance_after = 0 for everything it booked, then reported "entries_reconstructed"
+--     as the rows created in the last five minutes - always zero, because a reconstruction stamps
+--     the historical paid_at instead.
+-- Contributions are read through COALESCE(type, 'contribution'): the CHECK on contributions.type
+-- passes NULL, while group_ledger.category is NOT NULL, so one typeless row aborted the whole rebuild.
+-- What it still does not do: repair a ledger row that exists under a source id with the WRONG amount.
+-- ON CONFLICT DO NOTHING leaves it, so the rebuild is idempotent but not self-correcting there - the
+-- mismatch is what [SEED_003] and BALANCE_VS_LEDGER_PROBE.sql are for.
 CREATE OR REPLACE FUNCTION public.consolidate_group_ledger_v1(p_group_id UUID)
 RETURNS JSONB
 LANGUAGE plpgsql
@@ -1857,43 +1874,120 @@ SECURITY DEFINER
 SET search_path = public, pg_temp
 AS $$
 DECLARE
-    v_total INT := 0;
+    v_contrib  INT := 0;
+    v_repay    INT := 0;
+    v_payout   INT := 0;
+    v_loan     INT := 0;
+    v_claim    INT := 0;
+    v_platform INT := 0;
+    v_recon    JSONB;
 BEGIN
-    -- 1. Contributions
+    -- One lock for the whole reconstruction: a concurrent live payment and this rebuild would
+    -- otherwise race on the same transaction ids (platform_ledger has no unique key to fall back on).
+    PERFORM id FROM public.groups WHERE id = p_group_id FOR UPDATE;
+    IF NOT FOUND THEN RAISE EXCEPTION '[SYS_001] GROUP_NOT_FOUND: %', p_group_id; END IF;
+
+    -- 1. Contributions the group keeps. The type filter and the category are internal_post_contribution's
+    --    (lines 235-243): the three platform types belong to the platform ledger, not this one.
     INSERT INTO public.group_ledger (group_id, transaction_id, amount, balance_after, description, category, member_id, created_at)
-    SELECT c.group_id, CAST(c.id AS TEXT), c.amount, 0, initcap(replace(c.type, '_', ' ')) || ' from ' || m.full_name, c.type, c.member_id, c.paid_at
-    FROM public.contributions c JOIN public.members m ON c.member_id = m.id
-    WHERE c.group_id = p_group_id AND c.status = 'paid'
+    SELECT c.group_id, CAST(c.id AS TEXT), c.amount, 0,
+           initcap(replace(COALESCE(c.type, 'contribution'), '_', ' ')) || ' from ' || m.full_name,
+           COALESCE(c.type, 'contribution'), c.member_id, COALESCE(c.paid_at, c.created_at)
+    FROM public.contributions c JOIN public.members m ON m.id = c.member_id
+    WHERE c.group_id = p_group_id AND c.status IN ('paid', 'partial')
+      AND COALESCE(c.type, 'contribution') NOT IN ('registration_contribution', 'member_fee', 'member_fee_ledger')
     ON CONFLICT (group_id, transaction_id) DO NOTHING;
-    v_total := v_total + (SELECT count(*) FROM public.group_ledger WHERE group_id = p_group_id AND transaction_id LIKE '%-%' AND created_at > NOW() - interval '5 minutes');
+    GET DIAGNOSTICS v_contrib = ROW_COUNT;
 
     -- 2. Repayments
     INSERT INTO public.group_ledger (group_id, transaction_id, amount, balance_after, description, category, member_id, created_at)
-    SELECT lr.group_id, CAST(lr.id AS TEXT), lr.amount, 0, 'Loan repayment from ' || m.full_name, 'loan_repayment', lr.member_id, lr.paid_at
-    FROM public.loan_repayments lr JOIN public.members m ON lr.member_id = m.id
+    SELECT lr.group_id, CAST(lr.id AS TEXT), lr.amount, 0,
+           'Loan repayment from ' || m.full_name, 'loan_repayment', lr.member_id,
+           COALESCE(lr.paid_at, lr.created_at)
+    FROM public.loan_repayments lr JOIN public.members m ON m.id = lr.member_id
     WHERE lr.group_id = p_group_id
     ON CONFLICT (group_id, transaction_id) DO NOTHING;
+    GET DIAGNOSTICS v_repay = ROW_COUNT;
 
     -- 3. Disbursements (Payouts)
     INSERT INTO public.group_ledger (group_id, transaction_id, amount, balance_after, description, category, member_id, created_at)
     SELECT p.group_id, CAST(p.id AS TEXT), -p.amount, 0, 'Disbursement Ref: ' || COALESCE(p.payout_reference, p.id::text), 'payout', p.member_id, p.processed_at
     FROM public.payouts p WHERE p.group_id = p_group_id AND p.status = 'completed'
     ON CONFLICT (group_id, transaction_id) DO NOTHING;
+    GET DIAGNOSTICS v_payout = ROW_COUNT;
 
     -- 4. Loan Disbursements
     INSERT INTO public.group_ledger (group_id, transaction_id, amount, balance_after, description, category, member_id, created_at)
-    SELECT loan.group_id, CAST(loan.id AS TEXT), -loan.amount, 0, 'Loan disbursement to ' || m.full_name, 'loan_disbursement', loan.member_id, COALESCE(loan.reviewed_at, loan.created_at)
-    FROM public.loans loan JOIN public.members m ON loan.member_id = m.id
+    SELECT loan.group_id, CAST(loan.id AS TEXT), -loan.amount, 0,
+           'Loan disbursement to ' || m.full_name, 'loan_disbursement', loan.member_id,
+           COALESCE(loan.reviewed_at, loan.created_at)
+    FROM public.loans loan JOIN public.members m ON m.id = loan.member_id
     WHERE loan.group_id = p_group_id AND loan.status NOT IN ('pending', 'rejected', 'cancelled')
     ON CONFLICT (group_id, transaction_id) DO NOTHING;
+    GET DIAGNOSTICS v_loan = ROW_COUNT;
 
     -- 5. Burial Claims
     INSERT INTO public.group_ledger (group_id, transaction_id, amount, balance_after, description, category, member_id, created_at)
     SELECT bc.group_id, CAST(bc.id AS TEXT), -bc.claim_amount, 0, 'Burial claim: ' || bc.beneficiary_name, 'claim', bc.member_id, bc.reviewed_at
     FROM public.beneficiary_payout_claims bc WHERE bc.group_id = p_group_id AND bc.status = 'paid'
     ON CONFLICT (group_id, transaction_id) DO NOTHING;
+    GET DIAGNOSTICS v_claim = ROW_COUNT;
 
-    RETURN jsonb_build_object('entries_reconstructed', v_total);
+    -- 6. Platform revenue the group paid. The type filter is internal_post_contribution's else-branch
+    --    (lines 238-243) and member_fee landing as 'platform_fee' is its v_l_cat CASE (line 235), so
+    --    these rows are what the live path would have written. platform_ledger.transaction_id has no
+    --    unique constraint, so the live path dedupes by lookup (record_platform_revenue_v2, line 163)
+    --    and so does this. balance_after is a running total over the whole table - the live path
+    --    stores SUM(amount) (line 174) - and is recomputed after the insert rather than stamped here,
+    --    because a rebuild backdates its rows and every total after them would otherwise sit too high.
+    --    The advisory lock is the one that writer takes (line 160); without it a concurrent fee
+    --    payment and this block would each read the same SUM and call it their own balance_after.
+    PERFORM pg_advisory_xact_lock(hashtext('platform_ledger')::bigint);
+    WITH new_rows AS (
+        SELECT c.group_id,
+               CAST(c.id AS TEXT) AS tx_id,
+               c.amount,
+               COALESCE(c.paid_at, c.created_at) AS posted_at,
+               CASE WHEN COALESCE(c.type, 'contribution') IN ('member_fee', 'member_fee_ledger') THEN 'platform_fee'
+                    ELSE COALESCE(c.type, 'contribution') END AS cat,
+               m.full_name
+        FROM public.contributions c JOIN public.members m ON m.id = c.member_id
+        WHERE c.group_id = p_group_id AND c.status IN ('paid', 'partial')
+          AND COALESCE(c.type, 'contribution') IN ('registration_contribution', 'member_fee', 'member_fee_ledger')
+          AND NOT EXISTS (SELECT 1 FROM public.platform_ledger pl WHERE pl.transaction_id = CAST(c.id AS TEXT))
+    )
+    INSERT INTO public.platform_ledger (group_id, transaction_id, amount, balance_after, description, category, created_at)
+    SELECT n.group_id, n.tx_id, n.amount, 0,
+           initcap(replace(n.cat, '_', ' ')) || ' from ' || n.full_name,
+           n.cat, n.posted_at
+    FROM new_rows n;
+    GET DIAGNOSTICS v_platform = ROW_COUNT;
+
+    UPDATE public.platform_ledger pl
+       SET balance_after = running.balance_after
+      FROM (
+        SELECT id, SUM(amount) OVER (ORDER BY created_at ASC NULLS LAST, id ASC) AS balance_after
+          FROM public.platform_ledger
+      ) running
+     WHERE pl.id = running.id
+       AND pl.balance_after IS DISTINCT FROM running.balance_after;
+
+    -- 7. balance_after across the group's ledger, and groups.balance re-derived from it. Same
+    --    primitive the live repair path uses, so this function never disagrees with it.
+    v_recon := public.recompute_ledger_running_balances_v2(p_group_id);
+
+    RETURN jsonb_build_object(
+        'entries_reconstructed', v_contrib + v_repay + v_payout + v_loan + v_claim,
+        'group_entries', v_contrib + v_repay + v_payout + v_loan + v_claim,
+        'platform_entries', v_platform,
+        'contributions', v_contrib,
+        'loan_repayments', v_repay,
+        'payouts', v_payout,
+        'loan_disbursements', v_loan,
+        'burial_claims', v_claim,
+        'final_balance', v_recon -> 'final_balance',
+        'ledger_rows', v_recon -> 'count'
+    );
 END;
 $$;
 

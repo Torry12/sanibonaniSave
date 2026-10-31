@@ -17,12 +17,16 @@ import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -191,5 +195,66 @@ class MemberGroupContextCacheServiceTest {
             while (service.getContext(groupId)?.group?.name != "Fresh") delay(20)
         }
         verify(exactly = 1) { contributionRepo.getMemberContributions("m1", groupId) }
+    }
+
+    @Test
+    fun `a membership read that fails on both tiers keeps the cached contexts`() = runBlocking {
+        val service = service()
+        service.ensureUserSession("u1")
+        service.updateContext(groupId) { hydratedContext("Old") }
+        coEvery { memberRepo.getMemberships("u1") } returns Result.failure(Exception("offline"))
+        every { memberRepo.observeMemberships("u1") } returns
+            flowOf(Result.failure(Exception("cache unavailable")))
+
+        service.warmUpForUser("u1")
+
+        assertEquals("Old", service.getContext(groupId)?.group?.name)
+    }
+
+    @Test
+    fun `a member with no memberships prunes the cached contexts`() = runBlocking {
+        val service = service()
+        service.ensureUserSession("u1")
+        service.updateContext(groupId) { hydratedContext("Old") }
+        coEvery { memberRepo.getMemberships("u1") } returns Result.success(emptyList())
+
+        service.warmUpForUser("u1")
+
+        assertNull(service.getContext(groupId))
+    }
+
+    @Test
+    fun `a warmup that arrives after the reads are underway still gets its own run`() = runBlocking {
+        val service = service()
+        service.ensureUserSession("u1")
+        service.updateContext(groupId) { hydratedContext("Old") }
+        stubHydration("Fresh")
+        coEvery { groupRepo.getGroupById(groupId) } returnsMany listOf(
+            Result.success(Group(id = groupId, name = "Fresh")),
+            Result.success(Group(id = groupId, name = "Swept"))
+        )
+        coEvery { syncRepo.syncGroupData(groupId) } returns Result.success(Unit)
+        val insideRead = CompletableDeferred<Unit>()
+        val holdRead = CompletableDeferred<Unit>()
+        every { contributionRepo.getMemberContributions("m1", groupId) } answers {
+            flow {
+                insideRead.complete(Unit)
+                holdRead.await()
+                emit(Result.success(emptyList()))
+            }
+        }
+
+        val refresh = async { service.refreshGroup("u1", groupId) }
+        insideRead.await()
+
+        // The sweep arrives while the refresh is mid-read, so its run can no longer answer it.
+        service.warmMembershipsInBackground("u1", listOf(member))
+        holdRead.complete(Unit)
+        assertTrue(refresh.await().isSuccess)
+
+        withTimeout(5_000) {
+            while (service.getContext(groupId)?.group?.name != "Swept") delay(20)
+        }
+        verify(exactly = 2) { contributionRepo.getMemberContributions("m1", groupId) }
     }
 }

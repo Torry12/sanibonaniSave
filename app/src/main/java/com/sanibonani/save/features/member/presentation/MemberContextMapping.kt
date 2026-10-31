@@ -24,7 +24,6 @@ internal fun CachedGroupContext.toMemberContextPackage(
         contributions = contributions,
         beneficiaries = beneficiaries,
         loans = loans,
-        repayments = loanRepayments,
         calculation = calculation ?: PaymentCalculation.EMPTY,
         notifications = notifications,
         messages = messages

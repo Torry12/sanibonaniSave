@@ -8,20 +8,30 @@
 -- Fingerprint method matches the SYNC_DELTA files. This statement writes nothing.
 -- Paste into the Supabase Dashboard SQL editor, or run with psql -f.
 --
--- EXPECTED (masters oracle == Local tier, measured 2026-10-28 after SYNC_DELTA_20261028):
---   1032|C=535 E=1 F=83 G=15 I=33 K=198 P=85 R=38 S=2 T=38 V=4|9752967a0c8a1e095d1de650a6132efb
---   F=83 because settle_expired_loan_v2 is new in the masters (the settlement refactor
---   renamed the RPC and this tier had not been updated); the earlier baseline (2026-10-26,
---   F=82, dbbb999efa971fd1ad072df099248a1e) predates both that addition and the
---   SEC_002 / FIN_003 body edits, whose hashes are recorded per-function in the dated deltas.
+-- EXPECTED (masters oracle; measured 2026-10-31 on BOTH tiers, which agree exactly through
+--   SYNC_DELTA_20261101C):
+--   1037|C=535 E=1 F=88 G=15 I=33 K=198 P=85 R=38 S=2 T=38 V=4|8405ef938e6325bf03b6002e54f5ecca
+--   The hour these two tiers differed is the worked example of the rule below: 20261101C replaced
+--   the body of consolidate_group_ledger_v1 and added no object, so Local read the digest above
+--   while Cloud still read a18f379d05164eb2a5adec30c06174a3 with every count identical, F=88
+--   included. Same counts with a different digest is a changed definition, not a missing object -
+--   diff SCHEMA_OBJECT_FINGERPRINTS.sql, or check the one function's body hash in the delta's
+--   P.0.a/P.2.a before diffing 1037 rows.
+--   The prior baseline 13c055f18eaedb64b21dafd70827cddf was the Local tier measured while
+--   supabase/migrations still held 43/44/45: "db reset" applied them after the baseline and
+--   restored pre-hardening bodies for increment_group_balance, pay_platform_fee_v2 and
+--   record_loan_repayment_v1, dropping the FIN_002 / FIN_003 / SEC_002 guards. Every object
+--   COUNT stayed identical, so the two tiers looked equal until the hashes were compared.
+--   Same counts with a different digest is therefore a changed definition, not a missing
+--   object - diff SCHEMA_OBJECT_FINGERPRINTS.sql, which isolates it to the exact rows.
+--   The walk from the older baseline (2026-10-28, 1032 objects, F=83,
+--   9752967a0c8a1e095d1de650a6132efb) is the delta series applied since: each dated delta
+--   records its own object count and function bodies, so a tier one delta behind differs by
+--   exactly that delta's declared counts.
 --   A different digest means a different object set or a changed definition; the
 --   per-kind counts say which class, then SCHEMA_OBJECT_FINGERPRINTS.sql lists the
 --   exact rows. E=0 is benign on a tier where pg_trgm lives in schema "extensions"
 --   rather than "public" - compare the other kinds before treating it as drift.
---   OUTSTANDING: the masters now also define is_own_member(UUID), and fourteen bodies
---   change under SYNC_DELTA_20261029 (not applied on either tier yet). A tier that has run
---   it reports F=84 and 1033 objects; re-measure the digest there and replace the line
---   above - the hash cannot be derived from the files alone.
 --
 -- MAINTENANCE: the block between "WITH inv(kind, name, detail, fp) AS (" and the
 -- first line containing only ")" is SCHEMA_OBJECT_FINGERPRINTS.sql verbatim. After

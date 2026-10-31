@@ -180,8 +180,6 @@
     <string name="ui_target_time_period_months">Nako e reriloeng (Likgwedi)</string>
     <string name="ui_months">likgwedi</string>
     <string name="ui_suggested_strategy">Leano le hlahisitsoeng</string>
-    <string name="ui_financial_analytics">Tlhahlobo ya Ditšhelete</string>
-    <string name="ui_group_health_score">Dintlha tsa Bophelo ba Sehlopha</string>
     <string name="ui_group_ledger">Bukana ya Ditšhelete ya Sehlopha</string>
     <string name="ui_immutable_audit_trail">Tsela ya tlhahlobo e sa fetogeng</string>
     <string name="ui_no_transactions">Ha ho ditefo</string>
@@ -191,7 +189,6 @@
     <string name="ui_edit_beneficiary">Fetola Mojalefa</string>
     <string name="ui_full_name">Lebitso le tletseng</string>
     <string name="ui_id_number">Nomoro ya Boitsebiso</string>
-    <string name="ui_relationship">Kamano</string>
     <string name="ui_save">Boloka</string>
     <string name="ui_claim_details_label">Dintlha tsa Kopo: %s</string>
     <string name="ui_requisite_documents">Ditokomane tse hlokahalang</string>

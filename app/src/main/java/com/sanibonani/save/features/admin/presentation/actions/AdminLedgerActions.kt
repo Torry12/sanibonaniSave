@@ -63,7 +63,7 @@ class AdminLedgerActions @Inject constructor(
                             successMessage = "Deep consolidation complete. ${report.entriesCreated} entries reconstructed."
                         )
                     }
-                    adminContextCacheService.warmUpGroup(groupId)
+                    adminContextCacheService.warmUpGroup(groupId, force = true)
                     host.reloadFinancialData(groupId)
                 }
                 .onFailure { e ->

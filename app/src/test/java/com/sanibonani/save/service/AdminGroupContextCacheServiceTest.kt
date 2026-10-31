@@ -1,8 +1,10 @@
 package com.sanibonani.save.service
 
 import com.sanibonani.save.domain.model.ActuarialMetrics
+import com.sanibonani.save.domain.model.AppNotification
 import com.sanibonani.save.domain.model.Group
 import com.sanibonani.save.domain.model.Member
+import com.sanibonani.save.domain.model.Money
 import com.sanibonani.save.domain.repository.admin.ActuarialRepository
 import com.sanibonani.save.domain.repository.disbursement.PayoutRepository
 import com.sanibonani.save.domain.repository.group.GroupRepository
@@ -14,11 +16,15 @@ import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -170,5 +176,115 @@ class AdminGroupContextCacheServiceTest {
             while (service.getContext(groupId)?.group?.name != "Fresh") delay(20)
         }
         verify(exactly = 1) { memberRepo.getGroupMembers(groupId) }
+    }
+
+    @Test
+    fun `a group read that fails on both tiers keeps the cached contexts`() = runBlocking {
+        val service = service()
+        service.ensureUserSession("admin")
+        service.updateContext(groupId) { hydratedContext("Old") }
+        coEvery { groupRepo.getGroupsByAdmin("admin") } returns
+            Result.failure(Exception("offline"))
+        every { groupRepo.observeGroupsByAdmin("admin") } returns
+            flowOf(Result.failure(Exception("cache unavailable")))
+
+        service.warmUpForUser("admin")
+
+        assertEquals("Old", service.getContext(groupId)?.group?.name)
+    }
+
+    @Test
+    fun `a group admin with no groups prunes the cached contexts`() = runBlocking {
+        val service = service()
+        service.ensureUserSession("admin")
+        service.updateContext(groupId) { hydratedContext("Old") }
+        coEvery { groupRepo.getGroupsByAdmin("admin") } returns Result.success(emptyList())
+
+        service.warmUpForUser("admin")
+
+        assertNull(service.getContext(groupId))
+    }
+
+    @Test
+    fun `refreshGroup orders the notification feed newest first`() = runBlocking {
+        val service = service()
+        val older = AppNotification(
+            id = "b-first-issued",
+            groupId = groupId,
+            message = "older",
+            createdAt = "2026-01-01T00:00:00Z"
+        )
+        val newer = AppNotification(
+            id = "a-issued-later",
+            groupId = groupId,
+            message = "newer",
+            createdAt = "2026-06-01T00:00:00Z"
+        )
+        coEvery { syncRepo.syncGroupData(groupId) } returns Result.success(Unit)
+        stubHydration("Fresh")
+        every { notificationRepo.observeNotifications(groupId) } returns
+            flowOf(Result.success(listOf(older, newer)))
+
+        service.refreshGroup(groupId)
+
+        val cached = service.getContext(groupId)!!
+        // The uuid ids are in the opposite order to the timestamps, so an id sort puts "older" first.
+        assertEquals(listOf("newer", "older"), cached.notifications.map { it.message })
+    }
+
+    @Test
+    fun `a warmup that arrives after the reads are underway still gets its own run`() = runBlocking {
+        val service = service()
+        service.ensureUserSession("admin")
+        service.updateContext(groupId) { hydratedContext("Old") }
+        stubHydration("Fresh")
+        coEvery { syncRepo.syncGroupData(groupId) } returns Result.success(Unit)
+        val insideRead = CompletableDeferred<Unit>()
+        val holdRead = CompletableDeferred<Unit>()
+        every { memberRepo.getGroupMembers(groupId) } answers {
+            flow {
+                insideRead.complete(Unit)
+                holdRead.await()
+                emit(Result.success(listOf(Member(id = "m1", groupId = groupId))))
+            }
+        }
+
+        val refresh = async { service.refreshGroup(groupId) }
+        insideRead.await()
+
+        // The sweep arrives while the refresh is mid-read, so its run can no longer answer it.
+        service.warmManagedGroupsInBackground("admin", listOf(Group(id = groupId, name = "Swept")))
+        holdRead.complete(Unit)
+        assertTrue(refresh.await().isSuccess)
+
+        withTimeout(5_000) {
+            while (service.getContext(groupId)?.group?.name != "Swept") delay(20)
+        }
+        verify(exactly = 2) { memberRepo.getGroupMembers(groupId) }
+    }
+
+    @Test
+    fun `selecting a group re-reads its balance instead of rendering the listing's`() = runBlocking {
+        val service = service()
+        service.ensureUserSession("admin")
+        // The listing that opened this screen cached the group row before its money moved, and
+        // the members pillar hydrates from a separate read: the dashboard then showed the
+        // listing's R0.00 next to a real member count.
+        service.updateContext(groupId) {
+            CachedAdminGroupContext(
+                group = Group(id = groupId, name = "Old", balance = Money.ZERO),
+                isFullyHydrated = true
+            )
+        }
+        stubHydration("Fresh")
+        coEvery { groupRepo.getGroupById(groupId) } returns
+            Result.success(Group(id = groupId, name = "Fresh", balance = Money("2500.00")))
+
+        service.selectGroup(groupId)
+
+        withTimeout(5_000) {
+            while (service.getContext(groupId)?.group?.balance?.toPlainString() != "2500.00") delay(20)
+        }
+        coVerify(exactly = 1) { groupRepo.getGroupById(groupId) }
     }
 }

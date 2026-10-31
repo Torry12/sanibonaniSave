@@ -1,6 +1,7 @@
 -- ─────────────────────────────────────────────────────────────────────────────
 -- SanibonaniSave — 12-MONTH TRANSACTION & LEDGER SEED DATA (Support & Sim Flows)
--- Version: 2.2 (October 2026)
+-- Version: 2.3 (October 2026)
+-- Self-contained except for pg_temp.seed_post_contribution, declared in 10_SEED_HELPERS.sql.
 -- ─────────────────────────────────────────────────────────────────────────────
 
 DO $$
@@ -51,16 +52,12 @@ BEGIN
         END IF;
 
         FOR v_h IN 1..12 LOOP
-            PERFORM public.record_contribution_v2(
-                v_support_member_id,
-                v_support_group_id,
-                v_amount,
+            PERFORM pg_temp.seed_post_contribution(
+                v_support_member_id, v_support_group_id, v_amount,
                 (v_now - (v_h * 30 || ' days')::interval)::date,
                 v_now - (v_h * 30 || ' days')::interval,
-                'paid',
-                'SIM-TX-' || v_support_member_id || '-' || v_h,
-                'contribution',
-                'Monthly Contribution - Month ' || (13 - v_h)
+                'paid', 'SIM-TX-' || v_support_member_id || '-' || v_h, 'contribution',
+                'Sim Flow Member 4', 'Monthly Contribution - Month ' || (13 - v_h)
             );
         END LOOP;
     END IF;
@@ -75,18 +72,14 @@ BEGIN
         SELECT COUNT(*) INTO v_count FROM public.group_ledger WHERE group_id = v_r_group.id;
 
         IF v_count < 12 THEN
-            FOR v_r_member IN SELECT id FROM public.members WHERE group_id = v_r_group.id AND status = 'active' LOOP
+            FOR v_r_member IN SELECT id, full_name FROM public.members WHERE group_id = v_r_group.id AND status = 'active' LOOP
                 FOR v_h IN 1..12 LOOP
-                    PERFORM public.record_contribution_v2(
-                        v_r_member.id,
-                        v_r_group.id,
-                        v_amount,
+                    PERFORM pg_temp.seed_post_contribution(
+                        v_r_member.id, v_r_group.id, v_amount,
                         (v_now - (v_h * 30 || ' days')::interval)::date,
                         v_now - (v_h * 30 || ' days')::interval,
-                        'paid',
-                        'TX-12M-' || v_r_member.id || '-' || v_h,
-                        'contribution',
-                        'Monthly Contribution - Month ' || (13 - v_h)
+                        'paid', 'TX-12M-' || v_r_member.id || '-' || v_h, 'contribution',
+                        v_r_member.full_name, 'Monthly Contribution - Month ' || (13 - v_h)
                     );
                 END LOOP;
             END LOOP;

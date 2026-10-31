@@ -180,8 +180,6 @@
     <string name="ui_target_time_period_months">Isikhathi esihlosiwe (Izinyanga)</string>
     <string name="ui_months">izinyanga</string>
     <string name="ui_suggested_strategy">Isu Eliphakanyisiwe</string>
-    <string name="ui_financial_analytics">Ukuhlaziywa Kwezezimali</string>
-    <string name="ui_group_health_score">Amaphuzu Empilo Iqembu</string>
     <string name="ui_group_ledger">Ibhuku Lezezimali Leqembu</string>
     <string name="ui_immutable_audit_trail">Umlando Wokuhlola Ongashintsheki</string>
     <string name="ui_no_transactions">Akukho okwenziwe</string>
@@ -191,7 +189,6 @@
     <string name="ui_edit_beneficiary">Hlela Ohlomulayo</string>
     <string name="ui_full_name">Igama Eligcwele</string>
     <string name="ui_id_number">Inombolo kamazisi</string>
-    <string name="ui_relationship">Ubudlelwane</string>
     <string name="ui_save">Gcina</string>
     <string name="ui_claim_details_label">Imininingwane Yesicelo: %s</string>
     <string name="ui_requisite_documents">Izincwadi Ezidingekayo</string>

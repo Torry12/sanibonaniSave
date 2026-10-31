@@ -18,6 +18,10 @@
 --     LC_ALL=C sort a.s b.s | uniq ...   # or: comm -23 oracle.s tier.s
 --   Rows only in the masters-derived listing = the tier is missing objects.
 --   Rows only in the tier = extras (usually Supabase platform-default grants on Q).
+--   NOT via "supabase db query --local/--linked -f <this file> -o csv": that route returns
+--   only two of these four columns (verified 2026-10-31), so the listing arrives silently
+--   mangled and cannot be diffed. On that route, wrap the union in a subselect and emit ONE
+--   concatenated column "kind|name|detail|fp" instead.
 --   Compare C-collated, not with a plain diff of the two listings: the trailing
 --   ORDER BY uses the database default collation, so near-identical names (the four
 --   beneficiary_payout_claims_*_check constraints, say) can appear in a different

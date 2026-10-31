@@ -180,8 +180,6 @@
     <string name="ui_target_time_period_months">Target Time Period (Months)</string>
     <string name="ui_months">months</string>
     <string name="ui_suggested_strategy">Suggested Strategy</string>
-    <string name="ui_financial_analytics">Financial Analytics</string>
-    <string name="ui_group_health_score">Group Health Score</string>
     <string name="ui_group_ledger">Group Ledger</string>
     <string name="ui_immutable_audit_trail">Immutable Audit Trail</string>
     <string name="ui_no_transactions">No Transactions</string>
@@ -191,7 +189,6 @@
     <string name="ui_edit_beneficiary">Edit Beneficiary</string>
     <string name="ui_full_name">Full Name</string>
     <string name="ui_id_number">ID Number</string>
-    <string name="ui_relationship">Relationship</string>
     <string name="ui_save">Save</string>
     <string name="ui_claim_details_label">Claim Details: %s</string>
     <string name="ui_requisite_documents">Requisite Documents</string>

@@ -43,7 +43,7 @@ class AdminBankActions @Inject constructor(
                 .onSuccess {
                     host.updateActionState { it.copy(isRefreshingBank = false, bankRefreshSuccess = true) }
                     host.notifyUser("Bank data synchronized successfully")
-                    adminContextCacheService.warmUpGroup(groupId)
+                    adminContextCacheService.warmUpGroup(groupId, force = true)
                 }
                 .onFailure { e ->
                     host.updateActionState { it.copy(isRefreshingBank = false) }

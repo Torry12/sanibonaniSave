@@ -1,12 +1,25 @@
 -- ─────────────────────────────────────────────────────────────────────────────
 -- SanibonaniSave — TEST DATA SEED (10 Groups / 100 Members)
--- Version: 6.0 (Money-Precise, Hybrid Co-op Inclusive - August 2026)
+-- Version: 6.1 (Money-Precise, Hybrid Co-op Inclusive - August 2026)
+-- Self-contained except for pg_temp.seed_post_contribution, declared in 10_SEED_HELPERS.sql.
 -- ─────────────────────────────────────────────────────────────────────────────
 
 DO $$
 DECLARE
     -- Constants
     v_qa_password TEXT := 'Pass123!';
+    -- This fixture is NOT left on the shared QA password: it carries role='platform_admin', so
+    -- is_platform_admin() answers for it and it can impersonate every group. Its credential is
+    -- supplied out-of-band in the same transaction before this file runs:
+    --     BEGIN;
+    --     SET LOCAL sanibonani.seed_platform_admin_password = '<password>';
+    --     ... run this file ...
+    --     COMMIT;
+    -- Unset behaviour mirrors 04_PLATFORM_ADMIN_SETUP.sql: an existing fixture keeps its current
+    -- password (this file only ever creates the row, it never re-hashes one), and a fixture created
+    -- here gets a NULL encrypted_password plus a NOTICE, so no rebuild can restore a published
+    -- platform-admin credential.
+    v_seed_admin_password TEXT := nullif(btrim(current_setting('sanibonani.seed_platform_admin_password', true)), '');
     v_now TIMESTAMPTZ := NOW();
 
     -- Arrays for randomization (includes Hybrid Savings Group)
@@ -21,6 +34,7 @@ DECLARE
     v_admin_id UUID;
     v_group_id UUID;
     v_member_id UUID;
+    v_loan_id UUID;
     v_user_id UUID;
     v_type TEXT;
     v_group_name TEXT;
@@ -36,14 +50,37 @@ BEGIN
     IF v_admin_id IS NULL THEN
         v_admin_id := gen_random_uuid();
         INSERT INTO auth.users (id, instance_id, aud, role, email, encrypted_password, email_confirmed_at, raw_app_meta_data, raw_user_meta_data, created_at, updated_at)
-        VALUES (v_admin_id, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'platform.admin@master.example.com', extensions.crypt(v_qa_password, extensions.gen_salt('bf')), now(), '{"provider":"email","providers":["email"],"role":"platform_admin"}', '{"full_name":"Seed Platform Admin","role":"platform_admin"}', now(), now());
+        VALUES (v_admin_id, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'platform.admin@master.example.com', CASE WHEN v_seed_admin_password IS NULL THEN NULL ELSE extensions.crypt(v_seed_admin_password, extensions.gen_salt('bf', 10)) END, now(), '{"provider":"email","providers":["email"],"role":"platform_admin"}', '{"full_name":"Seed Platform Admin","role":"platform_admin"}', now(), now());
 
         INSERT INTO public.profiles (id, full_name, email, role)
         VALUES (v_admin_id, 'Seed Platform Admin', 'platform.admin@master.example.com', 'platform_admin');
+
+        IF v_seed_admin_password IS NULL THEN
+            RAISE NOTICE 'sanibonani.seed_platform_admin_password is not set: the seeded platform_admin fixture was created with no usable password. Set it with supabase/maintenance/ROTATE_PLATFORM_ADMIN_PASSWORD_20261018.sql (target platform.admin@master.example.com) or re-seed with the setting.';
+        END IF;
     END IF;
 
     -- 2. CLEANUP (Targeted)
     RAISE NOTICE 'Seeding Fully Integrated Test Data (10 Groups / 100 Members with Hybrid Co-op)...';
+    -- platform_ledger.group_id is ON DELETE SET NULL, so these groups' registration receipts would
+    -- outlive them and stack a second revenue history on every re-run. Same rule as MASTER: a
+    -- receipt with no contribution row behind it is one of ours.
+    DELETE FROM public.platform_ledger pl
+    WHERE pl.group_id IN (
+            SELECT id FROM public.groups
+            WHERE name = ANY (ARRAY[
+                'SEED-Eternal Peace Burial', 'SEED-Unity Savings Stokvel', 'SEED-Morning Star ROSCA',
+                'SEED-Blue Chip Investors', 'SEED-Crisis Response Fund', 'SEED-Neighborhood Savings',
+                'SEED-Ubuntu Hybrid Co-op', 'SEED-Friends of Soweto', 'SEED-Zion Funeral Society',
+                'SEED-Quick Turn ROSCA'
+            ])
+          )
+       OR (pl.group_id IS NULL
+           AND pl.category = 'registration_contribution'
+           AND NOT EXISTS (
+               SELECT 1 FROM public.contributions c WHERE c.id::text = pl.transaction_id
+           ));
+
     DELETE FROM public.groups
     WHERE name = ANY (ARRAY[
         'SEED-Eternal Peace Burial', 'SEED-Unity Savings Stokvel', 'SEED-Morning Star ROSCA',
@@ -113,29 +150,20 @@ BEGIN
             VALUES (v_member_id, v_group_id, v_now - interval '12 months', v_now)
             ON CONFLICT (member_id) DO NOTHING;
 
-            -- Pay Joining Fee using Money format
-            PERFORM public.record_contribution_v2(
-                p_member_id => v_member_id,
-                p_group_id => v_group_id,
-                p_amount => v_joining_fee_amount,      -- Money-precise NUMERIC
-                p_due_date => (v_now - interval '12 months')::date,
-                p_paid_at => v_now - interval '12 months',
-                p_status => 'paid',
-                p_tx_id => 'SEED-JOIN-' || v_member_id,
-                p_type => 'registration_contribution'
+            -- Pay Joining Fee
+            PERFORM pg_temp.seed_post_contribution(
+                v_member_id, v_group_id, v_joining_fee_amount,
+                (v_now - interval '12 months')::date, v_now - interval '12 months',
+                'paid', 'SEED-JOIN-' || v_member_id, 'registration_contribution', v_full_name
             );
 
             -- 12 Months History (100% paid up)
             FOR h IN 1..12 LOOP
-                PERFORM public.record_contribution_v2(
-                    p_member_id => v_member_id,
-                    p_group_id => v_group_id,
-                    p_amount => v_monthly_contrib_amount, -- Money-precise NUMERIC
-                    p_due_date => (v_now - (h * 30 || ' days')::interval)::date,
-                    p_paid_at => v_now - (h * 30 || ' days')::interval,
-                    p_status => 'paid',
-                    p_tx_id => 'SEED-HIST-' || v_member_id || '-' || h,
-                    p_type => 'contribution'
+                PERFORM pg_temp.seed_post_contribution(
+                    v_member_id, v_group_id, v_monthly_contrib_amount,
+                    (v_now - (h * 30 || ' days')::interval)::date,
+                    v_now - (h * 30 || ' days')::interval,
+                    'paid', 'SEED-HIST-' || v_member_id || '-' || h, 'contribution', v_full_name
                 );
             END LOOP;
 
@@ -158,6 +186,12 @@ BEGIN
                 ) VALUES (
                     v_member_id, v_group_id, 2000.00, 20.00, 2415.00, 805.00, 402.50,
                     (v_now - interval '3 months')::date, (v_now + interval '3 months')::date, 'active', 'Integrated Seed Loan', 'flat'
+                ) RETURNING id INTO v_loan_id;
+
+                -- 'active' is a loan the group has already paid out, so the debit is booked with it.
+                PERFORM pg_temp.seed_post_loan_disbursement(
+                    v_loan_id, v_group_id, v_member_id, 2000.00, v_full_name,
+                    v_now - interval '3 months'
                 );
             END IF;
 
@@ -175,11 +209,14 @@ BEGIN
 
         -- Emergency Fund Hardening
         IF v_type = 'emergency_fund' THEN
+            -- Keyed by group: this is capital no source table describes, so the id is the only thing
+            -- that keeps a second run of this module from booking the same R500 twice.
             PERFORM public.increment_group_balance(
                 v_group_id, 
                 v_monthly_contrib_amount, 
                 'Seed Liquidity - Reserve Fund', 
-                'adjustment'
+                'adjustment',
+                'SEED-LIQUIDITY-' || v_group_id
             );
         END IF;
 
@@ -189,7 +226,8 @@ BEGIN
                 v_group_id, 
                 v_monthly_contrib_amount, 
                 'Seed Gains - Market Performance', 
-                'investment_gain'
+                'investment_gain',
+                'SEED-GAIN-' || v_group_id
             );
         END IF;
 

@@ -244,10 +244,9 @@ class AdminOverviewViewModel @Inject constructor(
         }
         cancelJob("group_observation")
         cancelJob("refresh_members")
+        // Selecting is what warms the group, and it warms it fresh: a second, non-forced warmup
+        // here used to race the forced one and re-hydrate the same group twice.
         adminContextCacheService.selectGroup(groupId)
-        launchJob("select_group") {
-            adminContextCacheService.warmUpGroup(groupId)
-        }
         loadGroupAuditReport()
     }
 

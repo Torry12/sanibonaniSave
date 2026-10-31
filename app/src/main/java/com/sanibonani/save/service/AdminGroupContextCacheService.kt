@@ -75,7 +75,12 @@ class AdminGroupContextCacheService @Inject constructor(
         val groups = groupRepo.getGroupsByAdmin(userId).getOrElse {
             // An offline warm-up must keep the cached groups instead of pruning every context
             // to an empty admin set.
-            groupRepo.observeGroupsByAdmin(userId).first().getOrElse { emptyList() }
+            groupRepo.observeGroupsByAdmin(userId).first().getOrElse {
+                // Both reads failed, so the empty list here is a missing answer rather than an
+                // authoritative "administers nothing". Pruning with it would delete the very
+                // contexts this fallback protects; keep them and warm again once a read succeeds.
+                return
+            }
         }
         warmManagedGroupsInBackground(userId, groups)
     }
@@ -84,7 +89,11 @@ class AdminGroupContextCacheService @Inject constructor(
     fun selectGroup(groupId: String) {
         if (groupId.isBlank()) return
         _selectedGroupId.value = groupId
-        warmUpGroup(groupId)
+        // Opening a group is a request for its current money, and the snapshot's group row may
+        // come from the listing that filled the switcher. Only a forced warmup re-reads that row;
+        // the members pillar hydrates separately, so a stale balance otherwise sits next to a
+        // fresh member count.
+        warmUpGroup(groupId, force = true)
     }
 
     /**
@@ -116,9 +125,10 @@ class AdminGroupContextCacheService @Inject constructor(
     suspend fun refreshGroup(groupId: String): Result<Unit> = safeRunCatching {
         if (groupId.isBlank()) return@safeRunCatching
         // Hold the group's warmup slot for the whole refresh so a background sweep cannot start a
-        // second hydration that finishes after this one. The slot is a child job, never the
+        // second hydration that finishes after this one; a sweep arriving once this run has read
+        // is queued behind it rather than discarded. The slot is a child job, never the
         // caller's, so a session change cancels the refresh instead of the caller's scope.
-        warmupCoordinator.runExclusive(groupId) {
+        warmupCoordinator.runExclusive(groupId, scope) {
             syncRepo.syncGroupData(groupId)
             warmGroupContext(groupRepo.getGroupById(groupId).getOrThrow())
         }
@@ -136,6 +146,9 @@ class AdminGroupContextCacheService @Inject constructor(
 
     private suspend fun warmGroupContext(group: Group) {
         val groupId = group.id ?: return
+        // From here the snapshot is being built from data read now, so a warmup request that
+        // arrives later needs its own run rather than being credited to this one.
+        warmupCoordinator.markReadsStarted(groupId)
 
         // A failed section read must keep what the snapshot already holds: replacing it
         // with an empty list made an offline refresh look like an empty group, and the
@@ -153,10 +166,12 @@ class AdminGroupContextCacheService @Inject constructor(
             val partitioned = notificationsOutcome.getOrNull()
                 ?.filter { it.memberId == null || it.triggerEvent == NotifEvent.MEMBER_MESSAGE }
                 ?.partition { it.triggerEvent == NotifEvent.MEMBER_MESSAGE }
+            // createdAt is the ISO-8601 string PostgREST returns, which sorts chronologically as
+            // text; id is a uuid, so ordering by it put the feed in a random order.
             val messages = (partitioned?.first ?: prev.memberMessages)
-                .sortedByDescending { it.id ?: "" }
+                .sortedByDescending { it.createdAt ?: it.id ?: "" }
             val systemNotifs = (partitioned?.second ?: prev.notifications)
-                .sortedByDescending { it.id ?: "" }
+                .sortedByDescending { it.createdAt ?: it.id ?: "" }
             prev.copy(
                 group = group,
                 members = membersOutcome.getOrNull() ?: prev.members,

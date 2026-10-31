@@ -250,7 +250,9 @@ class AdminOverviewViewModelTest {
         assertNull(viewModel.state.value.group)
         assertTrue(viewModel.state.value.isLoading)
         verify { adminContextCacheService.selectGroup("g-1") }
-        verify { adminContextCacheService.warmUpGroup("g-1") }
+        // Selecting is what warms the group, and it warms it fresh inside the cache service. A
+        // second warmup from here used to race that one and hydrate the group twice.
+        verify(exactly = 0) { adminContextCacheService.warmUpGroup(any(), any()) }
     }
 
     @Test

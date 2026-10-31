@@ -10,7 +10,6 @@ import com.sanibonani.save.domain.model.Beneficiary
 import com.sanibonani.save.domain.model.Contribution
 import com.sanibonani.save.domain.model.Group
 import com.sanibonani.save.domain.model.Loan
-import com.sanibonani.save.domain.model.LoanRepayment
 import com.sanibonani.save.domain.model.Member
 import com.sanibonani.save.domain.repository.credit.LoanRepository
 import com.sanibonani.save.domain.repository.equity.MemberContributionRepository
@@ -81,7 +80,12 @@ class MemberGroupContextCacheService @Inject constructor(
 		val memberships = memberRepo.getMemberships(userId).getOrElse {
 			// An offline warm-up must keep the cached memberships instead of pruning every
 			// context to an empty membership set.
-			memberRepo.observeMemberships(userId).first().getOrElse { emptyList() }
+			memberRepo.observeMemberships(userId).first().getOrElse {
+				// Both reads failed, so the empty list here is a missing answer rather than an
+				// authoritative "no memberships". Pruning with it would delete the very contexts
+				// this fallback protects; keep them and warm again once a read succeeds.
+				return
+			}
 		}
 		warmMembershipsInBackground(userId, memberships)
 	}
@@ -94,9 +98,10 @@ class MemberGroupContextCacheService @Inject constructor(
 	suspend fun refreshGroup(userId: String, groupId: String): Result<Unit> = safeRunCatching {
 		if (groupId.isBlank()) return@safeRunCatching
 		// Hold the group's warmup slot for the whole refresh so a background sweep cannot start a
-		// second hydration that finishes after this one. The slot is a child job, never the
+		// second hydration that finishes after this one; a sweep arriving once this run has read
+		// is queued behind it rather than discarded. The slot is a child job, never the
 		// caller's, so a session change cancels the refresh instead of the caller's scope.
-		warmupCoordinator.runExclusive(groupId) {
+		warmupCoordinator.runExclusive(groupId, scope) {
 			syncRepo.syncGroupData(groupId)
 			val membership = _contexts.value[groupId]?.member
 				?: memberRepo.getMemberByUserId(userId, groupId).getOrElse { throw it }
@@ -111,7 +116,7 @@ class MemberGroupContextCacheService @Inject constructor(
 	suspend fun refreshImpersonatedMember(memberId: String, groupId: String): Result<Unit> =
 		safeRunCatching {
 			if (memberId.isBlank() || groupId.isBlank()) return@safeRunCatching
-			warmupCoordinator.runExclusive(groupId) {
+			warmupCoordinator.runExclusive(groupId, scope) {
 				syncRepo.syncGroupData(groupId)
 				check(hydrateImpersonatedMember(memberId, groupId).member?.id == memberId) {
 					"The selected member could not be verified after hydration."
@@ -128,7 +133,7 @@ class MemberGroupContextCacheService @Inject constructor(
 	suspend fun impersonateMember(memberId: String, groupId: String): Result<CachedGroupContext> =
 		safeRunCatching {
 			require(memberId.isNotBlank() && groupId.isNotBlank()) { "A member and group must be selected." }
-			warmupCoordinator.runExclusive(groupId) {
+			warmupCoordinator.runExclusive(groupId, scope) {
 				hydrateImpersonatedMember(memberId, groupId)
 			}
 		}
@@ -162,6 +167,9 @@ class MemberGroupContextCacheService @Inject constructor(
 		membership: Member,
 		authoritativeMember: Member? = null
 	) {
+		// From here the snapshot is being built from data read now, so a warmup request that
+		// arrives later needs its own run rather than being credited to this one.
+		warmupCoordinator.markReadsStarted(groupId)
 		// A failed section read must keep what the snapshot already holds: replacing it with an
 		// empty list made an offline refresh look like an empty portal, and the hydrated flag
 		// then suppressed every later retry.
@@ -271,7 +279,6 @@ data class CachedGroupContext(
 	val contributions: List<Contribution> = emptyList(),
 	val beneficiaries: List<Beneficiary> = emptyList(),
 	val loans: List<Loan> = emptyList(),
-	val loanRepayments: List<LoanRepayment> = emptyList(),
 	val notifications: List<AppNotification> = emptyList(),
 	val messages: List<AppNotification> = emptyList(),
 	val calculation: PaymentCalculation? = null,

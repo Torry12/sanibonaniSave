@@ -119,7 +119,6 @@ data class MemberContextPackage(
     val contributions: List<Contribution>,
     val beneficiaries: List<Beneficiary>,
     val loans: List<Loan>,
-    val repayments: List<LoanRepayment>,
     val calculation: PaymentCalculation,
     val notifications: List<AppNotification>,
     val messages: List<AppNotification>

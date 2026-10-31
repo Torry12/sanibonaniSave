@@ -142,7 +142,7 @@ class AdminSettingsViewModel @Inject constructor(
             updateGroupSettings(groupId, uiState.value.settings).onSuccess {
                 updateState { it.copy(isSaving = false, saveSuccess = true) }
                 sendEvent(UIEvent.ShowMessage("Settings saved"))
-                adminContextCacheService.warmUpGroup(groupId)
+                adminContextCacheService.warmUpGroup(groupId, force = true)
             }.onFailure { e ->
                 updateState { it.copy(isSaving = false) }
                 handleError(e)

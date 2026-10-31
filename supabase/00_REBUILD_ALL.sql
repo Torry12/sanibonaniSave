@@ -24,29 +24,35 @@
 -- 6. VIEWS: Analytics and reporting snapshots
 \i '05_PERFORMANCE_VIEWS.sql'
 
--- 7. MASTER SEED: High-fidelity test environment (Version 2.1)
+-- 7. SEED HELPERS: pg_temp ledger writer the seed modules post money through
+\i '10_SEED_HELPERS.sql'
+
+-- 7.1 MASTER SEED: High-fidelity test environment (Version 3.1)
 \i 'MASTER_SEED_DATA.sql'
 
--- 7.1 SEED TEST DATA: 10 Groups / 100 Members with 12 Months History & Banking Info
+-- 7.2 SEED TEST DATA: 10 Groups / 100 Members with 12 Months History & Banking Info
 \i '11_SEED_TEST_DATA_10_GROUPS_100_MEMBERS.sql'
 
--- 7.2 SEED 50 PAYOUT REQUESTS: Multi-type Payout Requests & Approval Conditions
+-- 7.3 SEED 50 PAYOUT REQUESTS: Multi-type Payout Requests & Approval Conditions
 \i '16_SEED_50_PAYMENT_REQUESTS_AND_APPROVALS.sql'
 
--- 7.3 SEED FINANCIAL ESCALATIONS: Platform Escalations, Loans & Claims
+-- 7.4 SEED FINANCIAL ESCALATIONS: Platform Escalations, Loans & Claims
 \i '17_SEED_PLATFORM_FINANCIAL_ESCALATIONS.sql'
 
--- 7.3.1 SEED BURIAL CLAIM ESCALATIONS: Burial Society Claim Escalations
+-- 7.4.1 SEED BURIAL CLAIM ESCALATIONS: Burial Society Claim Escalations
 \i '19_SEED_BURIAL_CLAIM_ESCALATIONS.sql'
 
--- 7.4 INTEGRITY SEED: Forensic audit scenarios
+-- 7.5 INTEGRITY SEED: Forensic audit scenarios
 \i '31_REAL_LIFE_INTEGRITY_SEEDS.sql'
 
--- 7.5 SEED 12-MONTH TRANSACTIONS & LEDGER: Support & Sim Flows 12-Month History
+-- 7.6 SEED 12-MONTH TRANSACTIONS & LEDGER: Support & Sim Flows 12-Month History
 \i '20_SEED_12_MONTHS_TRANSACTIONS.sql'
 
--- 7.6 SEED VALID BURIAL CLAIMS: Valid Burial Society Claim Scenarios
+-- 7.7 SEED VALID BURIAL CLAIMS: Valid Burial Society Claim Scenarios
 \i '21_SEED_VALID_BURIAL_CLAIMS.sql'
+
+-- 7.8 INTEGRITY GATE: aborts the rebuild if any seeded money is not in the ledger it claims
+\i '90_SEED_INTEGRITY_GATE.sql'
 
 -- 8. STORAGE: BRL policies and bucket provisioning
 \i '30_STORAGE_RLS.sql'

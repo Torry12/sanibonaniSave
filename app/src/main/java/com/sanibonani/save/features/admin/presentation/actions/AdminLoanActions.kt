@@ -45,7 +45,7 @@ class AdminLoanActions @Inject constructor(
                         })
                     }
                     host.updateActionState { it.copy(isLoading = false, successMessage = "Loan approved and disbursed") }
-                    adminContextCacheService.warmUpGroup(groupId)
+                    adminContextCacheService.warmUpGroup(groupId, force = true)
                 }.onFailure {
                     host.updateActionState { s ->
                         s.copy(groupLoans = s.groupLoans.map { loan ->
@@ -53,7 +53,7 @@ class AdminLoanActions @Inject constructor(
                         })
                     }
                     host.updateActionState { it.copy(isLoading = false, successMessage = "Loan approved") }
-                    adminContextCacheService.warmUpGroup(groupId)
+                    adminContextCacheService.warmUpGroup(groupId, force = true)
                 }
             }.onFailure { e ->
                 host.updateActionState { it.copy(isLoading = false) }
@@ -80,7 +80,7 @@ class AdminLoanActions @Inject constructor(
                         successMessage = "Loan request rejected"
                     )
                 }
-                adminContextCacheService.warmUpGroup(groupId)
+                adminContextCacheService.warmUpGroup(groupId, force = true)
             }.onFailure { e ->
                 host.updateActionState { it.copy(isLoading = false) }
                 host.reportActionError(e)

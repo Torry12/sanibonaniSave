@@ -45,7 +45,7 @@ Unlike generic banking apps, SanibonaniSave delivers **group-type specific busin
 ## 🎬 3-Step Partner Demonstration Script
 
 ### Step 1: Platform Administrator Portal (Global Oversight)
-- **Login**: `torrymsimango@gmail.com` (Password: `Pass123!`)
+- **Login**: `torrymsimango@gmail.com` (password: `PLATFORM_ADMIN_PASSWORD` in the untracked `local.properties` — it is not `Pass123!`, that published credential was rotated)
 - **Key Features to Showcase**:
   - **Analytics Dashboard**: Real-time overview of total platform balance, active groups, and geographic distribution across South African provinces.
   - **Fee Management**: Configurable platform subscription fees, registration fees, and late-fee penalties.
