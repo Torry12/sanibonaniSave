@@ -24,6 +24,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.sanibonani.save.R
 import com.sanibonani.save.domain.model.*
+import com.sanibonani.save.domain.utils.parseMoneyAmountOrNull
 import com.sanibonani.save.ui.components.*
 import com.sanibonani.save.ui.theme.*
 import com.sanibonani.save.ui.utils.formatZAR
@@ -108,7 +109,9 @@ fun WithdrawalRequestDialog(
 
                 SanibonaniTextField(
                     value = amount,
-                    onValueChange = { if (it.isEmpty() || it.toDoubleOrNull() != null) amount = it },
+                    // The house money gate, not toDoubleOrNull: a binary float accepts "1e30",
+                    // "Infinity" and three decimal places, and the third silently rounds to R2.00.
+                    onValueChange = { if (it.isEmpty() || it.parseMoneyAmountOrNull() != null) amount = it },
                     label = "Amount (R)",
                     enabled = hasBanking,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
@@ -120,12 +123,12 @@ fun WithdrawalRequestDialog(
             }
         },
         confirmButton = {
+            val enteredAmount = amount.parseMoneyAmountOrNull()
             Button(
                 onClick = {
-                    val a = amount.toBigDecimalOrNull() ?: java.math.BigDecimal.ZERO
-                    if (a > BigDecimal.ZERO) onConfirm(Money(a))
+                    if (enteredAmount != null && enteredAmount > BigDecimal.ZERO) onConfirm(Money(enteredAmount))
                 },
-                enabled = hasBanking && amount.isNotBlank() && (amount.toBigDecimalOrNull() ?: BigDecimal.ZERO) > BigDecimal.ZERO
+                enabled = hasBanking && enteredAmount != null && enteredAmount > BigDecimal.ZERO
             ) {
                 Text("Submit Request")
             }

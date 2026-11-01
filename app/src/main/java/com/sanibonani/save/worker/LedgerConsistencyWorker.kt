@@ -46,16 +46,20 @@ class LedgerConsistencyWorker @AssistedInject constructor(
                             "🚨 Critical Discrepancy Found in Group $groupId: ${record.discrepancy.format()}"
                         )
 
-                        // Trigger an automatic repair if the discrepancy is significant
-                        if (record.discrepancy.abs() > Money("1.0")) {
+                        // Rebuilding a ledger rewrites every running balance and re-derives the
+                        // group's cached balance, so it is reserved for drift big enough to be
+                        // worth that. Anything under it stays logged for the admin to reconcile.
+                        if (record.discrepancy.abs() > REPAIR_MATERIALITY) {
                             val repairOutcome = platformRepo.repairGroupData(groupId)
                             if (repairOutcome.isSuccess) {
                                 auditRepo.logAuditEvent(AuditLog(
                                     actorId = "SYSTEM_GUARDIAN",
                                     targetGroupId = groupId,
                                     action = "AUTO_REPAIR_LEDGER",
+                                    // A formatted amount ("R1 234,56") cannot be read back as a
+                                    // number; every other persisted money field is plain text.
                                     details = Json.encodeToJsonElement(mapOf(
-                                        "discrepancy" to record.discrepancy.format(),
+                                        "discrepancy" to record.discrepancy.toPlainString(),
                                         "reason" to "Ledger sum mismatch"
                                     ))
                                 ))
@@ -67,6 +71,12 @@ class LedgerConsistencyWorker @AssistedInject constructor(
                                     repairOutcome.exceptionOrNull()
                                 )
                             }
+                        } else {
+                            com.sanibonani.save.domain.logging.AppLogger.w(
+                                "LedgerGuardian",
+                                "Group $groupId drifts by ${record.discrepancy.format()}, under the " +
+                                    "${REPAIR_MATERIALITY.format()} auto-repair threshold; left for the admin to reconcile."
+                            )
                         }
                     } else {
                         com.sanibonani.save.domain.logging.AppLogger.i("LedgerGuardian", "✅ Group $groupId is balanced.")
@@ -100,6 +110,9 @@ class LedgerConsistencyWorker @AssistedInject constructor(
         const val KEY_GROUP_ID = "group_id"
         const val WORK_NAME = "ledger_consistency_audit"
         private const val MAX_ATTEMPTS = 3
+
+        /** Below this the nightly pass reports the drift but leaves the ledger alone. */
+        private val REPAIR_MATERIALITY = Money("1.00")
 
         /**
          * One schedule per group, for the same reason as [FeeEnforcementWorker]: a shared unique

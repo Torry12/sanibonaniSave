@@ -23,9 +23,6 @@ class RoomLedgerDataSourceImpl @Inject constructor(
     override fun observeMemberLedger(memberId: String): Flow<List<LedgerEntry>> =
         ledgerDao.observeMemberLedger(memberId).map { list -> list.map { it.toModel() } }
 
-    override fun observePlatformLedger(): Flow<List<LedgerEntry>> =
-        ledgerDao.observePlatformLedger().map { list -> list.map { it.toModel() } }
-
     override fun observeConsolidatedLedger(groupId: String): Flow<List<LedgerEntry>> =
         ledgerDao.observeConsolidatedLedger(groupId).map { list -> list.map { it.toModel() } }
 
@@ -41,10 +38,5 @@ class RoomLedgerDataSourceImpl @Inject constructor(
         report.reconciliationRecord?.let {
             ledgerDao.upsertReconciliations(listOf(it.toEntity()))
         }
-    }
-
-    override suspend fun clearAll() {
-        ledgerDao.clearAll()
-        ledgerDao.clearAllSettlements()
     }
 }

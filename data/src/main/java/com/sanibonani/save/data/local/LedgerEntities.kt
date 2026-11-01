@@ -60,9 +60,6 @@ interface LedgerDao {
     @Query("SELECT * FROM group_ledger WHERE member_id = :memberId AND is_platform = 0 ORDER BY created_at DESC")
     fun observeMemberLedger(memberId: String): kotlinx.coroutines.flow.Flow<List<LedgerEntryEntity>>
 
-    @Query("SELECT * FROM group_ledger WHERE is_platform = 1 ORDER BY created_at DESC")
-    fun observePlatformLedger(): kotlinx.coroutines.flow.Flow<List<LedgerEntryEntity>>
-
     @Query("SELECT * FROM group_ledger WHERE group_id = :groupId ORDER BY created_at DESC")
     fun observeConsolidatedLedger(groupId: String): kotlinx.coroutines.flow.Flow<List<LedgerEntryEntity>>
 
@@ -77,9 +74,6 @@ interface LedgerDao {
         clearLedger(groupId)
         upsertLedger(entries)
     }
-
-    @Query("DELETE FROM group_ledger")
-    suspend fun clearAll()
 
     // ── Settlements ───────────────────────────────────────────────────────────
     @Query("SELECT * FROM settlements ORDER BY settled_at DESC")

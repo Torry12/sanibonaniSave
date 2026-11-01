@@ -16,15 +16,6 @@ class TreasuryServiceImpl @Inject constructor(
         groupRepository.getGroupById(groupId).getOrThrow().balance
     }
 
-    override suspend fun schedulePayout(groupId: String, amount: Money): Result<Boolean> = safeRunCatching {
-        val balance = getTreasuryBalance(groupId).getOrThrow()
-        if (amount > balance) {
-            throw Exception("Insufficient treasury liquidity for payout of ${amount.format()}")
-        }
-        // Logic to record the payout would happen here or in a use case
-        true
-    }
-
     override suspend fun calculateRequiredReserve(groupId: String): Result<Money> = safeRunCatching {
         val group = groupRepository.getGroupById(groupId).getOrThrow()
 

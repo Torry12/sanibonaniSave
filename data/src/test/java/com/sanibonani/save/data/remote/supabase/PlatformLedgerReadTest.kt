@@ -1,9 +1,5 @@
-package com.sanibonani.save.data.repository.admin
+package com.sanibonani.save.data.remote.supabase
 
-import com.sanibonani.save.data.local.SanibonaniDatabase
-import com.sanibonani.save.domain.repository.admin.ActuarialRepository
-import com.sanibonani.save.domain.repository.system.DataConnectionProtocol
-import com.sanibonani.save.domain.repository.system.NotificationRepository
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.postgrest.Postgrest
 import io.github.jan.supabase.postgrest.postgrest
@@ -18,26 +14,24 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 
+/**
+ * The platform ledger is the admin's view of the money the platform itself took, so an outage and a
+ * genuinely empty ledger have to stay distinguishable. This is the only route that table reaches the
+ * screen through (`GetPlatformLedgerUseCase` -> `PlatformLedgerViewModel`); a second copy of the same
+ * query on `PlatformRepository` used to answer it and was deleted, so the guard moved here.
+ */
 class PlatformLedgerReadTest {
 
-    private val protocol = mockk<DataConnectionProtocol>()
     private val supabase = mockk<SupabaseClient>()
     private val postgrest = mockk<Postgrest>(relaxed = true)
 
-    private lateinit var repository: PlatformRepositoryImpl
+    private lateinit var source: SupabaseLedgerDataSourceImpl
 
     @Before
     fun setUp() {
         mockkStatic("io.github.jan.supabase.postgrest.PostgrestKt")
         every { supabase.postgrest } returns postgrest
-        every { protocol.getRemoteClient(SupabaseClient::class.java) } returns supabase
-
-        repository = PlatformRepositoryImpl(
-            protocol = protocol,
-            db = mockk<SanibonaniDatabase>(relaxed = true),
-            actuarialRepo = mockk<ActuarialRepository>(relaxed = true),
-            notifRepo = mockk<NotificationRepository>(relaxed = true)
-        )
+        source = SupabaseLedgerDataSourceImpl(supabase)
     }
 
     @After
@@ -49,7 +43,7 @@ class PlatformLedgerReadTest {
     fun `an unreachable platform ledger remains a failure instead of an empty ledger`() = runBlocking {
         every { postgrest["platform_ledger"] } throws IllegalStateException("Platform ledger unavailable")
 
-        val outcome = repository.getPlatformLedger()
+        val outcome = source.getPlatformLedger()
 
         assertTrue("a ledger outage must not look like a genuinely empty ledger", outcome.isFailure)
         verify(exactly = 1) { postgrest["platform_ledger"] }
