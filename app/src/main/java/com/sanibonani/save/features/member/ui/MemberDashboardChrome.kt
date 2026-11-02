@@ -68,9 +68,11 @@ internal fun MemberDashboardTopBar(
             SupportModeBanner(onDismiss = { overviewVm.dismissImpersonationBanner() })
         }
 
-        MemberConnectivityBanner(
+        OfflineBanner(
             isAirplaneMode = overviewState.isAirplaneMode,
-            isSystemOnline = overviewState.isSystemOnline
+            isSystemOnline = overviewState.isSystemOnline,
+            airplaneColors = ErrorBg to ErrorRed,
+            offlineColors = WarningBg to WarningAmber
         )
 
         if (overviewState.memberships.size > 1) {
@@ -125,35 +127,6 @@ internal fun SupportModeBanner(onDismiss: () -> Unit) {
                     .size(16.dp)
                     .clickable { onDismiss() }
             )
-        }
-    }
-}
-
-@Composable
-internal fun MemberConnectivityBanner(isAirplaneMode: Boolean, isSystemOnline: Boolean) {
-    if (isAirplaneMode) {
-        Surface(
-            modifier = Modifier.fillMaxWidth(),
-            color = ErrorBg,
-            contentColor = ErrorRed
-        ) {
-            Row(Modifier.padding(horizontal = 20.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.AirplanemodeActive, null, modifier = Modifier.size(16.dp))
-                Spacer(Modifier.width(12.dp))
-                Text(stringResource(R.string.ui_airplane_mode_active_syncing_is_paused), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
-            }
-        }
-    } else if (!isSystemOnline) {
-        Surface(
-            modifier = Modifier.fillMaxWidth(),
-            color = WarningBg,
-            contentColor = WarningAmber
-        ) {
-            Row(Modifier.padding(horizontal = 20.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.CloudOff, null, modifier = Modifier.size(16.dp))
-                Spacer(Modifier.width(12.dp))
-                Text(stringResource(R.string.ui_offline_mode_using_cached_data), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
-            }
         }
     }
 }

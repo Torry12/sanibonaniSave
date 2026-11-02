@@ -41,7 +41,7 @@ class AdminBankActions @Inject constructor(
             host.updateActionState { it.copy(isRefreshingBank = true, error = null) }
             syncBankTransactions(groupId)
                 .onSuccess {
-                    host.updateActionState { it.copy(isRefreshingBank = false, bankRefreshSuccess = true) }
+                    host.updateActionState { it.copy(isRefreshingBank = false) }
                     host.notifyUser("Bank data synchronized successfully")
                     adminContextCacheService.warmUpGroup(groupId, force = true)
                 }
@@ -55,14 +55,12 @@ class AdminBankActions @Inject constructor(
     private fun handleBankCallback(host: AdminFinancialActionHost, connectionId: String, status: String) {
         val groupId = host.actionState.group?.id ?: return
         host.launchAction("handle_bank_callback") {
-            host.updateActionState { it.copy(isLoading = true, error = null) }
+            host.updateActionState { it.copy(error = null) }
             finalizeBankConnection(groupId, connectionId, status)
                 .onSuccess {
-                    host.updateActionState { it.copy(isLoading = false) }
                     host.notifyUser("Bank account linked successfully!")
                 }
                 .onFailure { e ->
-                    host.updateActionState { it.copy(isLoading = false) }
                     host.reportError(e)
                 }
         }
@@ -70,13 +68,12 @@ class AdminBankActions @Inject constructor(
 
     fun ignoreBankTransaction(host: AdminFinancialActionHost, bankTxId: String, reason: String) {
         host.launchAction("ignore_bank_transaction") {
-            host.updateActionState { it.copy(isLoading = true, error = null) }
+            host.updateActionState { it.copy(error = null) }
             ignoreBankTransactionUseCase(bankTxId, reason)
                 .onSuccess {
-                    host.updateActionState { it.copy(isLoading = false, successMessage = "Bank transaction ignored") }
+                    host.updateActionState { it.copy(successMessage = "Bank transaction ignored") }
                 }
                 .onFailure { e ->
-                    host.updateActionState { it.copy(isLoading = false) }
                     host.reportError(e)
                 }
         }

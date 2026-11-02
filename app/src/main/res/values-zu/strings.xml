@@ -169,7 +169,6 @@
     <string name="ui_admin_view_support">Ukubuka koMphathi (Ukusekela)</string>
     <string name="ui_admin_dashboard">Ideshibhodi yoMphathi</string>
     <string name="ui_support_mode_active_access_is_logged">Imodi Yokusekela Iyasebenza — Ukungena kurekhodiwe.</string>
-    <string name="ui_airplane_mode_active_turn_off_to_sync">Imodi Yendiza Iyasebenza — Ivala ukuze uvumelanise idatha.</string>
     <string name="ui_switch_group">Shintsha Iqembu</string>
     <string name="ui_balance">Ibhalansi</string>
     <string name="ui_members">Amalungu</string>

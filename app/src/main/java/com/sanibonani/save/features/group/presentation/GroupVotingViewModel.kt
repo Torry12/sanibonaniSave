@@ -16,8 +16,6 @@ data class GroupVotingUiState(
     val groupId: String = "",
     val memberId: String? = null,
     val polls: List<GroupPollWithOptions> = emptyList(),
-    val isLoading: Boolean = false,
-    val isSaving: Boolean = false,
     val message: String? = null,
     val error: String? = null
 )
@@ -40,8 +38,10 @@ class GroupVotingViewModel @Inject constructor(
         pollsJob?.cancel()
         pollsJob = launchJob("load_polls") {
             observeGroupPolls(groupId, memberId).collectLatest { res ->
-                res.onSuccess { list -> updateState { it.copy(polls = list, isLoading = false) } }
-                    .onFailure { updateState { it.copy(isLoading = false) } }
+                res.onSuccess { list -> updateState { it.copy(polls = list) } }
+                    // The screen renders state.error, so a failed poll read says so instead of
+                    // showing an empty list.
+                    .onFailure { e -> updateState { it.copy(error = e.toUserMessage()) } }
             }
         }
     }
@@ -49,9 +49,8 @@ class GroupVotingViewModel @Inject constructor(
     fun createPoll(title: String, description: String?, options: List<String>, allowMultipleChoice: Boolean = false) {
         val s = uiState.value
         launchJob("create_poll") {
-            updateState { it.copy(isSaving = true) }
             createGroupPoll(s.groupId, s.memberId, title, description, options, allowMultipleChoice).onSuccess {
-                updateState { it.copy(isSaving = false, message = "Poll created") }
+                updateState { it.copy(message = "Poll created") }
             }
         }
     }

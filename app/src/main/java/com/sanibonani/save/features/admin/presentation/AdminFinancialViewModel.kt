@@ -97,8 +97,6 @@ class AdminFinancialViewModel @Inject constructor(
 
     private fun loadFinancialData(groupId: String) {
         launchJob("load_financial_data") {
-            updateState { it.copy(isLoading = true) }
-
             observeFinancialSnapshot(groupId)
                 .distinctUntilChanged()
                 .collect { snapshot ->
@@ -107,8 +105,7 @@ class AdminFinancialViewModel @Inject constructor(
                         unreconciledBankTx = snapshot.unreconciledBankTx,
                         payouts = snapshot.payouts,
                         groupLoans = snapshot.loans,
-                        burialClaims = snapshot.claims,
-                        isLoading = false
+                        burialClaims = snapshot.claims
                     ) }
                 }
         }

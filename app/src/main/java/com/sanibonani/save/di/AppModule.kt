@@ -11,8 +11,6 @@ import com.sanibonani.save.data.local.GroupDao
 import com.sanibonani.save.data.local.LedgerDao
 import com.sanibonani.save.data.local.LoanDao
 import com.sanibonani.save.data.local.MemberDao
-import com.sanibonani.save.data.local.MemberDocumentDao
-import com.sanibonani.save.data.local.NotificationDao
 import com.sanibonani.save.data.local.PaymentDao
 import com.sanibonani.save.data.local.PayoutDao
 import com.sanibonani.save.data.local.PendingOperationDao
@@ -21,7 +19,6 @@ import com.sanibonani.save.domain.architecture.policy.InMemoryPolicyRouter
 import com.sanibonani.save.domain.architecture.policy.LargeAmountDualApprovalRule
 import com.sanibonani.save.domain.architecture.policy.PolicyRouter
 import com.sanibonani.save.domain.architecture.policy.SuspendedGroupBlockRule
-import com.sanibonani.save.domain.model.Money
 import com.sanibonani.save.domain.service.FinancialSecurityService
 import com.sanibonani.save.domain.repository.system.DataConnectionProtocol
 import dagger.Module
@@ -94,15 +91,7 @@ object AppModule {
 
     @Provides
     @Singleton
-    fun provideNotificationDao(db: SanibonaniDatabase): NotificationDao = db.notificationDao()
-
-    @Provides
-    @Singleton
     fun providePayoutDao(db: SanibonaniDatabase): PayoutDao = db.payoutDao()
-
-    @Provides
-    @Singleton
-    fun provideMemberDocumentDao(db: SanibonaniDatabase): MemberDocumentDao = db.memberDocumentDao()
 
     @Provides
     @Singleton

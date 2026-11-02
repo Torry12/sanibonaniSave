@@ -46,7 +46,6 @@ class AdminPayoutActions @Inject constructor(
                 host.updateActionState {
                     it.copy(
                         isRequestingPayout = false,
-                        payoutRequestSuccess = true,
                         payoutAmount = "",
                         selectedMemberId = null,
                         successMessage = "Payout request submitted successfully"
@@ -97,7 +96,6 @@ class AdminPayoutActions @Inject constructor(
             host.updateActionState {
                 it.copy(
                     isRequestingPayout = false,
-                    payoutRequestSuccess = successCount > 0,
                     successMessage = if (successCount > 0) {
                         "Annual Stokvel savings payouts requested for $successCount member(s)."
                     } else null,
@@ -116,7 +114,7 @@ class AdminPayoutActions @Inject constructor(
                 host.reportError(IllegalStateException("Sign in again to escalate a payout request."))
                 return@launchAction
             }
-            host.updateActionState { it.copy(isLoading = true, error = null, processingIds = it.processingIds + payoutId) }
+            host.updateActionState { it.copy(error = null, processingIds = it.processingIds + payoutId) }
             // Through the disbursement use case so the transition, the liquidity check and the
             // platform audit trail all see the escalation, exactly as on the platform screen.
             processDisbursement(
@@ -127,12 +125,10 @@ class AdminPayoutActions @Inject constructor(
                 host.updateActionState { s ->
                     s.copy(
                         payouts = s.payouts.map { if (it.id == updated.id) updated else it },
-                        isLoading = false,
                         successMessage = "Request escalated for platform approval"
                     )
                 }
             }.onFailure { e ->
-                host.updateActionState { it.copy(isLoading = false) }
                 host.reportActionError(e)
             }
             host.updateActionState { it.copy(processingIds = it.processingIds - payoutId) }
@@ -141,13 +137,12 @@ class AdminPayoutActions @Inject constructor(
 
     fun verifyPayoutDocument(host: AdminFinancialActionHost, payoutId: String, approve: Boolean) {
         host.launchAction("verify_payout_document") {
-            host.updateActionState { it.copy(isLoading = true, error = null) }
+            host.updateActionState { it.copy(error = null) }
             verifyPayoutDocumentUseCase(payoutId, approve)
                 .onSuccess {
-                    host.updateActionState { it.copy(isLoading = false, successMessage = "Payout document ${if (approve) "verified" else "rejected"}") }
+                    host.updateActionState { it.copy(successMessage = "Payout document ${if (approve) "verified" else "rejected"}") }
                 }
                 .onFailure { e ->
-                    host.updateActionState { it.copy(isLoading = false) }
                     host.reportError(e)
                 }
         }

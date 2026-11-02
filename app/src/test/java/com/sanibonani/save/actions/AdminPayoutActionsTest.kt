@@ -21,6 +21,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -73,7 +74,7 @@ class AdminPayoutActionsTest {
                 requestedAmount = Money("1500.00")
             )
         }
-        assertTrue(host.actionState.payoutRequestSuccess)
+        assertEquals("Payout request submitted successfully", host.actionState.successMessage)
     }
 
     private class FakeHost(initial: AdminFinancialUiState) : AdminFinancialActionHost {

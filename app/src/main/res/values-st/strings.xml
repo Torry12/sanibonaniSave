@@ -169,7 +169,6 @@
     <string name="ui_admin_view_support">Pono ya Motsamaisi (Tshehetso)</string>
     <string name="ui_admin_dashboard">Deshiboto ya Motsamaisi</string>
     <string name="ui_support_mode_active_access_is_logged">Mokhoa wa Tshehetso o Sebetsa — Ho kena ho rekhotitswe.</string>
-    <string name="ui_airplane_mode_active_turn_off_to_sync">Mokhoa wa Sefofane o Sebetsa — O time ho kopanya dintlha.</string>
     <string name="ui_switch_group">Fetola Sehlopha</string>
     <string name="ui_balance">Balansi</string>
     <string name="ui_members">Ditho</string>

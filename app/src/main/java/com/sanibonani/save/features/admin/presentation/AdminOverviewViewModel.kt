@@ -166,7 +166,6 @@ class AdminOverviewViewModel @Inject constructor(
                 val pkg = AdminGroupContext(
                     group = context.group ?: return@observeGroupContext,
                     members = context.members,
-                    metrics = context.metrics ?: ActuarialMetrics(),
                     notifications = context.notifications,
                     messages = context.memberMessages
                 )
@@ -174,7 +173,6 @@ class AdminOverviewViewModel @Inject constructor(
                 updateState { it.copy(
                     group = pkg.group,
                     members = pkg.members,
-                    metrics = pkg.metrics,
                     notifications = pkg.notifications,
                     memberMessages = pkg.messages,
                     feeStatus = context.feeStatus ?: AdminFeeState.DUE,

@@ -11,8 +11,7 @@ enum class KycStep { ID_FRONT, SELFIE, SUCCESS }
 
 data class KycUiState(
     val step: KycStep = KycStep.ID_FRONT,
-    val idUri: Uri? = null,
-    val selfieUri: Uri? = null
+    val idUri: Uri? = null
 )
 
 @HiltViewModel
@@ -23,7 +22,6 @@ class KycViewModel @Inject constructor(
     fun onIdCaptured(uri: Uri) { updateState { it.copy(idUri = uri, step = KycStep.SELFIE) } }
 
     fun onSelfieCaptured(uri: Uri, memberId: String) {
-        updateState { it.copy(selfieUri = uri) }
         val idPath = uiState.value.idUri?.path ?: return
         val selfiePath = uri.path ?: return
         launchJob("process_kyc") {

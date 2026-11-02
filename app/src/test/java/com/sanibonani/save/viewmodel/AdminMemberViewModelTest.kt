@@ -148,7 +148,6 @@ class AdminMemberViewModelTest {
         advanceUntilIdle()
 
         assertFalse(viewModel.state.value.isExporting)
-        assertNull(viewModel.state.value.exportFile)
         assertTrue(viewModel.events.first() is UIEvent.ShowError)
     }
 
@@ -164,7 +163,7 @@ class AdminMemberViewModelTest {
         advanceUntilIdle()
 
         assertFalse(viewModel.state.value.isExporting)
-        assertEquals(statement, viewModel.state.value.exportFile)
+        assertEquals(statement, (viewModel.events.first() as UIEvent.OpenFile).file)
     }
 
     @Test

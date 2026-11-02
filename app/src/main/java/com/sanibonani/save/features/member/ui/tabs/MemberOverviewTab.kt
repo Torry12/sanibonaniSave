@@ -71,11 +71,14 @@ fun MemberOverviewTab(
         contentPadding = PaddingValues(20.dp),
         verticalArrangement = Arrangement.spacedBy(20.dp)
     ) {
+        // The guard keeps an empty item out of the list; the banner itself decides what to say.
         if (!uiState.isSystemOnline || uiState.isAirplaneMode) {
             item {
                 OfflineBanner(
-                    isOnline = false,
-                    message = if (uiState.isAirplaneMode) "⚠️ Airplane Mode: Syncing is paused." else "⚠️ Offline: Using cached data."
+                    isAirplaneMode = uiState.isAirplaneMode,
+                    isSystemOnline = uiState.isSystemOnline,
+                    airplaneColors = ErrorBg to ErrorRed,
+                    offlineColors = WarningBg to WarningAmber
                 )
             }
         }
@@ -86,7 +89,10 @@ fun MemberOverviewTab(
             item {
                 OfflineBanner(
                     isOnline = true,
-                    message = "⚠️ Not confirmed with the server: ${uiState.unverifiedSections.joinToString()}."
+                    message = stringResource(
+                        R.string.ui_sections_not_confirmed_with_server,
+                        uiState.unverifiedSections.joinToString()
+                    )
                 )
             }
         }

@@ -203,7 +203,6 @@ fun PlatformAdminScreen(
                             vm = disbursementsVm,
                             onOpenMemberPortalFromDisbursement = onOpenMemberPortalFromDisbursement,
                             onImpersonateMember = onImpersonateMember,
-                            onNavigateToHealthScore = onNavigateToHealthScore,
                             onNavigateToBehaviorTracking = onNavigateToBehaviorTracking
                         )
                         3 -> PlatformLedgerTab(ledgerState, analyticsState, ledgerVm)

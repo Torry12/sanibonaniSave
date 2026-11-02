@@ -187,7 +187,86 @@ class AdminFinancialViewModelTest {
         advanceUntilIdle()
 
         coVerify(exactly = 1) { requestPayoutUseCase(groupId = groupId, memberId = null, requestedAmount = Money("1500.0")) }
-        assertEquals(true, vm.state.value.payoutRequestSuccess)
+        assertEquals("Payout request submitted successfully", vm.state.value.successMessage)
+    }
+
+    @Test
+    fun `an action that needs AAL2 raises the MFA challenge instead of a generic error`() = runTest {
+        val groupId = "group-1"
+        adminContextCacheService.selectGroup(groupId)
+
+        coEvery {
+            requestPayoutUseCase(groupId = groupId, memberId = null, requestedAmount = Money("1500.0"))
+        } returns Result.failure(MfaRequiredException(Money("1500.0")))
+
+        val vm = createViewModel()
+
+        vm.updatePayoutAmount("1500")
+        vm.submitPayoutRequest()
+        advanceUntilIdle()
+
+        // The admin must get a challenge they can answer, not an error they can only read.
+        assertEquals(true, vm.state.value.showMfaChallenge)
+        assertEquals(null, vm.state.value.error)
+    }
+
+    @Test
+    fun `verifyMfaChallenge closes the challenge once the code is accepted`() = runTest {
+        val groupId = "group-1"
+        adminContextCacheService.selectGroup(groupId)
+        coEvery {
+            requestPayoutUseCase(groupId = groupId, memberId = null, requestedAmount = Money("1500.0"))
+        } returnsMany listOf(
+            Result.failure(MfaRequiredException(Money("1500.0"))),
+            Result.success("payout-1")
+        )
+
+        val factor = mockk<MfaFactor>(relaxed = true)
+        coEvery { mfaService.getMfaFactors() } returns Result.success(listOf(factor))
+        coEvery { mfaService.verifyMfa(factor.id, "123456", true) } returns Result.success(Unit)
+
+        val vm = createViewModel()
+
+        vm.updatePayoutAmount("1500")
+        vm.submitPayoutRequest()
+        advanceUntilIdle()
+        assertEquals(true, vm.state.value.showMfaChallenge)
+
+        vm.verifyMfaChallenge("123456")
+        advanceUntilIdle()
+
+        assertEquals(false, vm.state.value.showMfaChallenge)
+        assertEquals(false, vm.state.value.isVerifyingMfa)
+    }
+
+    @Test
+    fun `verifyMfaChallenge keeps the challenge open and reports a rejected code`() = runTest {
+        val groupId = "group-1"
+        adminContextCacheService.selectGroup(groupId)
+        coEvery {
+            requestPayoutUseCase(groupId = groupId, memberId = null, requestedAmount = Money("1500.0"))
+        } returns Result.failure(MfaRequiredException(Money("1500.0")))
+
+        val factor = mockk<MfaFactor>(relaxed = true)
+        coEvery { mfaService.getMfaFactors() } returns Result.success(listOf(factor))
+        coEvery {
+            mfaService.verifyMfa(factor.id, "000000", true)
+        } returns Result.failure(IllegalStateException("Invalid code"))
+
+        val vm = createViewModel()
+
+        // The challenge is raised by the rejected action, so a wrong code is corrected in place
+        // rather than swallowed by a dialog that closed itself.
+        vm.updatePayoutAmount("1500")
+        vm.submitPayoutRequest()
+        advanceUntilIdle()
+        assertEquals(true, vm.state.value.showMfaChallenge)
+
+        vm.verifyMfaChallenge("000000")
+        advanceUntilIdle()
+
+        assertEquals(true, vm.state.value.showMfaChallenge)
+        assertEquals(true, vm.state.value.mfaChallengeError != null)
     }
 
     @Test
@@ -236,7 +315,6 @@ class AdminFinancialViewModelTest {
         advanceUntilIdle()
 
         assertEquals(null, vm.state.value.successMessage)
-        assertEquals(false, vm.state.value.isLoading)
         assertEquals(emptySet<String>(), vm.state.value.processingIds)
     }
 
@@ -281,7 +359,6 @@ class AdminFinancialViewModelTest {
         vm.executeStokvelBatchPayout()
         advanceUntilIdle()
 
-        assertEquals(true, vm.state.value.payoutRequestSuccess)
         assertEquals("Annual Stokvel savings payouts requested for 1 member(s).", vm.state.value.successMessage)
         assertEquals("1 member(s) could not be requested. Please review and retry.", vm.state.value.error)
     }
@@ -306,7 +383,7 @@ class AdminFinancialViewModelTest {
         advanceUntilIdle()
 
         coVerify(exactly = 1) { syncBankTransactionsUseCase(groupId) }
-        assertEquals(true, vm.state.value.bankRefreshSuccess)
+        assertEquals(false, vm.state.value.isRefreshingBank)
     }
 
     @Test

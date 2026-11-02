@@ -75,13 +75,12 @@ class AdminLedgerActions @Inject constructor(
 
     fun reconcileManual(host: AdminFinancialActionHost, bankTxId: String, ledgerId: String) {
         host.launchAction("reconcile_manual") {
-            host.updateActionState { it.copy(isLoading = true, error = null) }
+            host.updateActionState { it.copy(error = null) }
             reconcileManualUseCase(bankTxId, ledgerId)
                 .onSuccess {
-                    host.updateActionState { it.copy(isLoading = false, successMessage = "Transaction reconciled successfully") }
+                    host.updateActionState { it.copy(successMessage = "Transaction reconciled successfully") }
                 }
                 .onFailure { e ->
-                    host.updateActionState { it.copy(isLoading = false) }
                     host.reportError(e)
                 }
         }
@@ -96,12 +95,10 @@ class AdminLedgerActions @Inject constructor(
         }
 
         host.launchAction("download_statement") {
-            host.updateActionState { it.copy(isExporting = true, error = null) }
+            host.updateActionState { it.copy(error = null) }
             buildGroupLedgerStatement(group).onSuccess { file ->
-                host.updateActionState { it.copy(isExporting = false, exportFile = file) }
                 host.publishEvent(UIEvent.OpenFile(file, "application/pdf", "Group Statement"))
             }.onFailure { e ->
-                host.updateActionState { it.copy(isExporting = false) }
                 host.reportError(e)
             }
         }

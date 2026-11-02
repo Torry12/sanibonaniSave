@@ -167,11 +167,6 @@ tasks.withType<KotlinCompile>().configureEach {
             "-opt-in=kotlin.time.ExperimentalTime"
         )
     }
-    if (name == "compileDebugAndroidTestKotlin") {
-        exclude(
-            "**/e2e/**"
-        )
-    }
 }
 
 tasks.matching { it.name == "connectedDebugAndroidTest" }.configureEach {

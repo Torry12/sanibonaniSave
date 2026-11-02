@@ -46,22 +46,6 @@ object NetworkModule {
 
     @Provides
     @Singleton
-    fun provideRetrofit(okHttpClient: OkHttpClient, json: Json): Retrofit {
-        val contentType = "application/json".toMediaType()
-        if (!BuildConfig.DEBUG) {
-            require(BuildConfig.SUPABASE_URL.startsWith("https://")) {
-                "Supabase URL must use HTTPS in release builds."
-            }
-        }
-        return Retrofit.Builder()
-            .baseUrl(BuildConfig.SUPABASE_URL + "/") // Base URL for Supabase Functions
-            .client(okHttpClient)
-            .addConverterFactory(json.asConverterFactory(contentType))
-            .build()
-    }
-
-    @Provides
-    @Singleton
     fun provideGeoapifyService(okHttpClient: OkHttpClient, json: Json): GeoapifyService {
         val contentType = "application/json".toMediaType()
         return Retrofit.Builder()

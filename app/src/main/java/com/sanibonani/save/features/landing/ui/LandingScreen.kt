@@ -107,6 +107,7 @@ private fun LandingHeader(isOnline: Boolean, isAirplaneMode: Boolean) {
     if (!isOnline || isAirplaneMode) {
         OfflineBanner(
             isOnline = false,
+            modifier = Modifier.statusBarsPadding(),
             message = if (isAirplaneMode) stringResource(R.string.ui_offline_airplane_mode)
                       else stringResource(R.string.ui_offline_cached_mode)
         )

@@ -73,7 +73,6 @@ class AdminMemberViewModel @Inject constructor(
                 updateState { it.copy(
                     group = context.group,
                     members = context.members,
-                    isLoading = !context.isFullyHydrated,
                     selectedMember = if (isNewGroup) null else it.selectedMember
                 ) }
 
@@ -122,7 +121,7 @@ class AdminMemberViewModel @Inject constructor(
         val group = uiState.value.group ?: return
         launchJob("member_details_loading") {
             combine(observeBeneficiaries(memberId), observeMemberDocuments(memberId)) { bRes, dRes ->
-                updateState { it.copy(selectedMemberBeneficiaries = bRes.getOrDefault(emptyList()), selectedMemberDocuments = dRes.getOrDefault(emptyList()), isLoading = false) }
+                updateState { it.copy(selectedMemberBeneficiaries = bRes.getOrDefault(emptyList()), selectedMemberDocuments = dRes.getOrDefault(emptyList())) }
             }.collect()
         }
         checkLoanEligibility(member, group)
@@ -193,7 +192,6 @@ class AdminMemberViewModel @Inject constructor(
             try {
                 val list = observeMemberContributions(memberId, groupId).first().getOrThrow()
                 val file = exportMemberStatementUseCase(group, member, list, pdf).getOrThrow()
-                updateState { it.copy(exportFile = file) }
                 sendEvent(UIEvent.OpenFile(file, if (pdf) "application/pdf" else "text/csv", "Statement"))
             } catch (e: CancellationException) {
                 throw e

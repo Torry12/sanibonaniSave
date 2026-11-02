@@ -32,7 +32,7 @@ class AdminLoanActions @Inject constructor(
         val groupId = adminContextCacheService.selectedGroupId.value ?: return
         val adminId = adminIdOrReport(host, "loan") ?: return
         host.launchAction("approve_loan") {
-            host.updateActionState { it.copy(isLoading = true, error = null, processingIds = it.processingIds + loanId) }
+            host.updateActionState { it.copy(error = null, processingIds = it.processingIds + loanId) }
             processLoanDecision(
                 loanId = loanId,
                 decision = ProcessLoanDecisionUseCase.LoanDecision.Approve,
@@ -44,7 +44,7 @@ class AdminLoanActions @Inject constructor(
                             if (loan.id == loanId) loan.copy(status = LoanStatus.ACTIVE) else loan
                         })
                     }
-                    host.updateActionState { it.copy(isLoading = false, successMessage = "Loan approved and disbursed") }
+                    host.updateActionState { it.copy(successMessage = "Loan approved and disbursed") }
                     adminContextCacheService.warmUpGroup(groupId, force = true)
                 }.onFailure {
                     host.updateActionState { s ->
@@ -52,11 +52,10 @@ class AdminLoanActions @Inject constructor(
                             if (loan.id == loanId) loan.copy(status = LoanStatus.APPROVED) else loan
                         })
                     }
-                    host.updateActionState { it.copy(isLoading = false, successMessage = "Loan approved") }
+                    host.updateActionState { it.copy(successMessage = "Loan approved") }
                     adminContextCacheService.warmUpGroup(groupId, force = true)
                 }
             }.onFailure { e ->
-                host.updateActionState { it.copy(isLoading = false) }
                 host.reportActionError(e)
             }
             host.updateActionState { it.copy(processingIds = it.processingIds - loanId) }
@@ -67,7 +66,7 @@ class AdminLoanActions @Inject constructor(
         val groupId = adminContextCacheService.selectedGroupId.value ?: return
         val adminId = adminIdOrReport(host, "loan") ?: return
         host.launchAction("reject_loan") {
-            host.updateActionState { it.copy(isLoading = true, error = null, processingIds = it.processingIds + loanId) }
+            host.updateActionState { it.copy(error = null, processingIds = it.processingIds + loanId) }
             processLoanDecision(
                 loanId = loanId,
                 decision = ProcessLoanDecisionUseCase.LoanDecision.Reject(reason),
@@ -76,13 +75,11 @@ class AdminLoanActions @Inject constructor(
                 host.updateActionState { s ->
                     s.copy(
                         groupLoans = s.groupLoans.map { loan -> if (loan.id == loanId) rejectedLoan else loan },
-                        isLoading = false,
                         successMessage = "Loan request rejected"
                     )
                 }
                 adminContextCacheService.warmUpGroup(groupId, force = true)
             }.onFailure { e ->
-                host.updateActionState { it.copy(isLoading = false) }
                 host.reportActionError(e)
             }
             host.updateActionState { it.copy(processingIds = it.processingIds - loanId) }

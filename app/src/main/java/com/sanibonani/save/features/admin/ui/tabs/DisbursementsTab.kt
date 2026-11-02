@@ -34,10 +34,6 @@ data class DisbursementsTabState(
     val behaviorInsights: List<MemberBehaviorInsight>,
     val groupNames: Map<String, String>,
     val loanMemberNames: Map<String, String>,
-    val groupProvinces: Map<String, String>,
-    val isProcessingPayout: Boolean = false,
-    val isProcessingLoan: Boolean = false,
-    val isProcessingClaim: Boolean = false,
     val processingIds: Set<String> = emptySet(),
     val selectedMemberSummary: MemberSummary? = null,
     val isLoadingMemberSummary: Boolean = false,
@@ -53,7 +49,6 @@ fun DisbursementsTab(
     vm: PlatformDisbursementsViewModel,
     onOpenMemberPortalFromDisbursement: (groupId: String, payoutId: String?) -> Unit,
     onImpersonateMember: (memberId: String, groupId: String) -> Unit,
-    onNavigateToHealthScore: (groupId: String) -> Unit,
     onNavigateToBehaviorTracking: (memberId: String) -> Unit
 ) {
     var expandedPayouts by rememberSaveable { mutableStateOf(true) }

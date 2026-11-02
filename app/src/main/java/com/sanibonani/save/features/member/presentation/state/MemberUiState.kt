@@ -141,7 +141,6 @@ data class RegisterMemberState(
     val suburb: String = "",
     val city: String = "",
     val province: String = "",
-    val notificationPref: NotificationPref = NotificationPref.BOTH,
     val isLoading: Boolean = false,
     val isSubmitting: Boolean = false,
     val success: Boolean = false,
@@ -149,7 +148,6 @@ data class RegisterMemberState(
     val fieldErrors: Map<String, String> = emptyMap(),
     val targetGroupId: String? = null,
     val joiningFee: Money = Money.ZERO,
-    val transactionId: String? = null,
     val addressSuggestions: List<LocationAddress> = emptyList(),
     val isSearchingAddress: Boolean = false
 ) {

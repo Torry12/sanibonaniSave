@@ -136,10 +136,6 @@ val HealthScoreHealthy  = Color(0xFF66BB6A)
 val RiskZoneCritical    = Color(0xFFD32F2F)
 val RiskZoneWarning     = Color(0xFFFFA000)
 val RiskZoneHealthy     = Color(0xFF388E3C)
-val RiskLow             = Color(0xFF4CAF50)
-val RiskModerate        = Color(0xFFFFC107)
-val RiskHigh            = Color(0xFFFF9800)
-val RiskCritical        = Color(0xFFF44336)
 
 // ── MAP MARKER TOKENS ─────────────────────────────────────────────────────────
 val MapMarkerNavy = Color(0xFF1B3A4B)

@@ -6,7 +6,6 @@ data class AdminOverviewUiState(
     val group: Group? = null,
     val members: List<Member> = emptyList(),
     val managedGroups: AsyncResult<List<Group>> = AsyncResult.Uninitialized,
-    val metrics: ActuarialMetrics = ActuarialMetrics(),
     val businessInsight: Result<GroupFinancialInsight>? = null,
     val healthScore: GroupHealthScore? = null,
     val feeStatus: AdminFeeState = AdminFeeState.DUE,
@@ -43,7 +42,6 @@ data class AdminOverviewUiState(
     fun clearGroupContext() = copy(
         group = null,
         members = emptyList(),
-        metrics = ActuarialMetrics(),
         businessInsight = null,
         healthScore = null,
         notifications = emptyList(),
@@ -57,7 +55,6 @@ data class AdminOverviewUiState(
 data class AdminGroupContext(
     val group: Group,
     val members: List<Member>,
-    val metrics: ActuarialMetrics,
     val notifications: List<AppNotification>,
     val messages: List<AppNotification>
 )

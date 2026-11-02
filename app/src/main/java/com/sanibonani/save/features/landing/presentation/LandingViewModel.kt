@@ -70,7 +70,9 @@ class LandingViewModel @Inject constructor(
     private fun currentState(): LandingUiState = uiState.value
 
     init {
-        observeNetwork()
+        observeNetwork(networkService) { s, online, airplane ->
+            s.copy(isSystemOnline = online, isAirplaneMode = airplane)
+        }
         observeDevSettingsChanges()
         observeSession()
         refreshData()
@@ -104,19 +106,6 @@ class LandingViewModel @Inject constructor(
             devSettings.settingsChanged.collect {
                 delay(500)
                 refreshData()
-            }
-        }
-    }
-
-    private fun observeNetwork() {
-        launchJob("observe_network") {
-            networkService.isOnline.collect { online ->
-                updateState { it.copy(isSystemOnline = online) }
-            }
-        }
-        launchJob("observe_airplane_mode") {
-            networkService.isAirplaneModeActive.collect { active ->
-                updateState { it.copy(isAirplaneMode = active) }
             }
         }
     }
