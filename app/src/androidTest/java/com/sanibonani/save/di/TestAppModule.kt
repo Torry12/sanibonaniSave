@@ -1,7 +1,10 @@
 package com.sanibonani.save.di
 
 import android.content.Context
+import androidx.hilt.work.HiltWorkerFactory
 import androidx.room.Room
+import androidx.work.Configuration
+import androidx.work.WorkManager
 import com.sanibonani.save.data.local.AuditDao
 import com.sanibonani.save.data.local.BeneficiaryClaimDao
 import com.sanibonani.save.data.local.BeneficiaryDao
@@ -426,4 +429,25 @@ object TestAppModule {
             )
         )
     }
+
+    // @TestInstallIn replaces AppModule outright, so any provider added there must be mirrored
+    // here or the androidTest Hilt graph stops compiling. The mirror is not the same one-liner:
+    // the instrumented process runs HiltTestApplication, which unlike SanibonaniApp does not
+    // implement Configuration.Provider, and the manifest removes the androidx.startup initializer,
+    // so the first getInstance() in a fresh process throws "not initialized properly" while every
+    // later one - the process outlives the per-test Hilt component - throws "already initialized"
+    // if initialize() is called unconditionally.
+    @Provides
+    @Singleton
+    fun provideWorkManager(
+        @ApplicationContext context: Context,
+        workerFactory: HiltWorkerFactory
+    ): WorkManager = runCatching { WorkManager.getInstance(context) }
+        .getOrElse {
+            WorkManager.initialize(
+                context,
+                Configuration.Builder().setWorkerFactory(workerFactory).build()
+            )
+            WorkManager.getInstance(context)
+        }
 }

@@ -72,6 +72,11 @@ data class MemberUiState(
     val cacheLastSyncByGroup: Map<String, Long> = emptyMap(),
     val isSystemOnline: Boolean = true,
     val isAirplaneMode: Boolean = false,
+    /**
+     * Sections of the selected group whose last pull did not land. Non-empty means the portal is
+     * showing the cache, not a book the server confirmed.
+     */
+    val unverifiedSections: Set<String> = emptySet(),
 
     // Support / Impersonation
     val isImpersonating: Boolean = false,

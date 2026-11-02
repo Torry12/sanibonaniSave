@@ -46,6 +46,11 @@ See `settings.gradle.kts` and build files for enforcement.
 3. **Offline Outbox**: Failed writes are queued in `pending_operations`.
 4. **Auto-Recovery**: `SyncRepository` processes the outbox automatically.
 5. **Conflict Resolution**: `observeAndSync` pattern with exponential backoff.
+6. **Verdict Separation**: a successful cache emission is **not** proof the server answered.
+   Boot hydration is best-effort and records what it could not pull in
+   `SyncRepository.staleGroups`; anything that certifies money (audit, dashboard, portal)
+   must read that verdict before calling a group verified. See
+   `docs/DATA_ARCHITECTURE.md` §4.
 
 ---
 

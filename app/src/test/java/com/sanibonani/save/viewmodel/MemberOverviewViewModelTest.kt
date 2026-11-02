@@ -80,6 +80,7 @@ class MemberOverviewViewModelTest {
 
     private lateinit var viewModel: MemberOverviewViewModel
     private lateinit var contexts: MutableStateFlow<Map<String, CachedGroupContext>>
+    private lateinit var staleSections: MutableStateFlow<Map<String, Set<String>>>
     private val testDispatcher = StandardTestDispatcher()
     private val createdViewModels = mutableListOf<MemberOverviewViewModel>()
 
@@ -132,6 +133,8 @@ class MemberOverviewViewModelTest {
         every { supabaseRepo.currentUserId } returns "user_123"
         contexts = MutableStateFlow(emptyMap())
         every { memberContextCacheService.contexts } returns contexts
+        staleSections = MutableStateFlow(emptyMap())
+        every { memberContextCacheService.unverifiedSections } returns staleSections
         every { networkService.isOnline } returns flowOf(true)
         every { networkService.isAirplaneModeActive } returns flowOf(false)
 
@@ -146,6 +149,33 @@ class MemberOverviewViewModelTest {
         testDispatcher.scheduler.advanceUntilIdle()
         Dispatchers.resetMain()
         unmockkAll()
+    }
+
+    @Test
+    fun `the portal names the sections the sync could not bring current`() = runTest {
+        // A member's book can be a complete cache read and still be unverified against the server;
+        // the portal has to say which sections the sync never delivered.
+        val groupId = "test_group"
+        viewModel.selectGroup(groupId)
+        advanceUntilIdle()
+
+        staleSections.value = mapOf(groupId to setOf("loans", "the ledger"))
+        advanceUntilIdle()
+
+        assertEquals(setOf("loans", "the ledger"), viewModel.state.value.unverifiedSections)
+
+        viewModel.selectGroup("other_group")
+        advanceUntilIdle()
+
+        assertTrue(
+            "the verdict belongs to the group, not the session",
+            viewModel.state.value.unverifiedSections.isEmpty()
+        )
+
+        staleSections.value = mapOf("other_group" to setOf("the ledger"))
+        advanceUntilIdle()
+
+        assertEquals(setOf("the ledger"), viewModel.state.value.unverifiedSections)
     }
 
     @Test

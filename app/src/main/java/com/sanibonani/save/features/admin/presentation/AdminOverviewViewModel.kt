@@ -91,6 +91,22 @@ class AdminOverviewViewModel @Inject constructor(
         }
         observeSettings()
         observeSyncMetrics()
+        observeUnverifiedSections()
+    }
+
+    /**
+     * Keeps the dashboard honest about which sections of the selected group the sync never
+     * delivered. Driven by the sync layer's own verdict rather than by the snapshot, because a
+     * pillar that arrives on a later pass clears the flag without rebuilding it.
+     */
+    private fun observeUnverifiedSections() {
+        launchJob("unverified_sections") {
+            combine(
+                adminContextCacheService.selectedGroupId,
+                adminContextCacheService.unverifiedSections
+            ) { groupId, stale -> groupId?.let { stale[it] }.orEmpty() }
+                .collect { sections -> updateState { it.copy(unverifiedSections = sections) } }
+        }
     }
 
     fun setSupportMode(enabled: Boolean) {

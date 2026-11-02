@@ -29,6 +29,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.io.IOException
 
 class MemberGroupContextCacheServiceTest {
 
@@ -104,6 +105,37 @@ class MemberGroupContextCacheServiceTest {
         assertEquals("m1", cached.member?.id)
         assertTrue(cached.isFullyHydrated)
         coVerify(exactly = 1) { syncRepo.syncGroupData(groupId) }
+    }
+
+    @Test
+    fun `refreshGroup reports the sync that failed even though the cache rebuilt`() = runBlocking {
+        val service = service()
+        service.updateContext(groupId) { hydratedContext("Old") }
+        coEvery { syncRepo.syncGroupData(groupId) } returns Result.failure(IOException("offline"))
+        stubHydration("Fresh")
+
+        val result = service.refreshGroup("u1", groupId)
+
+        assertTrue("an outage is not a completed refresh", result.isFailure)
+        assertEquals(
+            "the cached portal is still worth showing, as long as the caller knows it did not refresh",
+            "Fresh",
+            service.getContext(groupId)?.group?.name
+        )
+    }
+
+    @Test
+    fun `refreshImpersonatedMember refuses to present a portal that never refreshed`() = runBlocking {
+        // Support Mode is where an admin judges another member's money, so a sync that pulled
+        // nothing has to reach the operator instead of showing a stale book as live.
+        val service = service()
+        val unlinked = Member(id = "m-target", groupId = groupId, userId = null)
+        coEvery { syncRepo.syncGroupData(groupId) } returns Result.failure(IOException("offline"))
+        stubHydration("Group", hydratedMember = unlinked)
+
+        val result = service.refreshImpersonatedMember("m-target", groupId)
+
+        assertTrue(result.isFailure)
     }
 
     @Test

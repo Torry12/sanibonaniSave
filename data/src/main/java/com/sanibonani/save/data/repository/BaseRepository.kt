@@ -41,6 +41,12 @@ abstract class BaseRepository(protected val tag: String) {
      * 1. Returns local DB data immediately as a Flow.
      * 2. Simultaneously fetches from network.
      * 3. Syncs network results back to the local DB.
+     *
+     * The Result this emits describes the cache, not the server: the rows are sent as soon as Room
+     * has them and a refresh that never arrived is logged here and dropped, because an offline
+     * device is meant to keep showing what it holds. A success emission is therefore never proof
+     * that the remote read landed - anything that has to certify money reads that verdict from
+     * [com.sanibonani.save.domain.repository.system.SyncRepository], which records its misses.
      */
     protected fun <T, E> observeAndSync(
         dbFlow: Flow<List<E>>,

@@ -1,4 +1,5 @@
 package com.sanibonani.save.domain.usecase.credit
+import com.sanibonani.save.domain.config.LoanTerms
 import com.sanibonani.save.domain.model.AppNotification
 import com.sanibonani.save.domain.model.Group
 import com.sanibonani.save.domain.model.GroupType
@@ -12,6 +13,7 @@ import com.sanibonani.save.domain.repository.credit.LoanRepository
 import com.sanibonani.save.domain.repository.equity.ContributionRepository
 import com.sanibonani.save.domain.repository.member.MemberRepository
 import com.sanibonani.save.domain.repository.system.NotificationRepository
+import com.sanibonani.save.domain.utils.DateProvider
 import com.sanibonani.save.domain.utils.PaymentCalculator
 import com.sanibonani.save.domain.logging.AppLogger
 import com.sanibonani.save.domain.utils.safeRunCatching
@@ -23,7 +25,8 @@ import com.sanibonani.save.domain.usecase.firstValueOrNull
 import kotlinx.coroutines.flow.first
 
 /**
- * Handles the automatic extraction of remaining loan balances after the 3-month maximum term.
+ * Handles the automatic extraction of remaining loan balances once a loan passes the platform's
+ * maximum term, which is the age `settle_expired_loan` itself will settle at.
  */
 class ProcessLoanForcedSettlementUseCase @Inject constructor(
     private val loanRepository: LoanRepository,
@@ -72,8 +75,8 @@ class ProcessLoanForcedSettlementUseCase @Inject constructor(
     }
     private fun isLoanTermExceeded(loan: Loan): Boolean {
         val startDate = loan.startDate?.let { LocalDate.parse(it.substringBefore("T")) } ?: return false
-        val monthsElapsed = ChronoUnit.MONTHS.between(startDate, LocalDate.now())
-        return monthsElapsed >= 3
+        val monthsElapsed = ChronoUnit.MONTHS.between(startDate, DateProvider.getCurrentDate())
+        return monthsElapsed >= LoanTerms.MAX_TERM_MONTHS
     }
     private suspend fun settleLoanFromContributions(loan: Loan, group: Group) {
         val loanId = requireNotNull(loan.id) { "Cannot settle a loan without a persisted ID." }
@@ -100,7 +103,7 @@ class ProcessLoanForcedSettlementUseCase @Inject constructor(
         val contributions = contributionRepository
             .observeMemberContributions(memberId, group.id ?: "").firstValueOrNull() ?: return
         val loans = loanRepository.getMemberLoans(memberId).firstValueOrNull() ?: return
-        val status = paymentCalculator.calculateStatus(group, updatedMember, contributions, loans, LocalDate.now())
+        val status = paymentCalculator.calculateStatus(group, updatedMember, contributions, loans, DateProvider.getCurrentDate())
         if (status.shortfall > (group.monthlyContribution * PROBATION_SHORTFALL_MONTHS)) {
             memberRepository.updateMemberStatus(memberId, MemberStatus.PROBATION)
         }

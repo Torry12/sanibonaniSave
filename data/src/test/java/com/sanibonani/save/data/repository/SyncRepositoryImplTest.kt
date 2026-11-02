@@ -206,6 +206,70 @@ class SyncRepositoryImplTest {
         coVerify(exactly = 0) { groupRepo.getGroupById(any()) }
     }
 
+    @Test
+    fun `a pillar refresh reports the relation it could not pull`() = runBlocking {
+        // The inner reads used to wrap themselves in results nobody looked at, so a pillar whose
+        // ledger never arrived reported a clean refresh and the caller stamped the cache as fresh.
+        stubRemoteTables()
+
+        val outcome = repository.syncRefresh(DomainPillar.TREASURY, "group_1")
+
+        assertTrue("an unreachable ledger is not a refreshed treasury", outcome.isFailure)
+    }
+
+    @Test
+    fun `an unreachable bank connection does not suppress the transaction pull`() = runBlocking {
+        val tables = stubRemoteTables()
+
+        val outcome = repository.syncRefresh(DomainPillar.BANK, "group_1")
+
+        assertEquals(
+            "both relations of the pillar have to be attempted, not only the first",
+            listOf("bank_connections", "bank_transactions"),
+            tables
+        )
+        assertTrue(outcome.isFailure)
+    }
+
+    @Test
+    fun `a manual group refresh fails when one pillar did not land`() = runBlocking {
+        every { supabaseRepo.currentUserId } returns "user_1"
+        coEvery { groupRepo.getGroupById("group_1") } returns Result.success(
+            Group(id = "group_1", name = "Group One")
+        )
+        coEvery { memberRepo.syncGroupMembers("group_1") } returns Result.success(emptyList())
+        coEvery { notificationRepo.syncNotifications("group_1") } returns Result.success(Unit)
+        val spy = spyk(repository)
+        coEvery { spy.syncRefresh(any(), any()) } returns Result.success(Unit)
+        coEvery { spy.syncRefresh(DomainPillar.TREASURY, "group_1") } returns
+            Result.failure(IOException("ledger unreachable"))
+
+        val outcome = spy.syncGroupData("group_1")
+
+        assertTrue("a refresh that never pulled the ledger cannot claim a fresh book", outcome.isFailure)
+    }
+
+    @Test
+    fun `the boot sweep keeps hydrating the other groups when one pillar is missing`() = runBlocking {
+        // Startup is best-effort: one group that will not answer must not strand the user on an
+        // error, because the local cache is what an offline app is meant to open on.
+        every { supabaseRepo.currentUserId } returns "user_1"
+        coEvery { supabaseRepo.getUserRole() } returns UserRole.MEMBER
+        coEvery { memberRepo.getMemberships("user_1") } returns Result.success(
+            listOf(Member(id = "m1", groupId = "group_1"), Member(id = "m2", groupId = "group_2"))
+        )
+        coEvery { groupRepo.getGroupsByAdmin("user_1") } returns Result.success(emptyList())
+        coEvery { memberRepo.syncGroupMembers(any()) } returns Result.success(emptyList())
+        coEvery { notificationRepo.syncNotifications(any()) } returns Result.success(Unit)
+        val spy = spyk(repository)
+        coEvery { spy.syncRefresh(any(), any()) } returns Result.success(Unit)
+        coEvery { spy.syncRefresh(any(), "group_1") } returns
+            Result.failure(IOException("group_1 unreachable"))
+
+        assertTrue("one group must not break the whole boot sync", spy.syncAllData().isSuccess)
+        coVerify(exactly = 1) { spy.syncRefresh(DomainPillar.CREDIT, "group_2") }
+    }
+
     private fun queued(
         id: String,
         groupId: String,
@@ -219,6 +283,46 @@ class SyncRepositoryImplTest {
         createdAt = createdAt,
         retryCount = retryCount
     )
+
+    @Test
+    fun `a pull that lands clears only the relations it covered`() = runBlocking {
+        // Boot is best-effort and its misses used to be logged and dropped. The app needs the same
+        // misses after the pass, so a screen can tell a verified book from the cache it opened on.
+        stubRemoteTables()
+        coEvery { memberRepo.syncGroupMembers("group_1") } returns
+            Result.failure(IOException("members offline"))
+
+        assertTrue(repository.syncGroupData("group_1").isFailure)
+        val outstanding = repository.staleGroups.value["group_1"]
+        assertNotNull(outstanding)
+        assertTrue(outstanding!!.containsAll(setOf("members", "the ledger")))
+
+        // The member list answers on the next pass; the ledger is still unreachable, so the group
+        // stops being outstanding for the members and stays outstanding for the ledger.
+        coEvery { memberRepo.syncGroupMembers("group_1") } returns Result.success(emptyList())
+        repository.syncGroupData("group_1")
+
+        val afterSecondPass = repository.staleGroups.value["group_1"]
+        assertNotNull(afterSecondPass)
+        assertFalse("a relation that landed must stop being reported", afterSecondPass!!.contains("members"))
+        assertTrue("a pillar this pass did not read cannot clear another pillar's miss",
+            afterSecondPass.contains("the ledger"))
+    }
+
+    @Test
+    fun `a sync that cannot start leaves no previous session's misses behind`() = runBlocking {
+        every { supabaseRepo.currentUserId } returns "user_1"
+        coEvery { groupRepo.getGroupById("group_1") } returns
+            Result.failure(IOException("group offline"))
+        repository.syncGroupData("group_1")
+        assertTrue(repository.staleGroups.value.isNotEmpty())
+
+        every { supabaseRepo.currentUserId } returns null
+
+        assertTrue(repository.syncAllData().isFailure)
+        assertTrue("a new session must not inherit what the last one could not verify",
+            repository.staleGroups.value.isEmpty())
+    }
 
     @Test
     fun `a rejected operation only halts its own group lane`() = runBlocking {
@@ -385,8 +489,9 @@ class SyncRepositoryImplTest {
             DomainPillar.EQUITY to listOf("contributions", "payments"),
             DomainPillar.CREDIT to listOf("loans"),
             DomainPillar.TREASURY to listOf("group_ledger"),
-            // An absent connection aborts the rest of the branch, so only it is requested.
-            DomainPillar.BANK to listOf("bank_connections")
+            // Each relation is read on its own outcome, so both are requested even though the
+            // stubbed transport fails on the first.
+            DomainPillar.BANK to listOf("bank_connections", "bank_transactions")
         )
 
         expected.forEach { (pillar, tables) ->

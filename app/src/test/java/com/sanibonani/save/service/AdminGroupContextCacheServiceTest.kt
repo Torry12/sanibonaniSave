@@ -27,6 +27,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.io.IOException
 
 class AdminGroupContextCacheServiceTest {
 
@@ -88,6 +89,25 @@ class AdminGroupContextCacheServiceTest {
         assertEquals(listOf("m1"), cached.members.map { it.id })
         assertTrue(cached.isFullyHydrated)
         coVerify(exactly = 1) { syncRepo.syncGroupData(groupId) }
+    }
+
+    @Test
+    fun `refreshGroup reports the sync that failed even though the cache rebuilt`() = runBlocking {
+        // The refresh used to throw the sync Result away, so a pull-to-refresh during an outage
+        // returned success and the dashboard kept showing the last cached book as if it were live.
+        val service = service()
+        service.updateContext(groupId) { hydratedContext("Old") }
+        coEvery { syncRepo.syncGroupData(groupId) } returns Result.failure(IOException("offline"))
+        stubHydration("Fresh")
+
+        val result = service.refreshGroup(groupId)
+
+        assertTrue("an outage is not a completed refresh", result.isFailure)
+        assertEquals(
+            "the cached data is still worth showing, as long as the caller knows it did not refresh",
+            "Fresh",
+            service.getContext(groupId)?.group?.name
+        )
     }
 
     @Test

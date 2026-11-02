@@ -22,6 +22,7 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -63,6 +64,9 @@ class SyncRepositoryImpl @Inject constructor(
     private val _syncStatus = MutableStateFlow<SyncStatus>(SyncStatus.Idle)
     override val syncStatus = _syncStatus.asStateFlow()
 
+    private val _staleGroups = MutableStateFlow<Map<String, Set<String>>>(emptyMap())
+    override val staleGroups = _staleGroups.asStateFlow()
+
     private val globalSyncMutex = Mutex()
     private val globalSyncScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var activeSync: Deferred<Result<Unit>>? = null
@@ -70,8 +74,8 @@ class SyncRepositoryImpl @Inject constructor(
     override val outboxCount: kotlinx.coroutines.flow.Flow<Int> = db.pendingOperationDao().observeCount()
 
     /**
-     * Single-flight global sync. Concurrent triggers (cold start, pull-to-refresh, Support Mode entry,
-     * SyncTriggerService) join the in-flight sync and share its Result rather than overlapping.
+     * Single-flight global sync. Concurrent triggers (cold start, pull-to-refresh, Support Mode
+     * entry) join the in-flight sync and share its Result rather than overlapping.
      * The Mutex only guards join-or-start; the sync itself runs on [globalSyncScope] so that one
      * caller cancelling does not tear down the sync other callers are awaiting.
      */
@@ -84,6 +88,9 @@ class SyncRepositoryImpl @Inject constructor(
     }
 
     private suspend fun runGlobalSync(): Result<Unit> = safeRunCatching("$tag.fullSync") {
+            // A sweep covers every group the user has, so it starts from a clean slate: what the
+            // previous session could not verify is not this session's answer.
+            _staleGroups.value = emptyMap()
             kotlinx.coroutines.withTimeout(120_000) {
                 val userId = supabaseRepo.currentUserId ?: run {
                     val message = "Please sign in to sync your data."
@@ -111,7 +118,7 @@ class SyncRepositoryImpl @Inject constructor(
                 if (groupIds.isNotEmpty()) {
                     _syncStatus.value = SyncStatus.Progress("Hydrating ${groupIds.size} group(s)...", 0.10f)
 
-                    coroutineScope {
+                    val incomplete = coroutineScope {
                         val totalGroups = groupIds.size
                         val completedGroups = AtomicInteger(0)
                         val semaphore = Semaphore(3)
@@ -119,7 +126,7 @@ class SyncRepositoryImpl @Inject constructor(
                         groupIds.map { groupId ->
                             async {
                                 semaphore.acquire()
-                                try {
+                                val missed = try {
                                     syncGroupDataInternal(
                                         groupId = groupId,
                                         pillars = GroupHydrationPlan.startupPillars(userRole),
@@ -128,14 +135,28 @@ class SyncRepositoryImpl @Inject constructor(
                                 } finally {
                                     semaphore.release()
                                 }
+
                                 val completed = completedGroups.incrementAndGet()
                                 val progress = 0.10f + (completed.toFloat() / totalGroups) * 0.85f
                                 _syncStatus.value = SyncStatus.Progress(
                                     "Synced $completed of $totalGroups groups",
                                     progress
                                 )
+
+                                if (missed.isEmpty()) null else groupId to missed
                             }
-                        }.awaitAll()
+                        }.awaitAll().filterNotNull()
+                    }
+
+                    // Startup stays best-effort: an offline device is meant to open on the Room
+                    // cache, and one group that will not answer must not strand the user on an
+                    // error. The pass still names the books it could not bring current.
+                    if (incomplete.isNotEmpty()) {
+                        AppLogger.w(
+                            tag,
+                            "Startup hydration left ${incomplete.size} group(s) partly stale: " +
+                                incomplete.joinToString { "${it.first} (${it.second.joinToString()})" }
+                        )
                     }
                 } else {
                     AppLogger.d(tag, "No groups found for hydration.")
@@ -152,62 +173,132 @@ class SyncRepositoryImpl @Inject constructor(
         _syncStatus.value = SyncStatus.Error(userMessage)
     }
 
+    /**
+     * Pulls a group's relations and returns the ones that did not land.
+     *
+     * The caller decides what a miss means: startup logs it and opens on the cache, a
+     * user-initiated refresh turns it into a failure. The results used to be awaited and thrown
+     * away here, so a refresh that pulled nothing still reported a clean group.
+     *
+     * Each miss is also recorded against the group in [staleGroups], so the app can still tell
+     * which books it is showing unverified after the best-effort pass has finished.
+     */
     private suspend fun syncGroupDataInternal(
         groupId: String,
         pillars: List<DomainPillar>,
         includeGroupMetadata: Boolean
-    ) = coroutineScope {
-        val jobs = mutableListOf<Deferred<*>>()
+    ): List<String> = coroutineScope {
+        val reads = mutableListOf<Deferred<List<String>>>()
 
         if (includeGroupMetadata) {
-            jobs += async { groupRepo.getGroupById(groupId) }
+            reads += async {
+                val pulls = Pulls()
+                pulls.pull("$tag.groupMetadata", "group settings") {
+                    groupRepo.getGroupById(groupId).getOrThrow()
+                }
+                pulls.recordAgainst(groupId)
+            }
         }
-        jobs += async { memberRepo.syncGroupMembers(groupId) }
-        jobs += async { notificationRepo.syncNotifications(groupId) }
+        reads += async {
+            val pulls = Pulls()
+            pulls.pull("$tag.members", "members") { memberRepo.syncGroupMembers(groupId).getOrThrow() }
+            pulls.pull("$tag.notifications", "notifications") {
+                notificationRepo.syncNotifications(groupId).getOrThrow()
+            }
+            pulls.recordAgainst(groupId)
+        }
         pillars.forEach { pillar ->
-            jobs += async { syncRefresh(pillar, groupId) }
+            // The pillar records its own relations inside syncRefresh; this only names the pillar
+            // for the caller's message.
+            reads += async {
+                val outcome = syncRefresh(pillar, groupId)
+                if (outcome.isSuccess) emptyList() else listOf(pillar.name.lowercase())
+            }
         }
 
-        jobs.forEach { it.await() }
+        reads.awaitAll().flatten()
     }
 
     override suspend fun syncGroupData(groupId: String): Result<Unit> = safeRunCatching {
         AppLogger.i(tag, "Full refresh for group $groupId")
-        syncGroupDataInternal(
+        val missed = syncGroupDataInternal(
             groupId = groupId,
             pillars = GroupHydrationPlan.fullRefreshPillars,
             includeGroupMetadata = true
         )
+        if (missed.isNotEmpty()) throw hydrationFailure(missed)
     }
 
-    override suspend fun syncRefresh(pillar: DomainPillar, groupId: String): Result<Unit> = safeRunCatching {
+    override suspend fun syncRefresh(pillar: DomainPillar, groupId: String): Result<Unit> {
         AppLogger.d(tag, "Refreshing pillar ${pillar.name} for group $groupId")
+        val pulls = pullPillar(pillar, groupId)
+        pulls.recordAgainst(groupId)
+        return if (pulls.missed.isEmpty()) Result.success(Unit) else Result.failure(hydrationFailure(pulls.missed))
+    }
+
+    private fun hydrationFailure(missed: List<String>) = IllegalStateException(
+        "This group could not be fully refreshed (${missed.joinToString()}). " +
+            "What the app is showing is the last data it could verify."
+    )
+
+    /**
+     * Records what one hydration run read against its group.
+     *
+     * A relation is only dropped when a later run actually read it, so a treasury refresh cannot
+     * wipe out a ledger miss it never looked at.
+     */
+    private fun Pulls.recordAgainst(groupId: String): List<String> {
+        _staleGroups.update { current ->
+            val outstanding = current[groupId].orEmpty() - covered.toSet() + missed.toSet()
+            if (outstanding.isEmpty()) current - groupId else current + (groupId to outstanding)
+        }
+        return missed
+    }
+
+    /** What one hydration run read, and which of those relations did not land. */
+    private class Pulls {
+        val covered = mutableListOf<String>()
+        val missed = mutableListOf<String>()
+    }
+
+    /**
+     * Reads every relation the pillar owns and names the misses.
+     *
+     * Each read is judged on its own outcome. The branch used to end at its first failure, so a
+     * group whose bank connection could not be read also never hydrated its transactions, and
+     * every result was discarded so the pass reported success whatever happened.
+     */
+    private suspend fun pullPillar(pillar: DomainPillar, groupId: String): Pulls {
+        val pulls = Pulls()
+
         when (pillar) {
             DomainPillar.EQUITY -> {
-                safeRunCatching("$tag.equityContributions") {
+                pulls.pull("$tag.equityContributions", "contributions") {
                     val data = supabase.postgrest["contributions"].select { filter { eq("group_id", groupId) } }.decodeList<Contribution>()
                     db.contributionDao().syncGroupContributions(groupId, data.map { it.toEntity() })
                 }
 
-                safeRunCatching("$tag.equityPayments") {
+                pulls.pull("$tag.equityPayments", "payments") {
                     val payments = supabase.postgrest["payments"].select { filter { eq("group_id", groupId) } }.decodeList<Payment>()
                     db.paymentDao().syncPayments(groupId, payments.map { it.toEntity() })
                 }
             }
-            DomainPillar.GLOBAL -> memberRepo.syncGroupMembers(groupId).getOrNull()
+            DomainPillar.GLOBAL -> {
+                pulls.pull("$tag.members", "members") { memberRepo.syncGroupMembers(groupId).getOrThrow() }
+            }
             DomainPillar.CREDIT -> {
-                safeRunCatching("$tag.loans") {
+                pulls.pull("$tag.loans", "loans") {
                     val data = supabase.postgrest["loans"].select { filter { eq("group_id", groupId) } }.decodeList<Loan>()
                     db.loanDao().syncGroupLoans(groupId, data.map { it.toEntity() })
                 }
             }
             DomainPillar.DISBURSEMENT -> {
-                safeRunCatching("$tag.payouts") {
+                pulls.pull("$tag.payouts", "payout requests") {
                     val payouts = supabase.postgrest["payouts"].select { filter { eq("group_id", groupId) } }.decodeList<PayoutRequest>()
                     db.payoutDao().syncPayouts(groupId, payouts.map { it.toEntity() })
                 }
 
-                safeRunCatching("$tag.claims") {
+                pulls.pull("$tag.claims", "burial claims") {
                     // One read, one outcome. The old fallback re-issued the same rows against
                     // `burial_claims`, a table no schema defines, so it could only ever 404 too -
                     // and the second failure is what reached the log instead of the real cause.
@@ -218,7 +309,7 @@ class SyncRepositoryImpl @Inject constructor(
                 }
             }
             DomainPillar.TREASURY -> {
-                safeRunCatching("$tag.treasuryLedger") {
+                pulls.pull("$tag.treasuryLedger", "the ledger") {
                     val data = fetchAllLedgerPages { from, to ->
                         supabase.postgrest["group_ledger"].select(columns = Columns.raw("*")) {
                             filter { eq("group_id", groupId) }
@@ -231,16 +322,14 @@ class SyncRepositoryImpl @Inject constructor(
                 }
             }
             DomainPillar.BANK -> {
-                safeRunCatching("$tag.bankTransactions") {
-                    // Sync Bank Connection
+                pulls.pull("$tag.bankConnection", "the bank connection") {
                     val connection = supabase.postgrest["bank_connections"].select(columns = Columns.raw("*")) {
                         filter { eq("group_id", groupId) }
                     }.decodeSingleOrNull<BankConnection>()
-                    connection?.let {
-                        db.bankTransactionDao().upsertConnection(it.toEntity())
-                    }
+                    connection?.let { db.bankTransactionDao().upsertConnection(it.toEntity()) }
+                }
 
-                    // Sync Unreconciled Transactions
+                pulls.pull("$tag.bankTransactions", "bank transactions") {
                     val transactions = supabase.postgrest["bank_transactions"].select(columns = Columns.raw("*")) {
                         filter {
                             eq("group_id", groupId)
@@ -251,7 +340,7 @@ class SyncRepositoryImpl @Inject constructor(
                 }
             }
             DomainPillar.DYNAMICS -> {
-                safeRunCatching("$tag.memberBehaviorTracks") {
+                pulls.pull("$tag.memberBehaviorTracks", "member behaviour") {
                     val tracks = supabase.postgrest["member_behavior_track"].select(columns = Columns.raw("*")) {
                         filter { eq("group_id", groupId) }
                     }.decodeList<MemberBehaviorTrack>()
@@ -259,6 +348,18 @@ class SyncRepositoryImpl @Inject constructor(
                 }
             }
         }
+
+        return pulls
+    }
+
+    /**
+     * Runs one hydration read, naming it whether or not it landed.
+     * [safeRunCatching] logs the cause and lets cancellation through, so a miss is recorded here
+     * rather than swallowed.
+     */
+    private inline fun Pulls.pull(logKey: String, label: String, block: () -> Any?) {
+        covered += label
+        safeRunCatching(logKey, block).exceptionOrNull()?.let { missed += label }
     }
 
     override suspend fun processOutbox(): Result<Unit> = safeRunCatching {

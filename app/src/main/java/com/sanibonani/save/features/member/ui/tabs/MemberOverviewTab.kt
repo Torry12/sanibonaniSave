@@ -80,6 +80,17 @@ fun MemberOverviewTab(
             }
         }
 
+        // Only while online: offline already has its own banner, and there every section is
+        // unverified, so naming the ones that failed last adds a second banner with no new fact.
+        if (uiState.isSystemOnline && !uiState.isAirplaneMode && uiState.unverifiedSections.isNotEmpty()) {
+            item {
+                OfflineBanner(
+                    isOnline = true,
+                    message = "⚠️ Not confirmed with the server: ${uiState.unverifiedSections.joinToString()}."
+                )
+            }
+        }
+
         if (userRole == UserRole.GROUP_ADMIN) {
             item {
                 ModernNavigationLink(

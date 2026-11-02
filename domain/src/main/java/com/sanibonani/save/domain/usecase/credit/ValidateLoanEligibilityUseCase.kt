@@ -32,7 +32,13 @@ class ValidateLoanEligibilityUseCase @Inject constructor(
     ): EligibilityResult {
         if (group.type == GroupType.INVESTMENT_CLUB) return EligibilityResult.Ineligible("No loans for Investment Clubs.")
         if (member.status != MemberStatus.ACTIVE) return EligibilityResult.Ineligible("Member not active.")
-        if (termMonths != null && termMonths > 3) return EligibilityResult.Ineligible("Loan term exceeds the 3-month maximum limit.")
+
+        // The group's own ceiling on a loan term. It only ever tightens LoanTerms.MAX_TERM_MONTHS,
+        // which is the age at which the backend force-settles an unpaid loan.
+        val maxTermMonths = group.maxLoanTermMonths
+        if (termMonths != null && termMonths > maxTermMonths) {
+            return EligibilityResult.Ineligible("Loan term exceeds this group's maximum of $maxTermMonths months.")
+        }
 
         // The group's own ceiling on a single loan. Zero is the schema default for "not configured",
         // so only a positive cap tightens the 30%-of-contributions rule.

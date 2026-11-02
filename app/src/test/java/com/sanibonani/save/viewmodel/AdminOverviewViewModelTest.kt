@@ -100,6 +100,7 @@ class AdminOverviewViewModelTest {
 
     private val contextsFlow = MutableStateFlow<Map<String, CachedAdminGroupContext>>(emptyMap())
     private val selectedGroupIdFlow = MutableStateFlow<String?>(null)
+    private val staleSectionsFlow = MutableStateFlow<Map<String, Set<String>>>(emptyMap())
 
     private lateinit var viewModel: AdminOverviewViewModel
     private val testDispatcher = StandardTestDispatcher()
@@ -124,6 +125,7 @@ class AdminOverviewViewModelTest {
 
         every { adminContextCacheService.contexts } returns contextsFlow
         every { adminContextCacheService.selectedGroupId } returns selectedGroupIdFlow
+        every { adminContextCacheService.unverifiedSections } returns staleSectionsFlow
         every { supabaseRepo.currentUserId } returns "admin-1"
         coEvery { supabaseRepo.getUserRole() } returns UserRole.GROUP_ADMIN
         coEvery { platformRepo.getPlatformSettings() } returns Result.success(PlatformConfig())
@@ -219,6 +221,42 @@ class AdminOverviewViewModelTest {
         assertEquals("admin-1", viewModel.state.value.currentUserId)
         assertEquals("50.00", viewModel.state.value.platformRegistrationFee.toPlainString())
         assertEquals(true, viewModel.state.value.isSystemOnline)
+    }
+
+    @Test
+    fun `the dashboard names the sections the sync could not bring current`() = runTest {
+        // Boot is best-effort, so a snapshot can be complete as a cache read and still unverified
+        // against the server. The dashboard has to say so rather than present the book as live.
+        staleSectionsFlow.value = mapOf("g-1" to setOf("the ledger", "members"))
+        hydrateGroup()
+
+        assertEquals(setOf("the ledger", "members"), viewModel.state.value.unverifiedSections)
+
+        // Moving to a group the sweep covered clears the verdict; it belongs to the group, not the
+        // session, so a stale flag from the previous group must not follow the admin across.
+        selectedGroupIdFlow.value = "g-2"
+        contextsFlow.value = mapOf(
+            "g-2" to CachedAdminGroupContext(
+                group = Group(id = "g-2", name = "Second Group"),
+                members = emptyList(),
+                metrics = ActuarialMetrics(),
+                feeStatus = AdminFeeState.DUE,
+                isFullyHydrated = true
+            )
+        )
+        advanceUntilIdle()
+
+        assertTrue(
+            "a group the sync verified must not stay flagged",
+            viewModel.state.value.unverifiedSections.isEmpty()
+        )
+
+        // A later pass that loses a relation on the group now in view surfaces it immediately,
+        // without any warmup rebuilding the snapshot.
+        staleSectionsFlow.value = mapOf("g-2" to setOf("the ledger"))
+        advanceUntilIdle()
+
+        assertEquals(setOf("the ledger"), viewModel.state.value.unverifiedSections)
     }
 
     @Test

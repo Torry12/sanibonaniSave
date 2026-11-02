@@ -43,6 +43,15 @@ class AdminGroupContextCacheService @Inject constructor(
     private val _selectedGroupId = MutableStateFlow<String?>(null)
     val selectedGroupId: StateFlow<String?> = _selectedGroupId.asStateFlow()
 
+    /**
+     * Per group, the relations the sync layer has not brought current.
+     *
+     * Read straight from the sync layer rather than copied into the snapshot: a pillar that lands
+     * on a later pass clears its group's entry without any warmup rebuilding it, and the dashboard
+     * must stop flagging the book the moment that happens.
+     */
+    val unverifiedSections: StateFlow<Map<String, Set<String>>> get() = syncRepo.staleGroups
+
     private var cachedUserId: String? = null
     private val warmupCoordinator = GroupContextWarmupCoordinator()
 
@@ -121,6 +130,10 @@ class AdminGroupContextCacheService @Inject constructor(
      * Pulls every group pillar from the network, then rebuilds the cached snapshot from the
      * freshly synced data. Awaitable, so a pull-to-refresh only reports completion once the
      * dashboard's source state has actually been replaced.
+     *
+     * Fails when the pull did not land. The snapshot is still rebuilt from the cache, because
+     * stale data on screen beats a blank dashboard, but the caller hears that the group was never
+     * brought current instead of being told the refresh succeeded.
      */
     suspend fun refreshGroup(groupId: String): Result<Unit> = safeRunCatching {
         if (groupId.isBlank()) return@safeRunCatching
@@ -129,8 +142,9 @@ class AdminGroupContextCacheService @Inject constructor(
         // is queued behind it rather than discarded. The slot is a child job, never the
         // caller's, so a session change cancels the refresh instead of the caller's scope.
         warmupCoordinator.runExclusive(groupId, scope) {
-            syncRepo.syncGroupData(groupId)
+            val syncOutcome = syncRepo.syncGroupData(groupId)
             warmGroupContext(groupRepo.getGroupById(groupId).getOrThrow())
+            syncOutcome.getOrThrow()
         }
     }
 
@@ -210,6 +224,11 @@ data class CachedAdminGroupContext(
     val payouts: List<PayoutRequest> = emptyList(),
     val metrics: ActuarialMetrics? = null,
     val feeStatus: AdminFeeState? = null,
+    /**
+     * Every section of the snapshot answered from the cache. It says nothing about whether the
+     * server confirmed any of it - cache reads cannot fail, so that question belongs to
+     * [com.sanibonani.save.domain.repository.system.SyncRepository.staleGroups].
+     */
     val isFullyHydrated: Boolean = false,
     val lastUpdatedMillis: Long = 0L
 )

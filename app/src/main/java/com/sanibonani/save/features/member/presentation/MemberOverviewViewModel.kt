@@ -27,6 +27,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
@@ -73,6 +74,22 @@ class MemberOverviewViewModel @Inject constructor(
             s.copy(isSystemOnline = online, isAirplaneMode = airplane)
         }
         loadMemberships()
+        observeUnverifiedSections()
+    }
+
+    /**
+     * Keeps the portal honest about which sections of the selected group the sync never delivered.
+     * Driven by the sync layer's own verdict rather than by the snapshot, because a pillar that
+     * arrives on a later pass clears the flag without rebuilding it.
+     */
+    private fun observeUnverifiedSections() {
+        launchJob("unverified_sections") {
+            combine(
+                uiState.map { it.selectedGroupId }.distinctUntilChanged(),
+                memberContextCacheService.unverifiedSections
+            ) { groupId, stale -> groupId?.let { stale[it] }.orEmpty() }
+                .collect { sections -> updateState { it.copy(unverifiedSections = sections) } }
+        }
     }
 
     private fun observeContext() {

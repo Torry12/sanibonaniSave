@@ -62,7 +62,7 @@ class LoanProcessingContingencySimulationTest {
 
         val result = validateEligibility(member, group, Money("1000.0"), 6) // Term 6 months
         assertTrue(result is ValidateLoanEligibilityUseCase.EligibilityResult.Ineligible)
-        assertEquals("Loan term exceeds the 3-month maximum limit.", (result as ValidateLoanEligibilityUseCase.EligibilityResult.Ineligible).reason)
+        assertEquals("Loan term exceeds this group's maximum of 3 months.", (result as ValidateLoanEligibilityUseCase.EligibilityResult.Ineligible).reason)
     }
 
     @Test

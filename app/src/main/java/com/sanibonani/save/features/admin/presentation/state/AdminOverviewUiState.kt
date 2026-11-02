@@ -21,6 +21,11 @@ data class AdminOverviewUiState(
     val verificationResult: VerificationResult = VerificationResult.Valid,
     val isSystemOnline: Boolean = true,
     val isAirplaneMode: Boolean = false,
+    /**
+     * Sections of the selected group whose last pull did not land. Non-empty means the snapshot on
+     * screen is the cache, not a book the server confirmed.
+     */
+    val unverifiedSections: Set<String> = emptySet(),
     val messageText: String = "",
     val isSendingMessage: Boolean = false,
     val messageSentSuccess: Boolean = false,

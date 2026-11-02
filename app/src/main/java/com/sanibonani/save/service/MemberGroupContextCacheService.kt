@@ -48,6 +48,15 @@ class MemberGroupContextCacheService @Inject constructor(
 	private val _contexts = MutableStateFlow<Map<String, CachedGroupContext>>(emptyMap())
 	val contexts: StateFlow<Map<String, CachedGroupContext>> = _contexts.asStateFlow()
 
+	/**
+	 * Per group, the relations the sync layer has not brought current.
+	 *
+	 * Read straight from the sync layer rather than copied into the snapshot: a pillar that lands
+	 * on a later pass clears its group's entry without any warmup rebuilding it, and the portal
+	 * must stop flagging the book the moment that happens.
+	 */
+	val unverifiedSections: StateFlow<Map<String, Set<String>>> get() = syncRepo.staleGroups
+
 	private var cachedUserId: String? = null
 	private val warmupCoordinator = GroupContextWarmupCoordinator()
 
@@ -94,6 +103,9 @@ class MemberGroupContextCacheService @Inject constructor(
 	 * Pulls every group pillar from the network, then rebuilds the snapshot of [userId]'s
 	 * membership. Unlike [warmMembershipsInBackground] this always re-hydrates, even when
 	 * the context is already marked as fully hydrated.
+	 *
+	 * Fails when the pull did not land: the portal is still rebuilt from the cache, but the
+	 * caller is told the member's book was never brought current.
 	 */
 	suspend fun refreshGroup(userId: String, groupId: String): Result<Unit> = safeRunCatching {
 		if (groupId.isBlank()) return@safeRunCatching
@@ -102,26 +114,30 @@ class MemberGroupContextCacheService @Inject constructor(
 		// is queued behind it rather than discarded. The slot is a child job, never the
 		// caller's, so a session change cancels the refresh instead of the caller's scope.
 		warmupCoordinator.runExclusive(groupId, scope) {
-			syncRepo.syncGroupData(groupId)
+			val syncOutcome = syncRepo.syncGroupData(groupId)
 			val membership = _contexts.value[groupId]?.member
 				?: memberRepo.getMemberByUserId(userId, groupId).getOrElse { throw it }
 			warmGroupContext(userId = userId, groupId = groupId, membership = membership)
+			syncOutcome.getOrThrow()
 		}
 	}
 
 	/**
 	 * Re-syncs the group and rebuilds the portal for the member an admin is impersonating.
 	 * The member is re-read by id, never by the operator's user id.
+	 *
+	 * A sync that pulled nothing fails: Support Mode is where an admin judges someone else's
+	 * money, so a stale book must never be presented as the live one.
 	 */
 	suspend fun refreshImpersonatedMember(memberId: String, groupId: String): Result<Unit> =
 		safeRunCatching {
 			if (memberId.isBlank() || groupId.isBlank()) return@safeRunCatching
 			warmupCoordinator.runExclusive(groupId, scope) {
-				syncRepo.syncGroupData(groupId)
+				val syncOutcome = syncRepo.syncGroupData(groupId)
 				check(hydrateImpersonatedMember(memberId, groupId).member?.id == memberId) {
 					"The selected member could not be verified after hydration."
 				}
-				Unit
+				syncOutcome.getOrThrow()
 			}
 		}
 
@@ -282,6 +298,11 @@ data class CachedGroupContext(
 	val notifications: List<AppNotification> = emptyList(),
 	val messages: List<AppNotification> = emptyList(),
 	val calculation: PaymentCalculation? = null,
+	/**
+	 * Every section of the portal answered from the cache. It says nothing about whether the
+	 * server confirmed any of it - cache reads cannot fail, so that question belongs to
+	 * [com.sanibonani.save.domain.repository.system.SyncRepository.staleGroups].
+	 */
 	val isFullyHydrated: Boolean = false,
 	val lastUpdatedMillis: Long = 0L
 )

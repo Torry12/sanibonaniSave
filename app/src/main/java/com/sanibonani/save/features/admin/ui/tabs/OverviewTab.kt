@@ -58,6 +58,15 @@ fun OverviewTab(
             )
             Spacer(Modifier.height(8.dp))
         }
+        // Only while online: offline already has its own banner, and there every section is
+        // unverified, so naming the ones that failed last adds a second banner with no new fact.
+        if (state.isSystemOnline && !state.isAirplaneMode && state.unverifiedSections.isNotEmpty()) {
+            OfflineBanner(
+                isOnline = true,
+                message = "⚠️ Not confirmed with the server: ${state.unverifiedSections.joinToString()}."
+            )
+            Spacer(Modifier.height(8.dp))
+        }
 
         val gridColumns = if (windowSizeClass.widthSizeClass == WindowWidthSizeClass.Compact) 2 else 4
 
