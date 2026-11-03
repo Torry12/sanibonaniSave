@@ -46,13 +46,17 @@ class AdminLoanActions @Inject constructor(
                     }
                     host.updateActionState { it.copy(successMessage = "Loan approved and disbursed") }
                     adminContextCacheService.warmUpGroup(groupId, force = true)
-                }.onFailure {
+                }.onFailure { e ->
+                    // The decision did land, so the row truthfully stays APPROVED - but no cash moved,
+                    // and the reason is the actionable part: [FIN_001] insufficient liquidity, or
+                    // [SEC_001] demanding an MFA challenge for a large payout. Saying only
+                    // "Loan approved" left the admin believing the member had been paid.
                     host.updateActionState { s ->
                         s.copy(groupLoans = s.groupLoans.map { loan ->
                             if (loan.id == loanId) loan.copy(status = LoanStatus.APPROVED) else loan
                         })
                     }
-                    host.updateActionState { it.copy(successMessage = "Loan approved") }
+                    host.reportActionError(e)
                     adminContextCacheService.warmUpGroup(groupId, force = true)
                 }
             }.onFailure { e ->

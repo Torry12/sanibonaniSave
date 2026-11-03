@@ -20,7 +20,6 @@ import com.sanibonani.save.domain.usecase.actuarial.ApplyViabilityPlanUseCase
 import com.sanibonani.save.domain.usecase.actuarial.CalculateViabilityUseCase
 import com.sanibonani.save.domain.usecase.admin.GenerateGroupAuditReportUseCase
 import com.sanibonani.save.domain.usecase.admin.GetPlatformSettingsUseCase
-import com.sanibonani.save.domain.usecase.admin.ObserveGroupHealthScoreUseCase
 import com.sanibonani.save.domain.usecase.auth.GetAttributableActorIdUseCase
 import com.sanibonani.save.domain.usecase.auth.GetCurrentUserRoleUseCase
 import com.sanibonani.save.domain.usecase.disbursement.ExecuteRoscaPayoutUseCase
@@ -80,7 +79,6 @@ class AdminOverviewViewModelTest {
     private val getManagedGroupsUseCase = mockk<GetManagedGroupsUseCase>(relaxed = true)
     private val auditRepo = mockk<AuditRepository>(relaxed = true)
     private val getGroupBusinessInsightsUseCase = mockk<GetGroupBusinessInsightsUseCase>(relaxed = true)
-    private val healthScoreRepo = mockk<HealthScoreRepository>(relaxed = true)
     private val calculateViabilityUseCase = mockk<CalculateViabilityUseCase>(relaxed = true)
     private val applyViabilityPlanUseCase = mockk<ApplyViabilityPlanUseCase>(relaxed = true)
     private val sendNotificationUseCase = mockk<SendNotificationUseCase>(relaxed = true)
@@ -136,8 +134,6 @@ class AdminOverviewViewModelTest {
         every { syncManager.syncMetrics } returns MutableStateFlow(emptyMap())
         every { networkService.isOnline } returns flowOf(true)
         every { networkService.isAirplaneModeActive } returns flowOf(false)
-        every { healthScoreRepo.observeGroupHealthScore(any()) } returns
-            flowOf(Result.failure(Exception("no score")))
         every { ledgerRepo.observeGroupLedger(any()) } returns flowOf(Result.success(emptyList()))
         coEvery { verificationService.verifyGroupAdminData(any(), any(), any()) } returns VerificationResult.Valid
         coEvery { getGroupBusinessInsightsUseCase(any(), any()) } returns Result.success(GroupFinancialInsight())
@@ -170,7 +166,6 @@ class AdminOverviewViewModelTest {
         adminContextCacheService,
         getManagedGroupsUseCase,
         getGroupBusinessInsightsUseCase,
-        ObserveGroupHealthScoreUseCase(healthScoreRepo),
         GetAttributableActorIdUseCase(supabaseRepo),
         GetCurrentUserRoleUseCase(supabaseRepo),
         ObserveGroupLedgerUseCase(ledgerRepo),
@@ -421,5 +416,107 @@ class AdminOverviewViewModelTest {
         viewModel.clearError()
         advanceUntilIdle()
         assertNull(viewModel.state.value.error)
+    }
+
+    @Test
+    fun `a ledger read that fails cannot certify the group`() = runTest {
+        // The observation used to flatten a failed read with getOrDefault(emptyList()), so the
+        // verifier compared groups.balance against no rows at all and the dashboard rendered either
+        // a false integrity banner or a false all-clear for a read that never happened.
+        val drifted = VerificationResult(
+            isValid = false,
+            issues = listOf(VerificationIssue("Integrity", "no rows", IssueSeverity.WARNING))
+        )
+        coEvery { verificationService.verifyGroupAdminData(any(), any(), any()) } returns drifted
+        every { ledgerRepo.observeGroupLedger(any()) } returns
+            flowOf(Result.failure(java.io.IOException("ledger read failed")))
+
+        hydrateGroup()
+        // Give the read the same window the passing case below is proven to need, so a verdict that
+        // never arrives means the failed read was skipped, not that the scheduler ran out of turns.
+        awaitLedgerStage()
+
+        assertEquals(
+            "a ledger the read refused must not overwrite the verdict",
+            VerificationResult.Valid,
+            viewModel.state.value.verificationResult
+        )
+        coVerify(exactly = 0) { verificationService.verifyGroupAdminData(any(), any(), any()) }
+    }
+
+    @Test
+    fun `an empty ledger that the read answered is still certified`() = runTest {
+        // The other half: a group with no rows is a real answer, and the verifier has to see it,
+        // otherwise a genuinely empty book never gets its integrity banner.
+        val drifted = VerificationResult(
+            isValid = false,
+            issues = listOf(VerificationIssue("Integrity", "no rows", IssueSeverity.WARNING))
+        )
+        coEvery { verificationService.verifyGroupAdminData(any(), any(), any()) } returns drifted
+        every { ledgerRepo.observeGroupLedger(any()) } returns flowOf(Result.success(emptyList()))
+
+        hydrateGroup()
+        awaitLedgerStage()
+
+        coVerify(exactly = 1) { verificationService.verifyGroupAdminData(any(), any(), any()) }
+        // The verdict the dashboard banner reads has to be the one the verifier produced.
+        assertEquals(drifted, viewModel.state.value.verificationResult)
+    }
+
+    /**
+     * The insights task runs on the real Dispatchers.Default and the ledger flow is `flowOn` it, so
+     * the collector's resumption can arrive after the test scheduler has already gone idle. Pump
+     * until the ledger stage has had its turn rather than trusting a single drain.
+     */
+    private fun TestScope.awaitLedgerStage() {
+        val insightDeadline = System.nanoTime() + 5_000_000_000L
+        while (viewModel.state.value.businessInsight == null && System.nanoTime() < insightDeadline) {
+            testDispatcher.scheduler.runCurrent()
+            Thread.sleep(5)
+        }
+        assertNotNull("the group observation never reached the insight await", viewModel.state.value.businessInsight)
+
+        val verdictDeadline = System.nanoTime() + 1_000_000_000L
+        while (System.nanoTime() < verdictDeadline) {
+            testDispatcher.scheduler.advanceUntilIdle()
+            Thread.sleep(5)
+        }
+        testDispatcher.scheduler.advanceUntilIdle()
+    }
+
+    @Test
+    fun `a failed outstanding-fee read cannot show the previous group's dues`() = runTest {
+        // The Account tab sums outstandingPlatformFees, and switching groups does not clear that
+        // slice. With no failure leg the list kept whatever the last group answered, so a read that
+        // never landed still billed the new group for the old group's months.
+        val g1Fee = PlatformFee(groupId = "g-1", feeType = "monthly", amountDue = Money("50.00"))
+        coEvery { financialRepo.getOutstandingPlatformFees("g-1") } returns Result.success(listOf(g1Fee))
+        coEvery { financialRepo.getOutstandingPlatformFees("g-2") } returns
+            Result.failure(java.io.IOException("fees read failed"))
+
+        hydrateGroup("g-1")
+        awaitLedgerStage()
+        assertEquals(listOf(g1Fee), viewModel.state.value.outstandingPlatformFees)
+
+        selectedGroupIdFlow.value = "g-2"
+        contextsFlow.value = mapOf(
+            "g-2" to CachedAdminGroupContext(
+                group = Group(id = "g-2", name = "Second Group"),
+                members = emptyList(),
+                feeStatus = AdminFeeState.DUE,
+                isFullyHydrated = true
+            )
+        )
+        advanceUntilIdle()
+        awaitLedgerStage()
+
+        assertTrue(
+            "g-1's dues must not be presented as g-2's",
+            viewModel.state.value.outstandingPlatformFees.isEmpty()
+        )
+        assertTrue(
+            "the admin has to be told the read failed",
+            viewModel.events.first() is UIEvent.ShowError
+        )
     }
 }

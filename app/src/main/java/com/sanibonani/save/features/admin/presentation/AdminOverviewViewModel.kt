@@ -1,10 +1,10 @@
 package com.sanibonani.save.features.admin.presentation
 
+import com.sanibonani.save.domain.logging.AppLogger
 import com.sanibonani.save.domain.model.*
 import com.sanibonani.save.domain.service.DevSettingsService
 import com.sanibonani.save.domain.service.NetworkConnectivityService
 import com.sanibonani.save.domain.service.RealtimeSyncService
-import com.sanibonani.save.domain.usecase.admin.ObserveGroupHealthScoreUseCase
 import com.sanibonani.save.domain.usecase.auth.GetAttributableActorIdUseCase
 import com.sanibonani.save.domain.usecase.auth.GetCurrentUserRoleUseCase
 import com.sanibonani.save.domain.usecase.group.GetManagedGroupsUseCase
@@ -28,7 +28,6 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
-import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -39,7 +38,6 @@ class AdminOverviewViewModel @Inject constructor(
     private val adminContextCacheService: AdminGroupContextCacheService,
     private val getManagedGroups: GetManagedGroupsUseCase,
     private val getGroupBusinessInsights: GetGroupBusinessInsightsUseCase,
-    private val observeGroupHealthScore: ObserveGroupHealthScoreUseCase,
     private val getAttributableActorId: GetAttributableActorIdUseCase,
     private val getCurrentUserRole: GetCurrentUserRoleUseCase,
     private val observeGroupLedger: ObserveGroupLedgerUseCase,
@@ -195,38 +193,35 @@ class AdminOverviewViewModel @Inject constructor(
         val groupId = group.id ?: return
         launchJob("group_observation") {
             // AI Performance optimization: Parallel warmup pattern
-            // Fetch initial insights and health score concurrently to minimize initial UI lag.
-            kotlinx.coroutines.coroutineScope {
-                val members = uiState.value.members
-                val insightsTask = async(kotlinx.coroutines.Dispatchers.Default) {
+            // The insights run off the main dispatcher so the dashboard paints before the
+            // calculation finishes.
+            val members = uiState.value.members
+            val insights = kotlinx.coroutines.coroutineScope {
+                async(kotlinx.coroutines.Dispatchers.Default) {
                     getGroupBusinessInsights(group, members)
-                }
-                val healthScoreTask = async {
-                    observeGroupHealthScore(groupId).firstOrNull()?.getOrNull()
-                }
-
-                val insights = insightsTask.await()
-                val healthScore = healthScoreTask.await()
-
-                updateState { it.copy(
-                    businessInsight = insights,
-                    healthScore = healthScore
-                ) }
+                }.await()
             }
-
-            // Continuous observation for real-time updates
-            launch {
-                observeGroupHealthScore(groupId).collect { res ->
-                    res.onSuccess { score -> updateState { it.copy(healthScore = score) } }
-                }
-            }
+            updateState { it.copy(businessInsight = insights) }
 
             launch {
                 observeGroupLedger(groupId)
                     .flowOn(kotlinx.coroutines.Dispatchers.Default)
                     .collect { res ->
-                        val ledger = res.getOrDefault(emptyList())
-                        reportingCoordinator.verify(host, group, uiState.value.members, ledger)
+                        // A failed read is not an empty book. This used to flatten through
+                        // getOrDefault(emptyList()), so the verifier compared groups.balance
+                        // against no rows at all and the dashboard rendered an integrity verdict
+                        // for a ledger that was never read.
+                        res.onSuccess { ledger ->
+                            reportingCoordinator.verify(host, group, uiState.value.members, ledger)
+                        }.onFailure { e ->
+                            // Keep the last verdict: the screen has no slot for a transient
+                            // observation failure, and a modal on every retry would be noise.
+                            AppLogger.w(
+                                "AdminOverview",
+                                "Ledger observation failed for $groupId; integrity verdict left as-is",
+                                e
+                            )
+                        }
                     }
             }
         }

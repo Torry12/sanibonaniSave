@@ -40,12 +40,14 @@ import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
+import kotlinx.coroutines.withTimeoutOrNull
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import java.io.File
+import java.io.IOException
 
 /**
  * Pins the transient-flag behaviour of [AdminMemberViewModel]: every dialog action that
@@ -248,5 +250,48 @@ class AdminMemberViewModelTest {
         val event = viewModel.events.first()
         assertTrue(event is UIEvent.ShowMessage)
         assertEquals("Beneficiary updated", (event as UIEvent.ShowMessage).message)
+    }
+
+    @Test
+    fun `a failed kyc read is reported instead of showing an empty member record`() = runTest {
+        hydrateGroup()
+        coEvery { validateLoanEligibilityUseCase(any(), any()) } returns
+            ValidateLoanEligibilityUseCase.EligibilityResult.Eligible()
+        every { beneficiaryRepo.observeBeneficiaries("m-1") } returns
+            flowOf(Result.failure(IOException("beneficiary read failed")))
+        every { memberDocumentRepo.observeMemberDocuments("m-1") } returns
+            flowOf(Result.failure(IOException("document read failed")))
+
+        viewModel.selectMember(member)
+        advanceUntilIdle()
+
+        val event = withTimeoutOrNull(2_000) { viewModel.events.first() }
+        assertTrue("emitted event: $event", event is UIEvent.ShowError)
+    }
+
+    @Test
+    fun `switching members cannot leave the previous member's beneficiaries on screen`() = runTest {
+        val other = Member(id = "m-2", groupId = "g-1", fullName = "Naledi Dlamini")
+        hydrateGroup()
+        coEvery { validateLoanEligibilityUseCase(any(), any()) } returns
+            ValidateLoanEligibilityUseCase.EligibilityResult.Eligible()
+        every { beneficiaryRepo.observeBeneficiaries("m-1") } returns flowOf(
+            Result.success(listOf(Beneficiary(id = "b-1", groupId = "g-1", memberId = "m-1", fullName = "Kin")))
+        )
+        every { beneficiaryRepo.observeBeneficiaries("m-2") } returns
+            flowOf(Result.failure(IOException("read failed")))
+        every { memberDocumentRepo.observeMemberDocuments(any()) } returns flowOf(Result.success(emptyList()))
+
+        viewModel.selectMember(member)
+        advanceUntilIdle()
+        assertEquals(listOf("b-1"), viewModel.state.value.selectedMemberBeneficiaries.map { it.id })
+
+        viewModel.selectMember(other)
+        advanceUntilIdle()
+
+        assertTrue(
+            "m-1's beneficiaries must not be presented as m-2's",
+            viewModel.state.value.selectedMemberBeneficiaries.isEmpty()
+        )
     }
 }

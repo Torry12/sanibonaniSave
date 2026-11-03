@@ -22,17 +22,22 @@ class AdminPlatformFeeCoordinator @Inject constructor(
 
     fun loadBankDetails(host: AdminActionHost) {
         host.launchAdminSafeJob("platform_bank_loading", "Failed to load platform settings") {
-            getPlatformSettings().onSuccess { config ->
-                host.updateAdminState { it.copy(platformBankDetails = config) }
-            }
+            getPlatformSettings()
+                .onSuccess { config -> host.updateAdminState { it.copy(platformBankDetails = config) } }
+                // A blank config is what the Account tab shows when nothing was ever read, so a
+                // refused read has to say so instead of looking like an unconfigured platform.
+                .onFailure { host.reportError(it) }
         }
     }
 
     fun loadOutstanding(host: AdminActionHost, groupId: String) {
         host.launchAdminJob("platform_fees_loading") {
-            getOutstandingPlatformFees(groupId).onSuccess { fees ->
-                host.updateAdminState { it.copy(outstandingPlatformFees = fees) }
-            }
+            // The Account tab sums this list and switching groups does not clear it, so a read that
+            // fails has to drop the previous group's dues rather than bill the new group for them.
+            host.updateAdminState { it.copy(outstandingPlatformFees = emptyList()) }
+            getOutstandingPlatformFees(groupId)
+                .onSuccess { fees -> host.updateAdminState { it.copy(outstandingPlatformFees = fees) } }
+                .onFailure { host.reportError(it) }
         }
     }
 

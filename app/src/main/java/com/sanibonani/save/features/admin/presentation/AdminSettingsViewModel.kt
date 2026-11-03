@@ -65,7 +65,13 @@ class AdminSettingsViewModel @Inject constructor(
     private fun observeBankConnection(groupId: String) {
         launchJob("bank_connection_observation") {
             bankRepo.observeBankConnection(groupId).collect { res ->
-                updateState { it.copy(bankConnection = res.getOrNull()) }
+                res.onSuccess { connection ->
+                    updateState { it.copy(bankConnection = connection) }
+                }.onFailure { e ->
+                    // A refused read is not evidence that the account is unlinked, so the last
+                    // answer the server gave stays on screen while the failure is reported.
+                    handleError(e, "Could not read the bank connection for this group.")
+                }
             }
         }
     }

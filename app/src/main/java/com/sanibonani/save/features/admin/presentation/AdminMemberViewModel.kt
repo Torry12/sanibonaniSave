@@ -120,11 +120,21 @@ class AdminMemberViewModel @Inject constructor(
         val memberId = member.id ?: return
         val group = uiState.value.group ?: return
         launchJob("member_details_loading") {
+            // combine re-emits while either leg is still failed, so each leg is reported once
+            // per member selection instead of on every emission.
+            val reported = mutableSetOf<String>()
             combine(observeBeneficiaries(memberId), observeMemberDocuments(memberId)) { bRes, dRes ->
                 updateState { it.copy(selectedMemberBeneficiaries = bRes.getOrDefault(emptyList()), selectedMemberDocuments = dRes.getOrDefault(emptyList())) }
+                reportMemberDetailFailure(reported, "beneficiaries", bRes.exceptionOrNull())
+                reportMemberDetailFailure(reported, "documents", dRes.exceptionOrNull())
             }.collect()
         }
         checkLoanEligibility(member, group)
+    }
+
+    private fun reportMemberDetailFailure(reported: MutableSet<String>, leg: String, failure: Throwable?) {
+        if (failure == null || !reported.add(leg)) return
+        handleError(failure, "Unable to load member $leg.")
     }
 
     private fun checkLoanEligibility(member: Member, group: Group) {

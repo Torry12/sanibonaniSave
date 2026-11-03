@@ -56,7 +56,6 @@ import com.google.firebase.crashlytics.FirebaseCrashlytics
 import com.sanibonani.save.domain.usecase.admin.ActivateGroupUseCase
 import com.sanibonani.save.domain.usecase.admin.GenerateGroupAuditReportUseCase
 import com.sanibonani.save.domain.usecase.admin.GetPlatformSettingsUseCase
-import com.sanibonani.save.domain.usecase.admin.ObserveGroupHealthScoreUseCase
 import com.sanibonani.save.domain.usecase.payment.GetOutstandingPlatformFeesUseCase
 import com.sanibonani.save.domain.usecase.treasury.ConsolidateGroupLedgerUseCase
 import com.sanibonani.save.domain.usecase.treasury.ObserveGroupLedgerUseCase
@@ -76,7 +75,6 @@ class MultiGroupTest {
     private val exportRepo = mockk<ExportRepository>(relaxed = true)
     private val ledgerRepo = mockk<LedgerRepository>(relaxed = true)
     private val auditRepo = mockk<AuditRepository>(relaxed = true)
-    private val healthScoreRepo = mockk<HealthScoreRepository>(relaxed = true)
 
     private val getManagedGroupsUseCase = mockk<GetManagedGroupsUseCase>(relaxed = true)
     private val getGroupBusinessInsightsUseCase = mockk<GetGroupBusinessInsightsUseCase>(relaxed = true)
@@ -231,7 +229,6 @@ class MultiGroupTest {
                 adminContextCacheService,
                 getManagedGroupsUseCase,
                 getGroupBusinessInsightsUseCase,
-                ObserveGroupHealthScoreUseCase(healthScoreRepo),
                 GetAttributableActorIdUseCase(supabaseRepo),
                 GetCurrentUserRoleUseCase(supabaseRepo),
                 ObserveGroupLedgerUseCase(ledgerRepo),

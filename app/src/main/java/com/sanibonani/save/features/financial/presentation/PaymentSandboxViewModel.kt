@@ -15,7 +15,6 @@ data class PaymentSandboxUiState(
     val groups: List<Group> = emptyList(),
     val selectedGroupId: String? = null,
     val selectedGroupMembers: List<Member> = emptyList(),
-    val isLoading: Boolean = false,
     val isSimulating: Boolean = false,
     val successMessage: String? = null,
     val error: String? = null,
@@ -34,21 +33,28 @@ class PaymentSandboxViewModel @Inject constructor(
 
     private fun loadGroups() {
         launchJob("load_groups") {
-            updateState { it.copy(isLoading = true) }
             getPublicGroups().first().onSuccess { groups ->
-                updateState { it.copy(groups = groups, isLoading = false) }
+                updateState { it.copy(groups = groups) }
                 if (groups.isNotEmpty() && (uiState.value.selectedGroupId == null)) {
                     selectGroup(groups.first().id ?: "")
                 }
+            }.onFailure { e ->
+                // The screen has no spinner for this read, so a refusal that set nothing at all left
+                // the operator staring at an empty dropdown with no way to tell it was not empty.
+                updateState { it.copy(error = e.toUserMessage()) }
             }
         }
     }
 
     fun selectGroup(groupId: String) {
-        updateState { it.copy(selectedGroupId = groupId) }
+        // Every simulate method books activity against this roster, so switching groups has to drop
+        // the previous one rather than let a failed read bill the new group for the old members.
+        updateState { it.copy(selectedGroupId = groupId, selectedGroupMembers = emptyList()) }
         launchJob("select_group") {
             observeGroupMembers(groupId).first().onSuccess { members ->
                 updateState { it.copy(selectedGroupMembers = members) }
+            }.onFailure { e ->
+                updateState { it.copy(error = e.toUserMessage()) }
             }
         }
     }

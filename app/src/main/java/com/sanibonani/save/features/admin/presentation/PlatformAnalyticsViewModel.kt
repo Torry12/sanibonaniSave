@@ -33,9 +33,10 @@ class PlatformAnalyticsViewModel @Inject constructor(
             updateState { it.copy(isLoading = true, analytics = AsyncResult.Loading) }
             coroutineScope {
                 val analyticsTask = async { getPlatformAnalytics() }
-                val groupsDeferred = async { getAllPlatformGroups().getOrNull() ?: emptyList() }
+                val groupsTask = async { getAllPlatformGroups() }
 
-                val groups = groupsDeferred.await()
+                val groupsResult = groupsTask.await()
+                val groups = groupsResult.getOrElse { emptyList() }
                 val dist = getPlatformDistributions(groups)
                 val analyticsRes = analyticsTask.await()
 
@@ -61,6 +62,10 @@ class PlatformAnalyticsViewModel @Inject constructor(
                         isLoading = false
                     ) }
                 }
+
+                // The charts were built from whatever the roster read returned, so a refusal has to be
+                // named: an empty platform and an unread platform are different answers.
+                groupsResult.exceptionOrNull()?.let { handleError(it) }
             }
         }
     }
@@ -76,9 +81,12 @@ class PlatformAnalyticsViewModel @Inject constructor(
 
     fun fetchGroupMetrics(groupId: String) {
         launchJob("fetch_group_metrics") {
-            getGroupPlatformMetrics(groupId).onSuccess { metrics ->
-                updateState { it.copy(selectedGroupMetrics = metrics) }
-            }
+            // The dialog is titled with the row the admin just tapped but reads this one field, so
+            // the previous group's figures have to be gone before the new read starts.
+            updateState { it.copy(selectedGroupMetrics = null) }
+            getGroupPlatformMetrics(groupId)
+                .onSuccess { metrics -> updateState { it.copy(selectedGroupMetrics = metrics) } }
+                .onFailure { handleError(it) }
         }
     }
 

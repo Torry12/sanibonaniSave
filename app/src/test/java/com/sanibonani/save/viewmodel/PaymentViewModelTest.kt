@@ -21,6 +21,7 @@ import com.sanibonani.save.domain.validation.ValidationResult
 import com.sanibonani.save.domain.validation.ValidationUtils
 import com.sanibonani.save.features.financial.presentation.PaymentViewModel
 import io.mockk.*
+import java.io.IOException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.flowOf
@@ -266,5 +267,36 @@ class PaymentViewModelTest {
         assertEquals(2, transactionIds.size)
         assertEquals(transactionIds[0], transactionIds[1])
         assertTrue(viewModel.state.value.isSuccess)
+    }
+
+    @Test
+    fun `loadPaymentContext - an unresolved group clears the previous group's context`() = runTest {
+        mockPaymentContext("g1")
+        advanceUntilIdle()
+        assertNotNull(viewModel.state.value.member)
+
+        // The member row is still cached, but the group behind it cannot be resolved - so the use
+        // case answers Unavailable and there is nothing to pay against.
+        coEvery { groupRepo.getGroupById("g2") } returns Result.failure(IOException("group read failed"))
+        viewModel.loadPaymentContext("g2", "contribution")
+        advanceUntilIdle()
+
+        val state = viewModel.state.value
+        assertNull("g1's member must not stay on screen as g2's context", state.member)
+        assertNull(state.group)
+        assertNull(state.calculation)
+    }
+
+    @Test
+    fun `loadPaymentContext - an unresolved group reports itself instead of showing an empty form`() = runTest {
+        mockPaymentContext("g1")
+        advanceUntilIdle()
+
+        coEvery { groupRepo.getGroupById("g2") } returns Result.failure(IOException("group read failed"))
+        viewModel.loadPaymentContext("g2", "contribution")
+        advanceUntilIdle()
+
+        val error = viewModel.state.value.error
+        assertTrue("expected the unresolved context to surface, got: $error", !error.isNullOrBlank())
     }
 }
