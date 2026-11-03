@@ -254,4 +254,58 @@ class PlatformFeeConfigSaveTest {
         val event = withTimeoutOrNull(2_000) { viewModel.events.first() }
         assertTrue("emitted event: $event", event is UIEvent.ShowError)
     }
+
+    @Test
+    fun `a refused tier read leaves the table empty instead of pricing it from code`() = runTest {
+        coEvery { platformRepo.getPlatformSettings() } returns Result.success(PlatformConfig())
+        coEvery { platformRepo.getGranularFeeConfigs() } returns Result.failure(IOException("tiers read failed"))
+
+        viewModel.loadSettings()
+        advanceUntilIdle()
+
+        assertTrue(
+            "tiers shown after a refused read: ${viewModel.state.value.granularFees}",
+            viewModel.state.value.granularFees.isEmpty()
+        )
+        val event = withTimeoutOrNull(2_000) { viewModel.events.first() }
+        assertTrue("emitted event: $event", event is UIEvent.ShowError)
+    }
+
+    @Test
+    fun `a save over a tier table that was never read publishes nothing`() = runTest {
+        coEvery { platformRepo.getPlatformSettings() } returns Result.success(PlatformConfig())
+        coEvery { platformRepo.getGranularFeeConfigs() } returns Result.failure(IOException("tiers read failed"))
+        coEvery { platformRepo.updateGranularFeeConfig(any()) } returns Result.success(Unit)
+
+        viewModel.loadSettings()
+        advanceUntilIdle()
+        // Drain the load refusal so the event asserted below is the save's own verdict.
+        withTimeoutOrNull(2_000) { viewModel.events.first() }
+
+        viewModel.saveGranularFees()
+        advanceUntilIdle()
+
+        coVerify(exactly = 0) { platformRepo.updateGranularFeeConfig(any()) }
+        val event = withTimeoutOrNull(2_000) { viewModel.events.first() }
+        assertTrue("emitted event: $event", event is UIEvent.ShowError)
+        assertEquals(false, viewModel.state.value.isSavingGranularFee)
+    }
+
+    @Test
+    fun `an empty tier table that the server did answer still saves`() = runTest {
+        // A platform with no tiers configured yet is a real answer, and seeding it is the reason
+        // the read installs the default table: that save must keep working.
+        coEvery { platformRepo.getPlatformSettings() } returns Result.success(PlatformConfig())
+        coEvery { platformRepo.getGranularFeeConfigs() } returns Result.success(emptyList())
+        coEvery { platformRepo.updateGranularFeeConfig(any()) } returns Result.success(Unit)
+
+        viewModel.loadSettings()
+        advanceUntilIdle()
+        assertEquals(false, viewModel.state.value.granularFees.isEmpty())
+
+        viewModel.saveGranularFees()
+        advanceUntilIdle()
+
+        coVerify(atLeast = 1) { platformRepo.updateGranularFeeConfig(any()) }
+    }
 }

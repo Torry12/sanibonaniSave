@@ -78,15 +78,26 @@ class FeeEnforcementWorker @AssistedInject constructor(
                 feeService.evaluateGroupStanding(group.feeStatus, daysOverdue)
             } else group.feeStatus
 
-            if (newStatus != group.feeStatus) {
-                groupRepo.updateFeeStatus(groupId, newStatus).onSuccess {
-                    if (newStatus == AdminFeeState.SUSPENDED) {
-                        // Ensure platform suspension flag is also set
-                        supabase.postgrest["groups"].update(buildJsonObject {
-                            put("is_platform_suspended", true)
-                        }) { filter { eq("id", groupId) } }
-                    }
+            val statusChanged = newStatus != group.feeStatus
+            val write = if (statusChanged) groupRepo.updateFeeStatus(groupId, newStatus) else null
+            when (feeWriteOutcome(statusChanged, write)) {
+                // The row still holds the old standing, so the notifications below would announce a
+                // suspension that never happened, and a success verdict would stop the escalation
+                // from ever being retried.
+                FeeWriteOutcome.Refused -> {
+                    com.sanibonani.save.domain.logging.AppLogger.w(
+                        "FeeEnforcementWorker",
+                        "Deferring fee enforcement for group $groupId; the new status was not written"
+                    )
+                    return Result.retry()
                 }
+                FeeWriteOutcome.Committed -> if (newStatus == AdminFeeState.SUSPENDED) {
+                    // Ensure platform suspension flag is also set
+                    supabase.postgrest["groups"].update(buildJsonObject {
+                        put("is_platform_suspended", true)
+                    }) { filter { eq("id", groupId) } }
+                }
+                FeeWriteOutcome.NoChange -> Unit
             }
 
             // Dispatch notifications based on the (possibly updated) status
@@ -177,3 +188,15 @@ internal fun feeCycleVerdict(
     } else {
         FeeCycleVerdict.ReadsRefused
     }
+
+internal enum class FeeWriteOutcome { Committed, NoChange, Refused }
+
+/**
+ * Whether the standing the cycle is about to announce is the standing the books now hold.
+ * [writeResult] is null when the standing did not change, so there was nothing to write.
+ */
+internal fun feeWriteOutcome(statusChanged: Boolean, writeResult: Result<Unit>?): FeeWriteOutcome = when {
+    !statusChanged -> FeeWriteOutcome.NoChange
+    writeResult?.isSuccess == true -> FeeWriteOutcome.Committed
+    else -> FeeWriteOutcome.Refused
+}

@@ -54,9 +54,9 @@ class PlatformFeeConfigViewModel @Inject constructor(
                 val inputs = buildGranularFeeInputs(configs)
                 updateState { it.copy(granularFees = configs, granularFeeInputs = inputs) }
             }.onFailure {
-                val configs = createDefaultGranularFeeConfigs()
-                val inputs = buildGranularFeeInputs(configs)
-                updateState { it.copy(granularFees = configs, granularFeeInputs = inputs) }
+                // A refused read must not seed the editable table: the in-code defaults would show
+                // as the platform's live pricing, and a save publishes whatever the table holds.
+                handleError(it, "Unable to load the live per-tier fees. The table was left empty so nothing can be saved over the real tiers.")
             }
         }
     }
@@ -204,6 +204,16 @@ class PlatformFeeConfigViewModel @Inject constructor(
     fun saveGranularFees() {
         launchJob("save_granular_fees") {
             updateState { it.copy(isSavingGranularFee = true) }
+            if (uiState.value.granularFees.isEmpty()) {
+                // A read that answered installs the default table even when the platform has no
+                // tiers, so an empty table here can only mean the read was refused.
+                updateState { it.copy(isSavingGranularFee = false) }
+                handleError(
+                    IllegalStateException("Per-tier fee table was never read"),
+                    "The per-tier fees were never loaded from the server, so nothing was saved."
+                )
+                return@launchJob
+            }
             // Each tier is its own write, so the table can half-apply. This used to log the
             // refusals and toast success anyway, which left an admin pricing the platform on
             // figures the server had rejected.

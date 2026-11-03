@@ -127,4 +127,29 @@ class WorkerCycleVerdictTest {
         )
         assertEquals(FeeCycleVerdict.ReadsRefused, verdict)
     }
+
+    @Test
+    fun `a fee status the server refused to write is not announced`() {
+        // The group row still says DUE, so a GROUP_SUSPENDED push tells every member the group
+        // is locked while the books say it is not - and the old code returned success, so the
+        // escalation never ran again.
+        val outcome = feeWriteOutcome(
+            statusChanged = true,
+            writeResult = Result.failure<Unit>(IOException("HTTP 500"))
+        )
+        assertEquals(FeeWriteOutcome.Refused, outcome)
+    }
+
+    @Test
+    fun `a fee status that landed is safe to announce`() {
+        val outcome = feeWriteOutcome(statusChanged = true, writeResult = Result.success(Unit))
+        assertEquals(FeeWriteOutcome.Committed, outcome)
+    }
+
+    @Test
+    fun `an unchanged standing needs no write to announce`() {
+        // No write happened, but the standing the cycle is reporting is the one already on the row.
+        val outcome = feeWriteOutcome(statusChanged = false, writeResult = null)
+        assertEquals(FeeWriteOutcome.NoChange, outcome)
+    }
 }
