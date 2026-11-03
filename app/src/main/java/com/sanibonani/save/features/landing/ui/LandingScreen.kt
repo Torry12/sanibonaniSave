@@ -8,11 +8,13 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import com.sanibonani.save.R
+import com.sanibonani.save.features.common.presentation.UIEvent
 import com.sanibonani.save.features.landing.ui.components.FeatureDetail
 import com.sanibonani.save.features.landing.ui.components.FeatureDetailDialog
 import com.sanibonani.save.features.landing.presentation.LandingIntent
@@ -20,6 +22,7 @@ import com.sanibonani.save.features.landing.presentation.LandingViewModel
 import com.sanibonani.save.ui.components.LanguageSelector
 import com.sanibonani.save.ui.components.OfflineBanner
 import com.sanibonani.save.ui.theme.Navy
+import com.sanibonani.save.ui.utils.ToastUtils
 import com.sanibonani.save.ui.utils.rememberClickDebouncer
 
 @Composable
@@ -33,8 +36,19 @@ fun LandingScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val clickDebouncer = rememberClickDebouncer()
+    val context = LocalContext.current
 
     var selectedFeature by remember { mutableStateOf<FeatureDetail?>(null) }
+
+    LaunchedEffect(viewModel) {
+        viewModel.events.collect { event ->
+            when (event) {
+                is UIEvent.ShowMessage -> ToastUtils.showInfo(context, event.message)
+                is UIEvent.ShowError -> ToastUtils.showError(context, event.message)
+                else -> Unit
+            }
+        }
+    }
 
     // Auto-refresh when coming back online
     LaunchedEffect(uiState.isSystemOnline) {

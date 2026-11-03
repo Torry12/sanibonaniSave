@@ -116,6 +116,16 @@ fun BrowseGroupsScreen(
                             items(6) { GroupCardShimmer() }
                         }
                     }
+                    state.error != null && state.rawGroups.isEmpty() -> {
+                        EmptyState(
+                            icon = "⚠️",
+                            title = "Couldn't load groups",
+                            description = state.error ?: "The group list could not be read.",
+                            modifier = Modifier.align(Alignment.Center),
+                            actionLabel = "Try Again",
+                            onAction = { vm.loadGroups() }
+                        )
+                    }
                     state.filteredGroups.isEmpty() -> {
                         EmptyState(
                             icon = "🔍",

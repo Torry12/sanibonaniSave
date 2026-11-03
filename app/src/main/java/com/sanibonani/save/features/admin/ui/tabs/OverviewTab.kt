@@ -39,11 +39,11 @@ fun OverviewTab(
     ) {
         group?.let { g ->
             if (state.feeStatus == AdminFeeState.PENDING_ACTIVATION) {
-                AdminFeeBanner(g, state.feeStatus, state.daysOverdue) {
+                AdminFeeBanner(g, state.feeStatus) {
                     onPayClick(state.platformRegistrationFee)
                 }
             } else {
-                AdminFeeBanner(g, state.feeStatus, state.daysOverdue) {
+                AdminFeeBanner(g, state.feeStatus) {
                     vm.setTab(5) // Account Tab
                 }
             }

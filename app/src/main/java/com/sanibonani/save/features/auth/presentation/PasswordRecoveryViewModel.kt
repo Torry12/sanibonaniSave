@@ -1,6 +1,7 @@
 package com.sanibonani.save.features.auth.presentation
 
 import com.sanibonani.save.domain.usecase.auth.RequestPasswordResetUseCase
+import com.sanibonani.save.domain.utils.toUserMessage
 import com.sanibonani.save.domain.validation.ValidationUtils
 import com.sanibonani.save.features.common.presentation.BaseViewModel
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -36,7 +37,7 @@ class PasswordRecoveryViewModel @Inject constructor(
             requestPasswordReset(input).onSuccess {
                 updateState { it.copy(isLoading = false, success = true, input = "") }
             }.onFailure { e ->
-                updateState { it.copy(isLoading = false) }
+                updateState { it.copy(isLoading = false, error = e.toUserMessage()) }
                 handleError(e)
             }
         }

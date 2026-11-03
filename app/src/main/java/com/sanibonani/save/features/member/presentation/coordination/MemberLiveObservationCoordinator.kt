@@ -2,11 +2,13 @@ package com.sanibonani.save.features.member.presentation.coordination
 
 import com.sanibonani.save.domain.model.Group
 import com.sanibonani.save.domain.usecase.credit.ObserveMemberLoansUseCase
+import com.sanibonani.save.domain.usecase.disbursement.ObserveMemberPayoutsUseCase
 import com.sanibonani.save.domain.usecase.equity.ObserveMemberContributionsUseCase
 import com.sanibonani.save.domain.usecase.group.GetGroupBusinessInsightsUseCase
 import com.sanibonani.save.domain.usecase.group.ObserveGroupDetailUseCase
 import com.sanibonani.save.domain.usecase.member.ObserveGroupMembersUseCase
 import com.sanibonani.save.domain.usecase.member.ObserveMemberByIdUseCase
+import com.sanibonani.save.domain.usecase.member.ObserveMemberClaimsUseCase
 import com.sanibonani.save.domain.usecase.treasury.ObserveMemberLedgerUseCase
 import com.sanibonani.save.features.member.presentation.state.MemberUiState
 import kotlinx.coroutines.Dispatchers
@@ -31,6 +33,8 @@ class MemberLiveObservationCoordinator @Inject constructor(
     private val observeMemberLedger: ObserveMemberLedgerUseCase,
     private val observeMemberLoans: ObserveMemberLoansUseCase,
     private val observeMemberById: ObserveMemberByIdUseCase,
+    private val observeMemberClaims: ObserveMemberClaimsUseCase,
+    private val observeMemberPayouts: ObserveMemberPayoutsUseCase,
     private val getGroupBusinessInsights: GetGroupBusinessInsightsUseCase,
 ) {
 
@@ -75,6 +79,23 @@ class MemberLiveObservationCoordinator @Inject constructor(
                     observeMemberLedger(memberId).collect { res ->
                         res.onSuccess { list ->
                             updateSelectedGroup(host, groupId) { it.copy(memberLedger = list) }
+                        }
+                    }
+                }
+                // The claims tab, the burial-society stat card and the "Financial Snapshot" row all
+                // read these two lists, so a member's own claim has to reach them from the book it
+                // was filed in - not from a field nothing ever wrote.
+                launch {
+                    observeMemberClaims(memberId, groupId).collect { res ->
+                        res.onSuccess { list ->
+                            updateSelectedGroup(host, groupId) { it.copy(burialClaims = list) }
+                        }
+                    }
+                }
+                launch {
+                    observeMemberPayouts(memberId).collect { res ->
+                        res.onSuccess { list ->
+                            updateSelectedGroup(host, groupId) { it.copy(payouts = list) }
                         }
                     }
                 }

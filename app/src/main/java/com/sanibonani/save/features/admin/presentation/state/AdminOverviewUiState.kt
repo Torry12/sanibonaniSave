@@ -8,7 +8,6 @@ data class AdminOverviewUiState(
     val managedGroups: AsyncResult<List<Group>> = AsyncResult.Uninitialized,
     val businessInsight: Result<GroupFinancialInsight>? = null,
     val feeStatus: AdminFeeState = AdminFeeState.DUE,
-    val daysOverdue: Int = 0,
     val viabilityPlan: ViabilityPlan? = null,
     val isCalculatingViability: Boolean = false,
     val notifications: List<AppNotification> = emptyList(),

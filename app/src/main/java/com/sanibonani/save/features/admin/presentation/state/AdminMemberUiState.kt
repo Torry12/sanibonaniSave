@@ -13,7 +13,6 @@ data class AdminMemberUiState(
     val memberCalculations: Map<String, PaymentCalculation> = emptyMap(),
     val isEligibleForLoan: Boolean = false,
     val loanIneligibilityReason: String? = null,
-    val error: String? = null,
     val isExporting: Boolean = false,
     val messageText: String = "",
     val isSendingMessage: Boolean = false,

@@ -6,6 +6,7 @@ import com.sanibonani.save.analytics.AppAnalytics
 import com.sanibonani.save.domain.logging.AppLogger
 import com.sanibonani.save.domain.model.AsyncResult
 import com.sanibonani.save.domain.model.Group
+import com.sanibonani.save.domain.model.Member
 import com.sanibonani.save.domain.model.PlatformAnalytics
 import com.sanibonani.save.domain.model.PlatformConfig
 import com.sanibonani.save.domain.model.UserRole
@@ -152,7 +153,10 @@ class LandingViewModel @Inject constructor(
                             Triple(
                                 safeRunCatching { analyticsDeferred.await() }.getOrElse { Result.failure(it) },
                                 safeRunCatching { settingsDeferred.await() }.getOrElse { Result.failure(it) },
-                                (safeRunCatching { membershipsDeferred?.await() }.getOrNull() to safeRunCatching { adminGroupsDeferred?.await() }.getOrNull())
+                                // A leg that threw stays a failed Result instead of collapsing to
+                                // null, which is how it used to be read as "no memberships".
+                                (membershipsDeferred?.let { deferred -> safeRunCatching { deferred.await() }.getOrElse { Result.failure(it) } } to
+                                    adminGroupsDeferred?.let { deferred -> safeRunCatching { deferred.await() }.getOrElse { Result.failure(it) } })
                             )
                         }
                     }
@@ -161,15 +165,26 @@ class LandingViewModel @Inject constructor(
                         val (analyticsRes, settingsRes, userRes) = results
                         val (membershipsRes, adminGroupsRes) = userRes
 
-                        var isMemberOrAdmin = false
-                        var pendingGroup: Group? = null
+                        var isMemberOrAdmin = uiState.value.isMemberOrAdmin
+                        var pendingGroup: Group? = uiState.value.pendingGroup
 
                         if (userId != null) {
-                            membershipsRes?.onSuccess { if (it.isNotEmpty()) isMemberOrAdmin = true }
-                            adminGroupsRes?.onSuccess { groups ->
-                                if (groups.isNotEmpty()) isMemberOrAdmin = true
-                                pendingGroup = groups.find { !it.registrationPaid }
+                            val verdict = landingMembershipVerdict(
+                                membershipsRes = membershipsRes,
+                                managedGroupsRes = adminGroupsRes,
+                                previousIsMemberOrAdmin = isMemberOrAdmin,
+                                previousPendingGroup = pendingGroup
+                            )
+                            isMemberOrAdmin = verdict.isMemberOrAdmin
+                            pendingGroup = verdict.pendingGroup
+                            verdict.failure?.let {
+                                handleError(it, "Unable to check which groups you belong to. The landing screen is showing the last result.")
                             }
+                        } else {
+                            // Not signed in is a proven answer, not a missing one: a visitor holds
+                            // no membership and has no registration to finish.
+                            isMemberOrAdmin = false
+                            pendingGroup = null
                         }
 
                         if (analyticsRes.isSuccess && settingsRes.isSuccess) {
@@ -186,11 +201,16 @@ class LandingViewModel @Inject constructor(
                             }
                             AppAnalytics.track(AnalyticsTaxonomy.Events.LANDING_REFRESH_SUCCESS)
                         } else {
-                            val error = analyticsRes.exceptionOrNull()?.toUserMessage() ?: settingsRes.exceptionOrNull()?.toUserMessage() ?: "Sync failed"
+                            val (analyticsError, settingsError) = landingSyncErrorMessages(
+                                analyticsRes.exceptionOrNull(),
+                                settingsRes.exceptionOrNull()
+                            )
                             updateState {
                                 it.copy(
-                                    analytics = if (analyticsRes.isFailure) AsyncResult.Error(error, "SyncError") else AsyncResult.Success(analyticsRes.getOrThrow()),
-                                    settings = if (settingsRes.isFailure) AsyncResult.Error(error, "SyncError") else AsyncResult.Success(settingsRes.getOrThrow()),
+                                    analytics = analyticsError?.let { message -> AsyncResult.Error(message, "SyncError") }
+                                        ?: AsyncResult.Success(analyticsRes.getOrThrow()),
+                                    settings = settingsError?.let { message -> AsyncResult.Error(message, "SyncError") }
+                                        ?: AsyncResult.Success(settingsRes.getOrThrow()),
                                     isLoggedIn = signedIn,
                                     isMemberOrAdmin = isMemberOrAdmin,
                                     pendingGroup = pendingGroup
@@ -211,3 +231,47 @@ class LandingViewModel @Inject constructor(
         }
     }
 }
+
+/**
+ * The two verdicts the landing hero acts on. `isMemberOrAdmin = false` puts "Join a group" in
+ * front of someone already in one, and a null `pendingGroup` hides the prompt to finish a
+ * registration whose joining fee is still owed, so neither may be asserted from a read that did
+ * not answer: `false` needs both legs to answer empty, and the pending registration is only
+ * cleared by the managed-groups read itself.
+ */
+internal data class LandingMembershipVerdict(
+    val isMemberOrAdmin: Boolean,
+    val pendingGroup: Group?,
+    val failure: Throwable?
+)
+
+internal fun landingMembershipVerdict(
+    membershipsRes: Result<List<Member>>?,
+    managedGroupsRes: Result<List<Group>>?,
+    previousIsMemberOrAdmin: Boolean,
+    previousPendingGroup: Group?
+): LandingMembershipVerdict {
+    val memberships = membershipsRes?.getOrNull()
+    val managed = managedGroupsRes?.getOrNull()
+
+    return LandingMembershipVerdict(
+        isMemberOrAdmin = when {
+            !memberships.isNullOrEmpty() || !managed.isNullOrEmpty() -> true
+            memberships != null && managed != null -> false
+            else -> previousIsMemberOrAdmin
+        },
+        pendingGroup = if (managed != null) managed.find { !it.registrationPaid } else previousPendingGroup,
+        failure = membershipsRes?.exceptionOrNull() ?: managedGroupsRes?.exceptionOrNull()
+    )
+}
+
+/**
+ * The analytics and settings cards render separately, so a leg that answered must not carry the
+ * other leg's cause. One shared string reported the analytics complaint on the settings card
+ * whenever both reads were refused, and hid a permission failure behind a network one.
+ */
+internal fun landingSyncErrorMessages(
+    analyticsFailure: Throwable?,
+    settingsFailure: Throwable?
+): Pair<String?, String?> =
+    analyticsFailure?.toUserMessage() to settingsFailure?.toUserMessage()

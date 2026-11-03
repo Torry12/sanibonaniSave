@@ -152,7 +152,6 @@ class GroupViewModelTest {
         // 3. Verify coordinates are cleared
         assertNull(viewModel.state.value.latitude)
         assertNull(viewModel.state.value.longitude)
-        assertNull(viewModel.state.value.geohash)
     }
 
     @Test

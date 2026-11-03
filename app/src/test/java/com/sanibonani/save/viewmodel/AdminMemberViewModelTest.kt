@@ -269,6 +269,26 @@ class AdminMemberViewModelTest {
         assertTrue("emitted event: $event", event is UIEvent.ShowError)
     }
 
+    // The member table's standing comes from this one read, so a pass the server refused has to
+    // say so: the rows keep showing the statuses computed from the last successful read, and an
+    // admin who acts on them is acting on a contribution history the sync could not confirm.
+    @Test
+    fun `a refused group contribution read is reported instead of passing as current`() = runTest {
+        every { contributionRepo.observeGroupContributions("g-1") } returns
+            flowOf(Result.failure(IOException("contribution read failed")))
+
+        hydrateGroup()
+        advanceUntilIdle()
+
+        val event = withTimeoutOrNull(2_000) { viewModel.events.first() }
+        assertTrue("emitted event: $event", event is UIEvent.ShowError)
+        val message = (event as? UIEvent.ShowError)?.message.orEmpty()
+        assertTrue(
+            "the admin has to be told the standing may be out of date, got: $message",
+            message.contains("out of date")
+        )
+    }
+
     @Test
     fun `switching members cannot leave the previous member's beneficiaries on screen`() = runTest {
         val other = Member(id = "m-2", groupId = "g-1", fullName = "Naledi Dlamini")

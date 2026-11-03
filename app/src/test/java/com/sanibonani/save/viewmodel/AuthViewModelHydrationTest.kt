@@ -24,6 +24,7 @@ import com.sanibonani.save.domain.usecase.auth.SetBiometricEnabledUseCase
 import com.sanibonani.save.domain.usecase.auth.SignInUseCase
 import com.sanibonani.save.domain.usecase.auth.UpdatePasswordUseCase
 import com.sanibonani.save.features.auth.presentation.AuthViewModel
+import com.sanibonani.save.features.common.presentation.UIEvent
 import com.sanibonani.save.features.common.presentation.LoadStateQueue
 import com.sanibonani.save.service.AdminGroupContextCacheService
 import com.sanibonani.save.service.MemberGroupContextCacheService
@@ -46,6 +47,7 @@ import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
@@ -219,5 +221,57 @@ class AuthViewModelHydrationTest {
 
         assertEquals(UserRole.GROUP_ADMIN, viewModel.state.value.userRole)
         assertTrue(viewModel.state.value.isLoggedIn)
+    }
+
+    @Test
+    fun `a role refresh with no user id still resolves the role`() = runTest {
+        every { supabaseRepo.currentUserId } returns null
+
+        // The caller is the group-created callback. Refusing to run because the ViewModel never
+        // captured an id left the creator on the role they held before creating the group.
+        coEvery { supabaseRepo.getUserRole() } returns UserRole.GROUP_ADMIN
+        viewModel.refreshUserRole()
+        advanceUntilIdle()
+
+        assertEquals(UserRole.GROUP_ADMIN, viewModel.state.value.userRole)
+        assertNull("and the missing id is not invented", viewModel.state.value.userId)
+    }
+
+    @Test
+    fun `a reset link the client refuses is reported and does not arm the password form`() = runTest {
+        coEvery { supabaseRepo.handleDeepLink(any()) } returns
+            Result.failure(IllegalStateException("Email link could not be verified"))
+
+        viewModel.handleDeepLink("sanibonani://reset-password?token_hash=abc123&next=/update")
+        advanceUntilIdle()
+
+        // isResettingPassword also unlocks the auth-entry guards in NavUtils, so leaving it set on a
+        // link that never verified would keep the app in a half-authenticated state indefinitely.
+        assertTrue("a refused ticket cannot arm the guard", !viewModel.state.value.isResettingPassword)
+        val event = viewModel.events.tryReceive().getOrNull()
+        assertTrue("emitted event: $event", event is UIEvent.ShowError)
+    }
+
+    @Test
+    fun `a reset link the client accepts arms the password form with no error`() = runTest {
+        coEvery { supabaseRepo.handleDeepLink(any()) } returns Result.success(Unit)
+
+        viewModel.handleDeepLink("sanibonani://reset-password?token_hash=abc123&next=/update")
+        advanceUntilIdle()
+
+        assertTrue(viewModel.state.value.isResettingPassword)
+        assertNull(viewModel.events.tryReceive().getOrNull())
+    }
+
+    @Test
+    fun `a callback link that fails is reported rather than only logged`() = runTest {
+        coEvery { supabaseRepo.handleDeepLink(any()) } returns
+            Result.failure(IllegalStateException("invalid flow state"))
+
+        viewModel.handleDeepLink("sanibonani://auth/callback?code=xyz")
+        advanceUntilIdle()
+
+        val event = viewModel.events.tryReceive().getOrNull()
+        assertTrue("emitted event: $event", event is UIEvent.ShowError)
     }
 }

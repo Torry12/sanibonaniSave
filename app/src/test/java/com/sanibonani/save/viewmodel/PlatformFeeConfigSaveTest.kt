@@ -23,6 +23,7 @@ import io.mockk.slot
 import io.mockk.unmockkAll
 import io.mockk.verify
 import java.io.IOException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
@@ -157,6 +158,27 @@ class PlatformFeeConfigSaveTest {
         assertEquals(Money("0.00"), config.captured.payoutFee)
         assertEquals(Money("20.00"), config.captured.shortfallRecoveryFee)
         assertEquals(90, config.captured.autoSuspensionDays)
+        assertEquals(true, viewModel.state.value.saveSuccess)
+    }
+
+    // The saved notice is a state flag rather than a toast, so it stays on the screen until something
+    // clears it. A second save that is still in flight must not keep being shown as already done.
+    @Test
+    fun `a second save clears the previous saved notice before the server answers`() = runTest {
+        fillAllFees()
+        val pending = CompletableDeferred<Result<Unit>>()
+        coEvery { platformRepo.updateGlobalFees(any()) } returns pending.await()
+
+        viewModel.saveGlobalFees()
+        advanceUntilIdle()
+        assertEquals(true, viewModel.state.value.saveSuccess)
+
+        viewModel.saveGlobalFees()
+        advanceUntilIdle()
+        assertEquals(false, viewModel.state.value.saveSuccess)
+
+        pending.complete(Result.success(Unit))
+        advanceUntilIdle()
         assertEquals(true, viewModel.state.value.saveSuccess)
     }
 

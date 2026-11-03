@@ -93,7 +93,6 @@ internal fun PlatformAdminDisbursementsPage(
             claimEscalations = disbursementsState.escalatedClaims,
             behaviorInsights = supportState.memberBehaviorInsights,
             groupNames = groupNames,
-            loanMemberNames = analyticsState.loanMemberNames,
             processingIds = disbursementsState.processingIds,
             selectedMemberSummary = disbursementsState.selectedMemberSummary,
             isLoadingMemberSummary = disbursementsState.isLoadingMemberSummary,

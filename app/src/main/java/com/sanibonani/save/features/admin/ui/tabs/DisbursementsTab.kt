@@ -33,7 +33,6 @@ data class DisbursementsTabState(
     val claimEscalations: List<BeneficiaryPayoutClaim>,
     val behaviorInsights: List<MemberBehaviorInsight>,
     val groupNames: Map<String, String>,
-    val loanMemberNames: Map<String, String>,
     val processingIds: Set<String> = emptySet(),
     val selectedMemberSummary: MemberSummary? = null,
     val isLoadingMemberSummary: Boolean = false,
@@ -167,7 +166,7 @@ fun DisbursementsTab(
                                 items(loans, key = { it.id ?: it.hashCode().toString() }) { loan ->
                                     LoanRequestCard(
                                         loan = loan,
-                                        memberName = state.loanMemberNames[loan.memberId] ?: "Member ${loan.memberId.takeLast(4)}",
+                                        memberName = "Member ${loan.memberId.takeLast(4)}",
                                         groupName = state.groupNames[loan.groupId] ?: "Unknown Group",
                                         isProcessing = state.processingIds.contains(loan.id),
                                         onViewSummary = { vm.fetchMemberSummary(loan.memberId, loan.groupId) },

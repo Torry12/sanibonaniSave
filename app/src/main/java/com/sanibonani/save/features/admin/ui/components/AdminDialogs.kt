@@ -133,10 +133,6 @@ fun AdminDashboardDialogs(
         )
     }
 
-    memberState.error?.let { error ->
-        AdminErrorDialog(error, onDismiss = { memberVm.clearError() })
-    }
-
     // File Action Dialog
     showFileActionDialog?.let { (url, name, headers) ->
         FileActionDialog(

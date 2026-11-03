@@ -7,6 +7,7 @@ import com.sanibonani.save.domain.model.AsyncResult
 import com.sanibonani.save.domain.model.Group
 import com.sanibonani.save.domain.model.PlatformAnalytics
 import com.sanibonani.save.domain.repository.admin.PlatformRepository
+import com.sanibonani.save.domain.usecase.actuarial.CalculateGroupHealthScoreUseCase
 import com.sanibonani.save.domain.usecase.admin.ComputeSystemWideMetricsUseCase
 import com.sanibonani.save.domain.usecase.admin.DeleteGroupFromPlatformUseCase
 import com.sanibonani.save.domain.usecase.admin.GetAllPlatformGroupsUseCase
@@ -81,6 +82,7 @@ class PlatformAnalyticsLoadTest {
             getAllPlatformGroups = GetAllPlatformGroupsUseCase(platformRepo),
             computeSystemWideMetrics = mockk<ComputeSystemWideMetricsUseCase>(relaxed = true),
             getGroupPlatformMetrics = mockk<GetGroupPlatformMetricsUseCase>(relaxed = true),
+            calculateGroupHealthScore = mockk<CalculateGroupHealthScoreUseCase>(relaxed = true),
             deleteGroupFromPlatformUseCase = mockk<DeleteGroupFromPlatformUseCase>(relaxed = true),
             getPlatformDistributions = GetPlatformDistributionsUseCase()
         )

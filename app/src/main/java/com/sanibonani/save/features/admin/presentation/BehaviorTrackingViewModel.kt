@@ -32,8 +32,16 @@ class BehaviorTrackingViewModel @Inject constructor(
     fun loadMemberData(memberId: String) {
         launchJob("load_member_data") {
             updateState { it.copy(isLoading = true) }
-            val track = getMemberBehaviorTrack(memberId).getOrNull()
-            updateState { it.copy(track = track, isLoading = false) }
+            // A null track is the answer "this member has no history recorded"; a refused read is
+            // not that answer, and blanking the panel would present it as one. Flagging and
+            // suspending both refresh through here straight after writing, so the last proven
+            // track stays and the refusal is reported instead.
+            getMemberBehaviorTrack(memberId)
+                .onSuccess { track -> updateState { it.copy(track = track, isLoading = false) } }
+                .onFailure { e ->
+                    updateState { it.copy(isLoading = false) }
+                    handleError(e, "Unable to refresh this member's behaviour track. The panel still shows the last result.")
+                }
         }
     }
 

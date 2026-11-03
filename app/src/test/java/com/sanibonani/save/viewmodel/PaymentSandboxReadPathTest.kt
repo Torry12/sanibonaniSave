@@ -7,6 +7,7 @@ import com.sanibonani.save.domain.model.Member
 import com.sanibonani.save.domain.usecase.group.GetPublicGroupsUseCase
 import com.sanibonani.save.domain.usecase.member.ObserveGroupMembersUseCase
 import com.sanibonani.save.features.financial.presentation.PaymentSandboxViewModel
+import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import java.io.IOException
@@ -112,5 +113,57 @@ class PaymentSandboxReadPathTest {
 
         assertEquals(listOf("Sipho", "Lerato"), viewModel.state.value.selectedGroupMembers.map { it.fullName })
         assertNull(viewModel.state.value.error)
+    }
+
+    // The simulate buttons read as if they had run: with nothing selected, and with a selection that
+    // no longer exists in the list, each method returned before it touched the state, so the operator
+    // got neither a transaction nor a reason.
+    @Test
+    fun `simulating a transfer with no group selected says why`() = runTest {
+        every { getPublicGroups() } returns flowOf(Result.success(emptyList()))
+        val viewModel = newViewModel()
+        advanceUntilIdle()
+
+        viewModel.simulateBankTransfer("100", "REF-1")
+        advanceUntilIdle()
+
+        assertTrue(
+            "the tap has to be answered: ${viewModel.state.value.error}",
+            viewModel.state.value.error?.contains("group") == true
+        )
+        coVerify(exactly = 0) { bankSimulation.simulateSinglePayment(any(), any(), any()) }
+    }
+
+    @Test
+    fun `simulating collections with no group selected says why`() = runTest {
+        every { getPublicGroups() } returns flowOf(Result.success(emptyList()))
+        val viewModel = newViewModel()
+        advanceUntilIdle()
+
+        viewModel.simulateMonthlyCollections()
+        advanceUntilIdle()
+
+        assertTrue(
+            "the tap has to be answered: ${viewModel.state.value.error}",
+            viewModel.state.value.error?.contains("group") == true
+        )
+        coVerify(exactly = 0) { bankSimulation.simulateMonthOfActivity(any(), any(), any()) }
+    }
+
+    @Test
+    fun `a selection that has left the group list is reported instead of dropped`() = runTest {
+        val viewModel = newViewModel()
+        advanceUntilIdle()
+        viewModel.selectGroup("g-9")
+        advanceUntilIdle()
+
+        viewModel.simulateDeepHistoricalRun(months = 2)
+        advanceUntilIdle()
+
+        assertTrue(
+            "a selection nothing can bill has to be named: ${viewModel.state.value.error}",
+            viewModel.state.value.error?.contains("group") == true
+        )
+        coVerify(exactly = 0) { bankSimulation.simulateMonthOfActivity(any(), any(), any()) }
     }
 }

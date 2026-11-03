@@ -66,7 +66,10 @@ class GroupViewModel @Inject constructor(
                 rawGroups = rawList,
                 filteredGroups = filtered,
                 groupsByProvince = filterGroups.byProvince(filtered),
-                isLoading = false
+                isLoading = false,
+                // An answered list is a different verdict from a refusal, so it has to retire the
+                // refusal recorded by an earlier emission instead of leaving both on screen.
+                error = null
             )
         }
     }

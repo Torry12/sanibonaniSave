@@ -83,8 +83,9 @@ internal fun MemberDashboardTopBar(
         }
 
         if (overviewState.isUploading) {
+            // The upload has no progress callback, so a determinate bar would sit at 0% for the
+            // whole run - an animation that never moves reads as a stalled upload.
             LinearProgressIndicator(
-                progress = { overviewState.uploadProgress?.toFloat() ?: 0f },
                 modifier = Modifier.fillMaxWidth(),
                 color = MaterialTheme.colorScheme.primary,
                 trackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)

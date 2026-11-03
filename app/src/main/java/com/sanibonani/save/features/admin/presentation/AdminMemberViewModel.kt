@@ -86,8 +86,13 @@ class AdminMemberViewModel @Inject constructor(
     private fun refreshAllMemberCalculations(group: Group, members: List<Member>) {
         val groupId = group.id ?: return
         launchJob("calculations_refresh") {
+            // The flow re-emits on every sync pass, so a refusal is reported once per refresh: the
+            // standing it could not confirm does not change between passes, and a toast on each one
+            // buries the rest of the dashboard.
+            var refusalReported = false
             observeGroupContributions(groupId).collectLatest { result: Result<List<Contribution>> ->
                 result.onSuccess { allContribs ->
+                    refusalReported = false
                     val allCalculations = withContext(kotlinx.coroutines.Dispatchers.Default) {
                         val contribsByMember = allContribs.groupBy { it.memberId }
                         members.mapNotNull { member ->
@@ -99,6 +104,13 @@ class AdminMemberViewModel @Inject constructor(
                         memberCalculations = allCalculations,
                         selectedMemberCalculation = it.selectedMember?.id?.let { id -> allCalculations[id] } ?: it.selectedMemberCalculation
                     ) }
+                }.onFailure { e ->
+                    // The rows keep whatever the last successful read computed. That is only honest
+                    // if the screen says the computation did not run.
+                    if (!refusalReported) {
+                        refusalReported = true
+                        handleError(e, "Unable to refresh this group's contributions. The member statuses shown may be out of date.")
+                    }
                 }
             }
         }
@@ -254,6 +266,4 @@ class AdminMemberViewModel @Inject constructor(
                 .onFailure { handleError(it) }
         }
     }
-
-    fun clearError() { updateState { it.copy(error = null) } }
 }

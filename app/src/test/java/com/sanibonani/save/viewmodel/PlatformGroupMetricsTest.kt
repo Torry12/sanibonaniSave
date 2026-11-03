@@ -4,6 +4,9 @@ import android.util.Log
 import androidx.arch.core.executor.testing.InstantTaskExecutorRule
 import com.google.firebase.crashlytics.FirebaseCrashlytics
 import com.sanibonani.save.domain.model.ActuarialMetrics
+import com.sanibonani.save.domain.model.GroupHealthScore
+import com.sanibonani.save.domain.model.RiskZone
+import com.sanibonani.save.domain.usecase.actuarial.CalculateGroupHealthScoreUseCase
 import com.sanibonani.save.domain.usecase.admin.ComputeSystemWideMetricsUseCase
 import com.sanibonani.save.domain.usecase.admin.DeleteGroupFromPlatformUseCase
 import com.sanibonani.save.domain.usecase.admin.GetAllPlatformGroupsUseCase
@@ -17,6 +20,7 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkStatic
 import io.mockk.unmockkAll
+import java.io.IOException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.take
@@ -47,6 +51,7 @@ class PlatformGroupMetricsTest {
     val instantExecutorRule = InstantTaskExecutorRule()
 
     private val getGroupPlatformMetrics = mockk<GetGroupPlatformMetricsUseCase>()
+    private val calculateGroupHealthScore = mockk<CalculateGroupHealthScoreUseCase>()
     private val testDispatcher = StandardTestDispatcher()
     private lateinit var viewModel: PlatformAnalyticsViewModel
 
@@ -71,6 +76,7 @@ class PlatformGroupMetricsTest {
             getAllPlatformGroups = mockk<GetAllPlatformGroupsUseCase>(relaxed = true),
             computeSystemWideMetrics = mockk<ComputeSystemWideMetricsUseCase>(relaxed = true),
             getGroupPlatformMetrics = getGroupPlatformMetrics,
+            calculateGroupHealthScore = calculateGroupHealthScore,
             deleteGroupFromPlatformUseCase = mockk<DeleteGroupFromPlatformUseCase>(relaxed = true),
             getPlatformDistributions = mockk<GetPlatformDistributionsUseCase>(relaxed = true)
         )
@@ -121,6 +127,57 @@ class PlatformGroupMetricsTest {
             Result.failure(IllegalStateException("[SYS_001] GROUP_METRICS_NOT_FOUND"))
 
         viewModel.fetchGroupMetrics("g-1")
+        advanceUntilIdle()
+
+        val events = viewModel.events.take(1).toList()
+        assertTrue("emitted events: $events", events.singleOrNull() is UIEvent.ShowError)
+    }
+
+    // The score row and the "View full health report" button live behind this field, so a dialog that
+    // never fills it is a dialog with no way into the report the admin is being pointed at.
+    @Test
+    fun `an accepted health score fetch publishes that group's score`() = runTest {
+        val score = GroupHealthScore(
+            groupId = "g-1",
+            overallScore = 82,
+            zone = RiskZone.GREEN,
+            generatedAt = "2026-11-03T00:00:00Z"
+        )
+        coEvery { calculateGroupHealthScore("g-1") } returns Result.success(score)
+
+        viewModel.fetchGroupHealthScore("g-1")
+        advanceUntilIdle()
+
+        assertEquals(score, viewModel.state.value.selectedGroupHealthScore)
+        assertEquals(false, viewModel.state.value.isLoadingHealthScore)
+    }
+
+    @Test
+    fun `a health score fetch for another group cannot keep the previous score on screen`() = runTest {
+        val firstScore = GroupHealthScore("g-1", 82, RiskZone.GREEN, generatedAt = "2026-11-03T00:00:00Z")
+        coEvery { calculateGroupHealthScore("g-1") } returns Result.success(firstScore)
+        viewModel.fetchGroupHealthScore("g-1")
+        advanceUntilIdle()
+        assertEquals(firstScore, viewModel.state.value.selectedGroupHealthScore)
+
+        coEvery { calculateGroupHealthScore("g-2") } returns
+            Result.failure(IllegalStateException("[SYS_001] GROUP_NOT_FOUND"))
+        viewModel.fetchGroupHealthScore("g-2")
+
+        assertEquals(true, viewModel.state.value.isLoadingHealthScore)
+        assertNull(viewModel.state.value.selectedGroupHealthScore)
+
+        advanceUntilIdle()
+        assertNull(viewModel.state.value.selectedGroupHealthScore)
+        assertEquals(false, viewModel.state.value.isLoadingHealthScore)
+    }
+
+    @Test
+    fun `a refused health score fetch is reported`() = runTest {
+        coEvery { calculateGroupHealthScore("g-1") } returns
+            Result.failure(IOException("health score read failed"))
+
+        viewModel.fetchGroupHealthScore("g-1")
         advanceUntilIdle()
 
         val events = viewModel.events.take(1).toList()

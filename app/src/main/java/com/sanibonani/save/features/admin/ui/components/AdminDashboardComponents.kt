@@ -154,7 +154,6 @@ fun AdminDashboardBannerSection(
                 AdminFeeBanner(
                     group = group,
                     status = state.feeStatus,
-                    daysOverdue = state.daysOverdue,
                     onAction = {
                         group.id?.let { groupId ->
                             onNavigateToPayment("registration", state.platformRegistrationFee, groupId)

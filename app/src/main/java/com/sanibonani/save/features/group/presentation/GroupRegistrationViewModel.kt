@@ -70,13 +70,12 @@ data class GroupRegistrationState(
     val goalAmount: String = "0",
     val periodMonths: String = "6",
     val roscaCycle: Int = 6,
-    val geohash: String? = null,
     val currentStep: Int = 1,
     val totalSteps: Int = 6,
     val isLoggedIn: Boolean = false,
     val constitutionUrl: String? = null,
-    val constitutionStatus: DocumentStatus = DocumentStatus.PENDING,
     val pendingConstitutionName: String? = null,
+    val constitutionWarning: String? = null,
     val useStandardConstitution: Boolean = false,
     val platformRegistrationFee: Money = Money.ZERO
 ) {
@@ -207,18 +206,18 @@ class GroupRegistrationViewModel @Inject constructor(
                 "maxMembers", "maxBeneficiaries", "beneficiaryIncreasePct", "goalAmount", "periodMonths"
             ) { it.copy(type = event.type) }
             is GroupFormEvent.ProvinceSelected -> updateField("province") {
-                it.copy(province = event.province, latitude = null, longitude = null, geohash = null)
+                it.copy(province = event.province, latitude = null, longitude = null)
             }
             is GroupFormEvent.CityChanged -> {
-                updateField("city") { it.copy(city = event.city, latitude = null, longitude = null, geohash = null) }
+                updateField("city") { it.copy(city = event.city, latitude = null, longitude = null) }
                 searchAddress(event.city)
             }
             is GroupFormEvent.TownshipChanged -> {
-                updateField("township") { it.copy(township = event.township, latitude = null, longitude = null, geohash = null) }
+                updateField("township") { it.copy(township = event.township, latitude = null, longitude = null) }
                 searchAddress(event.township)
             }
             is GroupFormEvent.StreetChanged -> {
-                updateField("street") { it.copy(street = event.street, latitude = null, longitude = null, geohash = null) }
+                updateField("street") { it.copy(street = event.street, latitude = null, longitude = null) }
                 searchAddress(event.street)
             }
             is GroupFormEvent.DescriptionChanged -> updateField("description") { it.copy(description = event.description) }

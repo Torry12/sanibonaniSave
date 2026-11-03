@@ -79,7 +79,7 @@ class PlatformFeeConfigViewModel @Inject constructor(
 
     fun saveGlobalFees() {
         launchJob("save_fees") {
-            updateState { it.copy(isSaving = true) }
+            updateState { it.copy(isSaving = true, saveSuccess = false) }
             val current = uiState.value
             val invalid = firstInvalidFeeField(current)
             val suspensionDays = current.autoSuspensionDays.trim().toIntOrNull()?.takeIf { it > 0 }

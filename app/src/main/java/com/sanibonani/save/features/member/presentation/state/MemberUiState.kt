@@ -48,16 +48,13 @@ data class MemberUiState(
     val selectedTab: Int = 0,
     val isLoading: Boolean = true,
     val error: String? = null,
-    val fieldErrors: Map<String, String> = emptyMap(),
 
     // Document upload state
-    val uploadProgress: Double? = null,
     val isUploading: Boolean = false,
     val profileImageVersion: Long = 0L,
 
     // Export state
     val isExporting: Boolean = false,
-    val exportFile: File? = null,
 
     // Messaging state
     val messageText: String = "",
@@ -68,7 +65,6 @@ data class MemberUiState(
     val biometricEnabled: Boolean = false,
 
     // Verification
-    val verificationResult: VerificationResult = VerificationResult.Valid,
     val cacheLastSyncByGroup: Map<String, Long> = emptyMap(),
     val isSystemOnline: Boolean = true,
     val isAirplaneMode: Boolean = false,
@@ -102,6 +98,8 @@ data class MemberUiState(
         beneficiaries = emptyList(),
         documents = emptyList(),
         loans = emptyList(),
+        burialClaims = emptyList(),
+        payouts = emptyList(),
         notifications = emptyList(),
         messages = emptyList(),
         isLoading = true,

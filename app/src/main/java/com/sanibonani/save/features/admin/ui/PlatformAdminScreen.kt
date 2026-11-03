@@ -235,20 +235,6 @@ fun PlatformAdminScreen(
         }
     }
 
-    state.error?.let { error ->
-        GlobalErrorBanner(
-            message = error,
-            onDismiss = { vm.clearError() },
-            isCritical = true,
-            actionLabel = "Retry",
-            onAction = {
-                analyticsVm.load()
-                disbursementsVm.load()
-                ledgerVm.load()
-            }
-        )
-    }
-
     if (state.showMfaChallenge) {
         MfaChallengeDialog(
             onVerify = { vm.verifyMfaChallenge(it) },

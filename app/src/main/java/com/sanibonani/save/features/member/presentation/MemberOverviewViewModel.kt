@@ -75,6 +75,18 @@ class MemberOverviewViewModel @Inject constructor(
         }
         loadMemberships()
         observeUnverifiedSections()
+        loadUserRole()
+    }
+
+    /**
+     * The portal hides the "Admin Dashboard" link unless the signed-in account is a group admin, so
+     * the role has to come from the session. The use case fails closed to MEMBER when it cannot read
+     * one, which is also the right answer for this screen.
+     */
+    private fun loadUserRole() {
+        launchJob("portal_role") {
+            updateState { it.copy(userRole = getCurrentUserRole()) }
+        }
     }
 
     /**
@@ -145,11 +157,20 @@ class MemberOverviewViewModel @Inject constructor(
     private fun loadMemberships() {
         val userId = getAttributableActorId() ?: return
         launchJob("membership_observation") {
+            // The flow re-emits on every sync pass, so one refusal is reported once: toasting the
+            // same failure on each pass buries the message the member has to act on.
+            var refusalReported = false
             observeMemberships(userId).collect { res ->
                 res.onSuccess { memberships ->
+                    refusalReported = false
                     updateState { it.copy(memberships = memberships) }
                     if (uiState.value.selectedGroupId == null && memberships.isNotEmpty()) {
                         selectGroup(memberships.first().groupId)
+                    }
+                }.onFailure { e ->
+                    if (!refusalReported) {
+                        refusalReported = true
+                        handleError(e, "Unable to load the groups you belong to. The list on screen may be out of date.")
                     }
                 }
             }

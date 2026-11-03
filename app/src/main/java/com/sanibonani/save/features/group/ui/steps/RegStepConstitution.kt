@@ -82,7 +82,7 @@ fun RegStepConstitution(s: GroupRegistrationState, vm: GroupRegistrationViewMode
         DocumentUploadCard(
             label = "Group Constitution",
             isUploaded = s.constitutionUrl != null || s.pendingConstitutionName != null,
-            status = if (s.pendingConstitutionName != null) DocumentStatus.PENDING else s.constitutionStatus,
+            status = DocumentStatus.PENDING,
             onUpload = { launcher.launch("application/pdf") }
         )
 
