@@ -123,33 +123,6 @@ abstract class BaseViewModel<S>(protected val initialState: S) : ViewModel() {
     }
 
     /**
-     * Shared Support Mode Guard
-     * Ensures that sensitive background updates are ignored if they conflict with an active impersonation.
-     *
-     * @param targetMemberId The specific member we are currently impersonating.
-     * @param contextMemberId The member ID associated with the data currently being received.
-     */
-    protected fun shouldIgnoreUpdate(
-        isImpersonating: Boolean,
-        impersonatorId: String?,
-        contextUserId: String?,
-        targetMemberId: String? = null,
-        contextMemberId: String? = null
-    ): Boolean {
-        if (isImpersonating && contextUserId == impersonatorId) {
-            // 🛡️ Privacy Guard: If the data belongs to the admin, we only allow it if it
-            // specifically matches the member record the admin is currently supporting.
-            if (targetMemberId != null && contextMemberId != null && targetMemberId == contextMemberId) {
-                AppLogger.d("BaseVM", "Allowing self-impersonation update for admin member $targetMemberId")
-                return false
-            }
-            AppLogger.d("BaseVM", "Ignoring background update for admin's own record while support mode is active.")
-            return true
-        }
-        return false
-    }
-
-    /**
      * Updates the UI state atomically.
      */
     protected fun updateState(reducer: (S) -> S) {

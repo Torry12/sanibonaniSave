@@ -242,6 +242,10 @@ class AdminOverviewViewModel @Inject constructor(
                     }
                 }.onFailure { e ->
                     updateState { it.copy(managedGroups = AsyncResult.Error(e.toUserMessage(), e.javaClass.simpleName)) }
+                    // No composable renders that verdict, so the refusal has to reach the surface
+                    // the dashboard already listens to: otherwise the group switcher simply never
+                    // appears and an offline admin cannot tell it from having one group.
+                    handleError(e, "Could not load the groups you administer.")
                 }
             }
         }

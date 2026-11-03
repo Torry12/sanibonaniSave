@@ -9,7 +9,9 @@ import com.sanibonani.save.domain.model.MemberStatus
 import com.sanibonani.save.domain.model.NotifChannel
 import com.sanibonani.save.domain.model.NotifEvent
 import com.sanibonani.save.domain.model.AppNotification
+import com.sanibonani.save.domain.model.Contribution
 import com.sanibonani.save.domain.model.ContributionStatus
+import com.sanibonani.save.domain.model.Group
 import com.sanibonani.save.domain.repository.member.MemberRepository
 import com.sanibonani.save.domain.repository.group.GroupRepository
 import com.sanibonani.save.domain.repository.equity.ContributionRepository
@@ -57,15 +59,23 @@ class ProbationCompletionWorker @AssistedInject constructor(
                     val memberId = member.id ?: return@forEach
 
                     // Enforce rule: A group member can only be active if joining fee is not outstanding
-                    val group = groupRepo.getGroupById(member.groupId).getOrNull()
+                    val groupResult = groupRepo.getGroupById(member.groupId)
                     val contributionsResult = contributionRepo.observeMemberContributions(memberId, member.groupId).first()
-                    val contributions = contributionsResult.getOrNull() ?: emptyList()
+                    if (!joiningFeeRuleIsReadable(groupResult, contributionsResult)) {
+                        AppLogger.w(
+                            "ProbationWorker",
+                            "Cannot verify the joining fee for ${member.fullName}: the group or contribution read was refused"
+                        )
+                        return@forEach
+                    }
+                    val group = groupResult.getOrThrow()
+                    val contributions = contributionsResult.getOrDefault(emptyList())
                     // A joining fee is written with allocation type "joining_fee"; the legacy
                     // spelling "registration_contribution" still exists in older rows.
                     val joiningFeePaid = contributions.any {
                         (it.type == "joining_fee" || it.type == "registration_contribution") && it.status == ContributionStatus.PAID
                     }
-                    val joiningFeeDue = group != null && group.joiningFee.isPositive && !joiningFeePaid
+                    val joiningFeeDue = group.joiningFee.isPositive && !joiningFeePaid
 
                     if (joiningFeeDue) {
                         AppLogger.w("ProbationWorker", "Cannot promote member ${member.fullName}: joining fee of ${group.joiningFee.format()} is outstanding")
@@ -141,3 +151,14 @@ class ProbationCompletionWorker @AssistedInject constructor(
         }
     }
 }
+
+/**
+ * The joining-fee rule only holds against books the cycle actually read. A refused group read
+ * used to arrive as `group == null`, which this rule read as "no fee owed" and promoted a member
+ * who may still owe one; a refused contribution read is the same gap in the other direction, so
+ * both defer the member to the next daily run instead of answering either way.
+ */
+internal fun joiningFeeRuleIsReadable(
+    groupResult: Result<Group>,
+    contributionsResult: Result<List<Contribution>>
+): Boolean = groupResult.isSuccess && contributionsResult.isSuccess

@@ -48,9 +48,22 @@ class FeeEnforcementWorker @AssistedInject constructor(
         return try {
             // The worker can run before any screen has hydrated the fee config, so it must
             // refresh first or it would enforce the in-code defaults.
-            refreshPlatformConfig().getOrNull()
+            val configRefresh = refreshPlatformConfig()
+            val groupResult = groupRepo.getGroupById(groupId)
+            when (feeCycleVerdict(configRefresh, groupResult)) {
+                // Either read missing means the cycle would bill, warn or suspend from the
+                // in-code defaults - or report a clean run over a group it never looked at.
+                FeeCycleVerdict.ReadsRefused -> {
+                    com.sanibonani.save.domain.logging.AppLogger.w(
+                        "FeeEnforcementWorker",
+                        "Deferring fee enforcement for group $groupId; the fee config or group read was refused"
+                    )
+                    return Result.retry()
+                }
+                FeeCycleVerdict.Enforce -> Unit
+            }
 
-            val group = groupRepo.getGroupById(groupId).getOrNull() ?: return Result.success()
+            val group = groupResult.getOrThrow()
 
             // Logic for automatic status transitions based on "days since due"
             // (Simplified simulation for offline worker)
@@ -147,3 +160,20 @@ class FeeEnforcementWorker @AssistedInject constructor(
         }
     }
 }
+
+internal enum class FeeCycleVerdict { Enforce, ReadsRefused }
+
+/**
+ * Whether this daily cycle has the two reads it acts on: the live fee config and the group
+ * whose standing it is computing. Kept apart from [FeeEnforcementWorker.doWork] so the refused
+ * branch is reachable from a JVM test; the worker itself cannot be instantiated off-device.
+ */
+internal fun feeCycleVerdict(
+    configRefresh: Result<PlatformConfig>,
+    groupResult: Result<Group>
+): FeeCycleVerdict =
+    if (configRefresh.isSuccess && groupResult.isSuccess) {
+        FeeCycleVerdict.Enforce
+    } else {
+        FeeCycleVerdict.ReadsRefused
+    }

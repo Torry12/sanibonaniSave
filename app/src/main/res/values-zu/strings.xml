@@ -130,6 +130,7 @@
     <string name="ui_support_mode_active_all_actions_are_logged">Imodi Yokusekela Iyasebenza — Zonke izenzo ziyarekhodwa.</string>
     <string name="ui_airplane_mode_active_syncing_is_paused">Imodi Yendiza Iyasebenza — Ukuvumelanisa kumisiwe.</string>
     <string name="ui_offline_mode_using_cached_data">Imodi Engaxhunyiwe Ku-inthanethi — Isebenzisa idatha egciniwe.</string>
+    <string name="ui_sections_not_confirmed_with_server">Ayiqinisekiswanga kuseva: %s.</string>
     <string name="ui_switch_group_label">Shintsha Iqembu: %s</string>
     <string name="ui_could_not_load_membership">Ayikwazanga ukulayisha ubulungu</string>
     <string name="ui_retry">Zama futhi</string>

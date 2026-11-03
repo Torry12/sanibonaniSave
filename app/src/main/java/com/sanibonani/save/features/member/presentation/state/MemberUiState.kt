@@ -80,7 +80,6 @@ data class MemberUiState(
 
     // Support / Impersonation
     val isImpersonating: Boolean = false,
-    val impersonatorId: String? = null,
     val targetMemberId: String? = null,
     val isImpersonationBannerDismissed: Boolean = false,
     val isExiting: Boolean = false,

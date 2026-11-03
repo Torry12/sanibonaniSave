@@ -130,6 +130,7 @@
     <string name="ui_support_mode_active_all_actions_are_logged">Mokhoa wa Tshehetso o Sebetsa — Liketso tsohle di rekhotitswe.</string>
     <string name="ui_airplane_mode_active_syncing_is_paused">Mokhoa wa Sefofane o Sebetsa — O time ho kopanya dintlha.</string>
     <string name="ui_offline_mode_using_cached_data">Mokhoa o sa Hokelang Inthaneteng — E sebelisa dintlha tse bolokiloeng.</string>
+    <string name="ui_sections_not_confirmed_with_server">Ha ka netefatsoa le seva: %s.</string>
     <string name="ui_switch_group_label">Fetola Sehlopha: %s</string>
     <string name="ui_could_not_load_membership">Ha ya kgona ho kenya bo-setho</string>
     <string name="ui_retry">Leka hape</string>

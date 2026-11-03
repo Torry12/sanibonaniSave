@@ -174,7 +174,6 @@ class MemberOverviewViewModel @Inject constructor(
             if (canImpersonate && targetGroupId != null) {
                 updateState { it.clearGroupContext().copy(
                     isImpersonating = true,
-                    impersonatorId = getAttributableActorId(),
                     targetMemberId = targetMemberId,
                     selectedGroupId = targetGroupId,
                     isExiting = false,
@@ -192,7 +191,6 @@ class MemberOverviewViewModel @Inject constructor(
             } else if (targetGroupId != null) {
                 updateState { it.clearGroupContext().copy(
                     isImpersonating = false,
-                    impersonatorId = null,
                     targetMemberId = null,
                     selectedGroupId = targetGroupId,
                     isExiting = false,
@@ -202,7 +200,6 @@ class MemberOverviewViewModel @Inject constructor(
             } else {
                 updateState { it.clearGroupContext().copy(
                     isImpersonating = false,
-                    impersonatorId = null,
                     targetMemberId = null,
                     isExiting = false,
                     isLoading = false
@@ -231,7 +228,6 @@ class MemberOverviewViewModel @Inject constructor(
         updateState {
             it.clearGroupContext().copy(
                 isImpersonating = false,
-                impersonatorId = null,
                 targetMemberId = null,
                 isExiting = operatorId != null,
                 isLoading = false

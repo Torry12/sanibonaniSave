@@ -43,6 +43,7 @@ import com.sanibonani.save.features.common.presentation.UIEvent
 import com.sanibonani.save.service.AdminGroupContextCacheService
 import com.sanibonani.save.service.CachedAdminGroupContext
 import io.mockk.*
+import java.io.IOException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
@@ -516,6 +517,26 @@ class AdminOverviewViewModelTest {
         )
         assertTrue(
             "the admin has to be told the read failed",
+            viewModel.events.first() is UIEvent.ShowError
+        )
+    }
+
+    @Test
+    fun `a refused managed-groups read is reported instead of silently hiding the switcher`() = runTest {
+        // The verdict field recorded the refusal, but no composable renders AsyncResult.Error
+        // for it, so the only visible change was that the group switcher never appeared.
+        every { getManagedGroupsUseCase.observeManagedGroups(any(), any(), any()) } returns
+            flowOf(Result.failure(IOException("managed groups read failed")))
+
+        viewModel.setActive(true)
+        advanceUntilIdle()
+
+        assertTrue(
+            "the roster must record that the server refused it",
+            viewModel.state.value.managedGroups is AsyncResult.Error
+        )
+        assertTrue(
+            "the admin has to be told the roster did not load",
             viewModel.events.first() is UIEvent.ShowError
         )
     }
