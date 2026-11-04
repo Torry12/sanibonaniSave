@@ -1,6 +1,7 @@
 package com.sanibonani.save.service
 
 import com.sanibonani.save.domain.utils.safeRunCatching
+import com.sanibonani.save.domain.logging.AppLogger
 import com.sanibonani.save.domain.utils.PaymentCalculation
 import com.sanibonani.save.domain.utils.PaymentCalculator
 import com.sanibonani.save.domain.utils.filterNotificationsForMember
@@ -152,6 +153,13 @@ class MemberGroupContextCacheService @Inject constructor(
 			warmupCoordinator.runExclusive(groupId, scope) {
 				hydrateImpersonatedMember(memberId, groupId)
 			}
+		}.onFailure {
+			// The screen shows a refusal as a message with no member in it, and the entry can stop at
+			// any of six reads, so the trace has to name who was being opened and where it halted.
+			AppLogger.w(
+				"MemberGroupContextCache",
+				"Support Mode entry for member $memberId stopped in group $groupId: ${it.message}"
+			)
 		}
 
 	private suspend fun hydrateImpersonatedMember(memberId: String, groupId: String): CachedGroupContext {
@@ -176,7 +184,7 @@ class MemberGroupContextCacheService @Inject constructor(
 			val next = reducer(current)
 			// The clock is deliberately left out of this comparison: it is the only field that
 			// differs when a warm-up reads the same book twice, and a snapshot that looks new sends
-			// the portal re-subscribing all eight of its observation flows - each with a Supabase
+			// the portal re-subscribing all nine of its observation flows - each with a Supabase
 			// read and a Room write behind it.
 			if (next.copy(lastUpdatedMillis = current.lastUpdatedMillis) == current) {
 				cache
@@ -242,6 +250,23 @@ class MemberGroupContextCacheService @Inject constructor(
 				beneficiaries = beneficiariesTask.await(),
 				loans = loansTask.await(),
 				notifications = notificationsTask.await()
+			)
+		}
+
+		// The snapshot keeps whatever it already held, so a pillar that did not answer is invisible on
+		// screen: this is the only trace of which part of the book is being shown from the cache.
+		val missed = listOfNotNull(
+			"group".takeIf { groupOutcome.isFailure },
+			"member".takeIf { memberOutcome.isFailure },
+			"contributions".takeIf { hydrated.contributions.isFailure },
+			"beneficiaries".takeIf { hydrated.beneficiaries.isFailure },
+			"loans".takeIf { hydrated.loans.isFailure },
+			"notifications".takeIf { hydrated.notifications.isFailure }
+		)
+		if (missed.isNotEmpty()) {
+			AppLogger.w(
+				"MemberGroupContextCache",
+				"Group $groupId hydration kept the cached ${missed.joinToString()}."
 			)
 		}
 

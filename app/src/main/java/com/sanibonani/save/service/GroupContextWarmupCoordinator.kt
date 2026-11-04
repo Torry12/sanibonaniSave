@@ -1,5 +1,6 @@
 package com.sanibonani.save.service
 
+import com.sanibonani.save.domain.logging.AppLogger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
@@ -86,8 +87,22 @@ internal class GroupContextWarmupCoordinator {
             slot
         }
         superseded?.cancel()
-        // Its last snapshot write has to land before this run reads, or stale data wins.
-        superseded?.join()
+        // Its last snapshot write has to land before this run reads, or stale data wins. The wait is
+        // what a Support Mode entry stalls on when a sweep is parked in a slow network read, and
+        // nothing on screen distinguishes that from a hydration that never started.
+        val held = superseded
+        if (held != null) {
+            val since = System.currentTimeMillis()
+            AppLogger.w(
+                "GroupWarmup",
+                "Hydration for group $groupId is waiting for the warmup already running for it."
+            )
+            held.join()
+            AppLogger.w(
+                "GroupWarmup",
+                "Group $groupId's superseded warmup unwound after ${System.currentTimeMillis() - since}ms."
+            )
+        }
         try {
             block()
         } finally {

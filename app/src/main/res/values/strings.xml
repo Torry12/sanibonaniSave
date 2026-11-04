@@ -137,6 +137,7 @@
     <string name="ui_could_not_load_membership">Could not load membership</string>
     <string name="ui_retry">Retry</string>
     <string name="ui_total_savings">Total Savings</string>
+    <string name="ui_member_platform_fees_paid">Platform Fees Paid</string>
     <string name="ui_next_payment_label">Next Payment</string>
     <string name="ui_overdue">Overdue</string>
     <string name="ui_due_soon">Due Soon</string>

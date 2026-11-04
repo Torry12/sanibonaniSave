@@ -137,6 +137,7 @@
     <string name="ui_could_not_load_membership">Ayikwazanga ukulayisha ubulungu</string>
     <string name="ui_retry">Zama futhi</string>
     <string name="ui_total_savings">Ingqikithi Yokonga</string>
+    <string name="ui_member_platform_fees_paid">Imali Yenkundla</string>
     <string name="ui_next_payment_label">Inkokhelo Elandelayo</string>
     <string name="ui_overdue">Eyephuzile</string>
     <string name="ui_due_soon">Izofuneka Maduze</string>

@@ -294,7 +294,14 @@ class MemberOverviewViewModel @Inject constructor(
         val state = uiState.value
         val groupId = state.selectedGroupId ?: return
         val impersonated = state.member.takeIf { state.isImpersonating }
-        if (state.isImpersonating && impersonated == null) return
+        if (state.isImpersonating && impersonated == null) {
+            // The hydration never produced a record, so there is no member to re-pull. Returning here
+            // left the refusal screen's Retry - the only control still on screen - doing nothing; the
+            // targeted id is still in the state, so the refresh this needs is the entry itself.
+            val targetMemberId = state.targetMemberId ?: return
+            setPortalContext(targetMemberId, groupId)
+            return
+        }
         val userId = if (state.isImpersonating) {
             impersonated?.userId.orEmpty()
         } else {

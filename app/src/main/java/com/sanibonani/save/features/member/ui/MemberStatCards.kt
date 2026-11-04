@@ -87,6 +87,18 @@ fun MemberStatCards(state: com.sanibonani.save.features.member.presentation.stat
             }
         }
 
+        // --- Card 1b: the money the platform kept, so the savings card can stay a savings figure ---
+        if (state.platformFeesPaid.isPositive) {
+            item {
+                StatCard(
+                    title = "🧾",
+                    value = formatZAR(state.platformFeesPaid),
+                    label = stringResource(R.string.ui_member_platform_fees_paid),
+                    modifier = Modifier.width(160.dp)
+                )
+            }
+        }
+
         // --- Card 2: Obligations / Next Action ---
         item {
             val memberMonthlyAmount = state.monthlyContributionAmount

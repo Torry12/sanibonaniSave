@@ -159,13 +159,15 @@ fun MemberDashboardScreen(
 
     // ── Privacy Lock Hardening ──
     // If Support Mode is active, we MUST NOT show the dashboard until the specifically
-    // targeted member's record is loaded. We check both member.id and member.userId against targetMemberId.
-    val isPrivacyLocked = overviewState.isImpersonating && !overviewState.isExiting &&
-            (overviewState.member == null ||
-             (overviewState.member?.id != overviewState.targetMemberId &&
-              overviewState.member?.userId != overviewState.targetMemberId))
+    // targeted member's record is loaded. The check lives in MemberUiState because a refused
+    // entry has to release it: no record is coming, and the lock outranked the refusal below.
+    val isPrivacyLocked = overviewState.isPrivacyLocked
 
-    if ((overviewState.isLoading || isPrivacyLocked) && (overviewState.member == null || overviewState.group == null) && !overviewState.isExiting) {
+    val showPortalLoading = (overviewState.isLoading || isPrivacyLocked) &&
+            (overviewState.member == null || overviewState.group == null) &&
+            !overviewState.isExiting && !overviewState.supportEntryWasRefused
+
+    if (showPortalLoading) {
         SanibonaniLoadingScreen(message = if (isPrivacyLocked) stringResource(R.string.ui_entering_support_mode) else stringResource(R.string.ui_syncing_your_portal))
     } else {
         AdaptiveScaffold(

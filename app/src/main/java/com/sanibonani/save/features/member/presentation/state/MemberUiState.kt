@@ -112,21 +112,67 @@ data class MemberUiState(
         error = null
     )
 
+    /**
+     * Support Mode was entered but its hydration refused before any of the targeted member's book
+     * arrived. No record is coming, so there is nothing left to keep hidden and the refusal is the
+     * only thing the admin can act on.
+     */
+    val supportEntryWasRefused: Boolean
+        get() = isImpersonating && !isExiting && member == null && error != null
+
+    /**
+     * Whether the portal must withhold what it shows because the targeted member's record has not
+     * been verified yet.
+     *
+     * A refusal releases it: the screen's loading branch outranks the error branch, so a lock held
+     * over a refused entry rendered "Entering Support Mode…" forever with no top bar to exit from.
+     */
+    val isPrivacyLocked: Boolean
+        get() = isImpersonating && !isExiting && !supportEntryWasRefused &&
+            (member == null || (member.id != targetMemberId && member.userId != targetMemberId))
+
+    /**
+     * Paid to the platform rather than into the group: the types `internal_post_contribution` books
+     * to `platform_ledger`. A row the server still owes is not money paid, so only paid rows count.
+     */
+    val platformFeesPaid: Money
+        get() = contributions.filter { it.status == ContributionStatus.PAID && it.isPlatformFee }
+            .fold(Money.ZERO) { acc, c -> acc + c.amount }
+
+    /**
+     * Money the group actually holds for this member.
+     *
+     * `members.total_paid` is derived by `fn_sync_single_member_financials`, which counts a paid
+     * `registration_contribution` although that fee was booked to the platform - the split that let a
+     * member with nothing but a joining fee be shown R500 of savings beside an empty ledger. The fee
+     * rows are subtracted from whichever source answers, and an empty contributions list subtracts
+     * nothing: a read that never ran must not turn into an asserted R0.
+     */
     val totalSavings: Money
         get() {
-            if (member?.totalPaid?.isPositive == true) return member.totalPaid
-            val contribSum = contributions.filter { it.status == ContributionStatus.PAID }.fold(Money.ZERO) { acc, c -> acc + c.amount }
-            if (contribSum.isPositive) return contribSum
-            return memberLedger.filter { it.amount.isPositive }.fold(Money.ZERO) { acc, e -> acc + e.amount }
+            val cachedTotalPaid = member?.totalPaid ?: Money.ZERO
+            val paidContributionSum = contributions
+                .filter { it.status == ContributionStatus.PAID }
+                .fold(Money.ZERO) { acc, c -> acc + c.amount }
+            val ledgerInflow = memberLedger
+                .filter { it.amount.isPositive }
+                .fold(Money.ZERO) { acc, e -> acc + e.amount }
+            val paidIn = when {
+                cachedTotalPaid.isPositive -> cachedTotalPaid
+                paidContributionSum.isPositive -> paidContributionSum
+                else -> ledgerInflow
+            }
+            return (paidIn - platformFeesPaid).coerceAtLeast(Money.ZERO)
         }
 
     /**
      * Whether the activity list may call an empty [memberLedger] "no transactions".
      *
      * The list is the only reader of the member's ledger rows, while the header sums contributions -
-     * two different books - so an empty list is only a fact once the read has answered for the member
-     * on screen and the TREASURY pillar that fills this table has landed. Until then the screen knows
-     * nothing and has to say so.
+     * two different books, though [totalSavings] now leaves out the fees that keep the ledger empty -
+     * so an empty list is only a fact once the read has answered for the member on screen and the
+     * TREASURY pillar that fills this table has landed. Until then the screen knows nothing and has
+     * to say so.
      */
     val memberActivityIsUnconfirmed: Boolean
         get() = memberLedger.isEmpty() &&
