@@ -44,6 +44,8 @@ fun MemberTransactionsTab(
     onItemClick: (LedgerEntry) -> Unit,
     onRefresh: () -> Unit = {},
     windowSizeClass: WindowSizeClass,
+    /** False while the read that fills [ledger] has not answered, or the ledger pillar is stale. */
+    ledgerUnconfirmed: Boolean = false,
 ) {
     val navigator = rememberListDetailPaneScaffoldNavigator<LedgerEntry>()
     var selectedEntry by remember { mutableStateOf<LedgerEntry?>(null) }
@@ -64,6 +66,7 @@ fun MemberTransactionsTab(
         listPane = {
             MemberTransactionsList(
                 ledger = ledger,
+                ledgerUnconfirmed = ledgerUnconfirmed,
                 isExporting = isExporting,
                 onExportCsv = onExportCsv,
                 onDownloadPdf = onDownloadPdf,
@@ -88,6 +91,7 @@ fun MemberTransactionsTab(
 @Composable
 fun MemberTransactionsList(
     ledger: List<LedgerEntry>,
+    ledgerUnconfirmed: Boolean,
     isExporting: Boolean,
     onExportCsv: () -> Unit,
     onDownloadPdf: () -> Unit,
@@ -125,8 +129,11 @@ fun MemberTransactionsList(
                 item {
                     EmptyState(
                         icon = "💸",
-                        title = "No transactions",
-                        description = "No ledger entries found.",
+                        title = if (ledgerUnconfirmed) "Transactions unavailable" else "No transactions",
+                        description = stringResource(
+                            if (ledgerUnconfirmed) R.string.ui_member_activity_not_confirmed
+                            else R.string.ui_member_activity_no_group_entries
+                        ),
                         actionLabel = "Refresh",
                         onAction = onRefresh
                     )

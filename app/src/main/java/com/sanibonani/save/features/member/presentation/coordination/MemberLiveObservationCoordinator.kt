@@ -1,6 +1,7 @@
 package com.sanibonani.save.features.member.presentation.coordination
 
 import com.sanibonani.save.domain.model.Group
+import com.sanibonani.save.domain.logging.AppLogger
 import com.sanibonani.save.domain.usecase.credit.ObserveMemberLoansUseCase
 import com.sanibonani.save.domain.usecase.disbursement.ObserveMemberPayoutsUseCase
 import com.sanibonani.save.domain.usecase.equity.ObserveMemberContributionsUseCase
@@ -76,9 +77,24 @@ class MemberLiveObservationCoordinator @Inject constructor(
                     }
                 }
                 launch {
+                    AppLogger.i(LEDGER_LOG_TAG, "member ledger read attempted for $memberId")
                     observeMemberLedger(memberId).collect { res ->
                         res.onSuccess { list ->
-                            updateSelectedGroup(host, groupId) { it.copy(memberLedger = list) }
+                            // The count is the only thing that separates "this member has no group
+                            // entries" from "the read never ran" on a device whose firmware drops
+                            // app-authored logcat lines; files/diagnostics.log carries both words.
+                            AppLogger.i(
+                                LEDGER_LOG_TAG,
+                                "member ledger read answered with ${ledgerCountWords(list.size)} for $memberId"
+                            )
+                            updateSelectedGroup(host, groupId) {
+                                it.copy(memberLedger = list, memberLedgerAnswered = true)
+                            }
+                        }.onFailure { e ->
+                            AppLogger.w(
+                                LEDGER_LOG_TAG,
+                                "member ledger read refused for $memberId: ${e.message.orEmpty()}"
+                            )
                         }
                     }
                 }
@@ -121,5 +137,15 @@ class MemberLiveObservationCoordinator @Inject constructor(
         host.updateMemberState { state ->
             if (state.selectedGroupId == groupId) reducer(state) else state
         }
+    }
+
+    private fun ledgerCountWords(size: Int): String = "$size ${if (size == 1) "entry" else "entries"}"
+
+    companion object {
+        /**
+         * Its own tag so one grep of the diagnostics file answers the one question the portal cannot:
+         * whether this member's ledger was read, and what it came back with.
+         */
+        const val LEDGER_LOG_TAG = "MemberLedgerRead"
     }
 }

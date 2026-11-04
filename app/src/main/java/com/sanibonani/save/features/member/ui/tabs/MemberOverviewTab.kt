@@ -184,10 +184,17 @@ fun MemberOverviewTab(
         item {
             SanibonaniSectionHeader("Recent Activity", subtitle = "Your latest ledger entries")
             if (recentActivity.isEmpty()) {
+                // "No transactions" is a claim about the member's book, and an unanswered read or a
+                // stale ledger pillar is not one - the header above already shows money saved from
+                // contributions, so the two lists must not contradict each other by accident.
+                val unconfirmed = uiState.memberActivityIsUnconfirmed
                 EmptyState(
                     icon = "💸",
-                    title = "No transactions",
-                    description = "Your financial history will appear here.",
+                    title = if (unconfirmed) "Transactions unavailable" else "No transactions",
+                    description = stringResource(
+                        if (unconfirmed) R.string.ui_member_activity_not_confirmed
+                        else R.string.ui_member_activity_no_group_entries
+                    ),
                     actionLabel = "Refresh",
                     onAction = { vm.refreshData() }
                 )

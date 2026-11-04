@@ -45,6 +45,7 @@ fun MemberTabContent(
             )
             1 -> MemberTransactionsTab(
                 ledger = state.memberLedger,
+                ledgerUnconfirmed = state.memberActivityIsUnconfirmed,
                 isExporting = state.isExporting,
                 onExportCsv = { overviewVm.downloadCsvStatement() },
                 onDownloadPdf = { overviewVm.downloadPdfStatement() },

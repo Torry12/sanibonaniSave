@@ -20,6 +20,11 @@ data class MemberUiState(
     // Financial data
     val contributions: List<Contribution> = emptyList(),
     val memberLedger: List<LedgerEntry> = emptyList(),
+    /**
+     * The member's own ledger read has answered at least once for the member on screen. Room answers
+     * from the cache, so this says a read ran - not that the server agreed with it.
+     */
+    val memberLedgerAnswered: Boolean = false,
     val paymentCalculation: PaymentCalculation? = null,
     val monthlyContributionAmount: Money = Money.ZERO,
 
@@ -94,6 +99,7 @@ data class MemberUiState(
         group = null,
         contributions = emptyList(),
         memberLedger = emptyList(),
+        memberLedgerAnswered = false,
         paymentCalculation = null,
         beneficiaries = emptyList(),
         documents = emptyList(),
@@ -113,6 +119,18 @@ data class MemberUiState(
             if (contribSum.isPositive) return contribSum
             return memberLedger.filter { it.amount.isPositive }.fold(Money.ZERO) { acc, e -> acc + e.amount }
         }
+
+    /**
+     * Whether the activity list may call an empty [memberLedger] "no transactions".
+     *
+     * The list is the only reader of the member's ledger rows, while the header sums contributions -
+     * two different books - so an empty list is only a fact once the read has answered for the member
+     * on screen and the TREASURY pillar that fills this table has landed. Until then the screen knows
+     * nothing and has to say so.
+     */
+    val memberActivityIsUnconfirmed: Boolean
+        get() = memberLedger.isEmpty() &&
+            (!memberLedgerAnswered || unverifiedSections.contains(DomainPillar.TREASURY.name.lowercase()))
 }
 
 data class MemberContextPackage(

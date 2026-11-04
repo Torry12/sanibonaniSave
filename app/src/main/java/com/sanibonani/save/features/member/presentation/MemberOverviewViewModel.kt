@@ -50,6 +50,9 @@ class MemberOverviewViewModel @Inject constructor(
 
     val state: StateFlow<MemberUiState> = uiState
 
+    /** The group/member pair the live reads are currently streaming, or null when nothing runs. */
+    private var liveObservationSubject: String? = null
+
     private val host = object : MemberActionHost {
         override val memberState: StateFlow<MemberUiState> get() = uiState
 
@@ -125,7 +128,7 @@ class MemberOverviewViewModel @Inject constructor(
         val partialSupportMemberId = state.targetMemberId.takeIf { state.isImpersonating }
         val pkg = context?.toMemberContextPackage(partialSupportMemberId)
         if (pkg == null) {
-            cancelJob("live_observation")
+            stopLiveObservation()
             if (context != null) updateState { it.copy(isLoading = true) }
             return
         }
@@ -147,13 +150,29 @@ class MemberOverviewViewModel @Inject constructor(
         }
 
         val liveMemberId = pkg.member.id.serverIdOrReport("member")
-        if (liveMemberId == null) cancelJob("live_observation")
+        if (liveMemberId == null) stopLiveObservation()
         else startLiveObservation(liveMemberId, pkg.group)
     }
 
     private fun startLiveObservation(memberId: String, group: Group) {
         val groupId = group.id.serverIdOrReport("group") ?: return
+        val subject = "$groupId|$memberId"
+        // The cache re-emits the selected snapshot on every warm-up pass, because the pass stamps a
+        // newer lastUpdatedMillis onto it. That is the same member and the same book, and restarting
+        // here would cancel and re-run all nine live reads for no new data - which a Support Mode
+        // session does several times a minute.
+        if (liveObservationSubject == subject) return
+        liveObservationSubject = subject
         liveObservation.start(host, groupId, memberId, group)
+    }
+
+    /**
+     * Ends the live reads and forgets which member they were reading, so the next snapshot for the
+     * same subject is allowed to start them again.
+     */
+    private fun stopLiveObservation() {
+        liveObservationSubject = null
+        cancelJob("live_observation")
     }
 
     private fun loadMemberships() {
@@ -248,6 +267,9 @@ class MemberOverviewViewModel @Inject constructor(
     fun clearImpersonation(onComplete: () -> Unit = {}) {
         val operatorId = getAttributableActorId()
         cancelJob("portal_context_transition")
+        // The live reads stream the impersonated member's book; leaving them running would keep
+        // writing that member's ledger into the portal the operator is about to see as their own.
+        stopLiveObservation()
         updateState {
             it.clearGroupContext().copy(
                 isImpersonating = false,
@@ -314,7 +336,8 @@ class MemberOverviewViewModel @Inject constructor(
                 }
             }
         } else {
-            listOf("context_observation", "live_observation", "insights_loading", "audit_report", "context_warmup").forEach { cancelJob(it) }
+            listOf("context_observation", "insights_loading", "audit_report", "context_warmup").forEach { cancelJob(it) }
+            stopLiveObservation()
         }
     }
 

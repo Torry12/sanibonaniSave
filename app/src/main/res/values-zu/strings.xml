@@ -131,6 +131,8 @@
     <string name="ui_airplane_mode_active_syncing_is_paused">Imodi Yendiza Iyasebenza — Ukuvumelanisa kumisiwe.</string>
     <string name="ui_offline_mode_using_cached_data">Imodi Engaxhunyiwe Ku-inthanethi — Isebenzisa idatha egciniwe.</string>
     <string name="ui_sections_not_confirmed_with_server">Ayiqinisekiswanga kuseva: %s.</string>
+    <string name="ui_member_activity_not_confirmed">Leli danhla aliqinisekiswanga kuseva, ngakho ikhusi elingenalutho lifakazeli lutho. Hudula ukuze uvuselele.</string>
+    <string name="ui_member_activity_no_group_entries">Azikho izangokwazi kwincwadi yeqembu yalolu lungu. Imali yokubhalisa noma yelungu iyimali yenkundla futhi ayibhalwa kwincwadi yeqembu.</string>
     <string name="ui_switch_group_label">Shintsha Iqembu: %s</string>
     <string name="ui_could_not_load_membership">Ayikwazanga ukulayisha ubulungu</string>
     <string name="ui_retry">Zama futhi</string>
