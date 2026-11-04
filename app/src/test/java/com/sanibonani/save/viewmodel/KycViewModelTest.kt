@@ -122,8 +122,10 @@ class KycViewModelTest {
         viewModel.onSelfieCaptured(readableUri("/sdcard/DCIM/selfie.jpg"), "member-1")
         advanceUntilIdle()
 
-        assertEquals("/sdcard/DCIM/id-front.jpg", idFile.captured.path)
-        assertEquals("/sdcard/DCIM/selfie.jpg", selfieFile.captured.path)
+        // java.io.File rewrites separators for the host OS, so the expectation is the same
+        // construction the ViewModel makes rather than a literal Android path.
+        assertEquals(File("/sdcard/DCIM/id-front.jpg").path, idFile.captured.path)
+        assertEquals(File("/sdcard/DCIM/selfie.jpg").path, selfieFile.captured.path)
     }
 
     // The two `?: return` guards are the only thing standing between a photo the app cannot read

@@ -16,7 +16,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.StandardTestDispatcher
-import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
@@ -101,7 +100,7 @@ class FinancialProviderLoadStateTest {
         assertEquals(listOf(bankProvider), viewModel.state.value.providers)
 
         providersFlow.value = Result.failure(IOException("providers read refused"))
-        advanceUntilIdle()
+        testDispatcher.scheduler.advanceUntilIdle()
 
         assertEquals(listOf(bankProvider), viewModel.state.value.providers)
         assertNotNull(viewModel.state.value.error)
@@ -114,7 +113,7 @@ class FinancialProviderLoadStateTest {
         assertNotNull(viewModel.state.value.error)
 
         providersFlow.value = Result.success(listOf(bankProvider))
-        advanceUntilIdle()
+        testDispatcher.scheduler.advanceUntilIdle()
 
         assertNull(viewModel.state.value.error)
         assertEquals(listOf(bankProvider), viewModel.state.value.providers)
@@ -128,7 +127,7 @@ class FinancialProviderLoadStateTest {
 
         providersFlow.value = Result.success(listOf(bankProvider))
         viewModel.loadProviders()
-        advanceUntilIdle()
+        testDispatcher.scheduler.advanceUntilIdle()
 
         assertNull(viewModel.state.value.error)
     }

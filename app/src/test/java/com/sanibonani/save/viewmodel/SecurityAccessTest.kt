@@ -3,6 +3,7 @@ package com.sanibonani.save.viewmodel
 import com.sanibonani.save.domain.model.UserRole
 import com.sanibonani.save.domain.repository.auth.*
 import com.sanibonani.save.domain.service.MfaService
+import com.sanibonani.save.domain.service.RealtimeSyncService
 import com.sanibonani.save.domain.usecase.auth.GetCurrentUserRoleUseCase
 import com.sanibonani.save.domain.usecase.auth.VerifyMfaChallengeUseCase
 import com.sanibonani.save.features.admin.presentation.PlatformAdminViewModel
@@ -22,6 +23,7 @@ class SecurityAccessTest {
 
     private val supabaseRepo = mockk<SupabaseRepository>(relaxed = true)
     private val mfaService = mockk<MfaService>(relaxed = true)
+    private val syncService = mockk<RealtimeSyncService>(relaxed = true)
 
     private val testDispatcher = StandardTestDispatcher()
 
@@ -29,6 +31,7 @@ class SecurityAccessTest {
     fun setup() {
         Dispatchers.setMain(testDispatcher)
         every { supabaseRepo.sessionFlow } returns MutableStateFlow(null)
+        every { syncService.syncMetrics } returns MutableStateFlow(emptyMap())
     }
 
     @After
@@ -43,7 +46,8 @@ class SecurityAccessTest {
 
         val viewModel = PlatformAdminViewModel(
             GetCurrentUserRoleUseCase(supabaseRepo),
-            VerifyMfaChallengeUseCase(mfaService)
+            VerifyMfaChallengeUseCase(mfaService),
+            syncService
         )
 
         advanceUntilIdle()
@@ -57,7 +61,8 @@ class SecurityAccessTest {
 
         val viewModel = PlatformAdminViewModel(
             GetCurrentUserRoleUseCase(supabaseRepo),
-            VerifyMfaChallengeUseCase(mfaService)
+            VerifyMfaChallengeUseCase(mfaService),
+            syncService
         )
 
         advanceUntilIdle()

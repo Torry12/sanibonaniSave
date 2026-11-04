@@ -167,7 +167,12 @@ class PlatformFeeConfigSaveTest {
     fun `a second save clears the previous saved notice before the server answers`() = runTest {
         fillAllFees()
         val pending = CompletableDeferred<Result<Unit>>()
-        coEvery { platformRepo.updateGlobalFees(any()) } returns pending.await()
+        var saves = 0
+        // coAnswers, not returns: the answer has to be produced per call, and awaiting the deferred
+        // while stubbing would block the test body before the first save ever ran.
+        coEvery { platformRepo.updateGlobalFees(any()) } coAnswers {
+            if (saves++ == 0) Result.success(Unit) else pending.await()
+        }
 
         viewModel.saveGlobalFees()
         advanceUntilIdle()

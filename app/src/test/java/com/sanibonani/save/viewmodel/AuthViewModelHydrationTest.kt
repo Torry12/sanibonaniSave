@@ -38,12 +38,14 @@ import io.mockk.unmockkAll
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
+import kotlinx.coroutines.withTimeoutOrNull
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -248,7 +250,7 @@ class AuthViewModelHydrationTest {
         // isResettingPassword also unlocks the auth-entry guards in NavUtils, so leaving it set on a
         // link that never verified would keep the app in a half-authenticated state indefinitely.
         assertTrue("a refused ticket cannot arm the guard", !viewModel.state.value.isResettingPassword)
-        val event = viewModel.events.tryReceive().getOrNull()
+        val event = withTimeoutOrNull(2_000) { viewModel.events.first() }
         assertTrue("emitted event: $event", event is UIEvent.ShowError)
     }
 
@@ -260,7 +262,7 @@ class AuthViewModelHydrationTest {
         advanceUntilIdle()
 
         assertTrue(viewModel.state.value.isResettingPassword)
-        assertNull(viewModel.events.tryReceive().getOrNull())
+        assertNull(withTimeoutOrNull(2_000) { viewModel.events.first() })
     }
 
     @Test
@@ -271,7 +273,7 @@ class AuthViewModelHydrationTest {
         viewModel.handleDeepLink("sanibonani://auth/callback?code=xyz")
         advanceUntilIdle()
 
-        val event = viewModel.events.tryReceive().getOrNull()
+        val event = withTimeoutOrNull(2_000) { viewModel.events.first() }
         assertTrue("emitted event: $event", event is UIEvent.ShowError)
     }
 }

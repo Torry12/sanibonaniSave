@@ -85,7 +85,9 @@ class MemberOverviewViewModel @Inject constructor(
      */
     private fun loadUserRole() {
         launchJob("portal_role") {
-            updateState { it.copy(userRole = getCurrentUserRole()) }
+            // Suspend call hoisted out: updateState's reducer is a plain lambda with no coroutine body.
+            val role = getCurrentUserRole()
+            updateState { it.copy(userRole = role) }
         }
     }
 

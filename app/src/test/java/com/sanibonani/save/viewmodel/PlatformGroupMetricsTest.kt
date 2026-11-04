@@ -21,6 +21,7 @@ import io.mockk.mockk
 import io.mockk.mockkStatic
 import io.mockk.unmockkAll
 import java.io.IOException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.take
@@ -160,13 +161,20 @@ class PlatformGroupMetricsTest {
         advanceUntilIdle()
         assertEquals(firstScore, viewModel.state.value.selectedGroupHealthScore)
 
-        coEvery { calculateGroupHealthScore("g-2") } returns
-            Result.failure(IllegalStateException("[SYS_001] GROUP_NOT_FOUND"))
+        val pending = CompletableDeferred<Result<GroupHealthScore>>()
+        coEvery { calculateGroupHealthScore("g-2") } coAnswers { pending.await() }
         viewModel.fetchGroupHealthScore("g-2")
+        advanceUntilIdle()
 
+        // Held in flight, so the assertions below read the state the new fetch left between its
+        // start and its answer - the point where the previous group's score used to survive.
         assertEquals(true, viewModel.state.value.isLoadingHealthScore)
-        assertNull(viewModel.state.value.selectedGroupHealthScore)
+        assertNull(
+            "the earlier group's score cannot stay on screen under the new group's name",
+            viewModel.state.value.selectedGroupHealthScore
+        )
 
+        pending.complete(Result.failure(IllegalStateException("[SYS_001] GROUP_NOT_FOUND")))
         advanceUntilIdle()
         assertNull(viewModel.state.value.selectedGroupHealthScore)
         assertEquals(false, viewModel.state.value.isLoadingHealthScore)

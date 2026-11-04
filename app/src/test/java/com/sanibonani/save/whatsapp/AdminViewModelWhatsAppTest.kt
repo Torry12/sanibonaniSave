@@ -27,6 +27,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.test.*
+import kotlinx.coroutines.withTimeoutOrNull
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
@@ -115,6 +116,7 @@ class AdminViewModelWhatsAppTest {
         advanceUntilIdle()
 
         assertTrue(viewModel.state.value.messageSentSuccess)
-        assertNull(viewModel.state.value.error)
+        val event = withTimeoutOrNull(2_000) { viewModel.events.first() }
+        assertNull("a successful send reports nothing wrong, emitted: $event", event)
     }
 }

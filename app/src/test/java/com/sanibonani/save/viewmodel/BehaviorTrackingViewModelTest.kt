@@ -137,6 +137,9 @@ class BehaviorTrackingViewModelTest {
             Result.failure(IOException("HTTP 503 Service Unavailable"))
         )
 
+        viewModel.loadMemberData("m1")
+        advanceUntilIdle()
+
         viewModel.flagMember("m1", "Duplicate payout pattern")
         advanceUntilIdle()
 

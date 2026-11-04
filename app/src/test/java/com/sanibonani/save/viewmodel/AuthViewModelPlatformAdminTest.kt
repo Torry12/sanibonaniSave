@@ -137,7 +137,7 @@ class AuthViewModelPlatformAdminTest {
         viewModel.signIn()
         advanceUntilIdle()
 
-        assertTrue(viewModel.state.value.error?.contains("valid email", ignoreCase = true) == true)
+        assertTrue(viewModel.state.value.fieldErrors["email"]?.contains("valid email", ignoreCase = true) == true)
         coVerify(exactly = 0) { supabaseRepo.signIn(any(), any()) }
     }
 }

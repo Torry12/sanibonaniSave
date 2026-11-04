@@ -67,7 +67,7 @@ class SplashConnectionVerdictTest {
 
     @Test
     fun `a startup with no session and no backend reaches the retry screen`() = runTest {
-        every { reachability(any()) } returns false
+        coEvery { reachability(any()) } returns false
 
         val viewModel = newViewModel()
         advanceUntilIdle()
@@ -81,12 +81,12 @@ class SplashConnectionVerdictTest {
 
     @Test
     fun `the retry tap clears the warning once the backend answers`() = runTest {
-        every { reachability(any()) } returns false
+        coEvery { reachability(any()) } returns false
         val viewModel = newViewModel()
         advanceUntilIdle()
         assertNotNull(viewModel.connectionError.value)
 
-        every { reachability(any()) } returns true
+        coEvery { reachability(any()) } returns true
         viewModel.checkConnection()
         advanceUntilIdle()
 
@@ -99,7 +99,7 @@ class SplashConnectionVerdictTest {
         // The probe returns the fallback for a session it cannot test, so offline-first startup
         // continues on the cache and must not raise the retry screen.
         every { supabaseRepo.isLoggedIn } returns true
-        every { reachability(fallbackResult = true) } returns true
+        coEvery { reachability(fallbackResult = true) } returns true
 
         val viewModel = newViewModel()
         advanceUntilIdle()
