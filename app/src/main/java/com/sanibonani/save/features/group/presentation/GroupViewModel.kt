@@ -1,6 +1,7 @@
 package com.sanibonani.save.features.group.presentation
 
 import com.sanibonani.save.domain.config.SaReferenceData
+import com.sanibonani.save.domain.logging.AppLogger
 import com.sanibonani.save.domain.model.*
 import com.sanibonani.save.domain.utils.toUserMessage
 import com.sanibonani.save.domain.usecase.group.FilterGroupsUseCase
@@ -50,10 +51,15 @@ class GroupViewModel @Inject constructor(
     fun loadGroups() {
         launchSafeJob(LIST_JOB, "Failed to load public groups") {
             updateState { it.copy(isLoading = true, error = null) }
+            // The rows on screen came from the cache and stay there whichever way this goes, so the
+            // log is the only place that can still tell "answered", "refused" and "never attempted".
+            AppLogger.i(DISCOVERY_LOG_TAG, "discovery read attempted")
             getPublicGroups().collectLatest { res ->
                 res.onSuccess { list ->
+                    AppLogger.i(DISCOVERY_LOG_TAG, "discovery read answered with ${list.size} groups")
                     updateGroupsState(list)
                 }.onFailure { e ->
+                    AppLogger.w(DISCOVERY_LOG_TAG, "discovery read refused: ${e.toUserMessage()}")
                     updateState { it.copy(isLoading = false, error = e.toUserMessage()) }
                     handleError(e)
                 }
@@ -79,11 +85,13 @@ class GroupViewModel @Inject constructor(
     fun loadGroup(id: String) {
         launchSafeJob(DETAIL_JOB, "Failed to load group details") {
             updateState { it.copy(isLoadingDetail = true, detailError = null) }
+            AppLogger.i(DISCOVERY_LOG_TAG, "group profile read attempted for $id")
             observeGroupDetail(id).collectLatest { res ->
                 res.onSuccess { g ->
                     if (g == null) {
                         // No row is not a loaded profile. Without a verdict here the screen falls
                         // through state.selectedGroup?.let and renders a page with nothing on it.
+                        AppLogger.w(DISCOVERY_LOG_TAG, "group profile read found no row for $id")
                         updateState {
                             it.copy(
                                 isLoadingDetail = false,
@@ -97,6 +105,10 @@ class GroupViewModel @Inject constructor(
                         }
                     }
                 }.onFailure { e ->
+                    AppLogger.w(
+                        DISCOVERY_LOG_TAG,
+                        "group profile read refused for $id: ${e.toUserMessage()}"
+                    )
                     updateState { it.copy(isLoadingDetail = false, detailError = e.toUserMessage()) }
                     handleError(e)
                 }
@@ -129,6 +141,12 @@ class GroupViewModel @Inject constructor(
     private companion object {
         const val LIST_JOB = "load_groups"
         const val DETAIL_JOB = "load_group_detail"
+
+        /**
+         * Its own tag, so one grep of logcat — or of `files/diagnostics.log` on a device whose
+         * firmware drops app-authored log lines — answers the one question the list cannot.
+         */
+        const val DISCOVERY_LOG_TAG = "DiscoveryRead"
     }
 }
 

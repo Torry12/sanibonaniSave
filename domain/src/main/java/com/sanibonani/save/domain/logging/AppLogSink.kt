@@ -5,7 +5,8 @@ package com.sanibonani.save.domain.logging
  *
  * `:domain` never imports `android.util.Log`. The Android-backed implementation
  * (`AndroidLogSink`) lives in `:data` and is installed once from the Application
- * class. Until it is installed, [AppLogger] falls back to stdout/stderr which
+ * class, directly or wrapped in the sink that mirrors the same lines to a file.
+ * Until it is installed, [AppLogger] falls back to stdout/stderr which
  * keeps local JVM unit tests working without a mocked Android framework.
  */
 interface AppLogSink {
