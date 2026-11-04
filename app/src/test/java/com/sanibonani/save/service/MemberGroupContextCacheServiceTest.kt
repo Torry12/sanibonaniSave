@@ -289,4 +289,51 @@ class MemberGroupContextCacheServiceTest {
         }
         verify(exactly = 2) { contributionRepo.getMemberContributions("m1", groupId) }
     }
+
+    // Every warm-up stamped the wall clock into the snapshot, so the StateFlow's own equality
+    // dedupe never fired and a pass that read exactly the same book still reached the portal as
+    // new data - which answered by re-subscribing all eight of its observation flows, each with a
+    // Supabase read and a Room write behind it.
+    @Test
+    fun `a warmup that read the same book leaves the snapshot equal`() {
+        val service = service()
+        service.updateContext(groupId) { hydratedContext("Fresh") }
+        val first = service.getContext(groupId)!!
+
+        // Far enough apart that a re-stamp cannot hide inside one millisecond.
+        Thread.sleep(5)
+        service.updateContext(groupId) { hydratedContext("Fresh") }
+
+        assertEquals(first, service.getContext(groupId))
+    }
+
+    // The reducer a warm-up runs is `prev.copy(...)`, so an all-cache-hit pass hands back the same
+    // content it was given. That has to be the identity case, not a new snapshot.
+    @Test
+    fun `a warmup that changed nothing in the previous snapshot leaves it equal`() {
+        val service = service()
+        service.updateContext(groupId) { hydratedContext("Fresh") }
+        val first = service.getContext(groupId)!!
+
+        Thread.sleep(5)
+        service.updateContext(groupId) { prev -> prev.copy(member = member) }
+
+        assertEquals(first, service.getContext(groupId))
+    }
+
+    @Test
+    fun `a snapshot whose book really moved carries a fresh stamp`() {
+        val service = service()
+        service.updateContext(groupId) { hydratedContext("Old") }
+        val first = service.getContext(groupId)!!
+
+        Thread.sleep(5)
+        service.updateContext(groupId) { hydratedContext("New") }
+        val second = service.getContext(groupId)!!
+
+        // The portal renders lastUpdatedMillis as the group's "synced" time, so a pass that moved
+        // the book still has to advance it.
+        assertEquals("New", second.group?.name)
+        assertTrue(second.lastUpdatedMillis > first.lastUpdatedMillis)
+    }
 }

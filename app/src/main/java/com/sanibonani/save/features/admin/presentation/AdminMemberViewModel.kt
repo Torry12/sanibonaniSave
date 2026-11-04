@@ -61,24 +61,23 @@ class AdminMemberViewModel @Inject constructor(
     }
 
     private fun observeContext() {
-        launchJob("context_observation") {
-            observeGroupContext(
-                groupIdFlow = adminContextCacheService.selectedGroupId,
-                contextSource = adminContextCacheService.contexts
-            ) { context ->
-                if (context == null) return@observeGroupContext
+        observeGroupContext(
+            key = "context_observation",
+            groupIdFlow = adminContextCacheService.selectedGroupId,
+            contextSource = adminContextCacheService.contexts
+        ) { context ->
+            if (context == null) return@observeGroupContext
 
-                val isNewGroup = context.group?.id != uiState.value.group?.id
+            val isNewGroup = context.group?.id != uiState.value.group?.id
 
-                updateState { it.copy(
-                    group = context.group,
-                    members = context.members,
-                    selectedMember = if (isNewGroup) null else it.selectedMember
-                ) }
+            updateState { it.copy(
+                group = context.group,
+                members = context.members,
+                selectedMember = if (isNewGroup) null else it.selectedMember
+            ) }
 
-                if (context.isFullyHydrated && (context.group != null) && context.members.isNotEmpty()) {
-                    refreshAllMemberCalculations(context.group, context.members)
-                }
+            if (context.isFullyHydrated && (context.group != null) && context.members.isNotEmpty()) {
+                refreshAllMemberCalculations(context.group, context.members)
             }
         }
     }

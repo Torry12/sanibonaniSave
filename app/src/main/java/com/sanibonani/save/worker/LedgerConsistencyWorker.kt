@@ -91,7 +91,7 @@ class LedgerConsistencyWorker @AssistedInject constructor(
                         "Ledger audit could not run for group $groupId",
                         e
                     )
-                    if (runAttemptCount < MAX_ATTEMPTS) Result.retry() else Result.failure()
+                    retryOrGiveUp(runAttemptCount)
                 }
             )
         } catch (e: CancellationException) {
@@ -102,14 +102,13 @@ class LedgerConsistencyWorker @AssistedInject constructor(
                 "Ledger audit failed for group $groupId",
                 e
             )
-            if (runAttemptCount < MAX_ATTEMPTS) Result.retry() else Result.failure()
+            retryOrGiveUp(runAttemptCount)
         }
     }
 
     companion object {
         const val KEY_GROUP_ID = "group_id"
         const val WORK_NAME = "ledger_consistency_audit"
-        private const val MAX_ATTEMPTS = 3
 
         /** Below this the nightly pass reports the drift but leaves the ledger alone. */
         private val REPAIR_MATERIALITY = Money("1.00")

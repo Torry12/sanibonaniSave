@@ -540,4 +540,33 @@ class AdminOverviewViewModelTest {
             viewModel.events.first() is UIEvent.ShowError
         )
     }
+
+    @Test
+    fun `leaving the dashboard stops the group context collector`() = runTest {
+        // The screen calls setActive(false) when the admin navigates away. That cancel used to hit
+        // the wrapper around the collector, not the collector itself: observeGroupContext launched
+        // straight onto viewModelScope, so the job never entered the registry and the dashboard kept
+        // reading for a screen nobody was looking at - and every return to it stacked another one.
+        hydrateGroup("g-1")
+        advanceUntilIdle()
+        coVerify(exactly = 1) { financialRepo.getOutstandingPlatformFees("g-1") }
+
+        viewModel.setActive(false)
+        advanceUntilIdle()
+
+        // A background sweep hydrates a different group while the dashboard is off-screen.
+        selectedGroupIdFlow.value = "g-2"
+        contextsFlow.value = mapOf(
+            "g-2" to CachedAdminGroupContext(
+                group = Group(id = "g-2", name = "Second Group"),
+                members = emptyList(),
+                metrics = ActuarialMetrics(),
+                feeStatus = AdminFeeState.DUE,
+                isFullyHydrated = true
+            )
+        )
+        advanceUntilIdle()
+
+        coVerify(exactly = 0) { financialRepo.getOutstandingPlatformFees("g-2") }
+    }
 }

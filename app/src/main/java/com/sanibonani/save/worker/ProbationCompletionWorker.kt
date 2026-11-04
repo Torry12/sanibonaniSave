@@ -47,7 +47,7 @@ class ProbationCompletionWorker @AssistedInject constructor(
                 val ex = probationMembersResult.exceptionOrNull()
                 val userMsg = ex?.logAndGetMessage("ProbationWorker") ?: "Failed to fetch probation members"
                 AppLogger.e("ProbationWorker", "Failed to fetch probation members: $userMsg")
-                return Result.retry()
+                return retryOrGiveUp(runAttemptCount)
             }
 
             val probationMembers = probationMembersResult.getOrDefault(emptyList())
@@ -108,7 +108,7 @@ class ProbationCompletionWorker @AssistedInject constructor(
         } catch (e: Exception) {
             val userMsg = e.logAndGetMessage("ProbationWorker")
             AppLogger.e("ProbationWorker", "Error during probation completion check: $userMsg", e)
-            Result.retry()
+            retryOrGiveUp(runAttemptCount)
         }
     }
 

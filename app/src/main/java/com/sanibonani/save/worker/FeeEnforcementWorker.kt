@@ -58,7 +58,7 @@ class FeeEnforcementWorker @AssistedInject constructor(
                         "FeeEnforcementWorker",
                         "Deferring fee enforcement for group $groupId; the fee config or group read was refused"
                     )
-                    return Result.retry()
+                    return retryOrGiveUp(runAttemptCount)
                 }
                 FeeCycleVerdict.Enforce -> Unit
             }
@@ -89,7 +89,7 @@ class FeeEnforcementWorker @AssistedInject constructor(
                         "FeeEnforcementWorker",
                         "Deferring fee enforcement for group $groupId; the new status was not written"
                     )
-                    return Result.retry()
+                    return retryOrGiveUp(runAttemptCount)
                 }
                 FeeWriteOutcome.Committed -> if (newStatus == AdminFeeState.SUSPENDED) {
                     // Ensure platform suspension flag is also set
@@ -139,14 +139,13 @@ class FeeEnforcementWorker @AssistedInject constructor(
                 "Failed to enforce fees for group $groupId",
                 e
             )
-            if (runAttemptCount < MAX_ATTEMPTS) Result.retry() else Result.failure()
+            retryOrGiveUp(runAttemptCount)
         }
     }
 
     companion object {
         const val KEY_GROUP_ID = "group_id"
         const val WORK_NAME    = "fee_enforcement_check"
-        private const val MAX_ATTEMPTS = 3
 
         /**
          * One schedule per group. The name used to be the bare [WORK_NAME] with UPDATE, so an

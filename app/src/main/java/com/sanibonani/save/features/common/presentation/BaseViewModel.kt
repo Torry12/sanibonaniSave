@@ -104,13 +104,17 @@ abstract class BaseViewModel<S>(protected val initialState: S) : ViewModel() {
     /**
      * Shared Group Context Observation
      * Reduces boilerplate across ViewModels by unifying the flatMapLatest + distinctUntilChanged pattern.
+     *
+     * The collector is registered under [key] so observing the context again replaces the running
+     * collector instead of stacking a second one, and so cancelling that key ends the subscription.
      */
     protected fun <T> observeGroupContext(
+        key: String = "group_context_observation",
         groupIdFlow: Flow<String?>,
         contextSource: Flow<Map<String, T>>,
         onContextUpdated: (T?) -> Unit
     ): Job {
-        return viewModelScope.launch {
+        return launchJob(key) {
             groupIdFlow
                 .distinctUntilChanged()
                 .flatMapLatest { id ->

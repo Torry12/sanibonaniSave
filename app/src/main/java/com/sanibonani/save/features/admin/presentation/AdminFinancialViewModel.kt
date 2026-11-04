@@ -72,11 +72,9 @@ class AdminFinancialViewModel @Inject constructor(
 
     // region Group context & observation
 
-    private var contextJob: Job? = null
-
     private fun observeContext() {
-        contextJob?.cancel()
-        contextJob = observeGroupContext(
+        observeGroupContext(
+            key = "context_observation",
             groupIdFlow = adminContextCacheService.selectedGroupId,
             contextSource = adminContextCacheService.contexts
         ) { context ->

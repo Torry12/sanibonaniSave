@@ -74,6 +74,8 @@ class GroupBrowseReadVerdictTest {
 
     private fun started(): GroupViewModel {
         val viewModel = GroupViewModel(FilterGroupsUseCase(), getPublicGroups, mockk<ObserveGroupDetailUseCase>(relaxed = true))
+        // Entering the discovery screen is what starts the read; the view model itself reads nothing.
+        viewModel.setActive(true)
         testDispatcher.scheduler.advanceUntilIdle()
         return viewModel
     }

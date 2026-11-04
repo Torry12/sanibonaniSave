@@ -173,7 +173,16 @@ class MemberGroupContextCacheService @Inject constructor(
 	) {
 		_contexts.update { cache ->
 			val current = cache[groupId] ?: CachedGroupContext()
-			cache + (groupId to reducer(current).copy(lastUpdatedMillis = System.currentTimeMillis()))
+			val next = reducer(current)
+			// The clock is deliberately left out of this comparison: it is the only field that
+			// differs when a warm-up reads the same book twice, and a snapshot that looks new sends
+			// the portal re-subscribing all eight of its observation flows - each with a Supabase
+			// read and a Room write behind it.
+			if (next.copy(lastUpdatedMillis = current.lastUpdatedMillis) == current) {
+				cache
+			} else {
+				cache + (groupId to next.copy(lastUpdatedMillis = System.currentTimeMillis()))
+			}
 		}
 	}
 

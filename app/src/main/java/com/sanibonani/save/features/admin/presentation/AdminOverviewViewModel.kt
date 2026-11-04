@@ -138,52 +138,51 @@ class AdminOverviewViewModel @Inject constructor(
     }
 
     private fun observeContext() {
-        launchJob("context_observation") {
-            observeGroupContext(
-                groupIdFlow = adminContextCacheService.selectedGroupId,
-                contextSource = adminContextCacheService.contexts,
-            ) { context ->
-                val selectedId = adminContextCacheService.selectedGroupId.value
+        observeGroupContext(
+            key = "context_observation",
+            groupIdFlow = adminContextCacheService.selectedGroupId,
+            contextSource = adminContextCacheService.contexts,
+        ) { context ->
+            val selectedId = adminContextCacheService.selectedGroupId.value
 
-                if (context == null) {
-                    if (selectedId != null) {
-                        // We have a selection but no data yet.
-                        // Start a safety timer to clear the loading state if hydration is taking too long.
-                        launchJob("hydration_safety_timer") {
-                            delay(7.seconds)
-                            if (uiState.value.group == null) {
-                                updateState { it.copy(isLoading = false, error = "Loading timed out. Please try again.") }
-                            }
+            if (context == null) {
+                if (selectedId != null) {
+                    // We have a selection but no data yet.
+                    // Start a safety timer to clear the loading state if hydration is taking too long.
+                    launchJob("hydration_safety_timer") {
+                        delay(7.seconds)
+                        if (uiState.value.group == null) {
+                            updateState { it.copy(isLoading = false, error = "Loading timed out. Please try again.") }
                         }
                     }
-                    return@observeGroupContext
                 }
+                return@observeGroupContext
+            }
 
-                cancelJob("hydration_safety_timer")
+            cancelJob("hydration_safety_timer")
 
-                val pkg = AdminGroupContext(
-                    group = context.group ?: return@observeGroupContext,
-                    members = context.members,
-                    notifications = context.notifications,
-                    messages = context.memberMessages
-                )
+            val pkg = AdminGroupContext(
+                group = context.group ?: return@observeGroupContext,
+                members = context.members,
+                notifications = context.notifications,
+                messages = context.memberMessages
+            )
 
-                updateState { it.copy(
-                    group = pkg.group,
-                    members = pkg.members,
-                    notifications = pkg.notifications,
-                    memberMessages = pkg.messages,
-                    feeStatus = context.feeStatus ?: AdminFeeState.DUE,
-                    isLoading = !context.isFullyHydrated,
-                    error = it.error
-                ) }
+            updateState { it.copy(
+                group = pkg.group,
+                members = pkg.members,
+                notifications = pkg.notifications,
+                memberMessages = pkg.messages,
+                feeStatus = context.feeStatus ?: AdminFeeState.DUE,
+                isLoading = !context.isFullyHydrated,
+                error = it.error
+            ) }
 
-                if (context.isFullyHydrated) {
-                    startGroupObservation(pkg.group)
-                    val groupId = pkg.group.id
-                    if (groupId != null) {
-                        platformFeeCoordinator.loadOutstanding(host, groupId)
-                    }
+            if (context.isFullyHydrated) {
+                startGroupObservation(pkg.group)
+                val groupId = pkg.group.id
+                if (groupId != null) {
+                    platformFeeCoordinator.loadOutstanding(host, groupId)
                 }
             }
         }

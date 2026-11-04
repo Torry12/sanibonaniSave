@@ -41,7 +41,7 @@ class AutomatedRoscaWorker @AssistedInject constructor(
                 // getGroupById answers a failure when neither the server nor Room has the row, so
                 // this null is a refused read and not evidence the group was deleted. Answering
                 // success here made the pot wait the next full 24h cycle.
-                RoscaCycleVerdict.ReadRefused -> return Result.retry()
+                RoscaCycleVerdict.ReadRefused -> return retryOrGiveUp(runAttemptCount)
                 RoscaCycleVerdict.NotRosca -> return Result.success()
                 RoscaCycleVerdict.RunPayout -> Unit
             }
@@ -75,7 +75,7 @@ class AutomatedRoscaWorker @AssistedInject constructor(
             throw e
         } catch (e: Exception) {
             AppLogger.e("AutomatedRoscaWorker", "Worker exception for ROSCA group $groupId", e)
-            if (runAttemptCount < MAX_ATTEMPTS) Result.retry() else Result.failure()
+            retryOrGiveUp(runAttemptCount)
         }
     }
 
@@ -89,7 +89,6 @@ class AutomatedRoscaWorker @AssistedInject constructor(
     companion object {
         const val KEY_GROUP_ID = "group_id"
         const val WORK_NAME = "rosca_payout_automation"
-        private const val MAX_ATTEMPTS = 3
         private val EXPECTED_ROSCA_CONDITIONS = listOf(
             "No members",
             "No current members",

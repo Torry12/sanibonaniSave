@@ -21,11 +21,13 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.delay
 import kotlin.time.Duration.Companion.milliseconds
 import com.sanibonani.save.ui.utils.rememberClickDebouncer
-import com.sanibonani.save.domain.config.SaReferenceData
 import com.sanibonani.save.domain.model.*
 import com.sanibonani.save.ui.components.*
 import com.sanibonani.save.ui.theme.*
 import com.sanibonani.save.features.group.presentation.GroupViewModel
+import com.sanibonani.save.features.group.presentation.browseGroupsNotice
+import com.sanibonani.save.features.group.presentation.placeableGroups
+import com.sanibonani.save.features.group.presentation.provinceRowExpanded
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -98,13 +100,16 @@ fun BrowseGroupsScreen(
                 onToggleFilters = { showFilters = !showFilters }
             )
 
+            // The rows below are what the last answered read left behind, so a refresh the server
+            // refused has to be named here - the list alone would claim it is current.
+            val refusalNotice = browseGroupsNotice(state.error, state.rawGroups.isNotEmpty())
+            if (refusalNotice != null) {
+                OfflineBanner(isOnline = true, message = refusalNotice)
+            }
+
             // ── Main Content ──────────────────────────────────────────────────
             Box(Modifier.fillMaxSize()) {
-                val mapGroups = remember(state.rawGroups) {
-                    state.rawGroups.filter {
-                        it.latitude != null || SaReferenceData.PROVINCE_CENTERS.containsKey(it.province)
-                    }
-                }
+                val mapGroups = remember(state.filteredGroups) { placeableGroups(state.filteredGroups) }
 
                 when {
                     state.isLoading && state.filteredGroups.isEmpty() -> {
@@ -144,7 +149,7 @@ fun BrowseGroupsScreen(
                     }
                     showMap -> {
                         SaOsmMap(
-                            groups = state.filteredGroups,
+                            groups = mapGroups,
                             modifier = Modifier.fillMaxSize(),
                             onGroupClick = { id -> clickDebouncer.processClick { onGroupClick(id) } },
                             onLocationTap = { groups -> selectedLocationGroups = groups },
@@ -167,8 +172,11 @@ fun BrowseGroupsScreen(
                                 verticalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
                                 state.groupsByProvince.forEach { (province, provinceGroups) ->
+                                    // An explicit tap wins from then on; searching only supplies the
+                                    // starting state, so clearing the query cannot collapse a province
+                                    // the user had opened on purpose.
+                                    val isExpanded = provinceRowExpanded(expandedProvinces[province], isSearching)
                                     item(key = "province_header_$province") {
-                                        val isExpanded = expandedProvinces[province] == true || isSearching
                                         ProvinceHeaderCard(
                                             province = province,
                                             count = provinceGroups.size,
@@ -177,7 +185,7 @@ fun BrowseGroupsScreen(
                                         )
                                     }
 
-                                    if (expandedProvinces[province] == true || isSearching) {
+                                    if (isExpanded) {
                                         items(
                                             items = provinceGroups,
                                             key = { it.id ?: "${it.name}_${it.city}" }

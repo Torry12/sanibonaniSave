@@ -154,7 +154,7 @@ class AdminGroupContextCacheService @Inject constructor(
     ) {
         _contexts.update { cache ->
             val current = cache[groupId] ?: CachedAdminGroupContext()
-            cache + (groupId to reducer(current).copy(lastUpdatedMillis = System.currentTimeMillis()))
+            cache + (groupId to reducer(current))
         }
     }
 
@@ -229,6 +229,5 @@ data class CachedAdminGroupContext(
      * server confirmed any of it - cache reads cannot fail, so that question belongs to
      * [com.sanibonani.save.domain.repository.system.SyncRepository.staleGroups].
      */
-    val isFullyHydrated: Boolean = false,
-    val lastUpdatedMillis: Long = 0L
+    val isFullyHydrated: Boolean = false
 )

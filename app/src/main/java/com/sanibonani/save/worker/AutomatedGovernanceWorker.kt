@@ -28,7 +28,7 @@ class AutomatedGovernanceWorker @AssistedInject constructor(
     override suspend fun doWork(): Result {
         return automateGovernance().fold(
             onSuccess = { Result.success() },
-            onFailure = { Result.retry() }
+            onFailure = { retryOrGiveUp(runAttemptCount) }
         )
     }
 

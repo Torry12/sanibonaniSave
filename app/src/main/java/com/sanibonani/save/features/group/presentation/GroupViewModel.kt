@@ -1,5 +1,6 @@
 package com.sanibonani.save.features.group.presentation
 
+import com.sanibonani.save.domain.config.SaReferenceData
 import com.sanibonani.save.domain.model.*
 import com.sanibonani.save.domain.utils.toUserMessage
 import com.sanibonani.save.domain.usecase.group.FilterGroupsUseCase
@@ -35,18 +36,19 @@ class GroupViewModel @Inject constructor(
 
     private fun currentState(): GroupUiState = uiState.value
 
-    init {
-        loadGroups()
-    }
-
     fun setActive(active: Boolean) {
-        if (active && !currentState().isLoading) {
-            loadGroups()
+        if (active) {
+            if (!currentState().isLoading) loadGroups()
+        } else {
+            // The screen that started these collectors has left; a collector that outlives it keeps
+            // re-filtering the list and re-writing the profile nobody is looking at.
+            cancelJob(LIST_JOB)
+            cancelJob(DETAIL_JOB)
         }
     }
 
     fun loadGroups() {
-        launchSafeJob("load_groups", "Failed to load public groups") {
+        launchSafeJob(LIST_JOB, "Failed to load public groups") {
             updateState { it.copy(isLoading = true, error = null) }
             getPublicGroups().collectLatest { res ->
                 res.onSuccess { list ->
@@ -75,11 +77,25 @@ class GroupViewModel @Inject constructor(
     }
 
     fun loadGroup(id: String) {
-        launchSafeJob("load_group_detail_$id", "Failed to load group details") {
+        launchSafeJob(DETAIL_JOB, "Failed to load group details") {
             updateState { it.copy(isLoadingDetail = true, detailError = null) }
             observeGroupDetail(id).collectLatest { res ->
                 res.onSuccess { g ->
-                    updateState { it.copy(selectedGroup = g, isLoadingDetail = false) }
+                    if (g == null) {
+                        // No row is not a loaded profile. Without a verdict here the screen falls
+                        // through state.selectedGroup?.let and renders a page with nothing on it.
+                        updateState {
+                            it.copy(
+                                isLoadingDetail = false,
+                                selectedGroup = null,
+                                detailError = "This group could not be found. It may have been removed."
+                            )
+                        }
+                    } else {
+                        updateState {
+                            it.copy(selectedGroup = g, isLoadingDetail = false, detailError = null)
+                        }
+                    }
                 }.onFailure { e ->
                     updateState { it.copy(isLoadingDetail = false, detailError = e.toUserMessage()) }
                     handleError(e)
@@ -109,4 +125,24 @@ class GroupViewModel @Inject constructor(
             )
         }
     }
+
+    private companion object {
+        const val LIST_JOB = "load_groups"
+        const val DETAIL_JOB = "load_group_detail"
+    }
 }
+
+/**
+ * The refusal a discovery screen with rows already on it still has to report. With no rows the
+ * screen renders the refusal as its whole body, so this stays null and the empty state owns it.
+ */
+internal fun browseGroupsNotice(error: String?, hasCachedRows: Boolean): String? =
+    if (hasCachedRows) error else null
+
+/** The rows the map can place: saved coordinates, or a province it knows a centre for. */
+internal fun placeableGroups(groups: List<Group>): List<Group> =
+    groups.filter { it.latitude != null || SaReferenceData.PROVINCE_CENTERS.containsKey(it.province) }
+
+/** A province the user chose explicitly keeps that choice; a search only supplies the default. */
+internal fun provinceRowExpanded(stored: Boolean?, isSearching: Boolean): Boolean =
+    stored ?: isSearching

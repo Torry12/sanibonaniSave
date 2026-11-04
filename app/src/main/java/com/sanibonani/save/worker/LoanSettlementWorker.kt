@@ -28,7 +28,7 @@ class LoanSettlementWorker @AssistedInject constructor(
     override suspend fun doWork(): Result {
         return forcedSettlement().fold(
             onSuccess = { Result.success() },
-            onFailure = { Result.retry() }
+            onFailure = { retryOrGiveUp(runAttemptCount) }
         )
     }
 

@@ -307,4 +307,21 @@ class AdminGroupContextCacheServiceTest {
         }
         coVerify(exactly = 1) { groupRepo.getGroupById(groupId) }
     }
+
+    // The dashboard's own collectors dedupe on snapshot equality. A wall-clock stamp inside every
+    // snapshot defeated that, so each warm-up of the selected group re-subscribed the ledger,
+    // bank, payout, loan and claim flows - a Supabase read and a Room write per flow - even when
+    // the warm-up had read nothing new. Nothing on this side ever read the stamp.
+    @Test
+    fun `a warmup that read the same book leaves the snapshot equal`() {
+        val service = service()
+        service.updateContext(groupId) { hydratedContext("Fresh") }
+        val first = service.getContext(groupId)!!
+
+        // Far enough apart that a re-stamp cannot hide inside one millisecond.
+        Thread.sleep(5)
+        service.updateContext(groupId) { prev -> prev.copy(members = prev.members) }
+
+        assertEquals(first, service.getContext(groupId))
+    }
 }

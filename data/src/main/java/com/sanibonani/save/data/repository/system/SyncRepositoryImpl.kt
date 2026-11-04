@@ -16,6 +16,7 @@ import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.postgrest.query.Columns
 import io.github.jan.supabase.postgrest.query.Order
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -70,6 +71,9 @@ class SyncRepositoryImpl @Inject constructor(
     private val globalSyncMutex = Mutex()
     private val globalSyncScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var activeSync: Deferred<Result<Unit>>? = null
+
+    private val groupSyncMutex = Mutex()
+    private val activeGroupSyncs = ConcurrentHashMap<String, Deferred<Result<Unit>>>()
 
     override val outboxCount: kotlinx.coroutines.flow.Flow<Int> = db.pendingOperationDao().observeCount()
 
@@ -219,7 +223,27 @@ class SyncRepositoryImpl @Inject constructor(
         reads.awaitAll().flatten()
     }
 
-    override suspend fun syncGroupData(groupId: String): Result<Unit> = safeRunCatching {
+    /**
+     * Single-flight per group, the way [syncAllData] joins one platform pass. The admin and member
+     * caches each keep their own warm-up coordinator, so a Support Mode session can ask for the same
+     * group twice at once; overlapping hydrations doubled every pull and then raced each other
+     * writing that group's stale-sections verdict.
+     *
+     * The pass runs on [globalSyncScope] so the caller that started it can leave without cancelling
+     * the refresh the other callers are awaiting.
+     */
+    override suspend fun syncGroupData(groupId: String): Result<Unit> {
+        val flight = groupSyncMutex.withLock {
+            activeGroupSyncs[groupId]?.takeIf { it.isActive }
+                ?: globalSyncScope.async { runGroupSync(groupId) }.also { pending ->
+                    activeGroupSyncs[groupId] = pending
+                    pending.invokeOnCompletion { activeGroupSyncs.remove(groupId, pending) }
+                }
+        }
+        return flight.await()
+    }
+
+    private suspend fun runGroupSync(groupId: String): Result<Unit> = safeRunCatching {
         AppLogger.i(tag, "Full refresh for group $groupId")
         val missed = syncGroupDataInternal(
             groupId = groupId,

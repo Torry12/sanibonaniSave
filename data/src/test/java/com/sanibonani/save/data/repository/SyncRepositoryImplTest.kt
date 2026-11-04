@@ -162,6 +162,39 @@ class SyncRepositoryImplTest {
     }
 
     @Test
+    fun `concurrent group refreshes join one in-flight hydration`() = runBlocking {
+        // The admin and member caches each keep their own warm-up coordinator, so Support Mode can
+        // ask for the same group twice at once. Only the platform-wide sync joined its in-flight
+        // pass: two overlapping hydrations doubled every pull and then raced each other writing the
+        // group's stale-sections verdict.
+        every { supabaseRepo.currentUserId } returns "user_1"
+        coEvery { groupRepo.getGroupById("group_1") } returns Result.success(
+            Group(id = "group_1", name = "Group One")
+        )
+        coEvery { memberRepo.syncGroupMembers("group_1") } coAnswers {
+            delay(150)
+            Result.success(emptyList())
+        }
+        coEvery { notificationRepo.syncNotifications("group_1") } returns Result.success(Unit)
+        val spy = spyk(repository)
+        coEvery { spy.syncRefresh(any(), any()) } coAnswers {
+            delay(50)
+            Result.success(Unit)
+        }
+
+        val results = listOf(
+            async { spy.syncGroupData("group_1") },
+            async { spy.syncGroupData("group_1") },
+            async { spy.syncGroupData("group_1") }
+        ).awaitAll()
+
+        assertTrue(results.all { it.isSuccess })
+        coVerify(exactly = 1) { memberRepo.syncGroupMembers("group_1") }
+        coVerify(exactly = 1) { groupRepo.getGroupById("group_1") }
+        coVerify(exactly = 1) { spy.syncRefresh(DomainPillar.TREASURY, "group_1") }
+    }
+
+    @Test
     fun `a manual group refresh pulls every pillar regardless of role`() = runBlocking {
         every { supabaseRepo.currentUserId } returns "user_1"
         coEvery { supabaseRepo.getUserRole() } returns UserRole.MEMBER
@@ -421,6 +454,21 @@ class SyncRepositoryImplTest {
         repository.processOutbox()
 
         coVerify(exactly = 1) { outboxDao.upsert(match { it.retryCount == 0 }) }
+    }
+
+    @Test
+    fun `a bracketed refusal on replay consumes an attempt instead of replaying forever`() = runBlocking {
+        // The RPC raises its code before its first write, and the HTTP layer reports the resulting 400
+        // as an IOException. Classified as transport, the row never advanced toward the ceiling, so the
+        // group's lane stayed halted behind money the server had already refused.
+        val refused = queued("refused", "group_a", 1, retryCount = 2)
+        coEvery { outboxDao.getAll() } returns listOf(refused)
+        coEvery { contributionHandler.handle(any()) } returns
+            Result.failure(IOException("[FIN_002] This contribution is already booked"))
+
+        repository.processOutbox()
+
+        coVerify(exactly = 1) { outboxDao.upsert(match { it.retryCount == 3 }) }
     }
 
     @Test
