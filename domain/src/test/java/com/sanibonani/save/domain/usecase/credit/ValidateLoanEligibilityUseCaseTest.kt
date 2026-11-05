@@ -5,7 +5,6 @@ import com.sanibonani.save.domain.repository.equity.ContributionRepository
 import com.sanibonani.save.domain.repository.credit.LoanRepository
 import com.sanibonani.save.domain.utils.DateProvider
 import io.mockk.*
-import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -31,7 +30,7 @@ class ValidateLoanEligibilityUseCaseTest {
         useCase = ValidateLoanEligibilityUseCase(contributionRepository, loanRepository, paymentCalculator)
         mockkObject(DateProvider)
         every { DateProvider.getCurrentDate() } returns fixedNow
-        every { loanRepository.getMemberLoans(any()) } returns flowOf(Result.success(emptyList()))
+        coEvery { loanRepository.getMemberLoansSync(any()) } returns Result.success(emptyList())
     }
 
     @After
@@ -65,7 +64,8 @@ class ValidateLoanEligibilityUseCaseTest {
             dueDate = fixedNow.minusDays(10).toString()
         )
 
-        every { contributionRepository.observeMemberContributions("m1", "g1") } returns flowOf(Result.success(listOf(overdueContribution)))
+        coEvery { contributionRepository.syncMemberContributions("m1", "g1") } returns
+            Result.success(listOf(overdueContribution))
 
         val result = useCase(member, group)
 
@@ -86,16 +86,14 @@ class ValidateLoanEligibilityUseCaseTest {
     )
 
     private fun stubRecentContributions(total: String) {
-        every { contributionRepository.observeMemberContributions("m1", "g1") } returns flowOf(
-            Result.success(
-                listOf(
-                    Contribution(
-                        memberId = "m1",
-                        groupId = "g1",
-                        amount = Money(total),
-                        status = ContributionStatus.PAID,
-                        paidAt = "${fixedNow}T00:00:00Z"
-                    )
+        coEvery { contributionRepository.syncMemberContributions("m1", "g1") } returns Result.success(
+            listOf(
+                Contribution(
+                    memberId = "m1",
+                    groupId = "g1",
+                    amount = Money(total),
+                    status = ContributionStatus.PAID,
+                    paidAt = "${fixedNow}T00:00:00Z"
                 )
             )
         )
@@ -150,8 +148,12 @@ class ValidateLoanEligibilityUseCaseTest {
 
     @Test
     fun `invoke - unavailable contribution history cannot grant loan eligibility`() = runTest {
-        every { contributionRepository.observeMemberContributions("m1", "g1") } returns
-            flowOf(Result.failure(IllegalStateException("offline")))
+        // Stubbed on the one-shot read. The observe flow hands over the Room cache as its first
+        // emission and sends the refusal behind it, so a failure on its first value is a shape the
+        // production flow never gives: the eligibility rules - joining fee, borrowing power, good
+        // standing - have to be certified by a read that cannot answer without the server.
+        coEvery { contributionRepository.syncMemberContributions("m1", "g1") } returns
+            Result.failure(IllegalStateException("offline"))
 
         val result = useCase(activeMember, groupWithCap(null), requestedAmount = Money("100.00"))
 
@@ -160,13 +162,17 @@ class ValidateLoanEligibilityUseCaseTest {
             "Unable to verify contribution history. Please retry.",
             (result as ValidateLoanEligibilityUseCase.EligibilityResult.Ineligible).reason
         )
+        verify(exactly = 0) { loanRepository.getMemberLoansSync(any()) }
     }
 
     @Test
     fun `invoke - unavailable loan history cannot grant loan eligibility`() = runTest {
+        // The same one-shot contract as the contributions leg above: the observe flow would answer
+        // this member's cached loans and hide the refusal behind them, so borrowing power would be
+        // priced against a debt total the server never confirmed.
         stubRecentContributions("1000.00")
-        every { loanRepository.getMemberLoans("m1") } returns
-            flowOf(Result.failure(IllegalStateException("offline")))
+        coEvery { loanRepository.getMemberLoansSync("m1") } returns
+            Result.failure(IllegalStateException("offline"))
 
         val result = useCase(activeMember, groupWithCap(null), requestedAmount = Money("100.00"))
 

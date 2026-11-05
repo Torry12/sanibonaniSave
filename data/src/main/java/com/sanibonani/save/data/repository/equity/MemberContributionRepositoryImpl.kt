@@ -68,5 +68,14 @@ class MemberContributionRepositoryImpl @Inject constructor(
         },
         cacheSync = { list -> db.contributionDao().syncGroupContributions(groupId, list) }
     )
+
+    override suspend fun syncMemberContributions(
+        memberId: String,
+        groupId: String
+    ): Result<List<Contribution>> = authoritativeCall("syncMemberContributions") {
+        val rows = remoteSource.getMemberContributions(memberId, groupId).getOrThrow()
+        db.contributionDao().syncMemberContributions(memberId, rows.map { it.toEntity() })
+        rows
+    }
 }
 

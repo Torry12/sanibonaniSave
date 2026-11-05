@@ -7,7 +7,6 @@ import com.sanibonani.save.domain.repository.equity.ContributionRepository
 import java.time.LocalDate
 import javax.inject.Inject
 import com.sanibonani.save.domain.utils.safeRunCatching
-import kotlinx.coroutines.flow.first
 
 class ValidateLoanEligibilityUseCase @Inject constructor(
     private val contributionRepository: ContributionRepository,
@@ -53,7 +52,7 @@ class ValidateLoanEligibilityUseCase @Inject constructor(
             ?: return EligibilityResult.Ineligible("Member record is missing.")
         val groupId = group.id
             ?: return EligibilityResult.Ineligible("Group record is missing.")
-        val contributions = contributionRepository.observeMemberContributions(memberId, groupId).first()
+        val contributions = contributionRepository.syncMemberContributions(memberId, groupId)
             .getOrElse {
                 return EligibilityResult.Ineligible("Unable to verify contribution history. Please retry.")
             }
@@ -68,7 +67,7 @@ class ValidateLoanEligibilityUseCase @Inject constructor(
             return EligibilityResult.Ineligible("Joining fee of ${group.joiningFee.format()} is outstanding. Please settle your joining fee first.")
         }
 
-        val activeLoans = loanRepository.getMemberLoans(memberId).first().getOrElse {
+        val activeLoans = loanRepository.getMemberLoansSync(memberId).getOrElse {
             return EligibilityResult.Ineligible("Unable to verify loan history. Please retry.")
         }.filter {
             it.status == LoanStatus.ACTIVE || it.status == LoanStatus.PARTIALLY_PAID || it.status == LoanStatus.APPROVED || it.status == LoanStatus.PENDING

@@ -49,6 +49,15 @@ class ContributionRepositoryImpl @Inject constructor(
         cacheSync = { localSource.syncMemberContributions(memberId, it) }
     )
 
+    override suspend fun syncMemberContributions(
+        memberId: String,
+        groupId: String
+    ): Result<List<Contribution>> = authoritativeCall("syncMemberContributions") {
+        val rows = remoteSource.getMemberContributions(memberId, groupId).getOrThrow()
+        localSource.syncMemberContributions(memberId, rows)
+        rows
+    }
+
     override fun observeGroupContributions(groupId: String): Flow<Result<List<Contribution>>> = observeAndSync(
         dbFlow = localSource.observeGroupContributions(groupId),
         mapper = { it },
@@ -56,6 +65,13 @@ class ContributionRepositoryImpl @Inject constructor(
         networkFetch = { remoteSource.getGroupContributions(groupId).getOrThrow() },
         cacheSync = { localSource.syncGroupContributions(groupId, it) }
     )
+
+    override suspend fun syncGroupContributions(groupId: String): Result<List<Contribution>> =
+        authoritativeCall("syncGroupContributions") {
+            val rows = remoteSource.getGroupContributions(groupId).getOrThrow()
+            localSource.syncGroupContributions(groupId, rows)
+            rows
+        }
 
     override suspend fun recordPayment(payment: Payment): Result<String> = authoritativeCall("recordPayment") {
         val paymentId = remoteSource.recordPayment(payment).getOrThrow()

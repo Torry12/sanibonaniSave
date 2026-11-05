@@ -11,6 +11,7 @@ import com.sanibonani.save.domain.repository.treasury.LedgerRepository
 import com.sanibonani.save.domain.repository.group.*
 import com.sanibonani.save.domain.repository.member.*
 import com.sanibonani.save.domain.repository.system.*
+import com.sanibonani.save.domain.service.DevSettingsService
 import com.sanibonani.save.domain.service.NetworkConnectivityService
 import com.sanibonani.save.domain.utils.PaymentCalculator
 import com.sanibonani.save.service.MemberGroupContextCacheService
@@ -45,6 +46,7 @@ import java.io.IOException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
@@ -86,6 +88,9 @@ class MemberOverviewViewModelTest {
     private val getGroupBusinessInsightsUseCase = mockk<GetGroupBusinessInsightsUseCase>(relaxed = true)
     private val paymentCalculator = mockk<PaymentCalculator>(relaxed = true)
     private val networkService = mockk<NetworkConnectivityService>(relaxed = true)
+    private val devSettings = mockk<DevSettingsService>(relaxed = true).apply {
+        every { settingsChanged } returns MutableSharedFlow<Unit>()
+    }
 
     private lateinit var viewModel: MemberOverviewViewModel
     private lateinit var contexts: MutableStateFlow<Map<String, CachedGroupContext>>
@@ -120,6 +125,7 @@ class MemberOverviewViewModelTest {
             ObserveMemberPayoutsUseCase(payoutRepo),
             getGroupBusinessInsightsUseCase
         ),
+        devSettings,
         networkService
     ).also { createdViewModels += it }
 

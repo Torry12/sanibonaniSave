@@ -130,6 +130,37 @@ class PaymentViewModelTest {
         assertEquals("m1", state.member?.id)
         assertEquals(groupId, state.group?.id)
         assertNotNull(state.calculation)
+        assertTrue("a price the server answered for needs no warning", state.amountsVerified)
+    }
+
+    @Test
+    fun `loadPaymentContext - a refused refresh keeps the price and reports it unverified`() = runTest {
+        val groupId = "g1"
+        val member = Member(id = "m1", groupId = groupId, status = MemberStatus.ACTIVE)
+        val group = Group(id = groupId, monthlyContribution = Money("200.0"))
+        val paidContribution = Contribution(
+            id = "c1",
+            memberId = "m1",
+            groupId = groupId,
+            amount = Money("200.00"),
+            status = ContributionStatus.PAID
+        )
+
+        every { memberRepo.observeMemberByUserId("user_123", groupId) } returns flowOf(Result.success(member))
+        coEvery { groupRepo.getGroupById(groupId) } returns Result.success(group)
+        every { contributionRepo.observeMemberContributions("m1", groupId) } returns flowOf(
+            Result.success(listOf(paidContribution)),
+            Result.failure(IOException("gateway unreachable"))
+        )
+        every { loanRepo.getMemberLoans("m1") } returns flowOf(Result.success(emptyList()))
+
+        viewModel.loadPaymentContext(groupId, "contribution")
+        advanceUntilIdle()
+
+        val state = viewModel.state.value
+        assertEquals(listOf(paidContribution), state.contributions)
+        assertNotNull("the member is still shown a price to pay", state.calculation)
+        assertFalse("and told the server did not confirm it", state.amountsVerified)
     }
 
     @Test

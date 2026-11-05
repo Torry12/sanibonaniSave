@@ -37,6 +37,7 @@ data class PaymentUiState(
     val checkoutUrl: String? = null,
     val platformConfig: PlatformConfig? = null,
     val destination: PaymentDestination = PaymentDestination.GROUP,
+    val amountsVerified: Boolean = true,
 )
 
 @HiltViewModel
@@ -138,6 +139,7 @@ class PaymentViewModel @Inject constructor(
                                 nextDueDate = preview.nextDueDate,
                                 platformConfig = context.config,
                                 destination = context.destination,
+                                amountsVerified = context.amountsVerified,
                                 error = null
                             )
                         }

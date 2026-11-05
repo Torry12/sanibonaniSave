@@ -17,6 +17,7 @@ import com.sanibonani.save.domain.repository.member.MemberRepository
 import com.sanibonani.save.domain.repository.system.ExportRepository
 import com.sanibonani.save.domain.repository.system.NotificationRepository
 import com.sanibonani.save.domain.repository.treasury.LedgerRepository
+import com.sanibonani.save.domain.service.DevSettingsService
 import com.sanibonani.save.domain.service.NetworkConnectivityService
 import com.sanibonani.save.domain.usecase.admin.GenerateMemberAuditReportUseCase
 import com.sanibonani.save.domain.usecase.auth.BuildDocumentAuthHeadersUseCase
@@ -55,6 +56,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
@@ -104,6 +106,9 @@ class MemberLedgerHydrationTest {
     private val getGroupBusinessInsightsUseCase = mockk<GetGroupBusinessInsightsUseCase>(relaxed = true)
     private val paymentCalculator = mockk<PaymentCalculator>(relaxed = true)
     private val networkService = mockk<NetworkConnectivityService>(relaxed = true)
+    private val devSettings = mockk<DevSettingsService>(relaxed = true).apply {
+        every { settingsChanged } returns MutableSharedFlow<Unit>()
+    }
 
     private lateinit var contexts: MutableStateFlow<Map<String, CachedGroupContext>>
     private lateinit var staleSections: MutableStateFlow<Map<String, Set<String>>>
@@ -137,6 +142,7 @@ class MemberLedgerHydrationTest {
             ObserveMemberPayoutsUseCase(payoutRepo),
             getGroupBusinessInsightsUseCase
         ),
+        devSettings,
         networkService
     ).also { createdViewModels += it }
 

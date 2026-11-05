@@ -23,7 +23,6 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
 import java.time.LocalDate
-import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -78,7 +77,7 @@ class ProcessLoanForcedSettlementUseCaseTest {
     }
 
     private fun stubGroupLoans(groupId: String, vararg loans: Loan) {
-        every { loanRepository.getGroupLoans(groupId) } returns flowOf(Result.success(loans.toList()))
+        coEvery { loanRepository.getGroupLoansSync(groupId) } returns Result.success(loans.toList())
     }
 
     @Test
@@ -133,7 +132,12 @@ class ProcessLoanForcedSettlementUseCaseTest {
     @Test
     fun `an unreadable group loan ledger is reported while the next group is still processed`() = runBlocking {
         stubGroups(group("g1"), group("g2"))
-        every { loanRepository.getGroupLoans("g1") } returns flowOf(Result.failure(IllegalStateException("offline")))
+        // Stubbed on the one-shot read the sweep now makes. The observe flow answers with the Room
+        // cache first and sends the refusal behind it, so a failure on its first emission is a shape
+        // production never gives - and the sweep would settle against cached rows believing it had
+        // read the ledger.
+        coEvery { loanRepository.getGroupLoansSync("g1") } returns
+            Result.failure(IllegalStateException("offline"))
         stubGroupLoans("g2", loan("l2", "g2", "250.00"))
 
         val result = useCase()
@@ -178,9 +182,9 @@ class ProcessLoanForcedSettlementUseCaseTest {
     fun `a member whose payment history cannot be read is not returned to probation`() = runBlocking {
         stubGroups(group("g1", GroupType.BURIAL_SOCIETY))
         stubGroupLoans("g1", loan("l1", "g1", "500.00"))
-        every { contributionRepository.observeMemberContributions(any(), any()) } returns
-            flowOf(Result.failure(IllegalStateException("offline")))
-        every { loanRepository.getMemberLoans(any()) } returns flowOf(Result.success(emptyList()))
+        coEvery { contributionRepository.syncMemberContributions(any(), any()) } returns
+            Result.failure(IllegalStateException("offline"))
+        coEvery { loanRepository.getMemberLoansSync(any()) } returns Result.success(emptyList())
 
         assertTrue(useCase().isSuccess)
 
@@ -193,9 +197,9 @@ class ProcessLoanForcedSettlementUseCaseTest {
     }
 
     private fun stubPaymentShortfall(shortfall: String) {
-        every { contributionRepository.observeMemberContributions(any(), any()) } returns
-            flowOf(Result.success(emptyList()))
-        every { loanRepository.getMemberLoans(any()) } returns flowOf(Result.success(emptyList()))
+        coEvery { contributionRepository.syncMemberContributions(any(), any()) } returns
+            Result.success(emptyList())
+        coEvery { loanRepository.getMemberLoansSync(any()) } returns Result.success(emptyList())
         every {
             paymentCalculator.calculateStatus(any(), any(), any<List<Contribution>>(), any<List<Loan>>(), any())
         } returns PaymentCalculation(

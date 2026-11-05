@@ -1,6 +1,6 @@
 -- ─────────────────────────────────────────────────────────────────────────────
 -- SanibonaniSave - ONLINE (Supabase Cloud) FULL REBUILD
--- Generated: 2026-11-03 from the master scripts, version 2.2
+-- Generated: 2026-11-05 from the master scripts, version 2.2
 -- ─────────────────────────────────────────────────────────────────────────────
 -- HOW THIS FILE IS BUILT
 --   It is the concatenation of the modules listed by supabase/online/00_REBUILD_ONLINE.sql,
@@ -3508,6 +3508,21 @@ BEGIN
 END $$;
 
 -- 8. SPECIAL CASES
+-- Audit Logs: the trail must be appendable by the person it names. audit_logs sat only in the AAL2
+-- tier, and the app's password-only platform-admin session never carries the aal2 claim, so every
+-- IMPERSONATION_REQUESTED insert was refused with 42501 and a support session left no server-side
+-- record of itself. INSERT is opened here and nothing else: reading stays AAL2-gated by sections 6
+-- and 7, and UPDATE/DELETE keep requiring MFA, so the trail is still append-only. A writer may only
+-- name themselves - a SYSTEM-stamped row is a platform-admin write, and a group admin may only append
+-- to their own group's trail - so the row a stolen password-only session could add is a truthful one
+-- about an action it was entitled to take.
+DROP POLICY IF EXISTS "Audit Logs: Append by named actor" ON public.audit_logs;
+CREATE POLICY "Audit Logs: Append by named actor" ON public.audit_logs FOR INSERT TO authenticated
+WITH CHECK (
+    (actor_id = auth.uid()::text OR (actor_id = 'SYSTEM' AND public.is_platform_admin()))
+    AND (public.is_platform_admin() OR public.is_group_admin(target_group_id))
+);
+
 -- Audit Logs: Allow users to see logs where they are the actor or the target
 DROP POLICY IF EXISTS "Audit Logs: View personal" ON public.audit_logs;
 CREATE POLICY "Audit Logs: View personal" ON public.audit_logs FOR SELECT TO authenticated

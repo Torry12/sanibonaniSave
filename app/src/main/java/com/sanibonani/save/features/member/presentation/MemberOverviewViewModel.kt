@@ -3,6 +3,7 @@ package com.sanibonani.save.features.member.presentation
 import com.sanibonani.save.domain.model.Group
 import com.sanibonani.save.domain.model.UserRole
 import com.sanibonani.save.domain.logging.AppLogger
+import com.sanibonani.save.domain.service.DevSettingsService
 import com.sanibonani.save.domain.service.NetworkConnectivityService
 import com.sanibonani.save.domain.usecase.auth.BuildDocumentAuthHeadersUseCase
 import com.sanibonani.save.domain.usecase.auth.GetAttributableActorIdUseCase
@@ -47,6 +48,7 @@ class MemberOverviewViewModel @Inject constructor(
     private val messagingCoordinator: MemberMessagingCoordinator,
     private val documentCoordinator: MemberDocumentCoordinator,
     private val liveObservation: MemberLiveObservationCoordinator,
+    private val devSettings: DevSettingsService,
     networkService: NetworkConnectivityService,
 ) : BaseViewModel<MemberUiState>(MemberUiState()) {
 
@@ -88,6 +90,7 @@ class MemberOverviewViewModel @Inject constructor(
         }
         loadMemberships()
         observeUnverifiedSections()
+        observeDatabaseChanges()
         loadUserRole()
     }
 
@@ -116,6 +119,35 @@ class MemberOverviewViewModel @Inject constructor(
                 memberContextCacheService.unverifiedSections
             ) { groupId, stale -> groupId?.let { stale[it] }.orEmpty() }
                 .collect { sections -> updateState { it.copy(unverifiedSections = sections) } }
+        }
+    }
+
+    /**
+     * Moves the portal onto the tier the developer switch just installed.
+     *
+     * A switch replaces both the Supabase client and the Room file, so the rows on screen and the
+     * live reads streaming them belong to a database that is now closed - and a feed subscribed to a
+     * closed instance never delivers the new tier's rows. The cache drops first, because a warm-up
+     * that rebuilds the snapshot it already holds does not re-emit, which would leave this portal
+     * showing the replaced book for the rest of the session; the memberships re-collect too, since
+     * the list itself came from that file.
+     */
+    private fun observeDatabaseChanges() {
+        launchJob("portal_database_change") {
+            devSettings.settingsChanged.collect {
+                stopLiveObservation()
+                memberContextCacheService.invalidateForDatabaseChange()
+                val groupId = uiState.value.selectedGroupId
+                val memberId = uiState.value.targetMemberId.takeIf { uiState.value.isImpersonating }
+                loadMemberships()
+                if (groupId != null) {
+                    // Re-entering the portal is what re-warms it - and for Support Mode it is the
+                    // entry itself, so the operator lands on the member as that member exists now.
+                    setPortalContext(memberId, groupId)
+                } else {
+                    updateState { it.clearGroupContext().copy(isLoading = false) }
+                }
+            }
         }
     }
 

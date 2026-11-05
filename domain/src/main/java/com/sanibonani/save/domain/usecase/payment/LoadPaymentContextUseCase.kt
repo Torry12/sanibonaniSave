@@ -54,7 +54,12 @@ class LoadPaymentContextUseCase @Inject constructor(
         val loans: List<Loan>,
         val calculation: PaymentCalculation,
         val config: PlatformConfig?,
-        val destination: PaymentDestination
+        val destination: PaymentDestination,
+        /**
+         * False while the figures on screen rest on rows the server has not just answered for, so the
+         * member is charged for a debt nobody re-confirmed without being told the total is unverified.
+         */
+        val amountsVerified: Boolean
     )
 
     fun currentUserId(): String? = authRepository.currentUserId
@@ -104,7 +109,8 @@ class LoadPaymentContextUseCase @Inject constructor(
                         loans = lastLoans,
                         calculation = paymentCalculator.calculateStatus(group, member, lastContributions, lastLoans),
                         config = config,
-                        destination = destination
+                        destination = destination,
+                        amountsVerified = contributionsResult.isSuccess && loansResult.isSuccess
                     )
                 )
             }

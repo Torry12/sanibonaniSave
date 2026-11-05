@@ -9,7 +9,6 @@ import com.sanibonani.save.domain.model.MemberStatus
 import com.sanibonani.save.domain.model.NotifChannel
 import com.sanibonani.save.domain.usecase.credit.ValidateLoanEligibilityUseCase
 import com.sanibonani.save.domain.usecase.equity.ObserveGroupContributionsUseCase
-import com.sanibonani.save.domain.usecase.equity.ObserveMemberContributionsUseCase
 import com.sanibonani.save.domain.usecase.auth.BuildDocumentAuthHeadersUseCase
 import com.sanibonani.save.domain.usecase.member.ObserveBeneficiariesUseCase
 import com.sanibonani.save.domain.usecase.member.ObserveMemberDocumentsUseCase
@@ -33,7 +32,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 
 @HiltViewModel
@@ -41,7 +39,6 @@ class AdminMemberViewModel @Inject constructor(
     private val adminContextCacheService: AdminGroupContextCacheService,
     private val updateMemberBankingDetails: UpdateMemberBankingDetailsUseCase,
     private val observeGroupContributions: ObserveGroupContributionsUseCase,
-    private val observeMemberContributions: ObserveMemberContributionsUseCase,
     private val observeBeneficiaries: ObserveBeneficiariesUseCase,
     private val updateBeneficiaryUseCase: UpdateBeneficiaryUseCase,
     private val observeMemberDocuments: ObserveMemberDocumentsUseCase,
@@ -213,14 +210,14 @@ class AdminMemberViewModel @Inject constructor(
 
     fun exportMemberStatement(member: Member, pdf: Boolean) {
         val group = uiState.value.group ?: return
-        val memberId = member.id ?: return
-        val groupId = group.id ?: return
 
         launchJob("export_member_statement") {
             updateState { it.copy(isExporting = true) }
             try {
-                val list = observeMemberContributions(memberId, groupId).first().getOrThrow()
-                val file = exportMemberStatementUseCase(group, member, list, pdf).getOrThrow()
+                // The use case reads the contribution book itself, from the server: taking the first
+                // emission of the observed flow hands over the cache, and a statement printed from it
+                // can omit a payment the server booked or confirm one the outbox never delivered.
+                val file = exportMemberStatementUseCase(group, member, pdf).getOrThrow()
                 sendEvent(UIEvent.OpenFile(file, if (pdf) "application/pdf" else "text/csv", "Statement"))
             } catch (e: CancellationException) {
                 throw e

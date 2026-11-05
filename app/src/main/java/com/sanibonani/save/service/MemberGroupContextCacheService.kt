@@ -93,6 +93,19 @@ class MemberGroupContextCacheService @Inject constructor(
 		clearForUser(userId = null)
 	}
 
+	/**
+	 * Drops every cached portal after the developer database changes, keeping whose session it was.
+	 *
+	 * The rows came from the tier that has just been replaced, so they are not a fallback, and the
+	 * warm-ups still reading it would write that tier's book back over the empty cache. The user id
+	 * stays: this is the same member on a different database, and a re-warm that looked like a new
+	 * session would clear again - and cancel - the very pass the portal is starting.
+	 */
+	fun invalidateForDatabaseChange() {
+		_contexts.value = emptyMap()
+		warmupCoordinator.cancelAll()
+	}
+
 	fun warmMembershipsInBackground(userId: String, memberships: List<Member>) {
 		ensureUserSession(userId)
 		pruneToMemberships(memberships)

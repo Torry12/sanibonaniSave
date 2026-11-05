@@ -119,9 +119,11 @@ class BehaviorTrackingRepositoryImpl @Inject constructor(
 
     private suspend fun updateContributionMetrics(track: MemberBehaviorTrack, memberId: String): MemberBehaviorTrack {
         // A failed history read carries no amounts, so it cannot be scored as an empty one: the row
-        // would go out saying this member has never contributed and the ledger total is R0.00.
-        val contributions = contributionRepository.getMemberContributions(memberId, track.groupId)
-            .first().getOrThrow()
+        // would go out saying this member has never contributed and the ledger total is R0.00. The
+        // observed flow is not usable here - its first emission is the cache, which is empty for a
+        // member this device has never synced, and the track is written with an upsert.
+        val contributions = contributionRepository.syncMemberContributions(memberId, track.groupId)
+            .getOrThrow()
 
         val paid = contributions.filter { it.status == ContributionStatus.PAID || it.status == ContributionStatus.PARTIAL }
         val totalAmount = paid.fold(Money.ZERO) { acc, c -> acc + c.amount }
@@ -140,7 +142,7 @@ class BehaviorTrackingRepositoryImpl @Inject constructor(
     }
 
     private suspend fun updateLoanMetrics(track: MemberBehaviorTrack, memberId: String): MemberBehaviorTrack {
-        val loans = loanRepository.getMemberLoans(memberId).first().getOrThrow()
+        val loans = loanRepository.getMemberLoansSync(memberId).getOrThrow()
         return track.copy(activeLoans = loans.count { it.status == LoanStatus.ACTIVE })
     }
 }

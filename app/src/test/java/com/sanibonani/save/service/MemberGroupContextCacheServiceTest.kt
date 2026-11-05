@@ -392,6 +392,55 @@ class MemberGroupContextCacheServiceTest {
         assertTrue("hydration peaked at ${peak.get()} reads at once", peak.get() <= HYDRATION_READS_AT_ONCE)
     }
 
+    @Test
+    fun `invalidateForDatabaseChange drops every snapshot read from the replaced tier`() = runBlocking {
+        // Switching the developer database points the app at a different Supabase project and a
+        // different SQLite file, so a portal built from the old one is not a fallback - it is money
+        // from a book this member may not even have on the tier now in front.
+        val service = service()
+        coEvery { memberRepo.getMemberships("u1") } returns Result.success(listOf(member))
+        stubHydration("Old tier")
+        service.warmUpForUser("u1")
+        withTimeout(5_000) {
+            while (service.getContext(groupId)?.group?.name != "Old tier") delay(20)
+        }
+
+        service.invalidateForDatabaseChange()
+
+        assertNull(service.getContext(groupId))
+        assertTrue(service.contexts.value.isEmpty())
+    }
+
+    @Test
+    fun `invalidateForDatabaseChange abandons a warm-up still reading the tier being replaced`() = runBlocking {
+        val service = service()
+        val readStarted = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        coEvery { memberRepo.getMemberships("u1") } returns Result.success(listOf(member))
+        stubHydration("Old tier")
+        // The pillars are read after the group row, so the cancelled run has a suspension left to
+        // observe before it could write - which makes this a verdict about the cancellation.
+        every { contributionRepo.getMemberContributions("m1", groupId) } returns
+            flow { delay(50); emit(Result.success(emptyList())) }
+        coEvery { groupRepo.getGroupById(groupId) } coAnswers {
+            readStarted.complete(Unit)
+            release.await()
+            Result.success(Group(id = groupId, name = "Old tier"))
+        }
+
+        service.warmMembershipsInBackground("u1", listOf(member))
+        withTimeout(5_000) { readStarted.await() }
+
+        service.invalidateForDatabaseChange()
+        release.complete(Unit)
+        delay(500)
+
+        assertNull(
+            "a snapshot half-built from the database that has just been replaced must not land after the switch",
+            service.getContext(groupId)
+        )
+    }
+
     private companion object {
         /** What one bounded warm-up is allowed to have in flight, for every group together. */
         const val HYDRATION_READS_AT_ONCE = 3

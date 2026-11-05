@@ -10,7 +10,6 @@ import com.sanibonani.save.domain.utils.PaymentCalculation
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import com.sanibonani.save.domain.usecase.financialResult
-import kotlinx.coroutines.flow.first
 
 /**
  * Strategy interface for handling different types of fund inflows.
@@ -148,7 +147,7 @@ class StandardContributionStrategy(
         val calc = calculation ?: throw Exception("Calculation context required for contribution")
 
         // Fetch active loans to check for potential repayments
-        val activeLoans = loanRepository.getMemberLoans(memberId).first().getOrThrow().filter {
+        val activeLoans = loanRepository.getMemberLoansSync(memberId).getOrThrow().filter {
             it.status == LoanStatus.ACTIVE || it.status == LoanStatus.PARTIALLY_PAID
         }
 

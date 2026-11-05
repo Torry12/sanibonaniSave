@@ -21,8 +21,6 @@ import java.time.LocalDate
 import java.time.temporal.ChronoUnit
 import javax.inject.Inject
 import com.sanibonani.save.domain.usecase.financialResult
-import com.sanibonani.save.domain.usecase.firstValueOrNull
-import kotlinx.coroutines.flow.first
 
 /**
  * Handles the automatic extraction of remaining loan balances once a loan passes the platform's
@@ -45,9 +43,7 @@ class ProcessLoanForcedSettlementUseCase @Inject constructor(
                 failures.add("group with missing ID")
                 continue
             }
-            val loanRead = safeRunCatching("$TAG.loadGroupLoans") {
-                loanRepository.getGroupLoans(groupId).first().getOrThrow()
-            }
+            val loanRead = loanRepository.getGroupLoansSync(groupId)
             if (loanRead.isFailure) {
                 AppLogger.w(TAG, "Unable to read loans for group $groupId; continuing sweep.", loanRead.exceptionOrNull())
                 failures.add("group $groupId loan history")
@@ -101,8 +97,8 @@ class ProcessLoanForcedSettlementUseCase @Inject constructor(
         // A history that never arrived contains no payments, and scoring that as arrears would put a
         // member who is up to date on probation. The sanction waits for a readable ledger instead.
         val contributions = contributionRepository
-            .observeMemberContributions(memberId, group.id ?: "").firstValueOrNull() ?: return
-        val loans = loanRepository.getMemberLoans(memberId).firstValueOrNull() ?: return
+            .syncMemberContributions(memberId, group.id ?: "").getOrNull() ?: return
+        val loans = loanRepository.getMemberLoansSync(memberId).getOrNull() ?: return
         val status = paymentCalculator.calculateStatus(group, updatedMember, contributions, loans, DateProvider.getCurrentDate())
         if (status.shortfall > (group.monthlyContribution * PROBATION_SHORTFALL_MONTHS)) {
             memberRepository.updateMemberStatus(memberId, MemberStatus.PROBATION)

@@ -26,6 +26,7 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.IOException
@@ -165,8 +166,39 @@ class LoadPaymentContextUseCaseTest {
 
         assertEquals(listOf(contribution), refused.context.contributions)
         assertEquals(listOf(loan), refused.context.loans)
+        assertFalse(
+            "the figures are kept, but the screen cannot claim the server agreed to them",
+            refused.context.amountsVerified
+        )
         verify {
             paymentCalculator.calculateStatus(group, member, listOf(contribution), listOf(loan), any())
         }
+    }
+
+    @Test
+    fun `a payment priced from rows the server answered is verified`() = runTest {
+        stubResolvedContext()
+
+        val ready = outcome() as LoadPaymentContextUseCase.Outcome.Ready
+
+        assertTrue(ready.context.amountsVerified)
+    }
+
+    @Test
+    fun `one refused book is enough to make the pricing unverified`() = runTest {
+        // The two legs refuse independently, and the member cannot tell which of the two numbers they
+        // are about to pay against is the stale one.
+        stubResolvedContext()
+        every { contributionRepository.observeMemberContributions("member-1", groupId) } returns
+            flowOf(Result.success(emptyList()))
+        every { loanRepository.getMemberLoans("member-1") } returns flowOf(
+            Result.success(emptyList()),
+            Result.failure(IOException("loan refresh refused"))
+        )
+
+        val emissions = useCase(params()).toList()
+
+        assertTrue((emissions.first() as LoadPaymentContextUseCase.Outcome.Ready).context.amountsVerified)
+        assertFalse((emissions.last() as LoadPaymentContextUseCase.Outcome.Ready).context.amountsVerified)
     }
 }

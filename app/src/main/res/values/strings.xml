@@ -131,6 +131,7 @@
     <string name="ui_airplane_mode_active_syncing_is_paused">Airplane Mode Active — Syncing is paused.</string>
     <string name="ui_offline_mode_using_cached_data">Offline Mode — Using cached data.</string>
     <string name="ui_sections_not_confirmed_with_server">Not confirmed with the server: %s.</string>
+    <string name="ui_payment_amounts_not_verified">These amounts come from records saved on this device and have not been confirmed with the server.</string>
     <string name="ui_member_activity_not_confirmed">This list has not been confirmed with the server, so an empty screen proves nothing. Pull to refresh.</string>
     <string name="ui_member_activity_no_group_entries">No entries in this member\'s group ledger. A registration fee or member fee is platform revenue and is never booked to the group.</string>
     <string name="ui_switch_group_label">Switch Group: %s</string>

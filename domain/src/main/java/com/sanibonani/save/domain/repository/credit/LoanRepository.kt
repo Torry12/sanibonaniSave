@@ -12,6 +12,16 @@ interface LoanRepository {
     suspend fun getLoanById(loanId: String): Result<Loan>
     fun getMemberLoans(memberId: String): Flow<Result<List<Loan>>>
     fun getGroupLoans(groupId: String): Flow<Result<List<Loan>>>
+
+    /**
+     * Reads one member's loans from the server and writes what it answered to the cache.
+     *
+     * [getMemberLoans] answers from Room first and sends the refresh verdict behind those rows, so its
+     * first emission only proves the cache spoke. The group has the same shape in
+     * [getGroupLoansSync]; this is its member-level twin, needed wherever a loan book decides money -
+     * remaining borrowing power, an arrears sanction, or how an incoming payment is allocated.
+     */
+    suspend fun getMemberLoansSync(memberId: String): Result<List<Loan>>
     suspend fun getGroupLoansSync(groupId: String): Result<List<Loan>>
     suspend fun getAllPendingLoansSync(): Result<List<Loan>>
     suspend fun approveLoan(loanId: String, adminId: String? = null): Result<Unit>

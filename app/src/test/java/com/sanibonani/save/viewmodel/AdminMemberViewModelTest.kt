@@ -13,7 +13,6 @@ import com.sanibonani.save.domain.repository.system.ExportRepository
 import com.sanibonani.save.domain.usecase.auth.BuildDocumentAuthHeadersUseCase
 import com.sanibonani.save.domain.usecase.credit.ValidateLoanEligibilityUseCase
 import com.sanibonani.save.domain.usecase.equity.ObserveGroupContributionsUseCase
-import com.sanibonani.save.domain.usecase.equity.ObserveMemberContributionsUseCase
 import com.sanibonani.save.domain.usecase.member.ObserveBeneficiariesUseCase
 import com.sanibonani.save.domain.usecase.member.ObserveMemberDocumentsUseCase
 import com.sanibonani.save.domain.usecase.member.UpdateBeneficiaryUseCase
@@ -104,11 +103,10 @@ class AdminMemberViewModelTest {
             adminContextCacheService,
             UpdateMemberBankingDetailsUseCase(memberRepo),
             ObserveGroupContributionsUseCase(contributionRepo),
-            ObserveMemberContributionsUseCase(contributionRepo),
             ObserveBeneficiariesUseCase(beneficiaryRepo),
             UpdateBeneficiaryUseCase(beneficiaryRepo),
             ObserveMemberDocumentsUseCase(memberDocumentRepo),
-            ExportMemberStatementUseCase(exportRepo),
+            ExportMemberStatementUseCase(exportRepo, contributionRepo),
             BuildDocumentAuthHeadersUseCase(supabaseRepo),
             updateMemberStatusUseCase,
             verifyMemberDocumentUseCase,
@@ -143,22 +141,24 @@ class AdminMemberViewModelTest {
     @Test
     fun `export failure clears the busy flag instead of leaving the dialog stuck`() = runTest {
         hydrateGroup()
-        every { contributionRepo.observeMemberContributions("m-1", "g-1") } returns
-            flowOf(Result.failure(IllegalStateException("disk full")))
+        // The statement reads the book straight from the server, so this is the refusal the export can
+        // actually meet; an observed flow could never answer failure as its first emission.
+        coEvery { contributionRepo.syncMemberContributions("m-1", "g-1") } returns
+            Result.failure(IOException("gateway unreachable"))
 
         viewModel.exportMemberStatement(member, pdf = true)
         advanceUntilIdle()
 
         assertFalse(viewModel.state.value.isExporting)
         assertTrue(viewModel.events.first() is UIEvent.ShowError)
+        coVerify(exactly = 0) { exportRepo.exportContributionsToPdf(any(), any(), any()) }
     }
 
     @Test
     fun `export success publishes the file and clears the busy flag`() = runTest {
         hydrateGroup()
         val statement = File("statement.csv")
-        every { contributionRepo.observeMemberContributions("m-1", "g-1") } returns
-            flowOf(Result.success(emptyList()))
+        coEvery { contributionRepo.syncMemberContributions("m-1", "g-1") } returns Result.success(emptyList())
         coEvery { exportRepo.exportContributionsToCsv(any(), any(), any()) } returns Result.success(statement)
 
         viewModel.exportMemberStatement(member, pdf = false)

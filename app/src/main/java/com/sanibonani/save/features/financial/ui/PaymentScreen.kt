@@ -113,6 +113,15 @@ fun PaymentScreen(
                     .padding(20.dp).verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
+                // Only when a price is on screen: the amounts stay because blanketing them would bill
+                // the member as if nothing had been booked, and offline already has its own banner.
+                if (!state.amountsVerified && state.calculation != null) {
+                    OfflineBanner(
+                        isOnline = true,
+                        message = stringResource(R.string.ui_payment_amounts_not_verified)
+                    )
+                }
+
                 // Payment context info
                 when (paymentType) {
                     "registration" -> InfoBox(

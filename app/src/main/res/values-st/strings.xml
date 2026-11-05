@@ -131,6 +131,7 @@
     <string name="ui_airplane_mode_active_syncing_is_paused">Mokhoa wa Sefofane o Sebetsa — O time ho kopanya dintlha.</string>
     <string name="ui_offline_mode_using_cached_data">Mokhoa o sa Hokelang Inthaneteng — E sebelisa dintlha tse bolokiloeng.</string>
     <string name="ui_sections_not_confirmed_with_server">Ha ka netefatsoa le seva: %s.</string>
+    <string name="ui_payment_amounts_not_verified">Dipalo tsena di tswa dintlheng tse bolokiloeng sedisheng sena, mme ha di netefatsoa le seva.</string>
     <string name="ui_member_activity_not_confirmed">Lenane lena ha le netefatsoa le seva, kahoo leqephe le se nang letho ha le bontshe letho. Hula ho qobella.</string>
     <string name="ui_member_activity_no_group_entries">Ha ho dikentoe bengodeng ba sehlopha ba setho sena. Tefo ya ngodiso kapa tefo ya setho di ya letsonong la setjhaba, ha di ngolwe bengodeng ba sehlopha.</string>
     <string name="ui_switch_group_label">Fetola Sehlopha: %s</string>

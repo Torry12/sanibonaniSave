@@ -59,6 +59,13 @@ class LoanRepositoryImpl @Inject constructor(
         remote
     }
 
+    override suspend fun getMemberLoansSync(memberId: String): Result<List<Loan>> =
+        authoritativeCall("getMemberLoansSync") {
+            val rows = remoteSource.getMemberLoans(memberId).getOrThrow()
+            localSource.saveLoans(rows)
+            rows
+        }
+
     override suspend fun getAllPendingLoansSync(): Result<List<Loan>> = remoteSource.getAllPendingLoans()
 
     override suspend fun updateLoanStatus(

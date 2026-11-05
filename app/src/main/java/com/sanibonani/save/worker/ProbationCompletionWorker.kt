@@ -18,7 +18,6 @@ import com.sanibonani.save.domain.repository.equity.ContributionRepository
 import com.sanibonani.save.domain.repository.system.NotificationRepository
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
-import kotlinx.coroutines.flow.first
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import java.util.concurrent.TimeUnit
@@ -58,9 +57,12 @@ class ProbationCompletionWorker @AssistedInject constructor(
                 if (hasProbationEnded(member.probationEndAt)) {
                     val memberId = member.id ?: return@forEach
 
-                    // Enforce rule: A group member can only be active if joining fee is not outstanding
+                    // Enforce rule: A group member can only be active if joining fee is not outstanding.
+                    // The fee book is read from the server: the observe flow answers with the Room cache
+                    // first and sends the refusal behind it, so a cached "paid" row would certify a
+                    // promotion the server has never confirmed.
                     val groupResult = groupRepo.getGroupById(member.groupId)
-                    val contributionsResult = contributionRepo.observeMemberContributions(memberId, member.groupId).first()
+                    val contributionsResult = contributionRepo.syncMemberContributions(memberId, member.groupId)
                     if (!joiningFeeRuleIsReadable(groupResult, contributionsResult)) {
                         AppLogger.w(
                             "ProbationWorker",
