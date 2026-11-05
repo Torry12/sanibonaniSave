@@ -65,6 +65,14 @@ class MemberOverviewViewModel @Inject constructor(
      */
     private var portalHydrationTimedOut = false
 
+    /**
+     * The group the route last asked this portal to open, recorded when the request is made rather than
+     * when its transition job runs. The memberships read is subscribed to in `init`, so its first
+     * emission can land in the same dispatch as a Support Mode entry, and the auto-select below would
+     * otherwise cancel the entry the operator just asked for and open their own portal instead.
+     */
+    private var requestedPortalGroupId: String? = null
+
     private val host = object : MemberActionHost {
         override val memberState: StateFlow<MemberUiState> get() = uiState
 
@@ -263,7 +271,12 @@ class MemberOverviewViewModel @Inject constructor(
                 res.onSuccess { memberships ->
                     refusalReported = false
                     updateState { it.copy(memberships = memberships) }
-                    if (uiState.value.selectedGroupId == null && memberships.isNotEmpty()) {
+                    // A route that named its group outranks "the first group I belong to": auto-selecting
+                    // over a Support Mode entry re-enters setPortalContext for a different portal than the
+                    // one the operator asked for, and cancels the entry already in flight.
+                    if (uiState.value.selectedGroupId == null && requestedPortalGroupId == null &&
+                        memberships.isNotEmpty()
+                    ) {
                         selectGroup(memberships.first().groupId)
                     }
                 }.onFailure { e ->
@@ -277,9 +290,11 @@ class MemberOverviewViewModel @Inject constructor(
     }
 
     fun setPortalContext(memberId: String?, groupId: String?) {
+        val requestedGroupId = groupId?.takeIf { it.isNotBlank() }
+        requestedPortalGroupId = requestedGroupId
         launchJob("portal_context_transition") {
             val targetMemberId = memberId?.takeIf { it.isNotBlank() }
-            val targetGroupId = groupId?.takeIf { it.isNotBlank() }
+            val targetGroupId = requestedGroupId
             // Defense in depth: the route is the only way into Support Mode, so it is also the
             // place an unauthorised deep link would arrive. A member id is honoured only for a
             // platform admin or an admin of that exact group.

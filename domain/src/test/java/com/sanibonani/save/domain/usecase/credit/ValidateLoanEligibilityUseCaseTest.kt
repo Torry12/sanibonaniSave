@@ -162,7 +162,7 @@ class ValidateLoanEligibilityUseCaseTest {
             "Unable to verify contribution history. Please retry.",
             (result as ValidateLoanEligibilityUseCase.EligibilityResult.Ineligible).reason
         )
-        verify(exactly = 0) { loanRepository.getMemberLoansSync(any()) }
+        coVerify(exactly = 0) { loanRepository.getMemberLoansSync(any()) }
     }
 
     @Test
