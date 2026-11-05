@@ -21,7 +21,6 @@ import com.sanibonani.save.domain.usecase.member.GetMembershipsUseCase
 import com.sanibonani.save.features.landing.presentation.LandingIntent
 import com.sanibonani.save.features.landing.presentation.LandingViewModel
 import io.mockk.coEvery
-import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkStatic
@@ -30,12 +29,14 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
-import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -48,13 +49,20 @@ import org.junit.Rule
 import org.junit.Test
 
 /**
- * The device log for a cold start carried three `landing_refresh_started` inside three seconds and
- * one `landing_refresh_success`: the screen appears, the session publishes and the connectivity
- * watcher all ask for the same four reads, and every ask cancelled the refresh already running. The
- * torn-down reads never answer, so the landing hero waited on the one pass that survived.
+ * The device log for a cold start carried three `landing_refresh_started` inside three seconds and one
+ * `landing_refresh_success`: the screen appears, the session publishes and the connectivity watcher all
+ * ask for the same four reads, and every ask cancelled the refresh already running. The torn-down reads
+ * never answer, so the landing hero waited on the one pass that survived.
  *
- * A caller that wants the same answer as the pass already in flight is served by that pass; a
- * different actor, or an explicit retry, still starts its own.
+ * Two guards answer that, and each gets its own case here: a refresh is keyed to the actor it reads for,
+ * so a second caller while one is in flight is served by it; and the session observer only answers a
+ * publication that changes whether someone is signed in or as what. A caller that demands fresh data -
+ * the retry, or a dev database switch - still starts its own pass.
+ *
+ * The read legs run on `Dispatchers.IO` inside a pass that arms its own 30-second timeout, so nothing
+ * here waits on the wall clock for a leg to appear: each leg announces itself through a deferred and
+ * stays suspended until the test releases it. `advanceUntilIdle()` cannot be used for the same reason -
+ * it would jump that timeout and cancel the legs before any of them started.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class LandingRefreshDeduplicationTest {
@@ -73,7 +81,6 @@ class LandingRefreshDeduplicationTest {
     private val networkService = mockk<NetworkConnectivityService>(relaxed = true)
     private val devSettings = mockk<DevSettingsService>(relaxed = true)
 
-    private val sessionFlow = MutableStateFlow<AuthSession?>(null)
     private val testDispatcher = StandardTestDispatcher()
 
     private lateinit var viewModel: LandingViewModel
@@ -94,7 +101,6 @@ class LandingRefreshDeduplicationTest {
 
         Dispatchers.setMain(testDispatcher)
 
-        every { observeAuthSession() } returns sessionFlow
         every { devSettings.settingsChanged } returns MutableSharedFlow()
         every { networkService.isOnline } returns flowOf(true)
         every { networkService.isAirplaneModeActive } returns flowOf(false)
@@ -105,8 +111,24 @@ class LandingRefreshDeduplicationTest {
         coEvery { getMemberships(any()) } returns Result.success(emptyList())
         coEvery { getManagedGroups(any(), any(), any()) } returns Result.success(emptyList())
         coEvery { getPlatformAnalytics() } returns Result.success(PlatformAnalytics())
+    }
 
-        viewModel = LandingViewModel(
+    @After
+    fun tearDown() {
+        if (::viewModel.isInitialized) viewModel.viewModelScope.cancel()
+        testDispatcher.scheduler.advanceUntilIdle()
+        Dispatchers.resetMain()
+        unmockkAll()
+    }
+
+    /**
+     * The session source is a parameter because the case that exercises the observer's guard needs a flow
+     * that finishes: a never-completing one leaves `debounce`'s timer re-arming after every advance, and
+     * runTest then spends its whole minute looking for a scheduler that will never go idle.
+     */
+    private fun buildViewModel(sessionSource: Flow<AuthSession?>): LandingViewModel {
+        every { observeAuthSession() } returns sessionSource
+        return LandingViewModel(
             getPlatformAnalytics,
             refreshPlatformConfig,
             getMemberships,
@@ -120,50 +142,72 @@ class LandingRefreshDeduplicationTest {
         )
     }
 
-    @After
-    fun tearDown() {
-        viewModel.viewModelScope.cancel()
-        testDispatcher.scheduler.advanceUntilIdle()
-        Dispatchers.resetMain()
-        unmockkAll()
+    /** Two publications 400 ms apart for the same member, then the stream closes. */
+    private fun twoSessionsForOneMember(): Flow<AuthSession?> = flow {
+        emit(AuthSession(userId = "u-1", accessToken = "token-a"))
+        delay(400)
+        emit(AuthSession(userId = "u-1", accessToken = "token-b"))
     }
 
     @Test
     fun `a session republished for the same actor does not restart the refresh`() = runTest {
-        var reads = 0
-        coEvery { getPlatformAnalytics() } answers {
-            reads++
+        val gate = CompletableDeferred<Unit>()
+        val firstRead = CompletableDeferred<Unit>()
+        val reads = java.util.concurrent.atomic.AtomicInteger()
+        coEvery { getPlatformAnalytics() } coAnswers {
+            if (reads.incrementAndGet() == 1) firstRead.complete(Unit)
+            gate.await()
             Result.success(PlatformAnalytics())
         }
 
-        // The init pass and the first session publication want the same landing screen, so one
-        // refresh has to answer both.
-        sessionFlow.value = AuthSession(userId = "u-1", accessToken = "token-a")
-        drain()
-        val afterSignIn = reads
-        assertTrue("the landing has to have read at least once", afterSignIn >= 1)
+        viewModel = buildViewModel(twoSessionsForOneMember())
 
-        // Same member, renewed token: distinctUntilChanged on the token lets this through, and the
-        // role guard used to trip only for admins, so a member re-refreshed on every publication.
-        sessionFlow.value = AuthSession(userId = "u-1", accessToken = "token-b")
-        drain()
+        // The construction pass is the one reading; hold it there so the first publication arrives while
+        // it is still in flight.
+        runCurrent()
+        firstRead.await()
+
+        // token-a clears the debounce at +300ms and asks for the landing the pass already covers.
+        advanceTimeBy(350)
+        runCurrent()
+        assertEquals(
+            "a publication while a refresh is running is served by that refresh",
+            1,
+            reads.get()
+        )
+
+        gate.complete(Unit)
+        settle()
+
+        // token-b is a renewed token for the member already on screen: distinctUntilChanged lets it
+        // through, and it used to trip a whole refresh because the role guard only ran for admins.
+        advanceTimeBy(400)
+        runCurrent()
+        settle()
 
         assertEquals(
             "a renewed token for the member already on screen is not a new landing screen",
-            afterSignIn,
-            reads
+            1,
+            reads.get()
         )
+        assertTrue(
+            "and the observer did see that session, so the guard is what kept the count down",
+            viewModel.state.value.isLoggedIn
+        )
+        viewModel.viewModelScope.cancel()
     }
 
     @Test
     fun `a refresh already running for this actor answers the next caller`() = runTest {
         val gate = CompletableDeferred<Unit>()
-        var reads = 0
+        val reads = java.util.concurrent.atomic.AtomicInteger()
         coEvery { getPlatformAnalytics() } coAnswers {
-            reads++
+            reads.incrementAndGet()
             gate.await()
             Result.success(PlatformAnalytics())
         }
+
+        viewModel = buildViewModel(flowOf(null))
 
         viewModel.refreshData()
         runCurrent()
@@ -172,48 +216,70 @@ class LandingRefreshDeduplicationTest {
         runCurrent()
 
         gate.complete(Unit)
-        drain()
+        settle()
 
         assertEquals(
             "the second caller has to be served by the pass already running",
             1,
-            reads
+            reads.get()
         )
         assertTrue(
             "and the pass that was left alone is the one that paints the hero",
             viewModel.state.value.analytics.getOrNull() != null
         )
+        viewModel.viewModelScope.cancel()
     }
 
     @Test
     fun `a retry the admin asks for starts its own refresh`() = runTest {
-        var reads = 0
-        coEvery { getPlatformAnalytics() } answers {
-            reads++
+        val gate = CompletableDeferred<Unit>()
+        val firstRead = CompletableDeferred<Unit>()
+        val secondRead = CompletableDeferred<Unit>()
+        val reads = java.util.concurrent.atomic.AtomicInteger()
+        coEvery { getPlatformAnalytics() } coAnswers {
+            when (reads.incrementAndGet()) {
+                1 -> firstRead.complete(Unit)
+                else -> secondRead.complete(Unit)
+            }
+            gate.await()
             Result.success(PlatformAnalytics())
         }
 
-        viewModel.refreshData()
-        drain()
-        assertEquals(1, reads)
+        viewModel = buildViewModel(flowOf(null))
 
+        viewModel.refreshData()
+        firstRead.await()
+        assertEquals(
+            "the pass already running is the one the first caller is served by",
+            1,
+            reads.get()
+        )
+
+        gate.complete(Unit)
+        settle()
+
+        // A forced pass replaces one that already finished, because the caller wants an answer that
+        // post-dates its ask - the retry on the hero, or the database switch.
         viewModel.onIntent(LandingIntent.Refresh)
-        drain()
+        secondRead.await()
 
         assertEquals(
             "a caller that asked for fresh data must not be quietened by a pass that already finished",
             2,
-            reads
+            reads.get()
         )
+        gate.complete(Unit)
+        settle()
+        viewModel.viewModelScope.cancel()
     }
 
     /**
-     * The refresh's legs run on IO, so the scheduler alone cannot prove a leg was reached; give the
-     * real threads a turn and drain again.
+     * Runs what is queued, gives the IO threads a turn, then runs what their answers queued. Virtual time
+     * is never advanced here, because that would fire the pass's own `withTimeoutOrNull(30_000)`.
      */
-    private suspend fun TestScope.drain() {
-        advanceUntilIdle()
-        Thread.sleep(120)
-        advanceUntilIdle()
+    private suspend fun TestScope.settle() {
+        runCurrent()
+        Thread.sleep(200)
+        runCurrent()
     }
 }
