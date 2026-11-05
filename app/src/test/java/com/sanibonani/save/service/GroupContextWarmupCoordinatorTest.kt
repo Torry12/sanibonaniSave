@@ -1,13 +1,18 @@
 package com.sanibonani.save.service
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -111,6 +116,49 @@ class GroupContextWarmupCoordinatorTest {
 
         release.complete(Unit)
         assertEquals(listOf("old:reading", "old:unwound", "replacement"), order)
+    }
+
+    @Test
+    fun `a superseded warmup that never unwinds does not park the entry`() = runBlocking<Unit> {
+        // The wait for a cancelled predecessor was open-ended, so a warm-up wedged in a read that
+        // never answered held the group's slot and whatever opened the group behind it: the entry
+        // that was meant to replace a stale snapshot became a second stall, indistinguishable on
+        // screen from a hydration that never started.
+        val coordinator = GroupContextWarmupCoordinator(supersedeJoinMillis = 50)
+        val wedged = CompletableDeferred<Unit>()
+        val tookSlot = CompletableDeferred<Unit>()
+
+        val holding = scope.launch {
+            coordinator.runExclusive(groupId, scope) {
+                tookSlot.complete(Unit)
+                try {
+                    withContext(NonCancellable) { wedged.await() }
+                } catch (_: CancellationException) {
+                    // An orderly run resumes here; this one is stuck and must not be waited on.
+                }
+            }
+        }
+        // Without this handoff the wait measured below could be a wait on a slot the wedged run never
+        // took, which would pass on the timing alone.
+        withTimeout(2_000) { tookSlot.await() }
+
+        val startedAt = System.currentTimeMillis()
+        val outcome = withTimeout(2_000) {
+            coordinator.runExclusive(groupId, scope) { "entered" }
+        }
+        val waited = System.currentTimeMillis() - startedAt
+
+        assertEquals("entered", outcome)
+        // The replacement has to have waited on the run ahead of it and then given up: a wait of
+        // nothing means the wedge was never exercised, and an unbounded one is the stall this bound
+        // exists to remove.
+        assertTrue("the entry waited past its supersede bound instead of giving up: ${waited}ms", waited >= 50)
+        // Giving up on the run is what frees the group's slot. It cannot stop the caller behind it,
+        // whose read ignores cancellation, so that run stays alive and may still write - the case the
+        // coordinator logs rather than prevents.
+        assertTrue("the wedged run is left to finish its own read", holding.isActive)
+
+        wedged.complete(Unit)
     }
 
     @Test

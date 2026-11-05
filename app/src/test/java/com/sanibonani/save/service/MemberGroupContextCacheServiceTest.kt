@@ -30,6 +30,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.IOException
+import java.util.concurrent.atomic.AtomicInteger
 
 class MemberGroupContextCacheServiceTest {
 
@@ -335,5 +336,64 @@ class MemberGroupContextCacheServiceTest {
         // the book still has to advance it.
         assertEquals("New", second.group?.name)
         assertTrue(second.lastUpdatedMillis > first.lastUpdatedMillis)
+    }
+
+    // A warm-up read every pillar of every membership at once: four memberships measured sixteen
+    // reads in flight together, out of the twenty-four the pass presents to one host. The calls past
+    // its per-host dispatch cap waited in a queue that no timeout in the app can see, which is how
+    // the portal the user was actually looking at sat behind a hydration of groups they had not
+    // opened.
+    @Test
+    fun `warming several memberships never reads them all at once`() = runBlocking {
+        val service = service()
+        val groupIds = listOf("g1", "g2", "g3", "g4")
+        val memberships = groupIds.map { Member(id = "m-$it", groupId = it, userId = "u1") }
+
+        val inFlight = AtomicInteger()
+        val peak = AtomicInteger()
+
+        // The increment stays outside the compare-and-set: updateAndGet re-runs its lambda on every
+        // retry, so incrementing inside it counts one leg twice under contention and reports a peak
+        // the budget never actually allowed.
+        suspend fun <T> counted(block: suspend () -> T): T = try {
+            val inFlightNow = inFlight.incrementAndGet()
+            peak.updateAndGet { current -> maxOf(current, inFlightNow) }
+            block()
+        } finally {
+            inFlight.decrementAndGet()
+        }
+
+        groupIds.forEach { gid ->
+            val memberId = "m-$gid"
+            coEvery { groupRepo.getGroupById(gid) } coAnswers { counted { delay(30); Result.success(Group(id = gid, name = gid)) } }
+            coEvery { memberRepo.getMemberByUserId("u1", gid) } coAnswers { counted { delay(30); Result.success(memberships.first { it.groupId == gid }) } }
+            every { contributionRepo.getMemberContributions(memberId, gid) } answers {
+                flow { counted { delay(30) }; emit(Result.success(emptyList())) }
+            }
+            coEvery { beneficiaryRepo.syncBeneficiaries(memberId) } coAnswers { counted { delay(30); Result.success(emptyList()) } }
+            every { loanRepo.getMemberLoans(memberId) } answers {
+                flow { counted { delay(30) }; emit(Result.success(emptyList())) }
+            }
+            coEvery { notificationRepo.syncNotifications(gid) } coAnswers { counted { delay(30); Result.success(Unit) } }
+            every { notificationRepo.observeNotifications(gid) } answers {
+                flow { counted { delay(30) }; emit(Result.success(emptyList())) }
+            }
+        }
+
+        service.warmMembershipsInBackground("u1", memberships)
+
+        withTimeout(15_000) {
+            while (service.contexts.value.values.count { it.group?.id != null } < groupIds.size) delay(20)
+        }
+        assertTrue(
+            "a bounded warm-up still has to overlap, and it peaked at ${peak.get()}",
+            peak.get() > 1
+        )
+        assertTrue("hydration peaked at ${peak.get()} reads at once", peak.get() <= HYDRATION_READS_AT_ONCE)
+    }
+
+    private companion object {
+        /** What one bounded warm-up is allowed to have in flight, for every group together. */
+        const val HYDRATION_READS_AT_ONCE = 3
     }
 }

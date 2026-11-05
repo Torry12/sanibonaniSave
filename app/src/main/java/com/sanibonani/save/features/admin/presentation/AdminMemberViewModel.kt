@@ -4,6 +4,7 @@ import com.sanibonani.save.domain.model.Beneficiary
 import com.sanibonani.save.domain.model.Contribution
 import com.sanibonani.save.domain.model.Group
 import com.sanibonani.save.domain.model.Member
+import com.sanibonani.save.domain.model.MemberDocument
 import com.sanibonani.save.domain.model.MemberStatus
 import com.sanibonani.save.domain.model.NotifChannel
 import com.sanibonani.save.domain.usecase.credit.ValidateLoanEligibilityUseCase
@@ -134,8 +135,15 @@ class AdminMemberViewModel @Inject constructor(
             // combine re-emits while either leg is still failed, so each leg is reported once
             // per member selection instead of on every emission.
             val reported = mutableSetOf<String>()
+            // Each leg hands over its cached rows first and the refresh verdict after, so a refusal
+            // arrives while the previous rows are on screen. They stay: an empty list would claim
+            // the member has no beneficiaries rather than that the beneficiary read was refused.
+            var lastBeneficiaries = emptyList<Beneficiary>()
+            var lastDocuments = emptyList<MemberDocument>()
             combine(observeBeneficiaries(memberId), observeMemberDocuments(memberId)) { bRes, dRes ->
-                updateState { it.copy(selectedMemberBeneficiaries = bRes.getOrDefault(emptyList()), selectedMemberDocuments = dRes.getOrDefault(emptyList())) }
+                bRes.getOrNull()?.let { lastBeneficiaries = it }
+                dRes.getOrNull()?.let { lastDocuments = it }
+                updateState { it.copy(selectedMemberBeneficiaries = lastBeneficiaries, selectedMemberDocuments = lastDocuments) }
                 reportMemberDetailFailure(reported, "beneficiaries", bRes.exceptionOrNull())
                 reportMemberDetailFailure(reported, "documents", dRes.exceptionOrNull())
             }.collect()

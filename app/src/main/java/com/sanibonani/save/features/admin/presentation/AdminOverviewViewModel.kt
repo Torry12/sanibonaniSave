@@ -53,6 +53,14 @@ class AdminOverviewViewModel @Inject constructor(
 
     val state: StateFlow<AdminOverviewUiState> = uiState
 
+    /**
+     * Whether the watchdog below already reported a load that did not arrive. The snapshot that
+     * eventually lands invalidates that report - it was a guess about a read that was still running
+     * - but it must not clear an error the admin has to act on, so the two are told apart here
+     * rather than by the message text.
+     */
+    private var hydrationTimedOut = false
+
     private val host: AdminActionHost = object : AdminActionHost {
         override val adminState: StateFlow<AdminOverviewUiState> get() = state
 
@@ -131,8 +139,14 @@ class AdminOverviewViewModel @Inject constructor(
     private fun observeSettings() {
         launchJob("settings_observation") {
             devSettings.settingsChanged.collect {
-                updateState { it.copy(group = null, members = emptyList(), managedGroups = AsyncResult.Uninitialized) }
+                // The tier behind every row on screen has just been replaced, so those rows go with
+                // it - and the cache drops first, because a warm-up that found the snapshot it
+                // already held unchanged would not re-emit, leaving this dashboard blank for the
+                // whole session. Re-warming the account's groups is what refills it.
+                adminContextCacheService.invalidateForDatabaseChange()
+                updateState { it.clearGroupContext() }
                 loadManagedGroups()
+                getAttributableActorId()?.let { adminContextCacheService.warmUpForUser(it) }
             }
         }
     }
@@ -147,20 +161,13 @@ class AdminOverviewViewModel @Inject constructor(
 
             if (context == null) {
                 if (selectedId != null) {
-                    // We have a selection but no data yet.
-                    // Start a safety timer to clear the loading state if hydration is taking too long.
-                    launchJob("hydration_safety_timer") {
-                        delay(7.seconds)
-                        if (uiState.value.group == null) {
-                            updateState { it.copy(isLoading = false, error = "Loading timed out. Please try again.") }
-                        }
-                    }
+                    // We have a selection but no data yet: give the wait a bound.
+                    armHydrationWatchdog()
                 }
                 return@observeGroupContext
             }
 
-            cancelJob("hydration_safety_timer")
-
+            // A snapshot with no group row is not a dashboard, so the watchdog stays armed for it.
             val pkg = AdminGroupContext(
                 group = context.group ?: return@observeGroupContext,
                 members = context.members,
@@ -168,14 +175,22 @@ class AdminOverviewViewModel @Inject constructor(
                 messages = context.memberMessages
             )
 
-            updateState { it.copy(
+            // The book has arrived, so the wait the watchdog was armed for is over and its verdict
+            // goes with it. AdminDialogs renders this error as a modal over the dashboard, so a
+            // timeout left behind blocks data that has since arrived - the read was slow, not
+            // refused.
+            cancelJob("hydration_safety_timer")
+            val timeoutReported = hydrationTimedOut
+            hydrationTimedOut = false
+
+            updateState { s -> s.copy(
                 group = pkg.group,
                 members = pkg.members,
                 notifications = pkg.notifications,
                 memberMessages = pkg.messages,
                 feeStatus = context.feeStatus ?: AdminFeeState.DUE,
                 isLoading = !context.isFullyHydrated,
-                error = it.error
+                error = if (timeoutReported) null else s.error
             ) }
 
             if (context.isFullyHydrated) {
@@ -184,6 +199,25 @@ class AdminOverviewViewModel @Inject constructor(
                 if (groupId != null) {
                     platformFeeCoordinator.loadOutstanding(host, groupId)
                 }
+            }
+        }
+    }
+
+    /**
+     * Gives a hydration that never answers a verdict, so the dashboard stops waiting on a read the
+     * server refused instead of spinning until the admin leaves the screen.
+     *
+     * Armed from [selectGroup] as well as from the collector above: that flow ends in
+     * distinctUntilChanged, and a null snapshot following the initial null is not a change, so the
+     * first group of a session never armed anything there.
+     */
+    private fun armHydrationWatchdog() {
+        hydrationTimedOut = false
+        launchJob("hydration_safety_timer") {
+            delay(HYDRATION_TIMEOUT)
+            if (uiState.value.group == null) {
+                hydrationTimedOut = true
+                updateState { it.copy(isLoading = false, error = "Loading timed out. Please try again.") }
             }
         }
     }
@@ -259,6 +293,9 @@ class AdminOverviewViewModel @Inject constructor(
         // Selecting is what warms the group, and it warms it fresh: a second, non-forced warmup
         // here used to race the forced one and re-hydrate the same group twice.
         adminContextCacheService.selectGroup(groupId)
+        // This is the one place that knows a book was asked for and is not on screen yet, so the
+        // bound on the wait is set here rather than left to the collector.
+        armHydrationWatchdog()
         loadGroupAuditReport()
     }
 
@@ -310,11 +347,25 @@ class AdminOverviewViewModel @Inject constructor(
             loadManagedGroups()
             observeContext()
         } else {
-            listOf("context_observation", "group_observation", "managed_groups_loading", "audit_report_loading").forEach {
-                cancelJob(it)
-            }
+            listOf(
+                "context_observation",
+                "group_observation",
+                "managed_groups_loading",
+                "audit_report_loading",
+                // A dashboard left within the bound is no longer waiting on the book, so the wait
+                // must not report a timeout to a screen nobody is looking at.
+                "hydration_safety_timer"
+            ).forEach { cancelJob(it) }
         }
     }
 
     fun clearError() { updateState { it.copy(error = null) } }
+
+    private companion object {
+        /**
+         * How long the dashboard waits for a hydration before saying the book did not arrive.
+         * Long enough for a slow tier to answer, short enough that the admin keeps a way out.
+         */
+        val HYDRATION_TIMEOUT = 7.seconds
+    }
 }

@@ -182,7 +182,7 @@ fun MemberOverviewTab(
         }
 
         item {
-            SanibonaniSectionHeader("Recent Activity", subtitle = "Your latest ledger entries")
+            SanibonaniSectionHeader("Recent Activity", subtitle = "Your latest payments")
             if (recentActivity.isEmpty()) {
                 // "No transactions" is a claim about the member's book, and an unanswered read or a
                 // stale ledger pillar is not one - the header above already shows money saved from

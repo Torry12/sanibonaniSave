@@ -16,6 +16,7 @@ import com.sanibonani.save.service.AdminGroupContextCacheService
 import com.sanibonani.save.service.MemberGroupContextCacheService
 import com.sanibonani.save.service.UserProfileCacheService
 import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkStatic
@@ -24,6 +25,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -107,5 +109,50 @@ class AuthSessionHydratorTest {
             "a cancelled step must not stay Loading: ${loadQueue.steps.value}",
             loadQueue.steps.value["Domain Context"] is StepStatus.Error
         )
+    }
+
+    // The session source publishes a rebuilt object whenever the SDK re-reads what it holds, not only
+    // when the account changed, and a mapped flow does not dedupe the way a StateFlow does. Each
+    // publication cancelled the hydration still running and started another - profile read, role read
+    // and a warm-up of every group the account has - which is how one sign-in was seen re-hydrating
+    // repeatedly, each pass tearing down the reads of the pass before it.
+    // A SharedFlow with replay is used here rather than the StateFlow the other tests set: it re-emits
+    // an equal object, which is the behaviour under test.
+    @Test
+    fun `a session that did not change its token does not hydrate twice`() = runTest {
+        val loadQueue = LoadStateQueue()
+        val publications = MutableSharedFlow<AuthSession?>(replay = 1)
+        every { supabaseRepo.sessionFlow } returns publications
+        val session = AuthSession(userId = "u1", email = "admin@example.com", accessToken = "token")
+
+        publications.tryEmit(session)
+        val collecting = launch { hydrator(loadQueue).accountStatus().collect { } }
+        advanceUntilIdle()
+
+        assertTrue(publications.tryEmit(session))
+        advanceUntilIdle()
+
+        coVerify(exactly = 1) { memberCache.warmUpForUser("u1") }
+        collecting.cancelAndJoin()
+    }
+
+    // The other half: a token that really did change is a new session, and the caches have to be
+    // warmed for it. A guard that swallowed those would leave the portal reading the previous
+    // account's book.
+    @Test
+    fun `a session with a new token hydrates again`() = runTest {
+        val loadQueue = LoadStateQueue()
+        val publications = MutableSharedFlow<AuthSession?>(replay = 1)
+        every { supabaseRepo.sessionFlow } returns publications
+
+        publications.tryEmit(AuthSession(userId = "u1", email = "admin@example.com", accessToken = "token"))
+        val collecting = launch { hydrator(loadQueue).accountStatus().collect { } }
+        advanceUntilIdle()
+
+        publications.tryEmit(AuthSession(userId = "u1", email = "admin@example.com", accessToken = "refreshed"))
+        advanceUntilIdle()
+
+        coVerify(exactly = 2) { memberCache.warmUpForUser("u1") }
+        collecting.cancelAndJoin()
     }
 }

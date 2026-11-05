@@ -66,6 +66,8 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -137,11 +139,27 @@ class MemberSavingsVsPlatformFeeTest {
         networkService
     ).also { createdViewModels += it }
 
-    private fun contribution(type: String, amount: String, status: ContributionStatus = ContributionStatus.PAID) =
-        Contribution(memberId = "m1", groupId = groupId, amount = Money(amount), status = status, type = type)
+    private fun contribution(
+        type: String,
+        amount: String,
+        status: ContributionStatus = ContributionStatus.PAID,
+        id: String? = null,
+        paidAt: String? = null
+    ) = Contribution(
+        id = id,
+        memberId = "m1",
+        groupId = groupId,
+        amount = Money(amount),
+        status = status,
+        type = type,
+        paidAt = paidAt
+    )
 
     /** Only the contributions read decides the split here, so every other pull is parked. */
-    private fun stubContributions(list: List<Contribution>) {
+    private fun stubContributions(
+        list: List<Contribution>,
+        ledger: List<LedgerEntry> = emptyList()
+    ) {
         every { groupRepo.observeGroup(groupId) } returns flow { awaitCancellation() }
         every { memberRepo.observeMemberById("m1") } returns flow { awaitCancellation() }
         every { contributionRepo.observeMemberContributions("m1", groupId) } returns flowOf(Result.success(list))
@@ -149,7 +167,7 @@ class MemberSavingsVsPlatformFeeTest {
         every { claimRepo.observeClaimsForMember("m1", groupId) } returns flow { awaitCancellation() }
         every { payoutRepo.observePayoutsForMember("m1") } returns flow { awaitCancellation() }
         every { memberRepo.getGroupMembers(groupId) } returns flow { awaitCancellation() }
-        every { ledgerRepo.observeMemberLedger("m1") } returns flowOf(Result.success(emptyList()))
+        every { ledgerRepo.observeMemberLedger("m1") } returns flowOf(Result.success(ledger))
     }
 
     private suspend fun TestScope.openPortal(totalPaid: Money): MemberUiState {
@@ -295,5 +313,133 @@ class MemberSavingsVsPlatformFeeTest {
             state.totalSavings
         )
         assertEquals(Money.ZERO, state.platformFeesPaid)
+    }
+
+    // The transaction list read only group_ledger rows keyed to the member - and the Room query
+    // filters is_platform rows out as well - while a registration/member fee is booked to
+    // platform_ledger, which has no member_id column at all. The member measured on Cloud on
+    // 2026-11-04 (one paid registration_contribution of R500, zero group entries) was therefore
+    // shown "No entries in this member's group ledger" beside the card that said they had paid R500:
+    // the payment they made never reached the list of transactions they look for.
+    @Test
+    fun `the registration fee the member paid is in their transaction history`() = runTest {
+        stubContributions(
+            listOf(contribution("registration_contribution", "500.00", id = "fee-1", paidAt = "2026-03-04T08:00:00Z"))
+        )
+
+        val state = openPortal(totalPaid = Money("500.00"))
+
+        val row = state.memberTransactions.single()
+        assertEquals(Money("500.00"), row.amount)
+        assertEquals("registration_contribution", row.category)
+        assertEquals("2026-03-04T08:00:00Z", row.createdAt)
+        assertEquals("m1", row.memberId)
+        assertTrue("the row is platform money, not a group entry", row.isPlatform)
+        assertFalse("the screen may no longer assert an empty book", state.memberActivityIsUnconfirmed)
+    }
+
+    @Test
+    fun `a fee already booked to the group ledger is not listed twice`() = runTest {
+        // 20261101B found seeds that mis-filed registration contributions straight into group_ledger.
+        // A row the book really holds renders from the book, once.
+        val booked = LedgerEntry(
+            id = "l-1",
+            groupId = groupId,
+            memberId = "m1",
+            transactionId = "fee-1",
+            amount = Money("500.00"),
+            category = "registration_contribution",
+            createdAt = "2026-03-04T08:00:00Z"
+        )
+        stubContributions(
+            listOf(contribution("registration_contribution", "500.00", id = "fee-1", paidAt = "2026-03-04T08:00:00Z")),
+            ledger = listOf(booked)
+        )
+
+        val state = openPortal(totalPaid = Money("500.00"))
+
+        assertEquals(listOf(booked), state.memberTransactions)
+    }
+
+    @Test
+    fun `a monthly contribution reaches the history only through the ledger`() = runTest {
+        val entry = LedgerEntry(
+            id = "l-2",
+            groupId = groupId,
+            memberId = "m1",
+            amount = Money("500.00"),
+            category = "contribution",
+            createdAt = "2026-03-04T08:00:00Z"
+        )
+        stubContributions(
+            (1..12).map { contribution("contribution", "500.00", id = "c$it", paidAt = "2026-03-04T08:00:00Z") },
+            ledger = listOf(entry)
+        )
+
+        val state = openPortal(totalPaid = Money("6000.00"))
+
+        assertEquals("group-booked rows are not fees, so the ledger alone lists them", listOf(entry), state.memberTransactions)
+    }
+
+    @Test
+    fun `a fee that has not been paid is not a transaction`() = runTest {
+        stubContributions(
+            listOf(contribution("registration_contribution", "500.00", id = "fee-1", status = ContributionStatus.DUE))
+        )
+
+        val state = openPortal(totalPaid = Money.ZERO)
+
+        assertTrue("nothing was paid, so there is nothing to list", state.memberTransactions.isEmpty())
+    }
+
+    @Test
+    fun `each platform-booked fee type reaches the history and a group fee does not`() = runTest {
+        stubContributions(
+            listOf(
+                contribution("member_fee", "20.00", id = "fee-2", paidAt = "2026-04-04T08:00:00Z"),
+                contribution("member_fee_ledger", "30.00", id = "fee-3", paidAt = "2026-05-04T08:00:00Z"),
+                contribution("joining_fee", "100.00", id = "fee-4", paidAt = "2026-06-04T08:00:00Z")
+            )
+        )
+
+        val state = openPortal(totalPaid = Money("150.00"))
+
+        // joining_fee goes through increment_group_balance, so it belongs to the ledger read rather
+        // than to this list - and a row invented for it would be money shown in two books.
+        assertEquals(
+            setOf("member_fee", "member_fee_ledger"),
+            state.memberTransactions.map { it.category }.toSet()
+        )
+    }
+
+    @Test
+    fun `fee rows sit newest first beside the ledger rows`() = runTest {
+        val older = LedgerEntry(
+            id = "l-old",
+            groupId = groupId,
+            memberId = "m1",
+            amount = Money("500.00"),
+            category = "contribution",
+            createdAt = "2026-02-04T08:00:00Z"
+        )
+        val newer = LedgerEntry(
+            id = "l-new",
+            groupId = groupId,
+            memberId = "m1",
+            amount = Money("500.00"),
+            category = "contribution",
+            createdAt = "2026-09-04T08:00:00Z"
+        )
+        stubContributions(
+            listOf(contribution("member_fee", "20.00", id = "fee-1", paidAt = "2026-05-04T08:00:00Z")),
+            ledger = listOf(newer, older)
+        )
+
+        val state = openPortal(totalPaid = Money("1020.00"))
+
+        assertEquals(
+            listOf("l-new", "fee-1", "l-old"),
+            state.memberTransactions.map { it.transactionId ?: it.id }
+        )
     }
 }

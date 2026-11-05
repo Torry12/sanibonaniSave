@@ -34,6 +34,8 @@ import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.withTimeout
 import com.sanibonani.save.domain.utils.safeRunCatching
 
 class SyncRepositoryImpl @Inject constructor(
@@ -75,6 +77,29 @@ class SyncRepositoryImpl @Inject constructor(
     private val groupSyncMutex = Mutex()
     private val activeGroupSyncs = ConcurrentHashMap<String, Deferred<Result<Unit>>>()
 
+    /**
+     * Reads the background sweep may hold at once, for every group together.
+     *
+     * The pass used to fire a lane per group and an [async] per pillar inside it, so a platform
+     * admin with eight groups put up to 56 requests in front of the transport at once. Its per-host
+     * dispatch cap is smaller than that and every request past the cap waits in a queue that no
+     * timeout in the app can see, which is how a sweep stalled mid-banner while the phone stayed
+     * silent.
+     */
+    private val sweepReadBudget = Semaphore(SWEEP_CONCURRENT_READS)
+
+    /**
+     * Reads a hydration a screen is waiting for may hold at once.
+     *
+     * Its own slots, not the sweep's: sharing that queue would make an open group profile wait for
+     * a platform pass the user never asked for. The two budgets together stay under the transport's
+     * per-host cap (`NetworkModule.provideOkHttpClient`), so neither of them queues there either.
+     */
+    private val interactiveReadBudget = Semaphore(INTERACTIVE_CONCURRENT_READS)
+
+    /** A sweep spans the whole platform; test seam for the deadline it is given. */
+    internal var sweepTimeoutMillis = GLOBAL_SWEEP_TIMEOUT_MS
+
     override val outboxCount: kotlinx.coroutines.flow.Flow<Int> = db.pendingOperationDao().observeCount()
 
     /**
@@ -95,87 +120,123 @@ class SyncRepositoryImpl @Inject constructor(
             // A sweep covers every group the user has, so it starts from a clean slate: what the
             // previous session could not verify is not this session's answer.
             _staleGroups.value = emptyMap()
-            kotlinx.coroutines.withTimeout(120_000) {
-                val userId = supabaseRepo.currentUserId ?: run {
-                    val message = "Please sign in to sync your data."
-                    _syncStatus.value = SyncStatus.Error(message)
-                    throw IllegalStateException(message)
-                }
-
-                val userRole = supabaseRepo.getUserRole()
-
-                _syncStatus.value = SyncStatus.Progress("Identifying memberships...", 0.05f)
-                val memberships = memberRepo.getMemberships(userId).getOrElse {
-                    AppLogger.w(tag, "Network fetch failed for memberships, falling back to cache")
-                    db.memberDao().getAllMemberships(userId).map { it.toModel() }
-                }
-                val adminGroups = groupRepo.getGroupsByAdmin(userId).getOrElse {
-                    AppLogger.w(tag, "Network fetch failed for admin groups, falling back to cache")
-                    db.groupDao().getGroupsByAdminSync(userId).map { it.toModel() }
-                }
-
-                val groupIds = buildSet {
-                    memberships.mapTo(this) { it.groupId }
-                    adminGroups.mapNotNullTo(this) { it.id }
-                }.filter { it.isNotBlank() }
-
-                if (groupIds.isNotEmpty()) {
-                    _syncStatus.value = SyncStatus.Progress("Hydrating ${groupIds.size} group(s)...", 0.10f)
-
-                    val incomplete = coroutineScope {
-                        val totalGroups = groupIds.size
-                        val completedGroups = AtomicInteger(0)
-                        val semaphore = Semaphore(3)
-
-                        groupIds.map { groupId ->
-                            async {
-                                semaphore.acquire()
-                                val missed = try {
-                                    syncGroupDataInternal(
-                                        groupId = groupId,
-                                        pillars = GroupHydrationPlan.startupPillars(userRole),
-                                        includeGroupMetadata = userRole == UserRole.PLATFORM_ADMIN
-                                    )
-                                } finally {
-                                    semaphore.release()
-                                }
-
-                                val completed = completedGroups.incrementAndGet()
-                                val progress = 0.10f + (completed.toFloat() / totalGroups) * 0.85f
-                                _syncStatus.value = SyncStatus.Progress(
-                                    "Synced $completed of $totalGroups groups",
-                                    progress
-                                )
-
-                                if (missed.isEmpty()) null else groupId to missed
-                            }
-                        }.awaitAll().filterNotNull()
-                    }
-
-                    // Startup stays best-effort: an offline device is meant to open on the Room
-                    // cache, and one group that will not answer must not strand the user on an
-                    // error. The pass still names the books it could not bring current.
-                    if (incomplete.isNotEmpty()) {
-                        AppLogger.w(
-                            tag,
-                            "Startup hydration left ${incomplete.size} group(s) partly stale: " +
-                                incomplete.joinToString { "${it.first} (${it.second.joinToString()})" }
-                        )
-                    }
-                } else {
-                    AppLogger.d(tag, "No groups found for hydration.")
-                }
-
-                _syncStatus.value = SyncStatus.Progress("Processing offline queue...", 0.95f)
-                processOutbox().getOrNull()
-
-                _syncStatus.value = SyncStatus.Completed
+            val stillReading = ConcurrentHashMap.newKeySet<String>()
+            try {
+                withTimeout(sweepTimeoutMillis) { sweepPass(stillReading) }
+            } catch (timeout: TimeoutCancellationException) {
+                // [safeRunCatching] rethrows cancellation, so a timeout released here reached the
+                // caller as its own cancellation: the sweep never wrote a terminal status and the
+                // banner kept showing the last progress it stamped, with nothing left to clear it.
+                // Turned into a refusal, the pass ends, every awaiter gets a verdict, and the names
+                // of the groups still unread are worth more than the deadline itself.
+                AppLogger.w(
+                    tag,
+                    "Platform hydration stopped after ${sweepTimeoutMillis}ms with " +
+                        "${stillReading.size} group(s) still reading: ${stillReading.joinToString()}",
+                    timeout
+                )
+                throw sweepStalled(timeout)
             }
     }.onFailure { e ->
-        if (e is CancellationException && e !is TimeoutCancellationException) throw e
+        if (e is CancellationException) throw e
         val userMessage = e.toUserMessage()
         _syncStatus.value = SyncStatus.Error(userMessage)
     }
+
+    /**
+     * One platform-wide pass: read every group the user has, then drain the offline queue.
+     *
+     * [stillReading] holds the groups whose lane has not returned, so a pass that gives up can name
+     * what it never finished instead of leaving the log at the last line it managed to write.
+     */
+    private suspend fun sweepPass(stillReading: MutableSet<String>) {
+        val userId = supabaseRepo.currentUserId ?: run {
+            val message = "Please sign in to sync your data."
+            _syncStatus.value = SyncStatus.Error(message)
+            throw IllegalStateException(message)
+        }
+
+        val userRole = supabaseRepo.getUserRole()
+
+        _syncStatus.value = SyncStatus.Progress("Identifying memberships...", 0.05f)
+        val memberships = memberRepo.getMemberships(userId).getOrElse {
+            AppLogger.w(tag, "Network fetch failed for memberships, falling back to cache")
+            db.memberDao().getAllMemberships(userId).map { it.toModel() }
+        }
+        val adminGroups = groupRepo.getGroupsByAdmin(userId).getOrElse {
+            AppLogger.w(tag, "Network fetch failed for admin groups, falling back to cache")
+            db.groupDao().getGroupsByAdminSync(userId).map { it.toModel() }
+        }
+
+        val groupIds = buildSet {
+            memberships.mapTo(this) { it.groupId }
+            adminGroups.mapNotNullTo(this) { it.id }
+        }.filter { it.isNotBlank() }
+
+        if (groupIds.isNotEmpty()) {
+            AppLogger.i(
+                tag,
+                "Platform hydration started for ${groupIds.size} group(s), " +
+                    "${GroupHydrationPlan.startupPillars(userRole).size} pillar(s) each"
+            )
+            _syncStatus.value = SyncStatus.Progress("Hydrating ${groupIds.size} group(s)...", 0.10f)
+
+            val incomplete = coroutineScope {
+                val totalGroups = groupIds.size
+                val completedGroups = AtomicInteger(0)
+                stillReading.addAll(groupIds)
+
+                groupIds.map { groupId ->
+                    async {
+                        try {
+                            val missed = syncGroupDataInternal(
+                                groupId = groupId,
+                                pillars = GroupHydrationPlan.startupPillars(userRole),
+                                includeGroupMetadata = userRole == UserRole.PLATFORM_ADMIN,
+                                readBudget = sweepReadBudget
+                            )
+
+                            val completed = completedGroups.incrementAndGet()
+                            AppLogger.i(tag, "Hydrated group $groupId ($completed of $totalGroups)")
+                            val progress = 0.10f + (completed.toFloat() / totalGroups) * 0.85f
+                            _syncStatus.value = SyncStatus.Progress(
+                                "Synced $completed of $totalGroups groups",
+                                progress
+                            )
+
+                            if (missed.isEmpty()) null else groupId to missed
+                        } finally {
+                            stillReading.remove(groupId)
+                        }
+                    }
+                }.awaitAll().filterNotNull()
+            }
+
+            // Startup stays best-effort: an offline device is meant to open on the Room
+            // cache, and one group that will not answer must not strand the user on an
+            // error. The pass still names the books it could not bring current.
+            if (incomplete.isNotEmpty()) {
+                AppLogger.w(
+                    tag,
+                    "Startup hydration left ${incomplete.size} group(s) partly stale: " +
+                        incomplete.joinToString { "${it.first} (${it.second.joinToString()})" }
+                )
+            }
+        } else {
+            AppLogger.d(tag, "No groups found for hydration.")
+        }
+
+        _syncStatus.value = SyncStatus.Progress("Processing offline queue...", 0.95f)
+        processOutbox().getOrNull()
+
+        AppLogger.i(tag, "Platform hydration finished")
+        _syncStatus.value = SyncStatus.Completed
+    }
+
+    private fun sweepStalled(timeout: TimeoutCancellationException) = IllegalStateException(
+        "The background refresh ran out of time (${timeout.message}). " +
+            "What the app is showing is the last data it could verify."
+    )
 
     /**
      * Pulls a group's relations and returns the ones that did not land.
@@ -186,37 +247,48 @@ class SyncRepositoryImpl @Inject constructor(
      *
      * Each miss is also recorded against the group in [staleGroups], so the app can still tell
      * which books it is showing unverified after the best-effort pass has finished.
+     *
+     * [readBudget] is spent per leg, not per group: the legs of one group are the requests that
+     * used to leave together for the server, and a lane that held its permit across all of them
+     * would only move the queueing somewhere else.
      */
     private suspend fun syncGroupDataInternal(
         groupId: String,
         pillars: List<DomainPillar>,
-        includeGroupMetadata: Boolean
+        includeGroupMetadata: Boolean,
+        readBudget: Semaphore
     ): List<String> = coroutineScope {
         val reads = mutableListOf<Deferred<List<String>>>()
 
         if (includeGroupMetadata) {
             reads += async {
-                val pulls = Pulls()
-                pulls.pull("$tag.groupMetadata", "group settings") {
-                    groupRepo.getGroupById(groupId).getOrThrow()
+                readBudget.withPermit {
+                    val pulls = Pulls()
+                    pulls.pull("$tag.groupMetadata", "group settings") {
+                        groupRepo.getGroupById(groupId).getOrThrow()
+                    }
+                    pulls.recordAgainst(groupId)
                 }
-                pulls.recordAgainst(groupId)
             }
         }
         reads += async {
-            val pulls = Pulls()
-            pulls.pull("$tag.members", "members") { memberRepo.syncGroupMembers(groupId).getOrThrow() }
-            pulls.pull("$tag.notifications", "notifications") {
-                notificationRepo.syncNotifications(groupId).getOrThrow()
+            readBudget.withPermit {
+                val pulls = Pulls()
+                pulls.pull("$tag.members", "members") { memberRepo.syncGroupMembers(groupId).getOrThrow() }
+                pulls.pull("$tag.notifications", "notifications") {
+                    notificationRepo.syncNotifications(groupId).getOrThrow()
+                }
+                pulls.recordAgainst(groupId)
             }
-            pulls.recordAgainst(groupId)
         }
         pillars.forEach { pillar ->
             // The pillar records its own relations inside syncRefresh; this only names the pillar
             // for the caller's message.
             reads += async {
-                val outcome = syncRefresh(pillar, groupId)
-                if (outcome.isSuccess) emptyList() else listOf(pillar.name.lowercase())
+                readBudget.withPermit {
+                    val outcome = syncRefresh(pillar, groupId)
+                    if (outcome.isSuccess) emptyList() else listOf(pillar.name.lowercase())
+                }
             }
         }
 
@@ -248,7 +320,8 @@ class SyncRepositoryImpl @Inject constructor(
         val missed = syncGroupDataInternal(
             groupId = groupId,
             pillars = GroupHydrationPlan.fullRefreshPillars,
-            includeGroupMetadata = true
+            includeGroupMetadata = true,
+            readBudget = interactiveReadBudget
         )
         if (missed.isNotEmpty()) throw hydrationFailure(missed)
     }
@@ -453,5 +526,28 @@ class SyncRepositoryImpl @Inject constructor(
                 }
             }
         }
+    }
+
+    companion object {
+        /**
+         * How long a platform-wide pass may take before it reports what it could not read.
+         *
+         * The sweep spans every group the user has, so a deadline is a budget rather than a guess
+         * about the server; what it must never do is expire silently and leave the progress it
+         * already published as the last thing on screen.
+         */
+        private const val GLOBAL_SWEEP_TIMEOUT_MS = 120_000L
+
+        /**
+         * The reads a background pass may hold at once, across all its groups.
+         *
+         * Kept below the transport's per-host dispatch cap together with [INTERACTIVE_CONCURRENT_READS]
+         * so a hydration request is never queued behind a sweep at the HTTP layer, where no timeout
+         * in this app can see it.
+         */
+        private const val SWEEP_CONCURRENT_READS = 3
+
+        /** The reads a hydration a screen is waiting on may hold at once, in its own slots. */
+        private const val INTERACTIVE_CONCURRENT_READS = 4
     }
 }

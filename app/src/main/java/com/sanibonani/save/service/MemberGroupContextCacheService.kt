@@ -31,6 +31,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 
 @Singleton
 class MemberGroupContextCacheService @Inject constructor(
@@ -60,6 +62,25 @@ class MemberGroupContextCacheService @Inject constructor(
 
 	private var cachedUserId: String? = null
 	private val warmupCoordinator = GroupContextWarmupCoordinator()
+
+	/**
+	 * Reads a background hydration may hold at once, for every membership of the account together.
+	 *
+	 * A warm-up read all six pillars of all the account's groups simultaneously, so a member in four
+	 * groups put twenty-four requests to the same host in one pass, sixteen of them measured in flight
+	 * at once. The transport's per-host dispatch cap is smaller than that and everything past it waits
+	 * in a queue no timeout in the app can see, which left the portal the user was actually looking at
+	 * behind a re-read of groups they had not opened. Bounding the pass keeps the pressure constant
+	 * instead of proportional to the group count.
+	 */
+	private val hydrationReadBudget = Semaphore(HYDRATION_CONCURRENT_READS)
+
+	private suspend fun <T> hydrationRead(block: suspend () -> T): T =
+		hydrationReadBudget.withPermit { block() }
+
+	private companion object {
+		const val HYDRATION_CONCURRENT_READS = 3
+	}
 
 	fun getContext(groupId: String): CachedGroupContext? = _contexts.value[groupId]
 
@@ -208,14 +229,16 @@ class MemberGroupContextCacheService @Inject constructor(
 		// then suppressed every later retry.
 		val (groupOutcome, memberOutcome) = coroutineScope {
 			val groupTask = async {
-				safeRunCatching { groupRepo.getGroupById(groupId).getOrThrow() }
+				hydrationRead { safeRunCatching { groupRepo.getGroupById(groupId).getOrThrow() } }
 			}
 			val memberTask = async {
 				when {
 					authoritativeMember != null -> Result.success(authoritativeMember)
 					userId.isBlank() -> Result.success(membership)
-					else -> safeRunCatching {
-						memberRepo.getMemberByUserId(userId, groupId).getOrThrow()
+					else -> hydrationRead {
+						safeRunCatching {
+							memberRepo.getMemberByUserId(userId, groupId).getOrThrow()
+						}
 					}
 				}
 			}
@@ -226,23 +249,31 @@ class MemberGroupContextCacheService @Inject constructor(
 		val hydrated = coroutineScope {
 			val contributionsTask = async {
 				member.id?.takeIf { it.isNotBlank() }?.let {
-					safeRunCatching { contributionRepo.getMemberContributions(it, groupId).first().getOrThrow() }
+					hydrationRead {
+						safeRunCatching { contributionRepo.getMemberContributions(it, groupId).first().getOrThrow() }
+					}
 				} ?: Result.success(emptyList())
 			}
 			val beneficiariesTask = async {
 				member.id?.takeIf { it.isNotBlank() }?.let {
-					safeRunCatching { beneficiaryRepo.syncBeneficiaries(it).getOrThrow() }
+					hydrationRead {
+						safeRunCatching { beneficiaryRepo.syncBeneficiaries(it).getOrThrow() }
+					}
 				} ?: Result.success(emptyList())
 			}
 			val loansTask = async {
 				member.id?.takeIf { it.isNotBlank() }?.let {
-					safeRunCatching { loanRepo.getMemberLoans(it).first().getOrThrow() }
+					hydrationRead {
+						safeRunCatching { loanRepo.getMemberLoans(it).first().getOrThrow() }
+					}
 				} ?: Result.success(emptyList())
 			}
 			val notificationsTask = async {
-				safeRunCatching {
-					notificationRepo.syncNotifications(groupId)
-					notificationRepo.observeNotifications(groupId).first().getOrThrow()
+				hydrationRead {
+					safeRunCatching {
+						notificationRepo.syncNotifications(groupId)
+						notificationRepo.observeNotifications(groupId).first().getOrThrow()
+					}
 				}
 			}
 			HydratedMemberData(

@@ -16,6 +16,7 @@ import com.sanibonani.save.service.UserProfileCacheService
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
@@ -36,70 +37,79 @@ internal class AuthSessionHydrator(
 ) {
 
     fun accountStatus(): Flow<AsyncResult<AuthenticatedAccount>> =
-        observeAuthSession().flatMapLatest { session ->
-            if (session == null) {
-                loadQueue.reset()
-                flowOf<AsyncResult<AuthenticatedAccount>>(AsyncResult.Uninitialized)
-            } else {
-                flow<AsyncResult<AuthenticatedAccount>> {
-                    emit(AsyncResult.Loading)
-                    val userId = session.userId
-                    // Tracked here rather than read back from the queue: the queue is the render
-                    // target, and a step that never got its terminal call is the one this run left
-                    // open.
-                    var openStep: String? = null
+        observeAuthSession()
+            // The session source publishes a rebuilt object whenever it re-reads what it holds, not
+            // only when the account changed. flatMapLatest below treats every publication as a new
+            // session and cancels the hydration still running to start another one - profile read,
+            // role read, and a warm-up of every group the account has - so a single sign-in re-read
+            // the whole platform several times over, each pass tearing down the reads of the last.
+            // LandingViewModel's own session collector already compares on the token for the same
+            // reason; a real token change still hydrates.
+            .distinctUntilChanged { old, new -> old?.accessToken == new?.accessToken }
+            .flatMapLatest { session ->
+                if (session == null) {
+                    loadQueue.reset()
+                    flowOf<AsyncResult<AuthenticatedAccount>>(AsyncResult.Uninitialized)
+                } else {
+                    flow<AsyncResult<AuthenticatedAccount>> {
+                        emit(AsyncResult.Loading)
+                        val userId = session.userId
+                        // Tracked here rather than read back from the queue: the queue is the render
+                        // target, and a step that never got its terminal call is the one this run left
+                        // open.
+                        var openStep: String? = null
 
-                    fun beginStep(key: String) {
-                        openStep = key
-                        loadQueue.startStep(key)
-                    }
-                    try {
-                        beginStep("User Profile")
-                        getUserProfile(userId).onSuccess { profile ->
-                            profile?.let { userProfileCache.save(it.fullName ?: "", it.email ?: "") }
-                            loadQueue.completeStep("User Profile")
-                        }.onFailure { loadQueue.failStep("User Profile", it.toUserMessage()) }
-                        openStep = null
+                        fun beginStep(key: String) {
+                            openStep = key
+                            loadQueue.startStep(key)
+                        }
+                        try {
+                            beginStep("User Profile")
+                            getUserProfile(userId).onSuccess { profile ->
+                                profile?.let { userProfileCache.save(it.fullName ?: "", it.email ?: "") }
+                                loadQueue.completeStep("User Profile")
+                            }.onFailure { loadQueue.failStep("User Profile", it.toUserMessage()) }
+                            openStep = null
 
-                        beginStep("Security Permissions")
-                        // Fail closed on privilege: an unreadable role is the least privileged role,
-                        // never a guessed admin.
-                        val role = getCurrentUserRole()
-                        loadQueue.completeStep("Security Permissions")
-                        openStep = null
+                            beginStep("Security Permissions")
+                            // Fail closed on privilege: an unreadable role is the least privileged role,
+                            // never a guessed admin.
+                            val role = getCurrentUserRole()
+                            loadQueue.completeStep("Security Permissions")
+                            openStep = null
 
-                        // A cold cache or an unreachable realtime socket does not make the session
-                        // invalid; failing here would strand the caller on the login screen.
-                        beginStep("Domain Context")
-                        val warmup = safeRunCatching("AuthWarmup") {
-                            coroutineScope {
-                                val memberWarmup = async { memberGroupContextCacheService.warmUpForUser(userId) }
-                                // A member opens no admin surface, so boot does not pay for a
-                                // getGroupsByAdmin call the server refuses with [SEC_002]. An
-                                // elevation that arrives mid-session is served by the admin screens
-                                // warming their own group on select.
-                                val adminWarmup =
-                                    if (role == UserRole.MEMBER) null
-                                    else async { adminGroupContextCacheService.warmUpForUser(userId) }
-                                memberWarmup.await()
-                                adminWarmup?.await()
+                            // A cold cache or an unreachable realtime socket does not make the session
+                            // invalid; failing here would strand the caller on the login screen.
+                            beginStep("Domain Context")
+                            val warmup = safeRunCatching("AuthWarmup") {
+                                coroutineScope {
+                                    val memberWarmup = async { memberGroupContextCacheService.warmUpForUser(userId) }
+                                    // A member opens no admin surface, so boot does not pay for a
+                                    // getGroupsByAdmin call the server refuses with [SEC_002]. An
+                                    // elevation that arrives mid-session is served by the admin screens
+                                    // warming their own group on select.
+                                    val adminWarmup =
+                                        if (role == UserRole.MEMBER) null
+                                        else async { adminGroupContextCacheService.warmUpForUser(userId) }
+                                    memberWarmup.await()
+                                    adminWarmup?.await()
+                                }
+                                realtimeSyncService.start()
                             }
-                            realtimeSyncService.start()
-                        }
-                        if (warmup.isSuccess) {
-                            loadQueue.completeStep("Domain Context")
-                        } else {
-                            loadQueue.failStep("Domain Context", warmup.exceptionOrNull()?.toUserMessage().orEmpty())
-                        }
-                        openStep = null
+                            if (warmup.isSuccess) {
+                                loadQueue.completeStep("Domain Context")
+                            } else {
+                                loadQueue.failStep("Domain Context", warmup.exceptionOrNull()?.toUserMessage().orEmpty())
+                            }
+                            openStep = null
 
-                        emit(AsyncResult.Success(AuthenticatedAccount(userId, role)))
-                    } finally {
-                        // A step cancelled between its start and its terminal call stayed Loading,
-                        // and the bootloader renders that as an initialisation that never finishes.
-                        openStep?.let { loadQueue.failStep(it, "Hydration interrupted.") }
+                            emit(AsyncResult.Success(AuthenticatedAccount(userId, role)))
+                        } finally {
+                            // A step cancelled between its start and its terminal call stayed Loading,
+                            // and the bootloader renders that as an initialisation that never finishes.
+                            openStep?.let { loadQueue.failStep(it, "Hydration interrupted.") }
+                        }
                     }
                 }
-            }
         }
 }

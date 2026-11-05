@@ -24,6 +24,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.collectLatest
@@ -32,6 +33,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
+import kotlin.time.Duration.Companion.seconds
 
 @HiltViewModel
 class MemberOverviewViewModel @Inject constructor(
@@ -52,6 +54,14 @@ class MemberOverviewViewModel @Inject constructor(
 
     /** The group/member pair the live reads are currently streaming, or null when nothing runs. */
     private var liveObservationSubject: String? = null
+
+    /**
+     * Whether the portal watchdog already reported a load that did not arrive. The snapshot that
+     * eventually lands invalidates that report - it was a guess about a read still running - but it
+     * must not clear an error the member has to act on, so the two are told apart here rather than
+     * by the message text.
+     */
+    private var portalHydrationTimedOut = false
 
     private val host = object : MemberActionHost {
         override val memberState: StateFlow<MemberUiState> get() = uiState
@@ -129,9 +139,18 @@ class MemberOverviewViewModel @Inject constructor(
         val pkg = context?.toMemberContextPackage(partialSupportMemberId)
         if (pkg == null) {
             stopLiveObservation()
-            if (context != null) updateState { it.copy(isLoading = true) }
+            if (context != null) {
+                updateState { it.copy(isLoading = true) }
+                // A snapshot whose pillars never finished is not a load in progress: nothing else
+                // is going to hand this portal a package, so the wait needs its own verdict.
+                armPortalHydrationWatchdog()
+            }
             return
         }
+
+        cancelJob("portal_hydration_watchdog")
+        val timeoutReported = portalHydrationTimedOut
+        portalHydrationTimedOut = false
 
         updateState { s ->
             s.copy(
@@ -145,6 +164,7 @@ class MemberOverviewViewModel @Inject constructor(
                 notifications = pkg.notifications,
                 messages = pkg.messages,
                 isLoading = false,
+                error = if (timeoutReported) null else s.error,
                 cacheLastSyncByGroup = s.cacheLastSyncByGroup + (pkg.group.id.orEmpty() to context.lastUpdatedMillis),
             )
         }
@@ -152,6 +172,32 @@ class MemberOverviewViewModel @Inject constructor(
         val liveMemberId = pkg.member.id.serverIdOrReport("member")
         if (liveMemberId == null) stopLiveObservation()
         else startLiveObservation(liveMemberId, pkg.group)
+    }
+
+    /**
+     * Gives the portal a bound on a hydration that is not coming.
+     *
+     * The screen shows "Syncing your portal…" while [MemberUiState.isLoading] is set with nothing
+     * rendered, and only a snapshot package releases it - so a warm-up that could not read the
+     * memberships, which keeps the cached contexts and returns by design, left the member spinning
+     * with the Retry that could re-pull the book hidden behind the loader.
+     */
+    private fun armPortalHydrationWatchdog() {
+        portalHydrationTimedOut = false
+        launchJob("portal_hydration_watchdog") {
+            delay(PORTAL_HYDRATION_TIMEOUT)
+            val current = uiState.value
+            // Support Mode owns its own refusal, and an exit is already on its way out; neither is
+            // this watchdog's to overwrite.
+            if (!current.isImpersonating && !current.isExiting &&
+                (current.member == null || current.group == null)
+            ) {
+                portalHydrationTimedOut = true
+                updateState {
+                    it.copy(isLoading = false, error = "Loading timed out. Please try again.")
+                }
+            }
+        }
     }
 
     private fun startLiveObservation(memberId: String, group: Group) {
@@ -239,6 +285,10 @@ class MemberOverviewViewModel @Inject constructor(
                     isLoading = true
                 ) }
                 getAttributableActorId()?.let { memberContextCacheService.warmUpForUser(it) }
+                // The warm-up starts its reads and returns, so this is the only place that knows a
+                // portal was asked for and is not on screen yet - including when there is no actor
+                // to warm one for at all.
+                armPortalHydrationWatchdog()
             } else {
                 updateState { it.clearGroupContext().copy(
                     isImpersonating = false,
@@ -341,9 +391,22 @@ class MemberOverviewViewModel @Inject constructor(
                 getAttributableActorId()?.let { userId ->
                     launchJob("context_warmup") { memberContextCacheService.warmUpForUser(userId) }
                 }
+                // Coming back to a portal that shows nothing is a wait whether the load was asked
+                // for here or on a screen the member has since come back from.
+                if (uiState.value.member == null || uiState.value.group == null) {
+                    armPortalHydrationWatchdog()
+                }
             }
         } else {
-            listOf("context_observation", "insights_loading", "audit_report", "context_warmup").forEach { cancelJob(it) }
+            listOf(
+                "context_observation",
+                "insights_loading",
+                "audit_report",
+                "context_warmup",
+                // A portal left within the bound is no longer waiting on the book, so the wait must
+                // not report a timeout to a screen nobody is looking at.
+                "portal_hydration_watchdog"
+            ).forEach { cancelJob(it) }
             stopLiveObservation()
         }
     }
@@ -359,4 +422,13 @@ class MemberOverviewViewModel @Inject constructor(
     fun downloadGroupConstitution() = documentCoordinator.downloadGroupConstitution(host)
 
     fun getDownloadParams(url: String): Map<String, String> = buildDocumentAuthHeaders(url)
+
+    private companion object {
+        /**
+         * How long the portal waits for a hydration before saying the book did not arrive. The same
+         * bound the admin dashboard gives its own, so a slow tier answers and a wedged one does not
+         * become the member's problem.
+         */
+        val PORTAL_HYDRATION_TIMEOUT = 7.seconds
+    }
 }

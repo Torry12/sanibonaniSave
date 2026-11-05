@@ -1,7 +1,6 @@
 package com.sanibonani.save.di
 
 import com.sanibonani.save.domain.event.*
-import com.sanibonani.save.event.CachesRefreshEventHandler
 import com.sanibonani.save.event.PillarRefreshEventHandler
 import dagger.Module
 import dagger.Provides
@@ -33,13 +32,6 @@ object EventModule {
     @IntoSet
     fun provideBehaviorTrackingEventHandler(
         handler: BehaviorTrackingEventHandler
-    ): EventHandler<DomainEvent> = handler
-
-    @Provides
-    @Singleton
-    @IntoSet
-    fun provideCachesRefreshEventHandler(
-        handler: CachesRefreshEventHandler
     ): EventHandler<DomainEvent> = handler
 
     @Provides

@@ -314,4 +314,31 @@ class AdminMemberViewModelTest {
             viewModel.state.value.selectedMemberBeneficiaries.isEmpty()
         )
     }
+
+    // The refresh now rides behind the cache as its own emission, so a refusal arrives over rows
+    // the admin is already reading. Emptying them here would say "this member has no
+    // beneficiaries", which is a different claim from "the beneficiary refresh did not land".
+    @Test
+    fun `a refused beneficiary refresh keeps the rows already on screen`() = runTest {
+        hydrateGroup()
+        coEvery { validateLoanEligibilityUseCase(any(), any()) } returns
+            ValidateLoanEligibilityUseCase.EligibilityResult.Eligible()
+        every { memberDocumentRepo.observeMemberDocuments("m-1") } returns
+            flowOf(Result.success(emptyList()))
+        every { beneficiaryRepo.observeBeneficiaries("m-1") } returns flowOf(
+            Result.success(listOf(Beneficiary(id = "b-1", groupId = "g-1", memberId = "m-1", fullName = "Kin"))),
+            Result.failure(IOException("beneficiary refresh refused"))
+        )
+
+        viewModel.selectMember(member)
+        advanceUntilIdle()
+
+        assertEquals(
+            listOf("b-1"),
+            viewModel.state.value.selectedMemberBeneficiaries.map { it.id }
+        )
+        val event = withTimeoutOrNull(2_000) { viewModel.events.first() }
+        assertTrue("the refusal is still named, got: $event", event is UIEvent.ShowError)
+        assertEquals("Unable to load member beneficiaries.", (event as UIEvent.ShowError).message)
+    }
 }

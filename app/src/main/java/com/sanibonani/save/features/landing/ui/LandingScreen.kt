@@ -53,7 +53,10 @@ fun LandingScreen(
     // Auto-refresh when coming back online
     LaunchedEffect(uiState.isSystemOnline) {
         if (uiState.isSystemOnline && uiState.analytics.getOrNull() == null) {
-            viewModel.onIntent(LandingIntent.Refresh)
+            // Nobody asked for this by name, so a refresh already reading the same landing answers
+            // it; tearing that pass down and starting another is what put three refreshes in the
+            // log for one cold start.
+            viewModel.refreshData()
         }
     }
 

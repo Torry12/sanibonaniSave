@@ -34,8 +34,12 @@ import io.mockk.unmockkStatic
 import io.mockk.verify
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
+import java.util.concurrent.atomic.AtomicInteger
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -551,5 +555,134 @@ class SyncRepositoryImplTest {
             assertEquals(tables, requestedTables)
         }
     }
+
+    @Test
+    fun `the platform sweep never reads more than its budget at once`() = runBlocking {
+        // The pass fired a lane per group and an async per pillar inside every lane, so a platform
+        // admin's whole membership left for the server at once. Everything past the transport's
+        // per-host dispatch cap waits in a queue no timeout in the app can see — and a screen's own
+        // read waits in that same queue behind a sweep nobody asked for.
+        every { supabaseRepo.currentUserId } returns "user_1"
+        coEvery { supabaseRepo.getUserRole() } returns UserRole.PLATFORM_ADMIN
+        coEvery { memberRepo.getMemberships("user_1") } returns Result.success(
+            (1..4).map { Member(id = "m$it", groupId = "group_$it") }
+        )
+        coEvery { groupRepo.getGroupsByAdmin("user_1") } returns Result.success(emptyList())
+        coEvery { groupRepo.getGroupById(any()) } coAnswers {
+            counted { Result.success(Group(id = firstArg(), name = "Group")) }
+        }
+        coEvery { memberRepo.syncGroupMembers(any()) } coAnswers {
+            counted { Result.success(emptyList()) }
+        }
+        coEvery { notificationRepo.syncNotifications(any()) } coAnswers {
+            counted { Result.success(Unit) }
+        }
+        val spy = spyk(repository)
+        coEvery { spy.syncRefresh(any(), any()) } coAnswers { counted { Result.success(Unit) } }
+
+        assertTrue(spy.syncAllData().isSuccess)
+
+        val peak = peakReadsInFlight.get()
+        assertTrue("the sweep held $peak reads at once; it may not outstrip the transport", peak <= 3)
+        assertTrue("a sweep that reads one relation at a time is not a sweep", peak > 1)
+    }
+
+    @Test
+    fun `a group a screen opened is not queued behind the platform sweep`() = runBlocking {
+        // Both passes used the same lanes, so a refresh that fills a screen waited on whatever the
+        // background sweep happened to be holding, and a sweep stuck in one slow read stuck the
+        // screen with it.
+        every { supabaseRepo.currentUserId } returns "user_1"
+        coEvery { supabaseRepo.getUserRole() } returns UserRole.PLATFORM_ADMIN
+        coEvery { memberRepo.getMemberships("user_1") } returns Result.success(
+            listOf(
+                Member(id = "m1", groupId = "sweep_1"),
+                Member(id = "m2", groupId = "sweep_2"),
+                Member(id = "m3", groupId = "sweep_3")
+            )
+        )
+        coEvery { groupRepo.getGroupsByAdmin("user_1") } returns Result.success(emptyList())
+        coEvery { groupRepo.getGroupById(any()) } returns Result.success(Group(id = "g", name = "Group"))
+        coEvery { notificationRepo.syncNotifications(any()) } returns Result.success(Unit)
+        coEvery { memberRepo.syncGroupMembers("open_group") } returns Result.success(emptyList())
+        val sweepIsBusy = CompletableDeferred<Unit>()
+        coEvery { memberRepo.syncGroupMembers(match { it.startsWith("sweep_") }) } coAnswers {
+            sweepHeld.incrementAndGet()
+            sweepIsBusy.await()
+            Result.success(emptyList())
+        }
+        val spy = spyk(repository)
+        coEvery { spy.syncRefresh(any(), any()) } returns Result.success(Unit)
+
+        val sweep = async { spy.syncAllData() }
+        withTimeout(5_000) { while (sweepHeld.get() < 3) delay(10) }
+
+        val attempted = runCatching { withTimeout(2_000) { spy.syncGroupData("open_group") } }
+
+        assertTrue(
+            "opening a group waited on the background sweep's budget: ${attempted.exceptionOrNull()}",
+            attempted.isSuccess
+        )
+        assertTrue(attempted.getOrNull()!!.isSuccess)
+
+        // Let the sweep's own lanes finish unwinding rather than leaving them parked on the gate.
+        sweepIsBusy.complete(Unit)
+        sweep.cancel()
+    }
+
+    @Test
+    fun `a sweep that runs out of time answers instead of cancelling the screen that asked`() = runBlocking<Unit> {
+        // The deadline was released through safeRunCatching, which rethrows cancellation, so the
+        // caller's await() took the sweep's timeout for its own: no terminal status was ever
+        // written and the banner stayed on the last progress the sweep had stamped.
+        every { supabaseRepo.currentUserId } returns "user_1"
+        coEvery { supabaseRepo.getUserRole() } returns UserRole.MEMBER
+        coEvery { memberRepo.getMemberships("user_1") } returns Result.success(
+            listOf(Member(id = "m1", groupId = "group_1"))
+        )
+        coEvery { groupRepo.getGroupsByAdmin("user_1") } returns Result.success(emptyList())
+        coEvery { notificationRepo.syncNotifications(any()) } returns Result.success(Unit)
+        val neverAnswers = CompletableDeferred<Unit>()
+        coEvery { memberRepo.syncGroupMembers("group_1") } coAnswers {
+            neverAnswers.await()
+            Result.success(emptyList())
+        }
+        repository.sweepTimeoutMillis = 100
+
+        val caller = async { runCatching { repository.syncAllData() } }
+        val wrapped = withTimeout(5_000) { caller.await() }
+
+        val outcome = wrapped.getOrElse { failure ->
+            error("the sweep reported nothing to the coroutine that asked for it: $failure")
+        }
+        assertTrue("an expired sweep is a verdict, not a success", outcome.isFailure)
+        assertTrue(
+            "the sweep's deadline must not reach the caller as its own cancellation: ${outcome.exceptionOrNull()}",
+            outcome.exceptionOrNull() !is CancellationException
+        )
+        assertTrue(
+            "the sync banner needs a terminal status, not the last progress it stamped: ${repository.syncStatus.value}",
+            repository.syncStatus.value is SyncStatus.Error
+        )
+
+        neverAnswers.complete(Unit)
+    }
+
+    private val readsInFlight = AtomicInteger()
+    private val peakReadsInFlight = AtomicInteger()
+
+    /** Counts a relation read so a test can prove the pass overlaps reads without flooding them. */
+    private suspend fun <T> counted(read: suspend () -> T): T {
+        val now = readsInFlight.incrementAndGet()
+        peakReadsInFlight.updateAndGet { maxOf(it, now) }
+        try {
+            delay(20)
+            return read()
+        } finally {
+            readsInFlight.decrementAndGet()
+        }
+    }
+
+    private val sweepHeld = AtomicInteger()
 }
 

@@ -6,6 +6,7 @@ import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.coroutines.coroutineContext
 
@@ -17,7 +18,17 @@ import kotlin.coroutines.coroutineContext
  * arriving after those reads cannot be answered by it any more, so it is kept and run when the
  * owner finishes: discarding it instead left a post-write refresh invisible until the next sweep.
  */
-internal class GroupContextWarmupCoordinator {
+internal class GroupContextWarmupCoordinator(
+    /**
+     * How long a run may wait for the warm-up it replaced before reading anyway.
+     *
+     * The replaced run is already cancelled, so an orderly one unwinds promptly and its last
+     * snapshot write lands first. A run parked in a read that will not answer holds the group's
+     * slot, and waiting on it without a bound is what turned "open this group" into a screen that
+     * never renders: the entry that should have replaced a stale warm-up became a second stall.
+     */
+    private val supersedeJoinMillis: Long = SUPERSEDE_JOIN_TIMEOUT_MS
+) {
 
     private class Slot(val groupId: String) {
         // markReadsStarted writes from the run's own thread, outside the map lock, so the
@@ -89,26 +100,38 @@ internal class GroupContextWarmupCoordinator {
         superseded?.cancel()
         // Its last snapshot write has to land before this run reads, or stale data wins. The wait is
         // what a Support Mode entry stalls on when a sweep is parked in a slow network read, and
-        // nothing on screen distinguishes that from a hydration that never started.
-        val held = superseded
-        if (held != null) {
-            val since = System.currentTimeMillis()
-            AppLogger.w(
-                "GroupWarmup",
-                "Hydration for group $groupId is waiting for the warmup already running for it."
-            )
-            held.join()
-            AppLogger.w(
-                "GroupWarmup",
-                "Group $groupId's superseded warmup unwound after ${System.currentTimeMillis() - since}ms."
-            )
-        }
+        // nothing on screen distinguishes that from a hydration that never started — so it is
+        // measured, bounded, and given up on rather than sat in.
         try {
+            val held = superseded
+            if (held != null) {
+                val since = System.currentTimeMillis()
+                AppLogger.w(
+                    "GroupWarmup",
+                    "Hydration for group $groupId is waiting for the warmup already running for it."
+                )
+                if (held.awaitWithin(supersedeJoinMillis)) {
+                    AppLogger.w(
+                        "GroupWarmup",
+                        "Group $groupId's superseded warmup unwound after ${System.currentTimeMillis() - since}ms."
+                    )
+                } else {
+                    AppLogger.w(
+                        "GroupWarmup",
+                        "Group $groupId's superseded warmup never unwound within ${supersedeJoinMillis}ms; " +
+                            "reading without it, so its last write may still land after this one."
+                    )
+                }
+            }
             block()
         } finally {
             release(groupId, refreshJob)
         }
     }
+
+    /** True when [this] finished within [millis]; a caller that gives up proceeds on its own. */
+    private suspend fun Job.awaitWithin(millis: Long): Boolean =
+        withTimeoutOrNull(millis) { join(); true } == true
 
     /** Marks that the owning run began reading, so a later request needs a run of its own. */
     suspend fun markReadsStarted(groupId: String) {
@@ -141,7 +164,14 @@ internal class GroupContextWarmupCoordinator {
         return scope.launch(start = CoroutineStart.LAZY) {
             // A cancelled predecessor only stops once it unwinds, and its last snapshot write
             // would otherwise land after the fresher one it was replaced for.
-            superseded?.join()
+            val held = superseded
+            if (held != null && !held.awaitWithin(supersedeJoinMillis)) {
+                AppLogger.w(
+                    "GroupWarmup",
+                    "Warmup for group ${slot.groupId} replaced one that never unwound within " +
+                        "${supersedeJoinMillis}ms; it reads anyway."
+                )
+            }
             try {
                 block()
             } finally {
@@ -174,5 +204,14 @@ internal class GroupContextWarmupCoordinator {
             }
         }
         scheduled?.start()
+    }
+
+    private companion object {
+        /**
+         * A superseded warm-up is cancelled before this wait, so the budget only has to cover a run
+         * wedged in an external call — long enough that an orderly one is never cut short, short
+         * enough that a wedged one is not the user's problem.
+         */
+        const val SUPERSEDE_JOIN_TIMEOUT_MS = 10_000L
     }
 }

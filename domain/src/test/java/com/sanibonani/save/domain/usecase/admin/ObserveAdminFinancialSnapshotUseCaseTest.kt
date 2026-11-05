@@ -15,6 +15,8 @@ import io.mockk.every
 import io.mockk.mockk
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.take
+import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Test
@@ -85,5 +87,22 @@ class ObserveAdminFinancialSnapshotUseCaseTest {
         assertEquals(payouts, snapshot.payouts)
         assertEquals(loans, snapshot.loans)
         assertEquals(claims, snapshot.claims)
+    }
+
+    @Test
+    fun `a stream that had answered keeps its rows when the refresh is refused`() = runTest {
+        stubAll()
+        every { ledgerRepository.observeConsolidatedAuditTrail(groupId) } returns
+            flowOf(Result.success(ledger), Result.failure(IllegalStateException("gateway unreachable")))
+
+        val snapshots = useCase(groupId).take(2).toList()
+
+        assertEquals(2, snapshots.size)
+        assertEquals(
+            "an unread refresh is not evidence that the book went empty",
+            ledger,
+            snapshots.last().ledger
+        )
+        assertEquals(bankTx, snapshots.last().unreconciledBankTx)
     }
 }

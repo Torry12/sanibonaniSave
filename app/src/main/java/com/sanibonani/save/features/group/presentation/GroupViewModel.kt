@@ -51,8 +51,8 @@ class GroupViewModel @Inject constructor(
     fun loadGroups() {
         launchSafeJob(LIST_JOB, "Failed to load public groups") {
             updateState { it.copy(isLoading = true, error = null) }
-            // The rows on screen came from the cache and stay there whichever way this goes, so the
-            // log is the only place that can still tell "answered", "refused" and "never attempted".
+            // The rows on screen came from the cache and stay there whichever way this goes: the refusal
+            // rides behind them as its own emission, and the log is what still tells "never attempted" apart.
             AppLogger.i(DISCOVERY_LOG_TAG, "discovery read attempted")
             getPublicGroups().collectLatest { res ->
                 res.onSuccess { list ->

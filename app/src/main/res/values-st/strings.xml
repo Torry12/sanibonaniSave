@@ -138,6 +138,8 @@
     <string name="ui_retry">Leka hape</string>
     <string name="ui_total_savings">Kakaretso ya ho Boloka</string>
     <string name="ui_member_platform_fees_paid">Tefo ya Setjhaba</string>
+    <string name="ui_member_fee">Tefo ya Setho</string>
+    <string name="ui_member_activity_paid_to_platform">E duetsoe Setjhaba</string>
     <string name="ui_next_payment_label">Tefo e Latelang</string>
     <string name="ui_overdue">E diehile</string>
     <string name="ui_due_soon">E tla hlokahala haufinyane</string>

@@ -28,9 +28,6 @@ data class LoanApprovedEvent(val loan: Loan) : DomainEvent
 /** Emitted when a member's operational status (ACTIVE, SUSPENDED, etc.) changes. */
 data class MemberStatusChangedEvent(val member: Member) : DomainEvent
 
-/** Emitted when a full synchronization from remote to local cache is completed. */
-data class FullSyncCompletedEvent(val userId: String) : DomainEvent
-
 /** Emitted when a manual refresh for a specific domain pillar is requested. */
 data class PillarRefreshRequestedEvent(val pillar: DomainPillar, val groupId: String?) : DomainEvent
 

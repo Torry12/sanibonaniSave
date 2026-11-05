@@ -31,6 +31,7 @@ import com.sanibonani.save.ui.components.EmptyState
 import com.sanibonani.save.ui.utils.formatDate
 import com.sanibonani.save.ui.utils.formatMonthYear
 import com.sanibonani.save.features.member.ui.LedgerItem
+import com.sanibonani.save.features.member.ui.PlatformFeeLabel
 import com.sanibonani.save.ui.theme.*
 
 @OptIn(ExperimentalMaterial3AdaptiveApi::class, ExperimentalFoundationApi::class)
@@ -176,7 +177,7 @@ fun MemberTransactionDetail(entry: LedgerEntry) {
         Text("Transaction Detail", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(16.dp))
 
-        DetailItem("Description", entry.description)
+        DetailItem("Description", if (entry.isPlatform) PlatformFeeLabel(entry.category) else entry.description)
         DetailItem("Category", entry.category.uppercase())
         DetailItem("Amount", entry.amount.format())
         DetailItem("Date", formatDate(entry.createdAt))

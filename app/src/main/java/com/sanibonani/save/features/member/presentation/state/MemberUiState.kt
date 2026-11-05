@@ -166,7 +166,42 @@ data class MemberUiState(
         }
 
     /**
-     * Whether the activity list may call an empty [memberLedger] "no transactions".
+     * The member's own transaction history: the [memberLedger] rows plus the platform fees they paid.
+     *
+     * The ledger read cannot show a registration or member fee, whatever the sync does: that money goes
+     * to `platform_ledger`, which has no `member_id` column, and the Room query additionally filters
+     * `is_platform` rows out. So the member measured on Cloud on 2026-11-04 - one paid
+     * registration_contribution of R500 and no group entries - was shown a card saying they had paid
+     * R500 beside a list saying they had never transacted. The fee rows come from the contributions
+     * the member did pay, are marked platform rows, and carry no balance because the group never held
+     * the money. A fee already in the book is not repeated: seeds did once mis-file registration rows
+     * straight into `group_ledger`.
+     */
+    val memberTransactions: List<LedgerEntry>
+        get() {
+            val bookedContributionIds = memberLedger.mapNotNull { it.transactionId }.toSet()
+            val fees = contributions
+                .filter { it.status == ContributionStatus.PAID && it.isPlatformFee }
+                .filter { c -> c.id?.let { it !in bookedContributionIds } ?: true }
+                .map { c ->
+                    LedgerEntry(
+                        id = c.id?.let { "platform-fee:$it" },
+                        groupId = c.groupId,
+                        memberId = c.memberId,
+                        transactionId = c.id,
+                        amount = c.amount,
+                        category = c.type,
+                        isPlatform = true,
+                        createdAt = c.paidAt ?: c.createdAt
+                    )
+                }
+            // [memberLedger] arrives newest first from both tiers, so an all-ledger list keeps its
+            // order without a sort that could tie two rows written in the same second.
+            return (memberLedger + fees).sortedByDescending { it.createdAt ?: "" }
+        }
+
+    /**
+     * Whether the activity list may call an empty [memberTransactions] "no transactions".
      *
      * The list is the only reader of the member's ledger rows, while the header sums contributions -
      * two different books, though [totalSavings] now leaves out the fees that keep the ledger empty -
@@ -175,7 +210,7 @@ data class MemberUiState(
      * to say so.
      */
     val memberActivityIsUnconfirmed: Boolean
-        get() = memberLedger.isEmpty() &&
+        get() = memberTransactions.isEmpty() &&
             (!memberLedgerAnswered || unverifiedSections.contains(DomainPillar.TREASURY.name.lowercase()))
 }
 

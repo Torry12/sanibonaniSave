@@ -68,7 +68,9 @@ class LandingViewModel @Inject constructor(
     val state: StateFlow<LandingUiState> = uiState
     private var refreshJob: Job? = null
 
-    private fun currentState(): LandingUiState = uiState.value
+    /** The actor the refresh now running is reading for, and the session the screen last answered. */
+    private var refreshActor: String? = null
+    private var observedSession: Pair<Boolean, UserRole>? = null
 
     init {
         observeNetwork(networkService) { s, online, airplane ->
@@ -86,13 +88,16 @@ class LandingViewModel @Inject constructor(
                 .distinctUntilChanged { old, new -> old?.accessToken == new?.accessToken }
                 .debounce(300)
                 .collect { session ->
-                    val current = currentState()
                     val signedIn = session != null
-                    if (signedIn == current.isLoggedIn && (current.userRole != UserRole.MEMBER)) {
-                        return@collect
-                    }
-
                     val userRole = if (signedIn) getCurrentUserRole() else UserRole.MEMBER
+
+                    // The two things a session can change on this screen are whether someone is
+                    // signed in and as what. The guard here used to compare the sign-in state only
+                    // once the role was not MEMBER, so a member re-refreshed on every publication -
+                    // including a renewed token, which reads the same landing the state already
+                    // holds.
+                    if (observedSession == (signedIn to userRole)) return@collect
+                    observedSession = signedIn to userRole
 
                     updateState { it.copy(isLoggedIn = signedIn, userRole = userRole) }
                     if (signedIn) {
@@ -106,18 +111,34 @@ class LandingViewModel @Inject constructor(
         launchJob("observe_dev_settings") {
             devSettings.settingsChanged.collect {
                 delay(500)
-                refreshData()
+                // Forced: the pass this replaces is reading the database that was just switched
+                // out, so its answer is not the one the screen should keep.
+                refreshData(force = true)
             }
         }
     }
 
     fun onIntent(intent: LandingIntent) {
         when (intent) {
-            LandingIntent.Refresh -> refreshData()
+            // Asked for by name - the retry on the hero or the pull - so it does not accept the
+            // answer a pass already running would give it.
+            LandingIntent.Refresh -> refreshData(force = true)
         }
     }
 
-    fun refreshData() {
+    /**
+     * Reads the landing's four legs.
+     *
+     * [force] is a caller that will not accept an answer already on its way - the retry the admin
+     * taps. Any other caller is served by the pass still running for the same actor, which is what
+     * the cold start needed: the screen appearing, the session publishing and the connectivity
+     * watcher each used to cancel the reads in front of them and start the same four again, so the
+     * log carried three refreshes and one answer.
+     */
+    fun refreshData(force: Boolean = false) {
+        val actor = getAttributableActorId()
+        if (!force && refreshJob?.isActive == true && refreshActor == actor) return
+        refreshActor = actor
         refreshJob?.cancel()
         refreshJob = launchJob("refresh_data") {
             try {

@@ -191,7 +191,7 @@ fun LedgerItem(entry: LedgerEntry, onClick: () -> Unit) {
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Text(
-                    text = entry.description,
+                    text = if (entry.isPlatform) PlatformFeeLabel(entry.category) else entry.description,
                     fontWeight = FontWeight.Bold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
@@ -209,11 +209,25 @@ fun LedgerItem(entry: LedgerEntry, onClick: () -> Unit) {
                     color = color
                 )
                 Text(
-                    text = "Bal: " + formatZAR(entry.balanceAfter),
+                    // A fee the platform kept never entered the group's running balance, so the row
+                    // says which book it was paid into instead of printing a balance nobody held.
+                    text = if (entry.isPlatform) stringResource(R.string.ui_member_activity_paid_to_platform)
+                    else "Bal: " + formatZAR(entry.balanceAfter),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                 )
             }
         }
     }
+}
+
+/**
+ * The row title for money the platform kept, which has no description of its own because it was never
+ * a ledger entry. [category] carries the contribution type the payment was filed under.
+ */
+@Composable
+internal fun PlatformFeeLabel(category: String): String = when (category) {
+    "registration_contribution" -> stringResource(R.string.ui_registration_fee)
+    "member_fee", "member_fee_ledger" -> stringResource(R.string.ui_member_fee)
+    else -> stringResource(R.string.ui_member_platform_fees_paid)
 }
