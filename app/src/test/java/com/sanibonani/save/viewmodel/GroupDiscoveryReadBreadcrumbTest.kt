@@ -3,6 +3,7 @@ package com.sanibonani.save.viewmodel
 import android.util.Log
 import androidx.arch.core.executor.testing.InstantTaskExecutorRule
 import com.google.firebase.crashlytics.FirebaseCrashlytics
+import com.sanibonani.save.MainDispatcherRule
 import com.sanibonani.save.domain.logging.AppLogger
 import com.sanibonani.save.domain.model.Group
 import com.sanibonani.save.domain.model.GroupType
@@ -14,14 +15,10 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkStatic
 import io.mockk.unmockkAll
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
-import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
-import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -39,6 +36,9 @@ import java.io.IOException
 class GroupDiscoveryReadBreadcrumbTest {
 
     @get:Rule
+    val mainDispatcherRule = MainDispatcherRule()
+
+    @get:Rule
     val instantExecutorRule = InstantTaskExecutorRule()
 
     private val stokvel = Group(id = "g-1", name = "Savings Circle", type = GroupType.STOKVEL, province = "Gauteng")
@@ -48,7 +48,7 @@ class GroupDiscoveryReadBreadcrumbTest {
     private val detailFlows = mutableMapOf<String, MutableStateFlow<Result<Group?>>>()
     private val getPublicGroups = mockk<GetPublicGroupsUseCase>()
     private val observeGroupDetail = mockk<ObserveGroupDetailUseCase>()
-    private val testDispatcher = StandardTestDispatcher()
+    private val testDispatcher = mainDispatcherRule.dispatcher
 
     private fun detailOf(id: String): MutableStateFlow<Result<Group?>> =
         detailFlows.getOrPut(id) { MutableStateFlow(Result.success(null)) }
@@ -69,7 +69,6 @@ class GroupDiscoveryReadBreadcrumbTest {
         mockkStatic(FirebaseCrashlytics::class)
         every { FirebaseCrashlytics.getInstance() } returns mockk<FirebaseCrashlytics>(relaxed = true)
 
-        Dispatchers.setMain(testDispatcher)
         every { getPublicGroups() } returns groupsFlow
         every { observeGroupDetail(any()) } answers { detailOf(firstArg()) }
     }
@@ -77,12 +76,11 @@ class GroupDiscoveryReadBreadcrumbTest {
     @After
     fun tearDown() {
         testDispatcher.scheduler.advanceUntilIdle()
-        Dispatchers.resetMain()
         unmockkAll()
     }
 
     private fun started(): GroupViewModel {
-        val viewModel = GroupViewModel(FilterGroupsUseCase(), getPublicGroups, observeGroupDetail)
+        val viewModel = mainDispatcherRule.track(GroupViewModel(FilterGroupsUseCase(), getPublicGroups, observeGroupDetail))
         testDispatcher.scheduler.advanceUntilIdle()
         return viewModel
     }

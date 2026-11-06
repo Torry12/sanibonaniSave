@@ -3,6 +3,7 @@ package com.sanibonani.save.viewmodel
 import android.util.Log
 import androidx.arch.core.executor.testing.InstantTaskExecutorRule
 import com.google.firebase.crashlytics.FirebaseCrashlytics
+import com.sanibonani.save.MainDispatcherRule
 import com.sanibonani.save.domain.model.ActuarialMetrics
 import com.sanibonani.save.domain.model.GroupHealthScore
 import com.sanibonani.save.domain.model.RiskZone
@@ -22,15 +23,11 @@ import io.mockk.mockkStatic
 import io.mockk.unmockkAll
 import java.io.IOException
 import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.flow.toList
-import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
-import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
-import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -49,11 +46,14 @@ import org.junit.Test
 class PlatformGroupMetricsTest {
 
     @get:Rule
+    val mainDispatcherRule = MainDispatcherRule()
+
+    @get:Rule
     val instantExecutorRule = InstantTaskExecutorRule()
 
     private val getGroupPlatformMetrics = mockk<GetGroupPlatformMetricsUseCase>()
     private val calculateGroupHealthScore = mockk<CalculateGroupHealthScoreUseCase>()
-    private val testDispatcher = StandardTestDispatcher()
+    private val testDispatcher = mainDispatcherRule.dispatcher
     private lateinit var viewModel: PlatformAnalyticsViewModel
 
     @Before
@@ -71,8 +71,7 @@ class PlatformGroupMetricsTest {
         val mockCrashlytics = mockk<FirebaseCrashlytics>(relaxed = true)
         every { FirebaseCrashlytics.getInstance() } returns mockCrashlytics
 
-        Dispatchers.setMain(testDispatcher)
-        viewModel = PlatformAnalyticsViewModel(
+        viewModel = mainDispatcherRule.track(PlatformAnalyticsViewModel(
             getPlatformAnalytics = mockk<GetPlatformAnalyticsUseCase>(relaxed = true),
             getAllPlatformGroups = mockk<GetAllPlatformGroupsUseCase>(relaxed = true),
             computeSystemWideMetrics = mockk<ComputeSystemWideMetricsUseCase>(relaxed = true),
@@ -80,13 +79,12 @@ class PlatformGroupMetricsTest {
             calculateGroupHealthScore = calculateGroupHealthScore,
             deleteGroupFromPlatformUseCase = mockk<DeleteGroupFromPlatformUseCase>(relaxed = true),
             getPlatformDistributions = mockk<GetPlatformDistributionsUseCase>(relaxed = true)
-        )
+        ))
     }
 
     @After
     fun tearDown() {
         testDispatcher.scheduler.advanceUntilIdle()
-        Dispatchers.resetMain()
         unmockkAll()
     }
 

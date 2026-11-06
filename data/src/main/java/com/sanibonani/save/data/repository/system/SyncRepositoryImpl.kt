@@ -25,6 +25,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import javax.inject.Inject
+import javax.inject.Provider
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
@@ -44,7 +45,7 @@ class SyncRepositoryImpl @Inject constructor(
     private val memberRepo: MemberRepository,
     private val groupRepo: GroupRepository,
     private val notificationRepo: NotificationRepository,
-    private val db: SanibonaniDatabase,
+    private val dbProvider: Provider<SanibonaniDatabase>,
     private val contributionHandler: ContributionOutboxHandler,
     private val loanRepaymentHandler: LoanRepaymentOutboxHandler,
     private val payoutHandler: PayoutRequestOutboxHandler,
@@ -52,6 +53,8 @@ class SyncRepositoryImpl @Inject constructor(
     private val beneficiaryClaimHandler: BeneficiaryClaimOutboxHandler,
     private val payoutStatusUpdateHandler: PayoutStatusUpdateOutboxHandler
 ) : BaseRepository("SyncRepository"), SyncRepository {
+
+    private val db: SanibonaniDatabase get() = dbProvider.get()
 
     private val handlers by lazy {
         mapOf(

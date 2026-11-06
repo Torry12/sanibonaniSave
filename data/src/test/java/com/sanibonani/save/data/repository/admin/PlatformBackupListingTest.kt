@@ -53,7 +53,7 @@ class PlatformBackupListingTest {
 
         repository = PlatformRepositoryImpl(
             protocol = protocol,
-            db = mockk<SanibonaniDatabase>(relaxed = true),
+            dbProvider = javax.inject.Provider { mockk(relaxed = true) },
             actuarialRepo = mockk<ActuarialRepository>(relaxed = true),
             notifRepo = mockk<NotificationRepository>(relaxed = true)
         )

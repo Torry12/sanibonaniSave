@@ -1,5 +1,6 @@
 package com.sanibonani.save.viewmodel
 
+import com.sanibonani.save.MainDispatcherRule
 import com.sanibonani.save.domain.model.MemberBehaviorTrack
 import com.sanibonani.save.domain.repository.admin.BehaviorTrackingRepository
 import com.sanibonani.save.domain.repository.member.MemberRepository
@@ -14,14 +15,10 @@ import com.sanibonani.save.features.admin.presentation.BehaviorTrackingViewModel
 import com.sanibonani.save.features.common.presentation.UIEvent
 import io.mockk.*
 import java.io.IOException
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
-import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
-import kotlinx.coroutines.test.setMain
 import kotlinx.coroutines.withTimeoutOrNull
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -29,36 +26,37 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
+import org.junit.Rule
 import org.junit.Test
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class BehaviorTrackingViewModelTest {
 
-    private val dispatcher = StandardTestDispatcher()
+    @get:Rule
+    val mainDispatcherRule = MainDispatcherRule()
+
     private lateinit var repository: BehaviorTrackingRepository
     private lateinit var memberRepository: MemberRepository
 
     @Before
     fun setUp() {
-        Dispatchers.setMain(dispatcher)
         repository = mockk<BehaviorTrackingRepository>(relaxed = true)
         memberRepository = mockk<MemberRepository>(relaxed = true)
     }
 
     @After
     fun tearDown() {
-        Dispatchers.resetMain()
         unmockkAll()
     }
 
-    private fun viewModel() = BehaviorTrackingViewModel(
+    private fun viewModel() = mainDispatcherRule.track(BehaviorTrackingViewModel(
         getMemberBehaviorTrack = GetMemberBehaviorTrackUseCase(repository),
         generateBehaviorFinetuningDataset = GenerateBehaviorFinetuningDatasetUseCase(repository),
         flagMemberForReview = FlagMemberForReviewUseCase(repository),
         unflagMemberUseCase = UnflagMemberUseCase(repository),
         suspendMemberUseCase = SuspendMemberUseCase(UpdateMemberStatusUseCase(memberRepository), repository),
         unsuspendMemberUseCase = UnsuspendMemberUseCase(UpdateMemberStatusUseCase(memberRepository), repository)
-    )
+    ))
 
     @Test
     fun `loadTrack clears loading when refresh fails`() = runTest {

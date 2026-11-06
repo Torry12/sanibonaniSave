@@ -8,11 +8,16 @@
 -- Fingerprint method matches the SYNC_DELTA files. This statement writes nothing.
 -- Paste into the Supabase Dashboard SQL editor, or run with psql -f.
 --
--- EXPECTED (masters oracle; measured 2026-10-31 on BOTH tiers, which agree exactly through
---   SYNC_DELTA_20261101C):
---   1037|C=535 E=1 F=88 G=15 I=33 K=198 P=85 R=38 S=2 T=38 V=4|8405ef938e6325bf03b6002e54f5ecca
+-- EXPECTED (masters oracle; measured 2026-11-07 on BOTH tiers, which agree exactly through
+--   SYNC_DELTA_20261106):
+--   1037|C=535 E=1 F=87 G=15 I=33 K=198 P=86 R=38 S=2 T=38 V=4|82ee267f5fe7a5ad766f1dba2c3de5e7
+--   The previous baseline, measured 2026-10-31 through SYNC_DELTA_20261101C, was
+--   1037|C=535 E=1 F=88 G=15 I=33 K=198 P=85 R=38 S=2 T=38 V=4|8405ef938e6325bf03b6002e54f5ecca.
+--   20261104 added one audit_logs INSERT policy (P 85 -> 86) and 20261106 dropped two
+--   superseded functions while adding assert_ledger_wrapper_input_v1 (F 88 -> 87). The
+--   object count stayed 1037 because those two changes cancel.
 --   The hour these two tiers differed is the worked example of the rule below: 20261101C replaced
---   the body of consolidate_group_ledger_v1 and added no object, so Local read the digest above
+--   the body of consolidate_group_ledger_v1 and added no object, so Local read 8405ef938e6325bf03b6002e54f5ecca
 --   while Cloud still read a18f379d05164eb2a5adec30c06174a3 with every count identical, F=88
 --   included. Same counts with a different digest is a changed definition, not a missing object -
 --   diff SCHEMA_OBJECT_FINGERPRINTS.sql, or check the one function's body hash in the delta's

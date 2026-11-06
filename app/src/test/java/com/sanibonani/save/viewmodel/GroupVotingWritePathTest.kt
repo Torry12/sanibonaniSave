@@ -1,6 +1,7 @@
 package com.sanibonani.save.viewmodel
 
 import androidx.arch.core.executor.testing.InstantTaskExecutorRule
+import com.sanibonani.save.MainDispatcherRule
 import com.sanibonani.save.domain.repository.group.VotingRepository
 import com.sanibonani.save.domain.usecase.group.CastGroupPollVoteUseCase
 import com.sanibonani.save.domain.usecase.group.CloseGroupPollUseCase
@@ -10,15 +11,10 @@ import com.sanibonani.save.features.group.presentation.GroupVotingViewModel
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.flowOf
-import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
-import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
-import kotlinx.coroutines.test.setMain
-import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -37,10 +33,12 @@ import org.junit.Test
 class GroupVotingWritePathTest {
 
     @get:Rule
+    val mainDispatcherRule = MainDispatcherRule()
+
+    @get:Rule
     val instantExecutorRule = InstantTaskExecutorRule()
 
     private val votingRepo = mockk<VotingRepository>(relaxed = true)
-    private val testDispatcher = StandardTestDispatcher()
     private lateinit var viewModel: GroupVotingViewModel
 
     private val groupId = "11111111-1111-1111-1111-111111111111"
@@ -49,22 +47,16 @@ class GroupVotingWritePathTest {
 
     @Before
     fun setup() {
-        Dispatchers.setMain(testDispatcher)
         every { votingRepo.observePolls(groupId, memberId) } returns flowOf(Result.success(emptyList()))
-        viewModel = GroupVotingViewModel(
+        viewModel = mainDispatcherRule.track(GroupVotingViewModel(
             observeGroupPolls = ObserveGroupPollsUseCase(votingRepo),
             createGroupPoll = CreateGroupPollUseCase(votingRepo),
             castGroupPollVote = CastGroupPollVoteUseCase(votingRepo),
             closeGroupPoll = CloseGroupPollUseCase(votingRepo)
-        )
+        ))
         // loadPolls writes groupId/memberId into the state synchronously; only the poll
         // collection needs the scheduler, and each test advances it.
         viewModel.loadPolls(groupId, memberId)
-    }
-
-    @After
-    fun tearDown() {
-        Dispatchers.resetMain()
     }
 
     @Test

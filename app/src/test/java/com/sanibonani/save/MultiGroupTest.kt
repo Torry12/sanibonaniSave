@@ -36,7 +36,6 @@ import com.sanibonani.save.features.group.presentation.GroupFormEvent
 import com.sanibonani.save.features.group.presentation.GroupRegistrationViewModel
 import io.mockk.*
 import androidx.lifecycle.viewModelScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.flowOf
@@ -62,6 +61,9 @@ import com.sanibonani.save.domain.usecase.treasury.ObserveGroupLedgerUseCase
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class MultiGroupTest {
+
+    @get:Rule
+    val mainDispatcherRule = MainDispatcherRule()
 
     @get:Rule
     val instantExecutorRule = InstantTaskExecutorRule()
@@ -99,7 +101,7 @@ class MultiGroupTest {
     private val activateGroupUseCase = mockk<ActivateGroupUseCase>(relaxed = true)
     private val locationService = mockk<LocationService>(relaxed = true)
 
-    private val testDispatcher = StandardTestDispatcher()
+    private val testDispatcher = mainDispatcherRule.dispatcher
 
     // These ViewModels are constructed directly, so nothing ever calls onCleared() and their
     // viewModelScope coroutines outlive the test. They then resume on the shared Dispatchers.Main
@@ -113,6 +115,7 @@ class MultiGroupTest {
     private fun <T : androidx.lifecycle.ViewModel> tracked(viewModel: T): T {
         viewModelStore.put("vm-${trackedCount++}", viewModel)
         trackedScopes += viewModel.viewModelScope
+        mainDispatcherRule.track(viewModel)
         return viewModel
     }
 
@@ -161,8 +164,6 @@ class MultiGroupTest {
         coEvery { getManagedGroupsUseCase(any(), any(), any()) } returns Result.success(mockGroups)
         every { getManagedGroupsUseCase.observeManagedGroups(any(), any(), any()) } returns flowOf(Result.success(mockGroups))
 
-        Dispatchers.setMain(testDispatcher)
-
         // Avoid ClassCastException from relaxed mocks returning Result<List<T>>
         coEvery { financialRepo.getOutstandingPlatformFees(any()) } returns Result.success(emptyList())
         coEvery { platformRepo.getPlatformAnalytics() } returns Result.success(PlatformAnalytics())
@@ -182,7 +183,6 @@ class MultiGroupTest {
             testDispatcher.scheduler.runCurrent()
             Thread.sleep(1)
         }
-        Dispatchers.resetMain()
         unmockkConstructor(Handler::class)
         unmockkAll()
     }

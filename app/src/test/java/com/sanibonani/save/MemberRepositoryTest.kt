@@ -8,7 +8,6 @@ import com.sanibonani.save.domain.repository.group.GroupRepository
 import com.sanibonani.save.domain.repository.member.MemberRepository
 import com.sanibonani.save.data.repository.member.MemberRepositoryImpl
 import com.sanibonani.save.data.datasource.*
-import com.sanibonani.save.data.local.PendingOperationDao
 import com.sanibonani.save.domain.service.FileStorageService
 import com.sanibonani.save.data.repository.mappers.DataPayloadFactory
 import com.sanibonani.save.domain.repository.admin.ActuarialRepository
@@ -35,7 +34,6 @@ class MemberRepositoryTest {
     private val remoteMemberSource = mockk<RemoteMemberDataSource>(relaxed = true)
     private val localMemberSource = mockk<LocalMemberDataSource>(relaxed = true)
     private val fileStorageService = mockk<FileStorageService>(relaxed = true)
-    private val pendingOpDao = mockk<PendingOperationDao>(relaxed = true)
     private val dbProvider = mockk<Provider<com.sanibonani.save.data.local.SanibonaniDatabase>>(relaxed = true)
     private val remoteContributionSource = mockk<RemoteContributionDataSource>(relaxed = true)
     private val json = Json { ignoreUnknownKeys = true }
@@ -71,7 +69,6 @@ class MemberRepositoryTest {
             localMemberSource,
             fileStorageService,
             json,
-            pendingOpDao,
             dbProvider,
             remoteContributionSource
         )

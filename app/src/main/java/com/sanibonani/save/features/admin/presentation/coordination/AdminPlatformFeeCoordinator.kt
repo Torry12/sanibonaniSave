@@ -36,8 +36,14 @@ class AdminPlatformFeeCoordinator @Inject constructor(
             // fails has to drop the previous group's dues rather than bill the new group for them.
             host.updateAdminState { it.copy(outstandingPlatformFees = emptyList()) }
             getOutstandingPlatformFees(groupId)
-                .onSuccess { fees -> host.updateAdminState { it.copy(outstandingPlatformFees = fees) } }
-                .onFailure { host.reportError(it) }
+                .onSuccess { fees ->
+                    if (adminContextCacheService.selectedGroupId.value != groupId) return@onSuccess
+                    host.updateAdminState { it.copy(outstandingPlatformFees = fees) }
+                }
+                .onFailure {
+                    if (adminContextCacheService.selectedGroupId.value != groupId) return@onFailure
+                    host.reportError(it)
+                }
         }
     }
 

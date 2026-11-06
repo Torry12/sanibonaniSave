@@ -35,6 +35,16 @@ class ProcessLoanDecisionUseCase @Inject constructor(
     ): Result<Loan> = financialResult {
         // 1. Fetch data
         val loan = loanRepo.getLoanById(loanId).getOrThrow()
+
+        // A decision only belongs to a request that is still waiting for one. Without this, an
+        // already disbursed loan could be "approved" again - re-notifying the member, re-writing the
+        // audit trail, and asking the server to move money a second time.
+        if (loan.status != LoanStatus.PENDING) {
+            throw IllegalStateException(
+                "This loan request is ${loan.status.name} and can no longer receive a decision."
+            )
+        }
+
         val member = memberRepo.getMemberById(loan.memberId).getOrThrow()
         val group = groupRepo.getGroupById(loan.groupId).getOrThrow()
 

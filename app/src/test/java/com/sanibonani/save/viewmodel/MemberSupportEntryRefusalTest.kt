@@ -2,8 +2,8 @@ package com.sanibonani.save.viewmodel
 
 import android.util.Log
 import androidx.arch.core.executor.testing.InstantTaskExecutorRule
-import androidx.lifecycle.viewModelScope
 import com.google.firebase.crashlytics.FirebaseCrashlytics
+import com.sanibonani.save.MainDispatcherRule
 import com.sanibonani.save.domain.model.Group
 import com.sanibonani.save.domain.model.Member
 import com.sanibonani.save.domain.model.Money
@@ -42,6 +42,7 @@ import com.sanibonani.save.domain.usecase.system.ExportMembershipContractUseCase
 import com.sanibonani.save.domain.usecase.system.SendNotificationUseCase
 import com.sanibonani.save.domain.usecase.treasury.ObserveMemberLedgerUseCase
 import com.sanibonani.save.domain.utils.PaymentCalculator
+import com.sanibonani.save.features.common.presentation.HydrationWatchdog
 import com.sanibonani.save.features.member.presentation.MemberOverviewViewModel
 import com.sanibonani.save.features.member.presentation.coordination.MemberDocumentCoordinator
 import com.sanibonani.save.features.member.presentation.coordination.MemberLiveObservationCoordinator
@@ -55,20 +56,19 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkStatic
 import io.mockk.unmockkAll
-import kotlinx.coroutines.Dispatchers
+import io.mockk.verify
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.awaitCancellation
-import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
-import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
-import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
-import kotlinx.coroutines.test.setMain
 import org.junit.After
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -86,6 +86,9 @@ import org.junit.Test
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class MemberSupportEntryRefusalTest {
+
+    @get:Rule
+    val mainDispatcherRule = MainDispatcherRule()
 
     @get:Rule
     val instantExecutorRule = InstantTaskExecutorRule()
@@ -113,10 +116,9 @@ class MemberSupportEntryRefusalTest {
     }
 
     private val contexts = MutableStateFlow<Map<String, CachedGroupContext>>(emptyMap())
-    private val testDispatcher = StandardTestDispatcher()
-    private val createdViewModels = mutableListOf<MemberOverviewViewModel>()
+    private val testDispatcher = mainDispatcherRule.dispatcher
 
-    private fun createViewModel(): MemberOverviewViewModel = MemberOverviewViewModel(
+    private fun createViewModel(): MemberOverviewViewModel = mainDispatcherRule.track(MemberOverviewViewModel(
         memberContextCacheService,
         ObserveMembershipsUseCase(memberRepo),
         GetGroupByIdUseCase(groupRepo),
@@ -145,7 +147,7 @@ class MemberSupportEntryRefusalTest {
         ),
         devSettings,
         networkService
-    ).also { createdViewModels += it }
+    ))
 
     private fun refuseEntry(reason: String) {
         coEvery { memberContextCacheService.impersonateMember("m1", groupId) } returns
@@ -172,8 +174,6 @@ class MemberSupportEntryRefusalTest {
         mockkStatic(android.os.Looper::class)
         every { android.os.Looper.getMainLooper() } returns mockk(relaxed = true)
 
-        Dispatchers.setMain(testDispatcher)
-
         every { supabaseRepo.currentUserId } returns "user_123"
         coEvery { supabaseRepo.getUserRole() } returns UserRole.PLATFORM_ADMIN
         every { memberContextCacheService.contexts } returns contexts
@@ -185,9 +185,7 @@ class MemberSupportEntryRefusalTest {
 
     @After
     fun tearDown() {
-        createdViewModels.forEach { it.viewModelScope.cancel() }
         testDispatcher.scheduler.advanceUntilIdle()
-        Dispatchers.resetMain()
         unmockkAll()
     }
 
@@ -211,13 +209,47 @@ class MemberSupportEntryRefusalTest {
         coEvery { memberContextCacheService.impersonateMember("m1", groupId) } coAnswers { awaitCancellation() }
         val viewModel = createViewModel()
 
-        openSupportMode(viewModel)
+        viewModel.setActive(true)
+        viewModel.setPortalContext("m1", groupId)
+        runCurrent()
 
         val state = viewModel.state.value
         assertNull(state.member)
         assertNull(state.error)
         assertTrue("the lock is what stops another member's book rendering", state.isPrivacyLocked)
         assertFalse(state.supportEntryWasRefused)
+    }
+
+    @Test
+    fun `an entry that never returns releases the lock onto the refusal`() = runTest {
+        coEvery { memberContextCacheService.impersonateMember("m1", groupId) } coAnswers { awaitCancellation() }
+        val viewModel = createViewModel()
+
+        viewModel.setActive(true)
+        viewModel.setPortalContext("m1", groupId)
+        runCurrent()
+        advanceTimeBy(HydrationWatchdog.HYDRATION_TIMEOUT.inWholeMilliseconds)
+        runCurrent()
+
+        val state = viewModel.state.value
+        assertNull(state.member)
+        assertEquals(HydrationWatchdog.HYDRATION_TIMEOUT_MESSAGE, state.error)
+        assertFalse("the lock with no book behind it is the freeze", state.isPrivacyLocked)
+        assertTrue(state.supportEntryWasRefused)
+        assertFalse(state.isLoading)
+    }
+
+    @Test
+    fun `opening support mode drops the operator warm-up that would hold the hydration`() = runTest {
+        coEvery { memberContextCacheService.impersonateMember("m1", groupId) } coAnswers { awaitCancellation() }
+        val viewModel = createViewModel()
+
+        viewModel.setPortalContext("m1", groupId)
+        viewModel.setActive(true)
+        runCurrent()
+
+        coVerify(exactly = 0) { memberContextCacheService.warmUpForUser(any()) }
+        verify { memberContextCacheService.cancelBackgroundWarmups() }
     }
 
     @Test

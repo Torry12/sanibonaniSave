@@ -3,17 +3,6 @@ package com.sanibonani.save.di
 import android.content.Context
 import androidx.work.WorkManager
 import com.sanibonani.save.BuildConfig
-import com.sanibonani.save.data.local.AuditDao
-import com.sanibonani.save.data.local.BeneficiaryClaimDao
-import com.sanibonani.save.data.local.BeneficiaryDao
-import com.sanibonani.save.data.local.ContributionDao
-import com.sanibonani.save.data.local.GroupDao
-import com.sanibonani.save.data.local.LedgerDao
-import com.sanibonani.save.data.local.LoanDao
-import com.sanibonani.save.data.local.MemberDao
-import com.sanibonani.save.data.local.PaymentDao
-import com.sanibonani.save.data.local.PayoutDao
-import com.sanibonani.save.data.local.PendingOperationDao
 import com.sanibonani.save.data.local.SanibonaniDatabase
 import com.sanibonani.save.domain.architecture.policy.InMemoryPolicyRouter
 import com.sanibonani.save.domain.architecture.policy.LargeAmountDualApprovalRule
@@ -68,50 +57,11 @@ object AppModule {
 
     // Data Repositories
     // Note: Most repositories are now provided via RepoModule using @Binds
-
-    @Provides
-    @Singleton
-    fun provideGroupDao(db: SanibonaniDatabase): GroupDao = db.groupDao()
-
-    @Provides
-    @Singleton
-    fun provideMemberDao(db: SanibonaniDatabase): MemberDao = db.memberDao()
-
-    @Provides
-    @Singleton
-    fun provideContributionDao(db: SanibonaniDatabase): ContributionDao = db.contributionDao()
-
-    @Provides
-    @Singleton
-    fun providePaymentDao(db: SanibonaniDatabase): PaymentDao = db.paymentDao()
-
-    @Provides
-    @Singleton
-    fun provideBeneficiaryDao(db: SanibonaniDatabase): BeneficiaryDao = db.beneficiaryDao()
-
-    @Provides
-    @Singleton
-    fun providePayoutDao(db: SanibonaniDatabase): PayoutDao = db.payoutDao()
-
-    @Provides
-    @Singleton
-    fun provideAuditDao(db: SanibonaniDatabase): AuditDao = db.auditDao()
-
-    @Provides
-    @Singleton
-    fun provideLoanDao(db: SanibonaniDatabase): LoanDao = db.loanDao()
-
-    @Provides
-    @Singleton
-    fun provideLedgerDao(db: SanibonaniDatabase): LedgerDao = db.ledgerDao()
-
-    @Provides
-    @Singleton
-    fun provideBeneficiaryClaimDao(db: SanibonaniDatabase): BeneficiaryClaimDao = db.beneficiaryClaimDao()
-
-    @Provides
-    @Singleton
-    fun providePendingOperationDao(db: SanibonaniDatabase): PendingOperationDao = db.pendingOperationDao()
+    //
+    // No DAO is provided here on purpose. A @Singleton DAO is bound to whichever database the graph
+    // asked for first, so it keeps reading a cache the manager has since closed; every reader takes
+    // Provider<SanibonaniDatabase> and resolves its DAO from the live cache instead. LiveRoomCacheAccessTest
+    // fails the build if a singleton DAO provider or a frozen cache reference comes back.
 
     @Provides
     @Singleton

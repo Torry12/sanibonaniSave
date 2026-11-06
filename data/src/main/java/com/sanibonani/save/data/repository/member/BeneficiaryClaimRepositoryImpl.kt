@@ -8,14 +8,18 @@ import com.sanibonani.save.domain.repository.member.BeneficiaryClaimRepository
 import kotlinx.coroutines.flow.Flow
 import kotlinx.serialization.json.*
 import javax.inject.Inject
+import javax.inject.Provider
 import com.sanibonani.save.domain.utils.safeRunCatching
 
 class BeneficiaryClaimRepositoryImpl @Inject constructor(
     private val remoteSource: RemoteClaimDataSource,
     private val localSource: LocalClaimDataSource,
     private val json: Json,
-    private val pendingOpDao: com.sanibonani.save.data.local.PendingOperationDao
+    private val dbProvider: Provider<com.sanibonani.save.data.local.SanibonaniDatabase>
 ) : BaseRepository("BeneficiaryClaimRepository"), BeneficiaryClaimRepository {
+
+    private val pendingOpDao: com.sanibonani.save.data.local.PendingOperationDao
+        get() = dbProvider.get().pendingOperationDao()
 
     override suspend fun submitClaim(
         claim: BeneficiaryPayoutClaim,
@@ -31,13 +35,14 @@ class BeneficiaryClaimRepositoryImpl @Inject constructor(
             dao = pendingOpDao,
             idempotencyKey = idempotencyKey
         ) {
-            val saved = if (idempotencyKey != null) {
-                remoteSource.getClaimById(stableClaim.id!!).getOrElse {
-                    remoteSource.submitClaim(stableClaim).getOrThrow()
-                }
-            } else {
-                remoteSource.submitClaim(stableClaim).getOrThrow()
-            }
+            // Same rule as a payout replay: only a row the server reports as absent may be created.
+            // `getOrElse` turned a refused select into "no such claim" and ran the `onConflict = id`
+            // upsert, so a claim an admin had already approved or rejected came back as PENDING with
+            // its reviewer and rejection reason cleared.
+            val existing = if (idempotencyKey != null) {
+                remoteSource.findClaimById(stableClaim.id!!).getOrThrow()
+            } else null
+            val saved = existing ?: remoteSource.submitClaim(stableClaim).getOrThrow()
             localSource.saveClaim(saved)
             saved
         }

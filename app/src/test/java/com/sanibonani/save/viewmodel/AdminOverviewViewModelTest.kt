@@ -2,8 +2,8 @@ package com.sanibonani.save.viewmodel
 
 import android.util.Log
 import androidx.arch.core.executor.testing.InstantTaskExecutorRule
-import androidx.lifecycle.viewModelScope
 import com.google.firebase.crashlytics.FirebaseCrashlytics
+import com.sanibonani.save.MainDispatcherRule
 import com.sanibonani.save.data.sync.RealtimeSyncManager
 import com.sanibonani.save.data.utils.DevSettings
 import com.sanibonani.save.domain.model.*
@@ -44,22 +44,17 @@ import com.sanibonani.save.service.AdminGroupContextCacheService
 import com.sanibonani.save.service.CachedAdminGroupContext
 import io.mockk.*
 import java.io.IOException
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
-import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
-import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
-import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
@@ -74,6 +69,9 @@ import org.junit.Test
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class AdminOverviewViewModelTest {
+
+    @get:Rule
+    val mainDispatcherRule = MainDispatcherRule()
 
     @get:Rule
     val instantExecutorRule = InstantTaskExecutorRule()
@@ -105,7 +103,7 @@ class AdminOverviewViewModelTest {
     private val settingsChangedFlow = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
 
     private lateinit var viewModel: AdminOverviewViewModel
-    private val testDispatcher = StandardTestDispatcher()
+    private val testDispatcher = mainDispatcherRule.dispatcher
 
     @Before
     fun setup() {
@@ -122,8 +120,6 @@ class AdminOverviewViewModelTest {
 
         mockkStatic(android.os.Looper::class)
         every { android.os.Looper.getMainLooper() } returns mockk(relaxed = true)
-
-        Dispatchers.setMain(testDispatcher)
 
         every { adminContextCacheService.contexts } returns contextsFlow
         every { adminContextCacheService.selectedGroupId } returns selectedGroupIdFlow
@@ -150,23 +146,11 @@ class AdminOverviewViewModelTest {
 
     @After
     fun tearDown() {
-        // Cancel the ViewModel scope while Main is still set. A Default-dispatched flow producer
-        // finishes asynchronously, so wait for the whole scope to complete — draining its Main
-        // queue as we go — before resetMain(), otherwise its cancellation is dispatched to a
-        // Main dispatcher that no longer exists and fails the *next* test.
-        val scopeJob = viewModel.viewModelScope.coroutineContext[Job]
-        viewModel.viewModelScope.cancel()
-        val deadline = System.nanoTime() + 5_000_000_000L
-        while (scopeJob?.isCompleted == false && System.nanoTime() < deadline) {
-            testDispatcher.scheduler.runCurrent()
-            Thread.sleep(1)
-        }
         testDispatcher.scheduler.advanceUntilIdle()
-        Dispatchers.resetMain()
         unmockkAll()
     }
 
-    private fun buildViewModel() = AdminOverviewViewModel(
+    private fun buildViewModel() = mainDispatcherRule.track(AdminOverviewViewModel(
         adminContextCacheService,
         getManagedGroupsUseCase,
         getGroupBusinessInsightsUseCase,
@@ -197,7 +181,7 @@ class AdminOverviewViewModelTest {
             adminContextCacheService
         ),
         networkService
-    )
+    ))
 
     private suspend fun TestScope.hydrateGroup(groupId: String = "g-1") {
         selectedGroupIdFlow.value = groupId
@@ -318,6 +302,63 @@ class AdminOverviewViewModelTest {
 
         assertNotNull(viewModel.state.value.error)
         assertFalse(viewModel.state.value.isLoading)
+    }
+
+    @Test
+    fun `a refresh in flight is dropped when another group is selected`() = runTest {
+        hydrateGroup("g-1")
+        val refresh = CompletableDeferred<Result<Unit>>()
+        coEvery { adminContextCacheService.refreshGroup("g-1") } coAnswers { refresh.await() }
+        every { adminContextCacheService.selectGroup(any()) } answers {
+            selectedGroupIdFlow.value = firstArg()
+        }
+
+        viewModel.refreshData()
+        runCurrent()
+
+        viewModel.selectGroup("g-2")
+        runCurrent()
+        refresh.complete(Result.failure(IOException("offline")))
+        runCurrent()
+
+        assertEquals("g-2", selectedGroupIdFlow.value)
+        assertNull("the group that was left owns that failure", viewModel.state.value.error)
+        assertNull(viewModel.state.value.group)
+        assertTrue(viewModel.state.value.isLoading)
+    }
+
+    @Test
+    fun `a fee read that returns after a group switch cannot bill the new group`() = runTest {
+        val g1Fee = PlatformFee(groupId = "g-1", feeType = "monthly", amountDue = Money("50.00"))
+        val g1Fees = CompletableDeferred<Result<List<PlatformFee>>>()
+        coEvery { financialRepo.getOutstandingPlatformFees("g-1") } coAnswers { g1Fees.await() }
+        coEvery { financialRepo.getOutstandingPlatformFees("g-2") } returns Result.success(emptyList())
+
+        selectedGroupIdFlow.value = "g-1"
+        contextsFlow.value = mapOf(
+            "g-1" to CachedAdminGroupContext(
+                group = Group(id = "g-1", name = "Test Group"),
+                isFullyHydrated = true
+            )
+        )
+        runCurrent()
+
+        selectedGroupIdFlow.value = "g-2"
+        contextsFlow.value = mapOf(
+            "g-2" to CachedAdminGroupContext(
+                group = Group(id = "g-2", name = "Second Group"),
+                isFullyHydrated = true
+            )
+        )
+        runCurrent()
+        g1Fees.complete(Result.success(listOf(g1Fee)))
+        runCurrent()
+
+        assertEquals("g-2", viewModel.state.value.group?.id)
+        assertTrue(
+            "g-1's dues must not arrive on g-2",
+            viewModel.state.value.outstandingPlatformFees.isEmpty()
+        )
     }
 
     @Test
@@ -642,6 +683,30 @@ class AdminOverviewViewModelTest {
         assertNull(
             "a load nobody is waiting on must not report a timeout",
             viewModel.state.value.error
+        )
+    }
+
+    @Test
+    fun `a group that is on screen is never left pretending to load`() = runTest {
+        // A pillar that stays cached keeps isFullyHydrated false for the rest of the session, and the
+        // dashboard mirrored that flag into isLoading. SoftLoadingOverlay renders while isLoading is
+        // set, so the admin got a permanent "Refreshing group data…" curtain - and a permanently
+        // spinning pull-to-refresh - over a group row they could not even read through it.
+        viewModel.selectGroup("g-1")
+        selectedGroupIdFlow.value = "g-1"
+        contextsFlow.value = mapOf(
+            "g-1" to CachedAdminGroupContext(
+                group = Group(id = "g-1", name = "Test Group"),
+                members = listOf(Member(id = "m1", groupId = "g-1")),
+                isFullyHydrated = false
+            )
+        )
+        advanceUntilIdle()
+
+        assertEquals("g-1", viewModel.state.value.group?.id)
+        assertFalse(
+            "the book the dashboard waits on is the group row, and it has arrived",
+            viewModel.state.value.isLoading
         )
     }
 

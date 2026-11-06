@@ -1,5 +1,6 @@
 package com.sanibonani.save.viewmodel
 
+import com.sanibonani.save.MainDispatcherRule
 import com.sanibonani.save.domain.repository.admin.HealthScoreRepository
 import com.sanibonani.save.domain.repository.equity.MemberContributionRepository
 import com.sanibonani.save.domain.repository.group.GroupRepository
@@ -11,25 +12,24 @@ import io.mockk.coEvery
 import io.mockk.mockk
 import io.mockk.unmockkAll
 import java.io.IOException
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
-import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
-import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
+import org.junit.Rule
 import org.junit.Test
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class HealthScoreViewModelTest {
 
-    private val dispatcher = StandardTestDispatcher()
+    @get:Rule
+    val mainDispatcherRule = MainDispatcherRule()
+
     private lateinit var groupRepository: GroupRepository
     private lateinit var memberRepository: MemberRepository
     private lateinit var contributionRepository: MemberContributionRepository
@@ -37,7 +37,6 @@ class HealthScoreViewModelTest {
 
     @Before
     fun setUp() {
-        Dispatchers.setMain(dispatcher)
         groupRepository = mockk(relaxed = true)
         memberRepository = mockk(relaxed = true)
         contributionRepository = mockk(relaxed = true)
@@ -46,18 +45,17 @@ class HealthScoreViewModelTest {
 
     @After
     fun tearDown() {
-        Dispatchers.resetMain()
         unmockkAll()
     }
 
-    private fun viewModel() = HealthScoreViewModel(
+    private fun viewModel() = mainDispatcherRule.track(HealthScoreViewModel(
         calculateGroupHealthScore = CalculateGroupHealthScoreUseCase(
             groupRepository = groupRepository,
             memberRepository = memberRepository,
             contributionRepository = contributionRepository,
             healthScoreRepository = healthScoreRepository
         )
-    )
+    ))
 
     // HealthScoreDetailScreen.kt:84-86 renders state.error, but the failure path only called
     // handleError() - and this screen collects no events - so a refused read showed the empty

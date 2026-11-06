@@ -1,10 +1,12 @@
 package com.sanibonani.save.service
 
+import com.sanibonani.save.domain.logging.AppLogger
 import com.sanibonani.save.domain.model.ActuarialMetrics
 import com.sanibonani.save.domain.model.AppNotification
 import com.sanibonani.save.domain.model.Group
 import com.sanibonani.save.domain.model.Member
 import com.sanibonani.save.domain.model.Money
+import com.sanibonani.save.domain.model.PayoutRequest
 import com.sanibonani.save.domain.repository.admin.ActuarialRepository
 import com.sanibonani.save.domain.repository.disbursement.PayoutRepository
 import com.sanibonani.save.domain.repository.group.GroupRepository
@@ -427,5 +429,74 @@ class AdminGroupContextCacheServiceTest {
         val result = service.refreshGroup(groupId)
 
         assertTrue("a refresh that never saw the group's row did not bring it current", result.isFailure)
+    }
+
+    // The five legs of one group are independent reads, and the portal's service runs its legs
+    // together. This service ran them one after another while it held a whole-sweep permit, so the
+    // dashboard paid the sum of five round-trips for a book it could have had in about one.
+    @Test
+    fun `warming one group reads its independent pillars together`() = runBlocking {
+        val service = service()
+        val inFlight = AtomicInteger()
+        val peak = AtomicInteger()
+
+        suspend fun <T> counted(block: suspend () -> T): T = try {
+            val inFlightNow = inFlight.incrementAndGet()
+            peak.updateAndGet { current -> maxOf(current, inFlightNow) }
+            delay(40)
+            block()
+        } finally {
+            inFlight.decrementAndGet()
+        }
+
+        coEvery { groupRepo.getGroupById(groupId) } coAnswers {
+            counted { Result.success(Group(id = groupId, name = "Fresh")) }
+        }
+        every { memberRepo.getGroupMembers(groupId) } answers {
+            flow { emit(counted { Result.success(listOf(Member(id = "m1", groupId = groupId))) }) }
+        }
+        coEvery { notificationRepo.syncNotifications(groupId) } coAnswers {
+            counted { Result.success(Unit) }
+        }
+        every { notificationRepo.observeNotifications(groupId) } answers {
+            flow { emit(counted { Result.success(emptyList<AppNotification>()) }) }
+        }
+        every { payoutRepo.observePayouts(groupId) } answers {
+            flow { emit(counted { Result.success(emptyList<PayoutRequest>()) }) }
+        }
+        coEvery { actuarialRepo.computeMetrics(groupId) } coAnswers {
+            counted { Result.success(ActuarialMetrics()) }
+        }
+
+        service.warmUpGroup(groupId, force = true)
+
+        withTimeout(10_000) {
+            while (service.getContext(groupId)?.isFullyHydrated != true) delay(10)
+        }
+        assertTrue(
+            "a single warm-up kept its own independent reads in a queue, peaking at ${peak.get()}",
+            peak.get() > 1
+        )
+        assertTrue("hydration peaked at ${peak.get()} reads at once", peak.get() <= 3)
+    }
+
+    // The snapshot keeps whatever it held, so a pillar that did not answer is invisible on screen:
+    // the admin reads cached payouts next to fresh members and nothing records which part of the
+    // book is stale. The portal's service names them; this one only ever logged a refused group row.
+    @Test
+    fun `a pillar the warm-up could not read is named in the log`() = runBlocking {
+        val service = service()
+        stubHydration("Fresh")
+        every { payoutRepo.observePayouts(groupId) } returns
+            flowOf(Result.failure(IOException("payouts unavailable")))
+
+        service.warmUpGroup(groupId, force = true)
+
+        withTimeout(5_000) { while (service.getContext(groupId) == null) delay(20) }
+        assertFalse(service.getContext(groupId)!!.isFullyHydrated)
+        assertTrue(
+            "the refusal has to say which pillar stayed cached",
+            AppLogger.getBreadcrumbs().any { it.contains("kept the cached payouts") }
+        )
     }
 }

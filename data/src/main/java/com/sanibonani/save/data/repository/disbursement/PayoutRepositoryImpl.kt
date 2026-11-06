@@ -11,6 +11,7 @@ import com.sanibonani.save.domain.repository.disbursement.PayoutRepository
 import kotlinx.coroutines.flow.Flow
 import kotlinx.serialization.json.*
 import javax.inject.Inject
+import javax.inject.Provider
 import com.sanibonani.save.domain.utils.safeRunCatching
 
 class PayoutRepositoryImpl @Inject constructor(
@@ -18,8 +19,11 @@ class PayoutRepositoryImpl @Inject constructor(
     private val localSource: LocalPayoutDataSource,
     private val auditLogRepo: AuditLogRepository,
     private val json: Json,
-    private val pendingOpDao: com.sanibonani.save.data.local.PendingOperationDao
+    private val dbProvider: Provider<com.sanibonani.save.data.local.SanibonaniDatabase>
 ) : BaseRepository("PayoutRepository"), PayoutRepository {
+
+    private val pendingOpDao: com.sanibonani.save.data.local.PendingOperationDao
+        get() = dbProvider.get().pendingOperationDao()
 
     override suspend fun requestPayout(payout: PayoutRequest, idempotencyKey: String?): Result<String> {
         val stablePayout = payout.copy(
@@ -59,23 +63,26 @@ class PayoutRepositoryImpl @Inject constructor(
                 if (isDuplicate) throw DuplicatePayoutRequestException(entityId, isLocal = false)
             }
 
-            val saved = if (idempotencyKey != null) {
-                remoteSource.getPayoutById(stablePayout.id!!).getOrElse {
-                    remoteSource.requestPayout(stablePayout).getOrThrow()
-                }
-            } else {
-                remoteSource.requestPayout(stablePayout).getOrThrow()
-            }
+            // Only a row the server says is absent may take the create path. `getOrElse` here read any
+            // refused select - timeout, 500, RLS - as "no such payout" and ran the upsert, which is
+            // `onConflict = id`: a payout an admin had already moved to group_approved or processing
+            // was rewritten as PENDING with no reviewer and no audit row, ready for a second payment.
+            val existing = if (idempotencyKey != null) {
+                remoteSource.findPayoutById(stablePayout.id!!).getOrThrow()
+            } else null
+            val saved = existing ?: remoteSource.requestPayout(stablePayout).getOrThrow()
             localSource.savePayout(saved)
-            auditLogRepo.logEvent(
-                AuditLog(
-                    actorId = saved.memberId ?: saved.groupId,
-                    targetGroupId = saved.groupId,
-                    targetMemberId = saved.memberId,
-                    action = "PAYOUT_REQUESTED",
-                    details = json.encodeToJsonElement(saved)
+            if (existing == null) {
+                auditLogRepo.logEvent(
+                    AuditLog(
+                        actorId = saved.memberId ?: saved.groupId,
+                        targetGroupId = saved.groupId,
+                        targetMemberId = saved.memberId,
+                        action = "PAYOUT_REQUESTED",
+                        details = json.encodeToJsonElement(saved)
+                    )
                 )
-            )
+            }
             saved.id ?: ""
         }
     }

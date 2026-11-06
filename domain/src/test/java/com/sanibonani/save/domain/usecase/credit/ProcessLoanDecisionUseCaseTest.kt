@@ -122,4 +122,38 @@ class ProcessLoanDecisionUseCaseTest {
         assertTrue(result.exceptionOrNull()?.message?.contains("Arrears") == true)
         coVerify(exactly = 0) { loanRepo.approveLoan(any(), any()) }
     }
+
+    @Test
+    fun `a loan already disbursed cannot be approved a second time`() = runBlocking {
+        val loan = Loan(
+            id = "l1", memberId = "m1", groupId = "g1",
+            amount = Money("1000.0"), status = LoanStatus.ACTIVE
+        )
+
+        coEvery { loanRepo.getLoanById("l1") } returns Result.success(loan)
+
+        val result = useCase("l1", ProcessLoanDecisionUseCase.LoanDecision.Approve, "admin1")
+
+        assertTrue(result.isFailure)
+        assertTrue(result.exceptionOrNull()?.message?.contains("ACTIVE") == true)
+        coVerify(exactly = 0) { loanRepo.approveLoan(any(), any()) }
+        coVerify(exactly = 0) { notificationRepo.sendNotification(any()) }
+        coVerify(exactly = 0) { auditLogRepo.logEvent(any()) }
+    }
+
+    @Test
+    fun `a settled loan cannot be rejected after the fact`() = runBlocking {
+        val loan = Loan(
+            id = "l1", memberId = "m1", groupId = "g1",
+            amount = Money("1000.0"), status = LoanStatus.COMPLETED
+        )
+
+        coEvery { loanRepo.getLoanById("l1") } returns Result.success(loan)
+
+        val result = useCase("l1", ProcessLoanDecisionUseCase.LoanDecision.Reject("Changed my mind"), "admin1")
+
+        assertTrue(result.isFailure)
+        coVerify(exactly = 0) { loanRepo.rejectLoan(any(), any(), any()) }
+        coVerify(exactly = 0) { auditLogRepo.logEvent(any()) }
+    }
 }

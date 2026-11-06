@@ -98,7 +98,7 @@ class PaymentCalculator @Inject constructor(
 
         // 1. Calculate Totals Paid by Category
         val paidContributions = contributions.filter { it.status == ContributionStatus.PAID || it.status == ContributionStatus.PARTIAL }
-        val totalPaidSavings = calculatePaidSavings(paidContributions, member)
+        val totalPaidSavings = calculatePaidSavings(paidContributions)
         val totalPaidPlatform = paidPlatformFees(paidContributions)
         val servicingLoans = loans.filter { it.isBeingRepaid() }
 
@@ -280,12 +280,19 @@ class PaymentCalculator @Inject constructor(
         return RealtimePaymentPreview(newShortfall, newOverpayment, nextDate)
     }
 
-    fun calculatePaidSavings(paidContributions: List<Contribution>, member: Member): Money {
+    fun calculatePaidSavings(paidContributions: List<Contribution>): Money {
         // Note: For loan_settlement_extraction, the amount is negative so it reduces the total paid savings.
-        val calculated = paidContributions
-            .filter { it.type == "contribution" || it.type == "registration_contribution" || it.type == "loan_settlement_extraction" }
+        // A registration fee is not here: internal_post_contribution books it to platform_ledger, so the
+        // group never held it, and counting it shortened the member's shortfall against contributions
+        // they had not made. The member still sees that payment - as a platform fee, not as savings.
+        //
+        // There is no "or just use member.totalPaid" answer: that cached column is all-in, fees
+        // included, so it re-imported through this door the exact rows the filter above rejects. An
+        // empty result is what the member paid, and a caller that has not read the rows has no
+        // business asking.
+        return paidContributions
+            .filter { it.type == "contribution" || it.type == "loan_settlement_extraction" }
             .fold(Money.ZERO) { acc, c -> acc + c.amount }
-        return if (calculated.isZero && member.totalPaid.isPositive) member.totalPaid else calculated
     }
 
     private fun paidPlatformFees(paidContributions: List<Contribution>): Money =

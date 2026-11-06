@@ -2,6 +2,7 @@ package com.sanibonani.save.data.local.room
 
 import com.sanibonani.save.data.datasource.LocalLedgerDataSource
 import com.sanibonani.save.data.local.LedgerDao
+import com.sanibonani.save.data.local.SanibonaniDatabase
 import com.sanibonani.save.data.local.toLedgerEntity
 import com.sanibonani.save.data.local.toModel
 import com.sanibonani.save.data.local.toEntity
@@ -10,12 +11,15 @@ import com.sanibonani.save.domain.model.ConsolidationReport
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import javax.inject.Inject
+import javax.inject.Provider
 import javax.inject.Singleton
 
 @Singleton
 class RoomLedgerDataSourceImpl @Inject constructor(
-    private val ledgerDao: LedgerDao
+    private val dbProvider: Provider<SanibonaniDatabase>
 ) : LocalLedgerDataSource {
+
+    private val ledgerDao: LedgerDao get() = dbProvider.get().ledgerDao()
 
     override fun observeGroupLedger(groupId: String): Flow<List<LedgerEntry>> =
         ledgerDao.observeLedger(groupId).map { list -> list.map { it.toModel() } }

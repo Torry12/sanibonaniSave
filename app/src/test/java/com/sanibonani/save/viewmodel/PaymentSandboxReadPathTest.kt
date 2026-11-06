@@ -1,6 +1,7 @@
 package com.sanibonani.save.viewmodel
 
 import androidx.arch.core.executor.testing.InstantTaskExecutorRule
+import com.sanibonani.save.MainDispatcherRule
 import com.sanibonani.save.domain.gateway.BankBackendSimulationModule
 import com.sanibonani.save.domain.model.Group
 import com.sanibonani.save.domain.model.Member
@@ -11,15 +12,10 @@ import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import java.io.IOException
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.flowOf
-import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
-import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
-import kotlinx.coroutines.test.setMain
-import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -37,27 +33,23 @@ import org.junit.Test
 class PaymentSandboxReadPathTest {
 
     @get:Rule
+    val mainDispatcherRule = MainDispatcherRule()
+
+    @get:Rule
     val instantExecutorRule = InstantTaskExecutorRule()
 
     private val getPublicGroups = mockk<GetPublicGroupsUseCase>()
     private val observeGroupMembers = mockk<ObserveGroupMembersUseCase>()
     private val bankSimulation = mockk<BankBackendSimulationModule>(relaxed = true)
-    private val testDispatcher = StandardTestDispatcher()
 
     @Before
     fun setup() {
-        Dispatchers.setMain(testDispatcher)
         every { getPublicGroups() } returns flowOf(Result.success(listOf(Group(id = "g-1", name = "First"))))
         every { observeGroupMembers(any()) } returns flowOf(Result.success(listOf(Member(fullName = "Thandi"))))
     }
 
-    @After
-    fun tearDown() {
-        Dispatchers.resetMain()
-    }
-
     private fun newViewModel() =
-        PaymentSandboxViewModel(getPublicGroups, observeGroupMembers, bankSimulation)
+        mainDispatcherRule.track(PaymentSandboxViewModel(getPublicGroups, observeGroupMembers, bankSimulation))
 
     @Test
     fun `a group list the read refuses reaches the dialog instead of vanishing`() = runTest {

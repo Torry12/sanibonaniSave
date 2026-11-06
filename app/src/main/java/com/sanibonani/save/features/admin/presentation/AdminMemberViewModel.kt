@@ -114,10 +114,15 @@ class AdminMemberViewModel @Inject constructor(
     }
 
     fun selectMember(member: Member?) {
+        val memberChanged = member?.id != uiState.value.selectedMember?.id
         updateState { s ->
             s.copy(
                 selectedMember = member,
                 selectedMemberCalculation = member?.id?.let { uiState.value.memberCalculations[it] },
+                selectedMemberBeneficiaries = if (memberChanged) emptyList() else s.selectedMemberBeneficiaries,
+                selectedMemberDocuments = if (memberChanged) emptyList() else s.selectedMemberDocuments,
+                isEligibleForLoan = if (memberChanged) false else s.isEligibleForLoan,
+                loanIneligibilityReason = if (memberChanged) null else s.loanIneligibilityReason,
                 messageText = "",
                 messageSentSuccess = false
             )
@@ -140,7 +145,13 @@ class AdminMemberViewModel @Inject constructor(
             combine(observeBeneficiaries(memberId), observeMemberDocuments(memberId)) { bRes, dRes ->
                 bRes.getOrNull()?.let { lastBeneficiaries = it }
                 dRes.getOrNull()?.let { lastDocuments = it }
-                updateState { it.copy(selectedMemberBeneficiaries = lastBeneficiaries, selectedMemberDocuments = lastDocuments) }
+                updateState { state ->
+                    if (state.selectedMember?.id != memberId) state
+                    else state.copy(
+                        selectedMemberBeneficiaries = lastBeneficiaries,
+                        selectedMemberDocuments = lastDocuments
+                    )
+                }
                 reportMemberDetailFailure(reported, "beneficiaries", bRes.exceptionOrNull())
                 reportMemberDetailFailure(reported, "documents", dRes.exceptionOrNull())
             }.collect()
@@ -156,8 +167,14 @@ class AdminMemberViewModel @Inject constructor(
     private fun checkLoanEligibility(member: Member, group: Group) {
         launchJob("loan_eligibility_check") {
             when (val result = validateLoanEligibility(member, group)) {
-                is ValidateLoanEligibilityUseCase.EligibilityResult.Eligible -> updateState { it.copy(isEligibleForLoan = true, loanIneligibilityReason = null) }
-                is ValidateLoanEligibilityUseCase.EligibilityResult.Ineligible -> updateState { it.copy(isEligibleForLoan = false, loanIneligibilityReason = result.reason) }
+                is ValidateLoanEligibilityUseCase.EligibilityResult.Eligible -> updateState { state ->
+                    if (state.selectedMember?.id != member.id) state
+                    else state.copy(isEligibleForLoan = true, loanIneligibilityReason = null)
+                }
+                is ValidateLoanEligibilityUseCase.EligibilityResult.Ineligible -> updateState { state ->
+                    if (state.selectedMember?.id != member.id) state
+                    else state.copy(isEligibleForLoan = false, loanIneligibilityReason = result.reason)
+                }
             }
         }
     }

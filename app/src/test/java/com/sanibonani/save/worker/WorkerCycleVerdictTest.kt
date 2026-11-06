@@ -1,5 +1,6 @@
 package com.sanibonani.save.worker
 
+import com.sanibonani.save.domain.model.AdminFeeState
 import com.sanibonani.save.domain.model.Contribution
 import com.sanibonani.save.domain.model.ContributionStatus
 import com.sanibonani.save.domain.model.Group
@@ -151,5 +152,65 @@ class WorkerCycleVerdictTest {
         // No write happened, but the standing the cycle is reporting is the one already on the row.
         val outcome = feeWriteOutcome(statusChanged = false, writeResult = null)
         assertEquals(FeeWriteOutcome.NoChange, outcome)
+    }
+
+    // ---- Who the cycle is allowed to tell, and the kill switch behind the standing ----
+
+    @Test
+    fun `a standing that just moved is announced`() {
+        val verdict = feeNotificationVerdict(FeeWriteOutcome.Committed, standingFlagRepaired = false)
+        assertEquals(FeeNotificationVerdict.Announce, verdict)
+    }
+
+    @Test
+    fun `a group parked in a standing is not re-broadcast on every daily run`() {
+        // WARNING and SUSPENDED are terminal until the fee is paid, so a group sitting in either
+        // used to push the same escalation to every member once a day, forever.
+        val verdict = feeNotificationVerdict(FeeWriteOutcome.NoChange, standingFlagRepaired = false)
+        assertEquals(FeeNotificationVerdict.StayQuiet, verdict)
+    }
+
+    @Test
+    fun `a suspension the flag write has only now made real is still announced`() {
+        // The cycle that committed fee_status='suspended' died before the flag, so the run that
+        // heals it sees no status change. The lock is brand new as far as the member is concerned.
+        val verdict = feeNotificationVerdict(FeeWriteOutcome.NoChange, standingFlagRepaired = true)
+        assertEquals(FeeNotificationVerdict.Announce, verdict)
+    }
+
+    @Test
+    fun `a standing the server refused to write is never announced`() {
+        val verdict = feeNotificationVerdict(FeeWriteOutcome.Refused, standingFlagRepaired = true)
+        assertEquals(FeeNotificationVerdict.StayQuiet, verdict)
+    }
+
+    @Test
+    fun `a suspended standing whose row flag is still clear needs the flag written`() {
+        assertTrue(suspensionFlagWriteNeeded(rowSaysSuspended = false, standing = AdminFeeState.SUSPENDED))
+    }
+
+    @Test
+    fun `a suspended standing already flagged on the row needs no second write`() {
+        assertFalse(suspensionFlagWriteNeeded(rowSaysSuspended = true, standing = AdminFeeState.SUSPENDED))
+    }
+
+    @Test
+    fun `a standing short of suspension never sets the flag`() {
+        for (standing in listOf(
+            AdminFeeState.PAID,
+            AdminFeeState.PENDING_ACTIVATION,
+            AdminFeeState.DUE,
+            AdminFeeState.OVERDUE,
+            AdminFeeState.WARNING
+        )) {
+            assertFalse("flags a suspended group in $standing", suspensionFlagWriteNeeded(false, standing))
+        }
+    }
+
+    @Test
+    fun `the fee cycle never lifts a flag the row already carries`() {
+        // Clearing is unsuspendGroup's job. A client-side cycle that auto-cleared the flag could
+        // release a kill switch a Platform Admin imposed for a reason the fee books do not know.
+        assertFalse(suspensionFlagWriteNeeded(rowSaysSuspended = true, standing = AdminFeeState.PAID))
     }
 }

@@ -2,8 +2,8 @@ package com.sanibonani.save.viewmodel
 
 import android.util.Log
 import androidx.arch.core.executor.testing.InstantTaskExecutorRule
-import androidx.lifecycle.viewModelScope
 import com.google.firebase.crashlytics.FirebaseCrashlytics
+import com.sanibonani.save.MainDispatcherRule
 import com.sanibonani.save.domain.model.Group
 import com.sanibonani.save.domain.model.Member
 import com.sanibonani.save.domain.model.Money
@@ -54,22 +54,18 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkStatic
 import io.mockk.unmockkAll
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.awaitCancellation
-import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
-import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
-import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
-import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -91,6 +87,9 @@ import java.io.IOException
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class MemberPortalHydrationVerdictTest {
+
+    @get:Rule
+    val mainDispatcherRule = MainDispatcherRule()
 
     @get:Rule
     val instantExecutorRule = InstantTaskExecutorRule()
@@ -118,10 +117,9 @@ class MemberPortalHydrationVerdictTest {
     }
 
     private val contexts = MutableStateFlow<Map<String, CachedGroupContext>>(emptyMap())
-    private val testDispatcher = StandardTestDispatcher()
-    private val createdViewModels = mutableListOf<MemberOverviewViewModel>()
+    private val testDispatcher = mainDispatcherRule.dispatcher
 
-    private fun createViewModel(): MemberOverviewViewModel = MemberOverviewViewModel(
+    private fun createViewModel(): MemberOverviewViewModel = mainDispatcherRule.track(MemberOverviewViewModel(
         memberContextCacheService,
         ObserveMembershipsUseCase(memberRepo),
         GetGroupByIdUseCase(groupRepo),
@@ -150,7 +148,7 @@ class MemberPortalHydrationVerdictTest {
         ),
         devSettings,
         networkService
-    ).also { createdViewModels += it }
+    ))
 
     /** A portal that has rendered parks every live read; this batch is about the load, not the feeds. */
     private fun stubLiveReads() {
@@ -187,8 +185,6 @@ class MemberPortalHydrationVerdictTest {
         mockkStatic(android.os.Looper::class)
         every { android.os.Looper.getMainLooper() } returns mockk(relaxed = true)
 
-        Dispatchers.setMain(testDispatcher)
-
         every { supabaseRepo.currentUserId } returns "user_123"
         coEvery { supabaseRepo.getUserRole() } returns UserRole.MEMBER
         every { memberContextCacheService.contexts } returns contexts
@@ -201,9 +197,7 @@ class MemberPortalHydrationVerdictTest {
 
     @After
     fun tearDown() {
-        createdViewModels.forEach { it.viewModelScope.cancel() }
         testDispatcher.scheduler.advanceUntilIdle()
-        Dispatchers.resetMain()
         unmockkAll()
     }
 
@@ -280,6 +274,38 @@ class MemberPortalHydrationVerdictTest {
     }
 
     @Test
+    fun `warm-up passes that keep arriving still give their verdict inside the bound`() = runTest {
+        // Every sync pass stamps a newer lastUpdatedMillis onto the snapshot, so the collector sees a
+        // new value and the partial branch armed the watchdog again. Arming cancelled the running
+        // delay and restarted it, so passes arriving faster than the bound postponed the verdict
+        // forever and the member stayed under "Syncing your portal…" over a book that had already
+        // stopped coming.
+        val viewModel = createViewModel()
+
+        openPortal(viewModel)
+
+        for (pass in 1..3) {
+            advanceTimeBy(4_000L)
+            contexts.value = mapOf(
+                groupId to CachedGroupContext(
+                    member = Member(id = "m1", groupId = groupId, userId = "user_123"),
+                    group = group,
+                    isFullyHydrated = false,
+                    lastUpdatedMillis = pass * 1_000L
+                )
+            )
+            runCurrent()
+        }
+
+        val state = viewModel.state.value
+        assertFalse(
+            "the wait is bounded from when it started, not from the last reminder of it",
+            state.isLoading
+        )
+        assertNotNull("and the member has to be told the book never arrived", state.error)
+    }
+
+    @Test
     fun `leaving the portal cancels the hydration verdict`() = runTest {
         val viewModel = createViewModel()
 
@@ -312,6 +338,107 @@ class MemberPortalHydrationVerdictTest {
         assertTrue(
             "the refusal the member acts on has to still be the one on screen",
             viewModel.state.value.error != null
+        )
+    }
+
+    @Test
+    fun `a refresh that returns no package keeps the retry instead of a blank portal`() = runTest {
+        coEvery { memberContextCacheService.refreshGroup("user_123", groupId) } returns Result.success(Unit)
+        val viewModel = createViewModel()
+
+        openPortal(viewModel)
+        advanceTimeBy(8_000L)
+        runCurrent()
+
+        viewModel.refreshData()
+        runCurrent()
+
+        assertTrue("the new pull has to take the portal back under the loader", viewModel.state.value.isLoading)
+        assertNull("the verdict being retried is no longer the one on screen", viewModel.state.value.error)
+
+        advanceTimeBy(8_000L)
+        runCurrent()
+
+        val state = viewModel.state.value
+        assertFalse("a refresh that came back with nothing to render has to stop waiting", state.isLoading)
+        assertNotNull("and the Retry has to still be the way back to the book", state.error)
+        assertNull(state.member)
+    }
+
+    @Test
+    fun `a refresh that lands a package releases the loader`() = runTest {
+        coEvery { memberContextCacheService.refreshGroup("user_123", groupId) } coAnswers {
+            contexts.value = mapOf(
+                groupId to CachedGroupContext(
+                    member = Member(id = "m1", groupId = groupId, userId = "user_123"),
+                    group = group,
+                    isFullyHydrated = true
+                )
+            )
+            Result.success(Unit)
+        }
+        val viewModel = createViewModel()
+
+        openPortal(viewModel)
+        advanceTimeBy(8_000L)
+        runCurrent()
+
+        viewModel.refreshData()
+        runCurrent()
+
+        assertEquals(groupId, viewModel.state.value.group?.id)
+        assertFalse(viewModel.state.value.isLoading)
+        assertNull(viewModel.state.value.error)
+
+        advanceTimeBy(8_000L)
+        runCurrent()
+
+        assertNull(
+            "a portal the refresh rendered must not be told that pull timed out",
+            viewModel.state.value.error
+        )
+    }
+
+    @Test
+    fun `a refresh in flight is dropped when the member opens another group`() = runTest {
+        val refresh = CompletableDeferred<Result<Unit>>()
+        coEvery { memberContextCacheService.refreshGroup("user_123", groupId) } coAnswers { refresh.await() }
+        val viewModel = createViewModel()
+
+        openPortal(viewModel)
+        viewModel.refreshData()
+        runCurrent()
+
+        viewModel.selectGroup("g2")
+        runCurrent()
+        refresh.complete(Result.failure(IOException("offline")))
+        runCurrent()
+
+        assertEquals("g2", viewModel.state.value.selectedGroupId)
+        assertNull(
+            "the group that was left owns that failure",
+            viewModel.state.value.error
+        )
+    }
+
+    @Test
+    fun `leaving the portal drops a refresh that has not returned`() = runTest {
+        val refresh = CompletableDeferred<Result<Unit>>()
+        coEvery { memberContextCacheService.refreshGroup("user_123", groupId) } coAnswers { refresh.await() }
+        val viewModel = createViewModel()
+
+        openPortal(viewModel)
+        viewModel.refreshData()
+        runCurrent()
+
+        viewModel.setActive(false)
+        refresh.complete(Result.failure(IOException("offline")))
+        advanceTimeBy(8_000L)
+        runCurrent()
+
+        assertNull(
+            "a pull nobody is waiting on must not become the next screen's error",
+            viewModel.state.value.error
         )
     }
 }

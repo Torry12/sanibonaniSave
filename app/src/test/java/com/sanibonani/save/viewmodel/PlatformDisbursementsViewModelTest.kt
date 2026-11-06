@@ -2,6 +2,7 @@ package com.sanibonani.save.viewmodel
 
 import android.util.Log
 import androidx.arch.core.executor.testing.InstantTaskExecutorRule
+import com.sanibonani.save.MainDispatcherRule
 import com.sanibonani.save.domain.model.*
 import com.sanibonani.save.domain.repository.auth.*
 import com.sanibonani.save.domain.repository.credit.LoanRepository
@@ -21,7 +22,6 @@ import com.sanibonani.save.features.admin.presentation.PlatformDisbursementsView
 import com.sanibonani.save.features.common.presentation.UIEvent
 import com.sanibonani.save.domain.model.AuthSession
 import io.mockk.*
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
@@ -38,6 +38,9 @@ import kotlinx.coroutines.delay
 class PlatformDisbursementsViewModelTest {
 
     @get:Rule
+    val mainDispatcherRule = MainDispatcherRule()
+
+    @get:Rule
     val instantExecutorRule = InstantTaskExecutorRule()
 
     private val claimRepo = mockk<BeneficiaryClaimRepository>()
@@ -51,7 +54,6 @@ class PlatformDisbursementsViewModelTest {
     private val supabaseRepo = mockk<SupabaseRepository>(relaxed = true)
 
     private lateinit var viewModel: PlatformDisbursementsViewModel
-    private val testDispatcher = StandardTestDispatcher()
 
     @Before
     fun setup() {
@@ -67,8 +69,6 @@ class PlatformDisbursementsViewModelTest {
         val mockCrashlytics = mockk<FirebaseCrashlytics>(relaxed = true)
         every { FirebaseCrashlytics.getInstance() } returns mockCrashlytics
 
-        Dispatchers.setMain(testDispatcher)
-
         every { supabaseRepo.currentUserId } returns "platform_admin"
         val mockSession = mockk<com.sanibonani.save.domain.model.AuthSession>(relaxed = true)
         val sessionFlow = MutableStateFlow<com.sanibonani.save.domain.model.AuthSession?>(mockSession)
@@ -78,7 +78,7 @@ class PlatformDisbursementsViewModelTest {
         coEvery { payoutRepo.getPendingPayouts() } returns Result.success(listOf<PayoutRequest>())
         coEvery { loanRepo.getAllPendingLoansSync() } returns Result.success(listOf<Loan>())
 
-        viewModel = PlatformDisbursementsViewModel(
+        viewModel = mainDispatcherRule.track(PlatformDisbursementsViewModel(
             GetEscalatedClaimsUseCase(claimRepo),
             GetPendingPayoutsUseCase(payoutRepo),
             GetMemberByIdUseCase(memberRepo),
@@ -88,12 +88,11 @@ class PlatformDisbursementsViewModelTest {
             processDisbursementUseCase,
             processBurialClaimUseCase,
             GetAttributableActorIdUseCase(supabaseRepo)
-        )
+        ))
     }
 
     @After
     fun tearDown() {
-        Dispatchers.resetMain()
         unmockkAll()
     }
 

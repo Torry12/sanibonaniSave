@@ -2,8 +2,8 @@ package com.sanibonani.save.viewmodel
 
 import android.util.Log
 import androidx.arch.core.executor.testing.InstantTaskExecutorRule
-import androidx.lifecycle.viewModelScope
 import com.google.firebase.crashlytics.FirebaseCrashlytics
+import com.sanibonani.save.MainDispatcherRule
 import com.sanibonani.save.domain.logging.AppLogger
 import com.sanibonani.save.domain.model.*
 import com.sanibonani.save.domain.repository.admin.AuditRepository
@@ -52,19 +52,14 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkStatic
 import io.mockk.unmockkAll
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.awaitCancellation
-import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
-import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
-import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
-import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -83,6 +78,9 @@ import org.junit.Test
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class MemberLedgerHydrationTest {
+
+    @get:Rule
+    val mainDispatcherRule = MainDispatcherRule()
 
     @get:Rule
     val instantExecutorRule = InstantTaskExecutorRule()
@@ -112,10 +110,9 @@ class MemberLedgerHydrationTest {
 
     private lateinit var contexts: MutableStateFlow<Map<String, CachedGroupContext>>
     private lateinit var staleSections: MutableStateFlow<Map<String, Set<String>>>
-    private val testDispatcher = StandardTestDispatcher()
-    private val createdViewModels = mutableListOf<MemberOverviewViewModel>()
+    private val testDispatcher = mainDispatcherRule.dispatcher
 
-    private fun createViewModel(): MemberOverviewViewModel = MemberOverviewViewModel(
+    private fun createViewModel(): MemberOverviewViewModel = mainDispatcherRule.track(MemberOverviewViewModel(
         memberContextCacheService,
         ObserveMembershipsUseCase(memberRepo),
         GetGroupByIdUseCase(groupRepo),
@@ -144,7 +141,7 @@ class MemberLedgerHydrationTest {
         ),
         devSettings,
         networkService
-    ).also { createdViewModels += it }
+    ))
 
     private fun breadcrumbWith(fragment: String): Boolean =
         AppLogger.getBreadcrumbs().any { it.contains(fragment) }
@@ -197,8 +194,6 @@ class MemberLedgerHydrationTest {
         mockkStatic(android.os.Looper::class)
         every { android.os.Looper.getMainLooper() } returns mockk(relaxed = true)
 
-        Dispatchers.setMain(testDispatcher)
-
         every { supabaseRepo.currentUserId } returns "user_123"
         contexts = MutableStateFlow(emptyMap())
         every { memberContextCacheService.contexts } returns contexts
@@ -214,9 +209,7 @@ class MemberLedgerHydrationTest {
 
     @After
     fun tearDown() {
-        createdViewModels.forEach { it.viewModelScope.cancel() }
         testDispatcher.scheduler.advanceUntilIdle()
-        Dispatchers.resetMain()
         unmockkAll()
     }
 

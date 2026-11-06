@@ -41,7 +41,7 @@ npx supabase migration list --local
 npx supabase db query --local -f supabase/maintenance/SCHEMA_PARITY_DIGEST.sql   # see the header's EXPECTED line
 ```
 
-Both tiers read `8405ef938e6325bf03b6002e54f5ecca` (`1037` objects, `F=88`). The interval on
+Both tiers read `82ee267f5fe7a5ad766f1dba2c3de5e7` (`1037` objects, `F=87`, `P=86`), measured 2026-11-07 after `SYNC_DELTA_20261104` and `SYNC_DELTA_20261106`. The previous baseline, through `20261101C`, was `8405ef938e6325bf03b6002e54f5ecca` (`F=88`, `P=85`). The interval on
 2026-10-31 when Local carried `online/SYNC_DELTA_20261101C` and Cloud still read
 `a18f379d05164eb2a5adec30c06174a3` is the case to remember: identical counts with a different
 digest is one replaced function body — `consolidate_group_ledger_v1` — not a missing object, and

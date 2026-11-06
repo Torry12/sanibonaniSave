@@ -2,8 +2,8 @@ package com.sanibonani.save.viewmodel
 
 import android.util.Log
 import androidx.arch.core.executor.testing.InstantTaskExecutorRule
-import androidx.lifecycle.viewModelScope
 import com.google.firebase.crashlytics.FirebaseCrashlytics
+import com.sanibonani.save.MainDispatcherRule
 import com.sanibonani.save.domain.model.Group
 import com.sanibonani.save.domain.model.Member
 import com.sanibonani.save.domain.model.Money
@@ -55,20 +55,15 @@ import io.mockk.mockk
 import io.mockk.mockkStatic
 import io.mockk.unmockkAll
 import io.mockk.verify
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.awaitCancellation
-import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
-import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
-import kotlinx.coroutines.test.resetMain
-import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -88,6 +83,9 @@ import java.util.concurrent.atomic.AtomicInteger
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class MemberPortalDatabaseChangeTest {
+
+    @get:Rule
+    val mainDispatcherRule = MainDispatcherRule()
 
     @get:Rule
     val instantExecutorRule = InstantTaskExecutorRule()
@@ -115,8 +113,7 @@ class MemberPortalDatabaseChangeTest {
 
     private val settingsChangedFlow = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
     private val contexts = MutableStateFlow<Map<String, CachedGroupContext>>(emptyMap())
-    private val testDispatcher = StandardTestDispatcher()
-    private val createdViewModels = mutableListOf<MemberOverviewViewModel>()
+    private val testDispatcher = mainDispatcherRule.dispatcher
 
     private val membershipSubscriptions = AtomicInteger()
     private val ledgerSubscriptions = AtomicInteger()
@@ -124,7 +121,7 @@ class MemberPortalDatabaseChangeTest {
     /** Opening a portal already warms through two paths, so the change is judged by the count it adds. */
     private val warmUps = AtomicInteger()
 
-    private fun createViewModel(): MemberOverviewViewModel = MemberOverviewViewModel(
+    private fun createViewModel(): MemberOverviewViewModel = mainDispatcherRule.track(MemberOverviewViewModel(
         memberContextCacheService,
         ObserveMembershipsUseCase(memberRepo),
         GetGroupByIdUseCase(groupRepo),
@@ -153,7 +150,7 @@ class MemberPortalDatabaseChangeTest {
         ),
         devSettings,
         networkService
-    ).also { createdViewModels += it }
+    ))
 
     /** The memberships read the portal re-subscribes to, counting every new collector. */
     private fun stubMemberships() {
@@ -207,8 +204,6 @@ class MemberPortalDatabaseChangeTest {
         mockkStatic(android.os.Looper::class)
         every { android.os.Looper.getMainLooper() } returns mockk(relaxed = true)
 
-        Dispatchers.setMain(testDispatcher)
-
         every { supabaseRepo.currentUserId } returns "user_123"
         coEvery { supabaseRepo.getUserRole() } returns UserRole.MEMBER
         every { memberContextCacheService.contexts } returns contexts
@@ -232,9 +227,7 @@ class MemberPortalDatabaseChangeTest {
 
     @After
     fun tearDown() {
-        createdViewModels.forEach { it.viewModelScope.cancel() }
         testDispatcher.scheduler.advanceUntilIdle()
-        Dispatchers.resetMain()
         unmockkAll()
     }
 

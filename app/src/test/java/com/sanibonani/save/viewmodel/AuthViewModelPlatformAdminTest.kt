@@ -2,6 +2,7 @@ package com.sanibonani.save.viewmodel
 
 import android.util.Log
 import androidx.arch.core.executor.testing.InstantTaskExecutorRule
+import com.sanibonani.save.MainDispatcherRule
 import com.sanibonani.save.domain.model.UserRole
 import com.sanibonani.save.domain.repository.auth.*
 import com.sanibonani.save.domain.usecase.auth.*
@@ -13,7 +14,6 @@ import com.sanibonani.save.features.common.presentation.LoadStateQueue
 import com.sanibonani.save.features.auth.presentation.AuthViewModel
 import io.mockk.*
 import com.sanibonani.save.domain.model.AuthSessionStatus
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.*
@@ -32,6 +32,9 @@ class AuthViewModelPlatformAdminTest {
     }
 
     @get:Rule
+    val mainDispatcherRule = MainDispatcherRule()
+
+    @get:Rule
     val instantExecutorRule = InstantTaskExecutorRule()
 
     private val supabaseRepo = mockk<SupabaseRepository>(relaxed = true)
@@ -47,7 +50,6 @@ class AuthViewModelPlatformAdminTest {
     private val sessionStatusFlow = MutableStateFlow<com.sanibonani.save.domain.model.AuthSessionStatus>(com.sanibonani.save.domain.model.AuthSessionStatus.NotAuthenticated(false))
 
     private lateinit var viewModel: AuthViewModel
-    private val testDispatcher = StandardTestDispatcher()
 
     @Before
     fun setup() {
@@ -60,13 +62,11 @@ class AuthViewModelPlatformAdminTest {
         val mockCrashlytics = mockk<FirebaseCrashlytics>(relaxed = true)
         every { FirebaseCrashlytics.getInstance() } returns mockCrashlytics
 
-        Dispatchers.setMain(testDispatcher)
-
         every { connManager.currentClient } returns MutableStateFlow(null)
         every { supabaseRepo.sessionStatus } returns sessionStatusFlow
         every { supabaseRepo.sessionFlow } returns MutableStateFlow(null)
 
-        viewModel = AuthViewModel(
+        viewModel = mainDispatcherRule.track(AuthViewModel(
             ObserveAuthSessionUseCase(supabaseRepo),
             GetUserProfileUseCase(userProfileRepo),
             GetCurrentUserRoleUseCase(supabaseRepo),
@@ -87,12 +87,11 @@ class AuthViewModelPlatformAdminTest {
             loadQueue,
             mockk(relaxed = true),
             mockk(relaxed = true)
-        )
+        ))
     }
 
     @After
     fun tearDown() {
-        Dispatchers.resetMain()
         unmockkAll()
     }
 

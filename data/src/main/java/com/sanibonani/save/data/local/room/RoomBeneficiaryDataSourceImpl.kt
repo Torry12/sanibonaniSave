@@ -2,18 +2,21 @@ package com.sanibonani.save.data.local.room
 
 import com.sanibonani.save.data.datasource.LocalBeneficiaryDataSource
 import com.sanibonani.save.data.local.BeneficiaryDao
+import com.sanibonani.save.data.local.SanibonaniDatabase
 import com.sanibonani.save.data.local.toEntity
 import com.sanibonani.save.data.local.toModel
 import com.sanibonani.save.domain.model.Beneficiary
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import javax.inject.Inject
+import javax.inject.Provider
 import javax.inject.Singleton
 
 @Singleton
 class RoomBeneficiaryDataSourceImpl @Inject constructor(
-    private val beneficiaryDao: BeneficiaryDao
+    private val dbProvider: Provider<SanibonaniDatabase>
 ) : LocalBeneficiaryDataSource {
+    private val beneficiaryDao: BeneficiaryDao get() = dbProvider.get().beneficiaryDao()
 
     override fun observeBeneficiaries(memberId: String): Flow<List<Beneficiary>> =
         beneficiaryDao.observeBeneficiaries(memberId).map { list -> list.map { it.toModel() } }

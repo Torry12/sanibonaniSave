@@ -49,8 +49,7 @@ class AuthoritativeLoanReadTest {
             localSource = local,
             fileStorageService = mockk<FileStorageService>(relaxed = true),
             json = Json { ignoreUnknownKeys = true },
-            pendingOpDao = mockk(relaxed = true),
-            groupDao = mockk(relaxed = true)
+            dbProvider = javax.inject.Provider { mockk(relaxed = true) }
         )
     }
 

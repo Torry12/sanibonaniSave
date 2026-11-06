@@ -75,7 +75,7 @@ class PlatformAnalyticsReadTest {
 
         repository = PlatformRepositoryImpl(
             protocol = protocol,
-            db = db,
+            dbProvider = javax.inject.Provider { db },
             actuarialRepo = mockk<ActuarialRepository>(relaxed = true),
             notifRepo = mockk<NotificationRepository>(relaxed = true)
         )

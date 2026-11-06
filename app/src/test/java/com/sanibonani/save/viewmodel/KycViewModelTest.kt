@@ -4,6 +4,7 @@ import android.net.Uri
 import android.util.Log
 import androidx.arch.core.executor.testing.InstantTaskExecutorRule
 import com.google.firebase.crashlytics.FirebaseCrashlytics
+import com.sanibonani.save.MainDispatcherRule
 import com.sanibonani.save.domain.service.KycService
 import com.sanibonani.save.features.common.presentation.UIEvent
 import com.sanibonani.save.features.kyc.presentation.KycStep
@@ -17,14 +18,10 @@ import io.mockk.slot
 import io.mockk.unmockkAll
 import java.io.File
 import java.io.IOException
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
-import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
-import kotlinx.coroutines.test.setMain
 import kotlinx.coroutines.withTimeoutOrNull
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -42,10 +39,13 @@ import org.junit.Test
 class KycViewModelTest {
 
     @get:Rule
+    val mainDispatcherRule = MainDispatcherRule()
+
+    @get:Rule
     val instantExecutorRule = InstantTaskExecutorRule()
 
     private val kycService = mockk<KycService>()
-    private val testDispatcher = StandardTestDispatcher()
+    private val testDispatcher = mainDispatcherRule.dispatcher
     private lateinit var viewModel: KycViewModel
 
     @Before
@@ -63,14 +63,12 @@ class KycViewModelTest {
         val mockCrashlytics = mockk<FirebaseCrashlytics>(relaxed = true)
         every { FirebaseCrashlytics.getInstance() } returns mockCrashlytics
 
-        Dispatchers.setMain(testDispatcher)
-        viewModel = KycViewModel(kycService)
+        viewModel = mainDispatcherRule.track(KycViewModel(kycService))
     }
 
     @After
     fun tearDown() {
         testDispatcher.scheduler.advanceUntilIdle()
-        Dispatchers.resetMain()
         unmockkAll()
     }
 

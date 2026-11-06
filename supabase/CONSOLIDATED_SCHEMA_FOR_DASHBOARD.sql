@@ -1,6 +1,6 @@
 -- ─────────────────────────────────────────────────────────────────────────────
 -- SanibonaniSave — GROUND ZERO MASTER MIGRATION (Consolidated)
--- Generated: 2026-11-05
+-- Generated: 2026-11-06
 -- Version: 2.2 (Regenerated from the authoritative master scripts)
 --
 -- Applied in this order, mirroring supabase/00_REBUILD_ALL.sql and
@@ -1558,8 +1558,17 @@ $$;
 CREATE OR REPLACE FUNCTION public.fn_sync_group_member_count()
 RETURNS TRIGGER AS $$
 BEGIN
-    UPDATE public.groups SET current_members = (SELECT count(*) FROM public.members WHERE group_id = COALESCE(NEW.group_id, OLD.group_id) AND status != 'suspended')
-    WHERE id = COALESCE(NEW.group_id, OLD.group_id);
+    -- Both sides of the row, not COALESCE(NEW.group_id, OLD.group_id): moving a member between
+    -- groups is an UPDATE, and a one-sided recount leaves the origin reporting a member it no
+    -- longer has. fn_trigger_sync_loan_repayment_total already handles its old key this way.
+    IF (TG_OP = 'INSERT' OR TG_OP = 'UPDATE') THEN
+        UPDATE public.groups SET current_members = (SELECT count(*) FROM public.members WHERE group_id = NEW.group_id AND status != 'suspended')
+        WHERE id = NEW.group_id;
+    END IF;
+    IF (TG_OP = 'DELETE' OR (TG_OP = 'UPDATE' AND OLD.group_id IS DISTINCT FROM NEW.group_id)) THEN
+        UPDATE public.groups SET current_members = (SELECT count(*) FROM public.members WHERE group_id = OLD.group_id AND status != 'suspended')
+        WHERE id = OLD.group_id;
+    END IF;
     RETURN NULL;
 END;
 $$ LANGUAGE plpgsql;
@@ -1911,12 +1920,15 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 CREATE OR REPLACE FUNCTION public.fn_trigger_sync_member_financials() RETURNS TRIGGER AS $$
-DECLARE
-    v_m_id UUID;
 BEGIN
-    v_m_id := COALESCE(NEW.member_id, OLD.member_id);
-    IF v_m_id IS NOT NULL THEN
-        PERFORM public.fn_sync_single_member_financials(v_m_id);
+    -- Both sides of the row. COALESCE(NEW.member_id, OLD.member_id) answered only where the
+    -- contribution landed, so re-assigning one left the origin member with a total_paid that
+    -- still counted money now credited to somebody else.
+    IF (TG_OP = 'INSERT' OR TG_OP = 'UPDATE') THEN
+        PERFORM public.fn_sync_single_member_financials(NEW.member_id);
+    END IF;
+    IF (TG_OP = 'DELETE' OR (TG_OP = 'UPDATE' AND OLD.member_id IS DISTINCT FROM NEW.member_id)) THEN
+        PERFORM public.fn_sync_single_member_financials(OLD.member_id);
     END IF;
     RETURN NULL;
 END;
@@ -1980,49 +1992,69 @@ CREATE TRIGGER tr_member_financial_sync_member AFTER INSERT OR UPDATE OF status 
 CREATE OR REPLACE FUNCTION public.fn_trigger_update_behavior_metrics() RETURNS TRIGGER AS $$
 DECLARE
     v_m_id UUID;
-    v_g_id UUID;
-    v_score NUMERIC(5,2) := 100.0;
-    v_risk TEXT := 'low';
+    v_score NUMERIC(5,2);
+    v_risk TEXT;
     v_late_count INT;
 BEGIN
-    v_m_id := COALESCE(NEW.member_id, OLD.member_id);
-    v_g_id := COALESCE(NEW.group_id, OLD.group_id);
+    -- Every member this row touched, on every event that can change their overdue count. The body
+    -- used to read COALESCE(NEW.member_id, OLD.member_id), so a re-assigned row rescored only the
+    -- member who gained it and left the other member carrying the penalty for contributions that
+    -- are no longer theirs - and DELETE was not in the event set at all, while the sync layer
+    -- purges orphaned contributions on every verified read.
+    FOR v_m_id IN
+        SELECT id FROM (
+            SELECT NEW.member_id AS id WHERE TG_OP IN ('INSERT', 'UPDATE')
+            UNION
+            SELECT OLD.member_id WHERE TG_OP IN ('DELETE', 'UPDATE') AND OLD.member_id IS DISTINCT FROM NEW.member_id
+        ) touched
+         WHERE id IS NOT NULL
+    LOOP
+        v_score := 100.0;
+        v_risk := 'low';
 
-    -- 1. Simple heuristic: Deduct 10 points for each overdue contribution
-    SELECT COUNT(*) INTO v_late_count FROM public.contributions WHERE member_id = v_m_id AND status = 'overdue';
-    v_score := (v_score - (v_late_count * 10.0))::NUMERIC(5,2);
+        -- 1. Simple heuristic: Deduct 10 points for each overdue contribution
+        SELECT COUNT(*) INTO v_late_count FROM public.contributions WHERE member_id = v_m_id AND status = 'overdue';
+        v_score := (v_score - (v_late_count * 10.0))::NUMERIC(5,2);
 
-    IF v_score < 40 THEN v_risk := 'high';
-    ELSIF v_score < 70 THEN v_risk := 'medium';
-    END IF;
+        IF v_score < 40 THEN v_risk := 'high';
+        ELSIF v_score < 70 THEN v_risk := 'medium';
+        END IF;
 
-    UPDATE public.member_behavior_track
-    SET behavior_score = GREATEST(0, v_score),
-        fraud_risk_level = v_risk,
-        updated_at = NOW()
-    WHERE member_id = v_m_id;
+        UPDATE public.member_behavior_track
+        SET behavior_score = GREATEST(0, v_score),
+            fraud_risk_level = v_risk,
+            updated_at = NOW()
+        WHERE member_id = v_m_id;
+    END LOOP;
 
     RETURN NULL;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 DROP TRIGGER IF EXISTS tr_update_behavior_metrics ON public.contributions;
-CREATE TRIGGER tr_update_behavior_metrics AFTER INSERT OR UPDATE ON public.contributions FOR EACH ROW EXECUTE FUNCTION public.fn_trigger_update_behavior_metrics();
+CREATE TRIGGER tr_update_behavior_metrics AFTER INSERT OR UPDATE OR DELETE ON public.contributions FOR EACH ROW EXECUTE FUNCTION public.fn_trigger_update_behavior_metrics();
 
 DROP TRIGGER IF EXISTS tr_update_behavior_metrics_loans ON public.loan_repayments;
-CREATE TRIGGER tr_update_behavior_metrics_loans AFTER INSERT OR UPDATE ON public.loan_repayments FOR EACH ROW EXECUTE FUNCTION public.fn_trigger_update_behavior_metrics();
+CREATE TRIGGER tr_update_behavior_metrics_loans AFTER INSERT OR UPDATE OR DELETE ON public.loan_repayments FOR EACH ROW EXECUTE FUNCTION public.fn_trigger_update_behavior_metrics();
 
 CREATE OR REPLACE FUNCTION public.fn_trigger_sync_poll_vote_count() RETURNS TRIGGER AS $$
 BEGIN
-    IF (TG_OP = 'INSERT') THEN UPDATE public.group_poll_options SET vote_count = vote_count + 1 WHERE id = NEW.option_id;
-    ELSIF (TG_OP = 'DELETE') THEN UPDATE public.group_poll_options SET vote_count = vote_count - 1 WHERE id = OLD.option_id;
+    -- Recounted from COUNT(*) on both touched options rather than incremented on one side, and
+    -- fired on UPDATE as well: castVote UPSERTs the vote on its (poll_id, member_id) key, so a
+    -- member changing their option is an UPDATE that used to answer nothing at all, and the
+    -- option they left kept a vote it no longer had.
+    IF (TG_OP = 'INSERT' OR TG_OP = 'UPDATE') THEN
+        UPDATE public.group_poll_options SET vote_count = (SELECT count(*) FROM public.group_poll_votes WHERE option_id = NEW.option_id) WHERE id = NEW.option_id;
+    END IF;
+    IF (TG_OP = 'DELETE' OR (TG_OP = 'UPDATE' AND OLD.option_id IS DISTINCT FROM NEW.option_id)) THEN
+        UPDATE public.group_poll_options SET vote_count = (SELECT count(*) FROM public.group_poll_votes WHERE option_id = OLD.option_id) WHERE id = OLD.option_id;
     END IF;
     RETURN NULL;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 DROP TRIGGER IF EXISTS tr_sync_poll_vote_count ON public.group_poll_votes;
-CREATE TRIGGER tr_sync_poll_vote_count AFTER INSERT OR DELETE ON public.group_poll_votes FOR EACH ROW EXECUTE FUNCTION public.fn_trigger_sync_poll_vote_count();
+CREATE TRIGGER tr_sync_poll_vote_count AFTER INSERT OR UPDATE OR DELETE ON public.group_poll_votes FOR EACH ROW EXECUTE FUNCTION public.fn_trigger_sync_poll_vote_count();
 
 CREATE OR REPLACE FUNCTION public.fn_trigger_sync_poll_status() RETURNS TRIGGER AS $$
 BEGIN
@@ -2046,6 +2078,12 @@ BEGIN
         ELSIF TG_TABLE_NAME = 'group_poll_votes' THEN
             PERFORM public.log_audit_event('VOTE_CAST', NEW.member_id::text, NEW.member_id, NEW.group_id, jsonb_build_object('poll_id', NEW.poll_id), NEW.poll_id);
         END IF;
+    ELSIF TG_OP = 'UPDATE' AND TG_TABLE_NAME = 'group_poll_votes'
+          AND OLD.option_id IS DISTINCT FROM NEW.option_id THEN
+        -- A re-pointed vote arrives as an UPDATE on the (poll_id, member_id) key, so without this
+        -- branch a member who changed their mind left no server-side record of voting at all.
+        PERFORM public.log_audit_event('VOTE_CHANGED', NEW.member_id::text, NEW.member_id, NEW.group_id,
+            jsonb_build_object('poll_id', NEW.poll_id, 'previous_option_id', OLD.option_id, 'option_id', NEW.option_id), NEW.poll_id);
     END IF;
     RETURN NEW;
 END;
@@ -2055,7 +2093,7 @@ DROP TRIGGER IF EXISTS tr_poll_audit ON public.group_polls;
 CREATE TRIGGER tr_poll_audit AFTER INSERT ON public.group_polls FOR EACH ROW EXECUTE FUNCTION public.fn_trigger_voting_audit();
 
 DROP TRIGGER IF EXISTS tr_vote_audit ON public.group_poll_votes;
-CREATE TRIGGER tr_vote_audit AFTER INSERT ON public.group_poll_votes FOR EACH ROW EXECUTE FUNCTION public.fn_trigger_voting_audit();
+CREATE TRIGGER tr_vote_audit AFTER INSERT OR UPDATE OF option_id ON public.group_poll_votes FOR EACH ROW EXECUTE FUNCTION public.fn_trigger_voting_audit();
 
 -- 10.1.1 GOVERNANCE: EXPLICIT POLL CLOSE
 -- The voting screen's Close button calls this by name (VotingRepositoryImpl.closePoll), and until
@@ -2144,54 +2182,6 @@ BEGIN
 END;
 $$;
 
-
-CREATE OR REPLACE FUNCTION public.record_platform_revenue_v1(
-    p_amount NUMERIC,
-    p_description TEXT,
-    p_category TEXT,
-    p_transaction_id TEXT DEFAULT NULL,
-    p_group_id UUID DEFAULT NULL
-) RETURNS VOID AS $$
-DECLARE
-    v_last_balance NUMERIC;
-BEGIN
-    PERFORM pg_advisory_xact_lock(hashtext('platform_ledger')::bigint);
-
-    IF p_transaction_id IS NOT NULL THEN
-        IF EXISTS (SELECT 1 FROM public.platform_ledger WHERE transaction_id = p_transaction_id LIMIT 1) THEN
-            RETURN;
-        END IF;
-    END IF;
-
-    SELECT balance_after INTO v_last_balance FROM public.platform_ledger ORDER BY created_at DESC LIMIT 1;
-    INSERT INTO public.platform_ledger (transaction_id, amount, balance_after, description, category, group_id)
-    VALUES (p_transaction_id, p_amount, COALESCE(v_last_balance, 0) + p_amount, p_description, p_category, p_group_id);
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
-
-
-CREATE OR REPLACE FUNCTION public.record_loan_settlement_extraction_v1(
-    p_member_id UUID,
-    p_group_id UUID,
-    p_amount NUMERIC,
-    p_loan_id UUID
-) RETURNS VOID AS $$
-DECLARE
-    v_m_name TEXT;
-BEGIN
-    SELECT full_name INTO v_m_name FROM public.members WHERE id = p_member_id;
-
-    INSERT INTO public.contributions (member_id, group_id, amount, due_date, paid_at, status, type, transaction_id)
-    VALUES (p_member_id, p_group_id, -p_amount, CURRENT_DATE, NOW(), 'paid', 'loan_settlement_extraction', 'ext-' || p_loan_id::text);
-
-    PERFORM public.record_loan_repayment_v1(p_loan_id, p_member_id, p_group_id, p_amount, 'wallet');
-
-    INSERT INTO public.group_ledger (group_id, member_id, amount, balance_after, description, category, transaction_id)
-    VALUES (p_group_id, p_member_id, 0, (SELECT balance FROM public.groups WHERE id = p_group_id), 'Loan settlement extraction for ' || v_m_name, 'loan_settlement', 'settle-' || p_loan_id::text);
-
-    PERFORM public.log_audit_event('LOAN_FORCED_SETTLEMENT', 'system', p_member_id, p_group_id, jsonb_build_object('loan_id', p_loan_id, 'amount', p_amount), p_loan_id);
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 CREATE OR REPLACE FUNCTION public.settle_expired_loan_v2(
     p_loan_id UUID
@@ -2869,6 +2859,46 @@ BEGIN
 END;
 $$;
 
+-- 10.3.2.3 LEDGER WRAPPER GUARDS
+-- record_disbursement_v1 and record_liquidity_v1 are the two signed-in-reachable front doors to
+-- increment_group_balance, and each carried its own copy of the same four refusals. One copy now,
+-- so a fifth wrapper cannot be added with a guard someone forgot to copy.
+CREATE OR REPLACE FUNCTION public.assert_ledger_wrapper_input_v1(
+    p_group_id UUID,
+    p_amount NUMERIC,
+    p_description TEXT,
+    p_category TEXT,
+    p_noun TEXT,
+    p_access_denied_code TEXT
+) RETURNS VOID
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+BEGIN
+    -- A ledger injection is a decision about the group's money, so it is an admin action: unlike
+    -- the contribution path there is no is_own_member allowance here, and a member calling it for
+    -- their own group is refused.
+    IF auth.role() IS DISTINCT FROM 'service_role'
+       AND NOT (public.is_platform_admin() OR public.is_group_admin(p_group_id)) THEN
+        RAISE EXCEPTION '[SEC_002] %', p_access_denied_code;
+    END IF;
+
+    IF p_amount IS NULL OR p_amount::TEXT IN ('NaN', 'Infinity', '-Infinity')
+       OR p_amount <= 0 OR p_amount <> ROUND(p_amount, 2) THEN
+        RAISE EXCEPTION '[FIN_003] INVALID_AMOUNT: % must be positive and have at most two decimal places', p_noun;
+    END IF;
+    IF p_description IS NULL OR BTRIM(p_description) = '' THEN
+        RAISE EXCEPTION '[FIN_003] INVALID_DESCRIPTION: A ledger description is required';
+    END IF;
+    -- group_ledger.category has no CHECK constraint, so the vocabulary is whatever the writers
+    -- pass; only a blank is refused here, not an unlisted value.
+    IF p_category IS NULL OR BTRIM(p_category) = '' THEN
+        RAISE EXCEPTION '[FIN_003] INVALID_CATEGORY: A ledger category is required';
+    END IF;
+END;
+$$;
+
 CREATE OR REPLACE FUNCTION public.record_disbursement_v1(
     p_group_id UUID,
     p_amount NUMERIC,
@@ -2882,29 +2912,11 @@ SECURITY DEFINER
 SET search_path = public, pg_temp
 AS $$
 BEGIN
-    -- A disbursement is a decision about someone else's money, so it is an admin action: unlike the
-    -- contribution path there is no is_own_member allowance here, and a member calling it for their
-    -- own group is refused.
-    IF auth.role() IS DISTINCT FROM 'service_role'
-       AND NOT (public.is_platform_admin() OR public.is_group_admin(p_group_id)) THEN
-        RAISE EXCEPTION '[SEC_002] DISBURSEMENT_ACCESS_DENIED';
-    END IF;
+    PERFORM public.assert_ledger_wrapper_input_v1(
+        p_group_id, p_amount, p_description, p_category, 'Disbursement', 'DISBURSEMENT_ACCESS_DENIED');
 
     -- Positive on the wire, negative in the ledger: the client's own guard is "Disbursement amount
     -- must be positive", and the returned balance is what GroupRepositoryImpl caches as Money.
-    IF p_amount IS NULL OR p_amount::TEXT IN ('NaN', 'Infinity', '-Infinity')
-       OR p_amount <= 0 OR p_amount <> ROUND(p_amount, 2) THEN
-        RAISE EXCEPTION '[FIN_003] INVALID_AMOUNT: Disbursement must be positive and have at most two decimal places';
-    END IF;
-    IF p_description IS NULL OR BTRIM(p_description) = '' THEN
-        RAISE EXCEPTION '[FIN_003] INVALID_DESCRIPTION: A ledger description is required';
-    END IF;
-    -- group_ledger.category has no CHECK constraint, so the vocabulary is whatever the writers
-    -- pass; only a blank is refused here, not an unlisted value.
-    IF p_category IS NULL OR BTRIM(p_category) = '' THEN
-        RAISE EXCEPTION '[FIN_003] INVALID_CATEGORY: A ledger category is required';
-    END IF;
-
     -- The primitive owns the FOR UPDATE group lock, the idempotency key and the insufficient-funds
     -- check ([FIN_002] INSUFFICIENT_FUNDS), so this wrapper adds the caller check and the sign and
     -- nothing else.
@@ -2939,26 +2951,11 @@ BEGIN
     -- would not do, because a contribution row also moves totalContributions, which is the unit
     -- denominator in CalculateInvestmentClubValuationUseCase - the injected capital would stop
     -- being capital and start being a unit purchase.
-    IF auth.role() IS DISTINCT FROM 'service_role'
-       AND NOT (public.is_platform_admin() OR public.is_group_admin(p_group_id)) THEN
-        RAISE EXCEPTION '[SEC_002] LIQUIDITY_ACCESS_DENIED';
-    END IF;
+    PERFORM public.assert_ledger_wrapper_input_v1(
+        p_group_id, p_amount, p_description, p_category, 'Liquidity', 'LIQUIDITY_ACCESS_DENIED');
 
     -- Positive here and positive in the ledger: this is an inflow, and the wrapper keeps the
     -- caller-facing sign convention the client's guards already assume.
-    IF p_amount IS NULL OR p_amount::TEXT IN ('NaN', 'Infinity', '-Infinity')
-       OR p_amount <= 0 OR p_amount <> ROUND(p_amount, 2) THEN
-        RAISE EXCEPTION '[FIN_003] INVALID_AMOUNT: Liquidity must be positive and have at most two decimal places';
-    END IF;
-    IF p_description IS NULL OR BTRIM(p_description) = '' THEN
-        RAISE EXCEPTION '[FIN_003] INVALID_DESCRIPTION: A ledger description is required';
-    END IF;
-    -- group_ledger.category has no CHECK constraint, so the vocabulary is whatever the writers
-    -- pass; only a blank is refused here, not an unlisted value.
-    IF p_category IS NULL OR BTRIM(p_category) = '' THEN
-        RAISE EXCEPTION '[FIN_003] INVALID_CATEGORY: A ledger category is required';
-    END IF;
-
     -- The primitive owns the FOR UPDATE group lock, the idempotency key and the ledger write, so
     -- this wrapper adds the caller check and the sign and nothing else.
     RETURN public.increment_group_balance(
@@ -3246,12 +3243,6 @@ FROM PUBLIC, anon;
 REVOKE EXECUTE ON FUNCTION public.settle_expired_loan_v2(UUID) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.settle_expired_loan_v2(UUID) TO authenticated, service_role;
 
--- Retire the pre-v2 settlement entry point. Its caller-supplied member, group, and amount
--- parameters are not validated as one atomic settlement and must not remain an RPC bypass.
-REVOKE EXECUTE ON FUNCTION
-    public.record_loan_settlement_extraction_v1(UUID, UUID, NUMERIC, UUID)
-FROM PUBLIC, anon, authenticated, service_role;
-
 -- 2c. MONEY RPCs: THE SAME TREATMENT
 -- Every function below either moves a balance or rewrites a ledger, and the blanket grant in
 -- section 2 handed all of them to `anon` as well. Each one now carries its own caller check
@@ -3293,23 +3284,23 @@ TO authenticated, service_role;
 
 REVOKE EXECUTE ON FUNCTION
     public.increment_group_balance(UUID, NUMERIC, TEXT, TEXT, TEXT, UUID),
+    public.assert_ledger_wrapper_input_v1(UUID, NUMERIC, TEXT, TEXT, TEXT, TEXT),
     public.recompute_ledger_running_balances_v2(UUID),
     public.perform_group_reconciliation_v1(UUID),
     public.consolidate_group_ledger_v1(UUID),
     public.create_ledger_checkpoint_v1(UUID),
     public.automate_monthly_billing_v1(),
-    public.simulate_bulk_activity_v2(UUID, INT, INT),
-    public.record_platform_revenue_v1(NUMERIC, TEXT, TEXT, TEXT, UUID)
+    public.simulate_bulk_activity_v2(UUID, INT, INT)
 FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION
     public.increment_group_balance(UUID, NUMERIC, TEXT, TEXT, TEXT, UUID),
+    public.assert_ledger_wrapper_input_v1(UUID, NUMERIC, TEXT, TEXT, TEXT, TEXT),
     public.recompute_ledger_running_balances_v2(UUID),
     public.perform_group_reconciliation_v1(UUID),
     public.consolidate_group_ledger_v1(UUID),
     public.create_ledger_checkpoint_v1(UUID),
     public.automate_monthly_billing_v1(),
-    public.simulate_bulk_activity_v2(UUID, INT, INT),
-    public.record_platform_revenue_v1(NUMERIC, TEXT, TEXT, TEXT, UUID)
+    public.simulate_bulk_activity_v2(UUID, INT, INT)
 TO service_role;
 
 -- Re-derives aggregates from the ledger, so it moves no money, but the platform console calls it

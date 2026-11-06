@@ -2,6 +2,7 @@ package com.sanibonani.save.data.local.room
 
 import com.sanibonani.save.data.datasource.LocalReconciliationDataSource
 import com.sanibonani.save.data.local.LedgerDao
+import com.sanibonani.save.data.local.SanibonaniDatabase
 import com.sanibonani.save.data.local.toEntity
 import com.sanibonani.save.data.local.toModel
 import com.sanibonani.save.domain.model.ReconciliationRecord
@@ -10,12 +11,15 @@ import com.sanibonani.save.domain.model.SettlementRecord
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import javax.inject.Inject
+import javax.inject.Provider
 import javax.inject.Singleton
 
 @Singleton
 class RoomReconciliationDataSourceImpl @Inject constructor(
-    private val ledgerDao: LedgerDao
+    private val dbProvider: Provider<SanibonaniDatabase>
 ) : LocalReconciliationDataSource {
+
+    private val ledgerDao: LedgerDao get() = dbProvider.get().ledgerDao()
 
     override fun observeReconciliations(groupId: String): Flow<List<ReconciliationRecord>> =
         ledgerDao.observeReconciliations(groupId).map { list -> list.map { it.toModel() } }

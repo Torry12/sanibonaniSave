@@ -48,12 +48,13 @@ fun MemberTransactionsTab(
     /** False while the read that fills [ledger] has not answered, or the ledger pillar is stale. */
     ledgerUnconfirmed: Boolean = false,
 ) {
-    val navigator = rememberListDetailPaneScaffoldNavigator<LedgerEntry>()
+    val navigator = rememberListDetailPaneScaffoldNavigator<String>()
     var selectedEntry by remember { mutableStateOf<LedgerEntry?>(null) }
 
     LaunchedEffect(selectedEntry) {
-        if (selectedEntry != null) {
-            navigator.navigateTo(ListDetailPaneScaffoldRole.Detail, selectedEntry)
+        val entry = selectedEntry
+        if (entry != null) {
+            navigator.navigateTo(ListDetailPaneScaffoldRole.Detail, entry.id.orEmpty())
         } else {
             if (navigator.canNavigateBack()) {
                 navigator.navigateBack()

@@ -2,18 +2,22 @@ package com.sanibonani.save.data.local.room
 
 import com.sanibonani.save.data.datasource.LocalMemberDataSource
 import com.sanibonani.save.data.local.MemberDao
+import com.sanibonani.save.data.local.SanibonaniDatabase
 import com.sanibonani.save.data.local.toEntity
 import com.sanibonani.save.data.local.toModel
 import com.sanibonani.save.domain.model.Member
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import javax.inject.Inject
+import javax.inject.Provider
 import javax.inject.Singleton
 
 @Singleton
 class RoomMemberDataSourceImpl @Inject constructor(
-    private val memberDao: MemberDao
+    private val dbProvider: Provider<SanibonaniDatabase>
 ) : LocalMemberDataSource {
+
+    private val memberDao: MemberDao get() = dbProvider.get().memberDao()
 
     override fun observeMembers(groupId: String): Flow<List<Member>> =
         memberDao.observeMembers(groupId).map { list -> list.map { it.toModel() } }

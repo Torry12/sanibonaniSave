@@ -6,11 +6,13 @@ import com.sanibonani.save.domain.utils.safeRunCatching
 /**
  * Encapsulates the logic for updating a member's status.
  *
- * Enforces allowed status transitions:
- *  - PENDING_PAYMENT → PROBATION | ACTIVE | SUSPENDED
- *  - PROBATION       → ACTIVE | SUSPENDED | PENDING_PAYMENT
- *  - ACTIVE          → SUSPENDED | PENDING_PAYMENT
- *  - SUSPENDED       → ACTIVE | PENDING_PAYMENT
+ * There is deliberately no transition table here. The one this class used to carry
+ * (`ALLOWED_TRANSITIONS` / `validateTransition`) had no caller in the whole tree, while eight places
+ * write a status and five of them go straight to [MemberRepository]: activation, KYC approval, the
+ * probation sweep, contribution strategies and the forced-loan settlement. Enforcing it on the three
+ * routes that came through here would have guarded a third of the writes and refused a sanction that
+ * already ships - the settlement demotes an ACTIVE member to PROBATION, which the table forbade.
+ * Whatever legality a status change has is decided by the server and by the flow that owns it.
  */
 class UpdateMemberStatusUseCase @Inject constructor(
     private val memberRepository: MemberRepository
@@ -19,21 +21,4 @@ class UpdateMemberStatusUseCase @Inject constructor(
         safeRunCatching {
             memberRepository.updateMemberStatus(memberId, newStatus).getOrThrow()
         }
-    /**
-     * Validates whether transitioning from [current] to [next] is a legally allowed change.
-     * Returns a user-facing error message when the transition is forbidden, or `null` when allowed.
-     */
-    fun validateTransition(current: MemberStatus, next: MemberStatus): String? {
-        val allowed = ALLOWED_TRANSITIONS[current] ?: emptySet()
-        return if (next in allowed) null
-        else "Status change from ${current.displayName} to ${next.displayName} is not permitted."
-    }
-    companion object {
-        val ALLOWED_TRANSITIONS: Map<MemberStatus, Set<MemberStatus>> = mapOf(
-            MemberStatus.PENDING_PAYMENT to setOf(MemberStatus.PROBATION, MemberStatus.ACTIVE, MemberStatus.SUSPENDED),
-            MemberStatus.PROBATION       to setOf(MemberStatus.ACTIVE, MemberStatus.SUSPENDED, MemberStatus.PENDING_PAYMENT),
-            MemberStatus.ACTIVE          to setOf(MemberStatus.SUSPENDED, MemberStatus.PENDING_PAYMENT),
-            MemberStatus.SUSPENDED       to setOf(MemberStatus.ACTIVE, MemberStatus.PENDING_PAYMENT)
-        )
-    }
 }

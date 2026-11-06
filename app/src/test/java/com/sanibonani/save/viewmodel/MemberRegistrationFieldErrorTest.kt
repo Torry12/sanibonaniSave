@@ -3,6 +3,7 @@ package com.sanibonani.save.viewmodel
 import android.util.Log
 import androidx.arch.core.executor.testing.InstantTaskExecutorRule
 import com.google.firebase.crashlytics.FirebaseCrashlytics
+import com.sanibonani.save.MainDispatcherRule
 import com.sanibonani.save.domain.model.Group
 import com.sanibonani.save.domain.model.Member
 import com.sanibonani.save.domain.repository.auth.SupabaseRepository
@@ -20,13 +21,9 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkStatic
 import io.mockk.unmockkAll
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
-import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
-import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -45,6 +42,9 @@ import java.io.IOException
 class MemberRegistrationFieldErrorTest {
 
     @get:Rule
+    val mainDispatcherRule = MainDispatcherRule()
+
+    @get:Rule
     val instantExecutorRule = InstantTaskExecutorRule()
 
     private val memberRepo = mockk<MemberRepository>(relaxed = true)
@@ -53,7 +53,7 @@ class MemberRegistrationFieldErrorTest {
     private val locationService = mockk<LocationService>(relaxed = true)
     private val profileCache = mockk<UserProfileCacheService>(relaxed = true)
 
-    private val testDispatcher = StandardTestDispatcher()
+    private val testDispatcher = mainDispatcherRule.dispatcher
     private lateinit var viewModel: MemberRegistrationViewModel
 
     // Luhn-valid per InputValidator.verifySAIdChecksum, DOB segment 800101.
@@ -73,18 +73,16 @@ class MemberRegistrationFieldErrorTest {
         mockkStatic(FirebaseCrashlytics::class)
         every { FirebaseCrashlytics.getInstance() } returns mockk(relaxed = true)
 
-        Dispatchers.setMain(testDispatcher)
-
         every { supabaseRepo.currentUserId } returns "user-1"
 
-        viewModel = MemberRegistrationViewModel(
+        viewModel = mainDispatcherRule.track(MemberRegistrationViewModel(
             registerMember = RegisterMemberUseCase(memberRepo, groupRepo, supabaseRepo),
             getGroupById = GetGroupByIdUseCase(groupRepo),
             getAttributableActorId = GetAttributableActorIdUseCase(supabaseRepo),
             locationService = locationService,
             userProfileCache = profileCache,
             memberContextCacheService = null
-        )
+        ))
 
         viewModel.onFieldChange("idNumber", validId)
         viewModel.onFieldChange("phone", "0821234567")
@@ -98,7 +96,6 @@ class MemberRegistrationFieldErrorTest {
     @After
     fun tearDown() {
         testDispatcher.scheduler.advanceUntilIdle()
-        Dispatchers.resetMain()
         unmockkAll()
     }
 

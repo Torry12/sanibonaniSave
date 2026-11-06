@@ -13,6 +13,7 @@ import com.sanibonani.save.domain.usecase.member.ObserveMembershipsUseCase
 import com.sanibonani.save.domain.utils.PaymentCalculator
 import com.sanibonani.save.domain.utils.toUserMessage
 import com.sanibonani.save.features.common.presentation.BaseViewModel
+import com.sanibonani.save.features.common.presentation.HydrationWatchdog
 import com.sanibonani.save.features.common.presentation.UIEvent
 import com.sanibonani.save.features.member.presentation.coordination.MemberActionHost
 import com.sanibonani.save.features.member.presentation.coordination.MemberDocumentCoordinator
@@ -25,7 +26,6 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.collectLatest
@@ -34,7 +34,6 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
-import kotlin.time.Duration.Companion.seconds
 
 @HiltViewModel
 class MemberOverviewViewModel @Inject constructor(
@@ -58,12 +57,27 @@ class MemberOverviewViewModel @Inject constructor(
     private var liveObservationSubject: String? = null
 
     /**
-     * Whether the portal watchdog already reported a load that did not arrive. The snapshot that
-     * eventually lands invalidates that report - it was a guess about a read still running - but it
-     * must not clear an error the member has to act on, so the two are told apart here rather than
-     * by the message text.
+     * Gives the portal a bound on a hydration that is not coming.
+     *
+     * The screen shows "Syncing your portal…" while isLoading is set with nothing rendered, and only a
+     * snapshot package releases it - so a warm-up that could not read the memberships, which keeps the
+     * cached contexts and returns by design, used to leave the member spinning with the Retry that could
+     * re-pull the book hidden behind the loader.
      */
-    private var portalHydrationTimedOut = false
+    private val hydrationWatchdog = HydrationWatchdog(
+        key = "portal_hydration_watchdog",
+        launch = { jobKey, block -> launchJob(jobKey) { block() } },
+        cancelJob = ::cancelJob,
+        shouldReport = {
+            val current = uiState.value
+            // An exit is already on its way out. A Support Mode entry that never produces the
+            // targeted book is this wait's to end: the privacy lock has no other way off the screen.
+            !current.isExiting && (current.member == null || current.group == null)
+        },
+        onVerdict = { message ->
+            updateState { it.copy(isLoading = false, error = message) }
+        }
+    )
 
     /**
      * The group the route last asked this portal to open, recorded when the request is made rather than
@@ -72,6 +86,15 @@ class MemberOverviewViewModel @Inject constructor(
      * otherwise cancel the entry the operator just asked for and open their own portal instead.
      */
     private var requestedPortalGroupId: String? = null
+
+    /**
+     * Set in the same call that asks for Support Mode, before that call suspends.
+     *
+     * The dashboard's first frame warms every group the operator belongs to. That warm-up and the
+     * impersonation share one hydration budget, so the warm-up has to be skipped once a member
+     * has been asked for, even while the role check is still in flight.
+     */
+    private var requestedSupportMemberId: String? = null
 
     private val host = object : MemberActionHost {
         override val memberState: StateFlow<MemberUiState> get() = uiState
@@ -180,17 +203,17 @@ class MemberOverviewViewModel @Inject constructor(
         if (pkg == null) {
             stopLiveObservation()
             if (context != null) {
-                updateState { it.copy(isLoading = true) }
-                // A snapshot whose pillars never finished is not a load in progress: nothing else
-                // is going to hand this portal a package, so the wait needs its own verdict.
-                armPortalHydrationWatchdog()
+                // A verdict the member can act on outranks the loader: re-claiming isLoading here put
+                // the Retry back behind a spinner on the next pass.
+                if (!hydrationWatchdog.isReporting) updateState { it.copy(isLoading = true) }
+                // A snapshot whose pillars never finished is not a load in progress: nothing else is
+                // going to hand this portal a package, so the wait needs its own verdict.
+                hydrationWatchdog.armIfIdle()
             }
             return
         }
 
-        cancelJob("portal_hydration_watchdog")
-        val timeoutReported = portalHydrationTimedOut
-        portalHydrationTimedOut = false
+        val timeoutReported = hydrationWatchdog.settle()
 
         updateState { s ->
             s.copy(
@@ -212,32 +235,6 @@ class MemberOverviewViewModel @Inject constructor(
         val liveMemberId = pkg.member.id.serverIdOrReport("member")
         if (liveMemberId == null) stopLiveObservation()
         else startLiveObservation(liveMemberId, pkg.group)
-    }
-
-    /**
-     * Gives the portal a bound on a hydration that is not coming.
-     *
-     * The screen shows "Syncing your portal…" while [MemberUiState.isLoading] is set with nothing
-     * rendered, and only a snapshot package releases it - so a warm-up that could not read the
-     * memberships, which keeps the cached contexts and returns by design, left the member spinning
-     * with the Retry that could re-pull the book hidden behind the loader.
-     */
-    private fun armPortalHydrationWatchdog() {
-        portalHydrationTimedOut = false
-        launchJob("portal_hydration_watchdog") {
-            delay(PORTAL_HYDRATION_TIMEOUT)
-            val current = uiState.value
-            // Support Mode owns its own refusal, and an exit is already on its way out; neither is
-            // this watchdog's to overwrite.
-            if (!current.isImpersonating && !current.isExiting &&
-                (current.member == null || current.group == null)
-            ) {
-                portalHydrationTimedOut = true
-                updateState {
-                    it.copy(isLoading = false, error = "Loading timed out. Please try again.")
-                }
-            }
-        }
     }
 
     private fun startLiveObservation(memberId: String, group: Group) {
@@ -292,6 +289,14 @@ class MemberOverviewViewModel @Inject constructor(
     fun setPortalContext(memberId: String?, groupId: String?) {
         val requestedGroupId = groupId?.takeIf { it.isNotBlank() }
         requestedPortalGroupId = requestedGroupId
+        requestedSupportMemberId = memberId?.takeIf { it.isNotBlank() }
+        // The refresh in flight belongs to the portal being left. Letting it finish writes its
+        // loader, its timeout, or its failure onto the portal this call is opening.
+        cancelJob("refresh_data")
+        if (requestedSupportMemberId != null) {
+            cancelJob("context_warmup")
+            memberContextCacheService.cancelBackgroundWarmups()
+        }
         launchJob("portal_context_transition") {
             val targetMemberId = memberId?.takeIf { it.isNotBlank() }
             val targetGroupId = requestedGroupId
@@ -307,6 +312,10 @@ class MemberOverviewViewModel @Inject constructor(
             }
 
             if (canImpersonate && targetGroupId != null) {
+                // The role check suspended, so a warm-up started on the way in can be holding the
+                // hydration permits this entry needs. Drop it before the entry reads.
+                cancelJob("context_warmup")
+                memberContextCacheService.cancelBackgroundWarmups()
                 updateState { it.clearGroupContext().copy(
                     isImpersonating = true,
                     targetMemberId = targetMemberId,
@@ -314,12 +323,21 @@ class MemberOverviewViewModel @Inject constructor(
                     isExiting = false,
                     isLoading = true
                 ) }
+                // The privacy lock stays up until this member is on screen. A read that never
+                // returns has to become the refusal, or the lock is the whole screen forever.
+                hydrationWatchdog.arm()
                 memberContextCacheService.impersonateMember(targetMemberId, targetGroupId)
                     .onSuccess { cachedCtx ->
                         val realMemberId = cachedCtx.member?.id ?: targetMemberId
                         updateState { it.copy(targetMemberId = realMemberId, isLoading = false) }
+                        val shown = uiState.value
+                        val memberShown = shown.member
+                        val rendered = memberShown != null && shown.group != null &&
+                            (memberShown.id == realMemberId || memberShown.userId == realMemberId)
+                        if (rendered) hydrationWatchdog.settle()
                     }
                     .onFailure { e ->
+                        hydrationWatchdog.cancel()
                         updateState { it.copy(isLoading = false, error = e.toUserMessage()) }
                         handleError(e)
                     }
@@ -335,8 +353,9 @@ class MemberOverviewViewModel @Inject constructor(
                 // The warm-up starts its reads and returns, so this is the only place that knows a
                 // portal was asked for and is not on screen yet - including when there is no actor
                 // to warm one for at all.
-                armPortalHydrationWatchdog()
+                hydrationWatchdog.arm()
             } else {
+                hydrationWatchdog.cancel()
                 updateState { it.clearGroupContext().copy(
                     isImpersonating = false,
                     targetMemberId = null,
@@ -359,11 +378,20 @@ class MemberOverviewViewModel @Inject constructor(
 
     fun selectGroup(groupId: String) = setPortalContext(null, groupId)
 
+    /** The refresh result is only meaningful for the portal that asked for it. */
+    private fun portalStillShowing(groupId: String, impersonating: Boolean): Boolean {
+        val current = uiState.value
+        return current.selectedGroupId == groupId && current.isImpersonating == impersonating
+    }
+
     fun switchGroup(groupId: String) = selectGroup(groupId)
 
     fun clearImpersonation(onComplete: () -> Unit = {}) {
         val operatorId = getAttributableActorId()
+        requestedSupportMemberId = null
         cancelJob("portal_context_transition")
+        cancelJob("refresh_data")
+        hydrationWatchdog.cancel()
         // The live reads stream the impersonated member's book; leaving them running would keep
         // writing that member's ledger into the portal the operator is about to see as their own.
         stopLiveObservation()
@@ -406,6 +434,11 @@ class MemberOverviewViewModel @Inject constructor(
         }
 
         updateState { it.copy(isLoading = true, error = null) }
+        // Pull-to-refresh is a new request for the book. The previous timeout does not describe
+        // this one. A refresh that returns without a package the portal can render has to stay
+        // inside that wait: clearing the loader here used to leave a blank dashboard, with the
+        // Retry gone and nothing on screen to ask for the book again.
+        if (!state.isImpersonating) hydrationWatchdog.arm()
         launchJob("refresh_data") {
             val result = if (state.isImpersonating) {
                 val memberId = impersonated?.id.serverIdOrReport("member")
@@ -414,8 +447,20 @@ class MemberOverviewViewModel @Inject constructor(
             } else {
                 memberContextCacheService.refreshGroup(userId, groupId)
             }
-            result.onFailure { e -> updateState { s -> s.copy(error = e.toUserMessage()) } }
-            updateState { it.copy(isLoading = false) }
+            if (!portalStillShowing(groupId, state.isImpersonating)) return@launchJob
+            result.onSuccess {
+                val rendered = uiState.value.let { it.member != null && it.group != null }
+                if (rendered || state.isImpersonating) {
+                    // The package collector settles a wait it actually rendered. This covers the
+                    // refresh that found the book already on screen and so never re-emitted it.
+                    if (rendered) hydrationWatchdog.settle()
+                    updateState { it.copy(isLoading = false) }
+                }
+            }.onFailure { e ->
+                if (!portalStillShowing(groupId, state.isImpersonating)) return@onFailure
+                if (!state.isImpersonating) hydrationWatchdog.cancel()
+                updateState { s -> s.copy(isLoading = false, error = e.toUserMessage()) }
+            }
         }
     }
 
@@ -434,25 +479,25 @@ class MemberOverviewViewModel @Inject constructor(
             observeContext()
             // Entering the dashboard warms the cache only; a full network refresh stays bound
             // to the pull-to-refresh gesture.
-            if (!uiState.value.isImpersonating) {
+            val supportEntry = uiState.value.isImpersonating || requestedSupportMemberId != null
+            if (!supportEntry) {
                 getAttributableActorId()?.let { userId ->
                     launchJob("context_warmup") { memberContextCacheService.warmUpForUser(userId) }
                 }
                 // Coming back to a portal that shows nothing is a wait whether the load was asked
                 // for here or on a screen the member has since come back from.
                 if (uiState.value.member == null || uiState.value.group == null) {
-                    armPortalHydrationWatchdog()
+                    hydrationWatchdog.arm()
                 }
             }
         } else {
+            hydrationWatchdog.cancel()
             listOf(
                 "context_observation",
                 "insights_loading",
                 "audit_report",
                 "context_warmup",
-                // A portal left within the bound is no longer waiting on the book, so the wait must
-                // not report a timeout to a screen nobody is looking at.
-                "portal_hydration_watchdog"
+                "refresh_data"
             ).forEach { cancelJob(it) }
             stopLiveObservation()
         }
@@ -469,13 +514,4 @@ class MemberOverviewViewModel @Inject constructor(
     fun downloadGroupConstitution() = documentCoordinator.downloadGroupConstitution(host)
 
     fun getDownloadParams(url: String): Map<String, String> = buildDocumentAuthHeaders(url)
-
-    private companion object {
-        /**
-         * How long the portal waits for a hydration before saying the book did not arrive. The same
-         * bound the admin dashboard gives its own, so a slow tier answers and a wedged one does not
-         * become the member's problem.
-         */
-        val PORTAL_HYDRATION_TIMEOUT = 7.seconds
-    }
 }

@@ -1,6 +1,7 @@
 package com.sanibonani.save.viewmodel
 
 import androidx.arch.core.executor.testing.InstantTaskExecutorRule
+import com.sanibonani.save.MainDispatcherRule
 import com.sanibonani.save.domain.model.SyncStatus
 import com.sanibonani.save.domain.repository.auth.SupabaseRepository
 import com.sanibonani.save.domain.repository.system.SyncRepository
@@ -12,14 +13,10 @@ import com.sanibonani.save.features.common.presentation.SplashViewModel
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
-import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
-import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -37,16 +34,18 @@ import org.junit.Test
 class SplashConnectionVerdictTest {
 
     @get:Rule
+    val mainDispatcherRule = MainDispatcherRule()
+
+    @get:Rule
     val instantExecutorRule = InstantTaskExecutorRule()
 
     private val supabaseRepo = mockk<SupabaseRepository>(relaxed = true)
     private val syncRepo = mockk<SyncRepository>(relaxed = true)
     private val reachability = mockk<CheckBackendReachabilityUseCase>()
-    private val testDispatcher = StandardTestDispatcher()
+    private val testDispatcher = mainDispatcherRule.dispatcher
 
     @Before
     fun setup() {
-        Dispatchers.setMain(testDispatcher)
         every { syncRepo.syncStatus } returns MutableStateFlow(SyncStatus.Idle)
         every { supabaseRepo.isLoggedIn } returns false
         coEvery { syncRepo.syncAllData() } returns Result.success(Unit)
@@ -55,15 +54,14 @@ class SplashConnectionVerdictTest {
     @After
     fun tearDown() {
         testDispatcher.scheduler.advanceUntilIdle()
-        Dispatchers.resetMain()
     }
 
-    private fun newViewModel() = SplashViewModel(
+    private fun newViewModel() = mainDispatcherRule.track(SplashViewModel(
         isLoggedIn = IsLoggedInUseCase(supabaseRepo),
         observeSyncStatus = ObserveSyncStatusUseCase(syncRepo),
         syncAllData = SyncAllDataUseCase(syncRepo),
         checkBackendReachability = reachability
-    )
+    ))
 
     @Test
     fun `a startup with no session and no backend reaches the retry screen`() = runTest {

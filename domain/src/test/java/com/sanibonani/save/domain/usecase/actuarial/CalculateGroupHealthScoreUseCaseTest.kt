@@ -39,9 +39,9 @@ class CalculateGroupHealthScoreUseCaseTest {
             registrationPaid = true
         )
         val contributions = listOf(
-            Contribution(id = "c1", memberId = "m1", groupId = "g1", amount = Money("1000.0"), dueDate = "2026-04-01"),
-            Contribution(id = "c2", memberId = "m1", groupId = "g1", amount = Money("1000.0"), dueDate = "2026-03-01"),
-            Contribution(id = "c3", memberId = "m2", groupId = "g1", amount = Money("1000.0"), dueDate = "2026-04-01")
+            Contribution(id = "c1", memberId = "m1", groupId = "g1", amount = Money("1000.0"), status = ContributionStatus.PAID, dueDate = "2026-04-01"),
+            Contribution(id = "c2", memberId = "m1", groupId = "g1", amount = Money("1000.0"), status = ContributionStatus.PAID, dueDate = "2026-03-01"),
+            Contribution(id = "c3", memberId = "m2", groupId = "g1", amount = Money("1000.0"), status = ContributionStatus.PAID, dueDate = "2026-04-01")
         )
         val members = listOf(
             Member(id = "m1", groupId = "g1", status = MemberStatus.ACTIVE),
@@ -74,6 +74,7 @@ class CalculateGroupHealthScoreUseCaseTest {
                 memberId = "m1",
                 groupId = "g1",
                 amount = Money("1000.0"),
+                status = ContributionStatus.PAID,
                 dueDate = "2026-${month.toString().padStart(2, '0')}-01"
             )
         }
@@ -106,6 +107,7 @@ class CalculateGroupHealthScoreUseCaseTest {
                 memberId = "m1",
                 groupId = "g1",
                 amount = Money("1000.0"),
+                status = ContributionStatus.PAID,
                 dueDate = "2026-${month.toString().padStart(2, '0')}-01"
             )
         }
@@ -141,6 +143,7 @@ class CalculateGroupHealthScoreUseCaseTest {
                 memberId = "m1",
                 groupId = "g1",
                 amount = Money("1000.0"),
+                status = ContributionStatus.PAID,
                 dueDate = "2026-${month.toString().padStart(2, '0')}-01"
             )
         }
@@ -160,5 +163,72 @@ class CalculateGroupHealthScoreUseCaseTest {
 
         assertEquals(20, withHistory)
         assertEquals(12, withoutHistory)
+    }
+
+    @Test
+    fun `a contribution the member has not paid is not income`() = runBlocking {
+        val group = Group(
+            id = "g1",
+            name = "Owed Group",
+            balance = Money("12000.0"),
+            adminUserId = "admin1",
+            registrationPaid = true
+        )
+        val members = (1..20).map { idx ->
+            Member(id = "m$idx", groupId = "g1", status = MemberStatus.ACTIVE)
+        }
+        // The same twelve R1000 rows the paid fixture uses, only still outstanding.
+        val owed = (1..12).map { month ->
+            Contribution(
+                id = "c$month",
+                memberId = "m1",
+                groupId = "g1",
+                amount = Money("1000.0"),
+                status = ContributionStatus.DUE,
+                dueDate = "2026-${month.toString().padStart(2, '0')}-01"
+            )
+        }
+
+        coEvery { groupRepository.getGroupById("g1") } returns Result.success(group)
+        every { memberRepository.getGroupMembers("g1") } returns flowOf(Result.success(members))
+        every { contributionRepository.getGroupContributions("g1") } returns flowOf(Result.success(owed))
+
+        val score = useCase("g1").getOrThrow()
+
+        // The score is persisted and expires only after a week, so a book of unpaid dues scores the
+        // group healthy for seven days. Outstanding rows must read as the no-data case.
+        assertEquals(12, score.components.getValue("Reserve Adequacy"))
+    }
+
+    @Test
+    fun `a partially paid contribution counts only what was received`() = runBlocking {
+        val group = Group(
+            id = "g1",
+            name = "Partial Group",
+            balance = Money("12000.0"),
+            adminUserId = "admin1",
+            registrationPaid = true,
+            monthlyContribution = Money("1000.0")
+        )
+        val members = (1..20).map { idx ->
+            Member(id = "m$idx", groupId = "g1", status = MemberStatus.ACTIVE)
+        }
+        val mixed = listOf(
+            Contribution(id = "c1", memberId = "m1", groupId = "g1", amount = Money("1000.0"),
+                status = ContributionStatus.PAID, dueDate = "2026-01-01"),
+            Contribution(id = "c2", memberId = "m2", groupId = "g1", amount = Money("400.0"),
+                status = ContributionStatus.PARTIAL, dueDate = "2026-02-01")
+        )
+
+        coEvery { groupRepository.getGroupById("g1") } returns Result.success(group)
+        every { memberRepository.getGroupMembers("g1") } returns flowOf(Result.success(members))
+        every { contributionRepository.getGroupContributions("g1") } returns flowOf(Result.success(mixed))
+
+        val score = useCase("g1").getOrThrow()
+
+        // Average received income is (1000 + 400) / 2 = R700 a month, so six months of reserves is
+        // R4 200 against a R12 000 balance. That ratio is above the 1.5 ceiling, so the component
+        // still takes the full 20 - what the partial row must not do is count the R600 gap.
+        assertEquals(20, score.components.getValue("Reserve Adequacy"))
     }
 }

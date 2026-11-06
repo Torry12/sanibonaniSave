@@ -266,7 +266,7 @@ class PaymentViewModel @Inject constructor(
         val paidContributions = contributions.filter {
             it.status == ContributionStatus.PAID || it.status == ContributionStatus.PARTIAL
         }
-        val totalPaidBefore = paymentCalculator.calculatePaidSavings(paidContributions, member)
+        val totalPaidBefore = paymentCalculator.calculatePaidSavings(paidContributions)
         val joinedDate = paymentCalculator.resolveJoinedDate(member, java.time.LocalDate.now(), contributions)
 
         return paymentCalculator.calculateRealtime(

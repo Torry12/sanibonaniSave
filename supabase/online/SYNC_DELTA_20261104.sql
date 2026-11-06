@@ -120,6 +120,12 @@ LIMIT 5;
 --        SECURITY DEFINER function as anon on Local (it crashes the postmaster).
 
 -- ─────────────────────────────────────────────────────────────────────────────
+-- RESULT, recorded 2026-11-07. P.0 on Local and on Cloud found the three older policies, RLS
+-- enforced and not forced, zero IMPERSONATION_REQUESTED rows, and privilege to add the policy.
+-- P.1 then ran on both. P.2.a returns one row, polcmd = 'a', name
+-- "Audit Logs: Append by named actor". The client proof in P.2.c (one new row after opening
+-- Support Mode) is still outstanding.
+-- ─────────────────────────────────────────────────────────────────────────────
 -- R.1  ROLLBACK - removes only what P.1 added. Run it on its own.
 -- ─────────────────────────────────────────────────────────────────────────────
 -- DROP POLICY IF EXISTS "Audit Logs: Append by named actor" ON public.audit_logs;

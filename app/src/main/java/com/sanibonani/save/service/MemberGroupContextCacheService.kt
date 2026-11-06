@@ -106,6 +106,17 @@ class MemberGroupContextCacheService @Inject constructor(
 		warmupCoordinator.cancelAll()
 	}
 
+	/**
+	 * Stops every background warm-up so a Support Mode entry can take the hydration permits.
+	 *
+	 * Those warm-ups run on this service's scope, not on the portal that asked for them, and the
+	 * entry reads through the same three-permit budget. Left running, the operator's own groups
+	 * keep the permits and the impersonation waits on "Entering Support Mode…" until they finish.
+	 */
+	fun cancelBackgroundWarmups() {
+		warmupCoordinator.cancelAll()
+	}
+
 	fun warmMembershipsInBackground(userId: String, memberships: List<Member>) {
 		ensureUserSession(userId)
 		pruneToMemberships(memberships)

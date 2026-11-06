@@ -3,6 +3,7 @@ package com.sanibonani.save.viewmodel
 import android.util.Log
 import androidx.arch.core.executor.testing.InstantTaskExecutorRule
 import com.google.firebase.crashlytics.FirebaseCrashlytics
+import com.sanibonani.save.MainDispatcherRule
 import com.sanibonani.save.domain.model.AdminFeeState
 import com.sanibonani.save.domain.model.BankConnection
 import com.sanibonani.save.domain.model.Group
@@ -19,16 +20,16 @@ import io.mockk.mockk
 import io.mockk.mockkStatic
 import io.mockk.unmockkAll
 import java.io.IOException
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.test.advanceUntilIdle
-import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
-import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -46,6 +47,9 @@ import org.junit.Test
 class AdminSettingsBankConnectionTest {
 
     @get:Rule
+    val mainDispatcherRule = MainDispatcherRule()
+
+    @get:Rule
     val instantExecutorRule = InstantTaskExecutorRule()
 
     private val bankRepo = mockk<BankRepository>()
@@ -61,7 +65,7 @@ class AdminSettingsBankConnectionTest {
         linkedAt = "2026-01-04T09:00:00Z"
     )
 
-    private val testDispatcher = StandardTestDispatcher()
+    private val testDispatcher = mainDispatcherRule.dispatcher
     private lateinit var viewModel: AdminSettingsViewModel
 
     @Before
@@ -78,25 +82,23 @@ class AdminSettingsBankConnectionTest {
         mockkStatic(FirebaseCrashlytics::class)
         every { FirebaseCrashlytics.getInstance() } returns mockk<FirebaseCrashlytics>(relaxed = true)
 
-        Dispatchers.setMain(testDispatcher)
         every { cacheService.contexts } returns contextsFlow
         every { cacheService.selectedGroupId } returns selectedGroupIdFlow
         every { bankRepo.observeBankConnection("g-1") } returns connectionFlow
 
-        viewModel = AdminSettingsViewModel(
+        viewModel = mainDispatcherRule.track(AdminSettingsViewModel(
             cacheService,
             bankRepo,
             mockk<LinkBankAccountUseCase>(relaxed = true),
             mockk<UpdateGroupSettingsUseCase>(relaxed = true),
             mockk<SyncRepository>(relaxed = true),
             mockk<SupabaseRepository>(relaxed = true)
-        )
+        ))
     }
 
     @After
     fun tearDown() {
         testDispatcher.scheduler.advanceUntilIdle()
-        Dispatchers.resetMain()
         unmockkAll()
     }
 
@@ -146,5 +148,48 @@ class AdminSettingsBankConnectionTest {
         advanceUntilIdle()
 
         assertEquals(null, viewModel.state.value.bankConnection)
+    }
+
+    @Test
+    fun `an edit survives a refresh of the same group`() = runTest {
+        connectionFlow.value = Result.success(linked)
+        hydrateGroup()
+        viewModel.updateSetting("joining_fee", "999")
+
+        contextsFlow.value = mapOf(
+            "g-1" to CachedAdminGroupContext(
+                group = Group(id = "g-1", name = "Renamed Group"),
+                members = emptyList(),
+                feeStatus = AdminFeeState.DUE,
+                isFullyHydrated = true
+            )
+        )
+        advanceUntilIdle()
+
+        assertEquals("999", viewModel.state.value.settings.joiningFee)
+        assertEquals(linked, viewModel.state.value.bankConnection)
+    }
+
+    @Test
+    fun `switching groups drops the previous bank link and the unsaved form`() = runTest {
+        connectionFlow.value = Result.success(linked)
+        hydrateGroup()
+        viewModel.updateSetting("joining_fee", "999")
+        every { bankRepo.observeBankConnection("g-2") } returns flow { awaitCancellation() }
+
+        selectedGroupIdFlow.value = "g-2"
+        contextsFlow.value = mapOf(
+            "g-2" to CachedAdminGroupContext(
+                group = Group(id = "g-2", name = "Second Group"),
+                members = emptyList(),
+                feeStatus = AdminFeeState.DUE,
+                isFullyHydrated = true
+            )
+        )
+        runCurrent()
+
+        assertEquals("g-2", viewModel.state.value.group?.id)
+        assertNull("g-1's linked account cannot stay on g-2's form", viewModel.state.value.bankConnection)
+        assertEquals("0.00", viewModel.state.value.settings.joiningFee)
     }
 }

@@ -3,6 +3,7 @@ package com.sanibonani.save.viewmodel
 import android.util.Log
 import androidx.arch.core.executor.testing.InstantTaskExecutorRule
 import com.google.firebase.crashlytics.FirebaseCrashlytics
+import com.sanibonani.save.MainDispatcherRule
 import com.sanibonani.save.domain.usecase.treasury.AuditGroupBalanceUseCase
 import com.sanibonani.save.domain.usecase.treasury.ConsolidateGroupLedgerUseCase
 import com.sanibonani.save.domain.usecase.treasury.GetPlatformLedgerUseCase
@@ -14,15 +15,11 @@ import io.mockk.mockk
 import io.mockk.mockkStatic
 import io.mockk.unmockkAll
 import java.io.IOException
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
-import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
-import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
-import kotlinx.coroutines.test.setMain
 import kotlinx.coroutines.withTimeoutOrNull
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -40,10 +37,13 @@ import org.junit.Test
 class PlatformLedgerReconciliationTest {
 
     @get:Rule
+    val mainDispatcherRule = MainDispatcherRule()
+
+    @get:Rule
     val instantExecutorRule = InstantTaskExecutorRule()
 
     private val observeGroupReconciliations = mockk<ObserveGroupReconciliationsUseCase>()
-    private val testDispatcher = StandardTestDispatcher()
+    private val testDispatcher = mainDispatcherRule.dispatcher
     private lateinit var viewModel: PlatformLedgerViewModel
 
     @Before
@@ -60,19 +60,17 @@ class PlatformLedgerReconciliationTest {
         mockkStatic(FirebaseCrashlytics::class)
         every { FirebaseCrashlytics.getInstance() } returns mockk<FirebaseCrashlytics>(relaxed = true)
 
-        Dispatchers.setMain(testDispatcher)
-        viewModel = PlatformLedgerViewModel(
+        viewModel = mainDispatcherRule.track(PlatformLedgerViewModel(
             getPlatformLedger = mockk<GetPlatformLedgerUseCase>(relaxed = true),
             observeGroupReconciliations = observeGroupReconciliations,
             auditGroupBalance = mockk<AuditGroupBalanceUseCase>(relaxed = true),
             consolidateLedger = mockk<ConsolidateGroupLedgerUseCase>(relaxed = true)
-        )
+        ))
     }
 
     @After
     fun tearDown() {
         testDispatcher.scheduler.advanceUntilIdle()
-        Dispatchers.resetMain()
         unmockkAll()
     }
 

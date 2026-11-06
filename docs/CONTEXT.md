@@ -55,7 +55,7 @@ SanibonaniSave is a specialized South African Savings Groups Administration Plat
 7. `07_RESET_DATABASE.sql`: Full teardown for a clean rebuild.
 8. `11…31`: Seed and scenario data (test data, payout requests, escalations, integrity checks).
 9. `MASTER_SEED_DATA.sql` / `SEED_ALL_DATA.sql`: Consolidated seed entry points (local development only).
-10. `online/SYNC_DELTA_<date>.sql`: The only change path for an existing tier. `20261014`, `20261021`, and `20261022` are applied history; never rewrite one; add a new dated delta with bumped fingerprints.
+10. `online/SYNC_DELTA_<date>.sql`: The only change path for an existing tier. The series through `20261106` is applied on Local and on Cloud (measured 2026-11-07); never rewrite one; add a new dated delta with bumped fingerprints.
 
 Regenerate generated SQL with `supabase/scripts/generate_ground_zero.ps1` → `generate_consolidated_schema.ps1` → `generate_online_sync.ps1`, then `generate_integrated_seed.ps1` for the seed bundle.
 

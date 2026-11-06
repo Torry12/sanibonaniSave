@@ -81,7 +81,7 @@ class SyncRepositoryImplTest {
             memberRepo = memberRepo,
             groupRepo = groupRepo,
             notificationRepo = notificationRepo,
-            db = db,
+            dbProvider = javax.inject.Provider { db },
             contributionHandler = contributionHandler,
             loanRepaymentHandler = loanRepaymentHandler,
             payoutHandler = payoutHandler,

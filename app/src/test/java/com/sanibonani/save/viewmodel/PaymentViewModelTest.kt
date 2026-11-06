@@ -2,6 +2,7 @@ package com.sanibonani.save.viewmodel
 
 import android.util.Log
 import androidx.arch.core.executor.testing.InstantTaskExecutorRule
+import com.sanibonani.save.MainDispatcherRule
 import com.sanibonani.save.domain.model.*
 import com.sanibonani.save.domain.repository.admin.*
 import com.sanibonani.save.domain.repository.auth.*
@@ -22,7 +23,6 @@ import com.sanibonani.save.domain.validation.ValidationUtils
 import com.sanibonani.save.features.financial.presentation.PaymentViewModel
 import io.mockk.*
 import java.io.IOException
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.*
@@ -36,6 +36,9 @@ import com.sanibonani.save.domain.repository.credit.LoanRepository
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class PaymentViewModelTest {
+
+    @get:Rule
+    val mainDispatcherRule = MainDispatcherRule()
 
     @get:Rule
     val instantExecutorRule = InstantTaskExecutorRule()
@@ -60,7 +63,6 @@ class PaymentViewModelTest {
     )
 
     private lateinit var viewModel: PaymentViewModel
-    private val testDispatcher = StandardTestDispatcher()
 
     @Before
     fun setup() {
@@ -81,16 +83,14 @@ class PaymentViewModelTest {
         every { feeService.getRegistrationFee() } returns Money.ZERO
         every { feeService.getShortfallRecoveryFee() } returns Money.ZERO
 
-        Dispatchers.setMain(testDispatcher)
-
         every { supabaseRepo.currentUserId } returns "user_123"
         every { supabaseRepo.sessionFlow } returns flowOf(mockk(relaxed = true))
 
-        viewModel = PaymentViewModel(
+        viewModel = mainDispatcherRule.track(PaymentViewModel(
             loadContext,
             processContributionUseCase,
             paymentCalculator
-        )
+        ))
         viewModel.setActive(true)
     }
 
@@ -108,7 +108,6 @@ class PaymentViewModelTest {
 
     @After
     fun tearDown() {
-        Dispatchers.resetMain()
         unmockkAll()
     }
 

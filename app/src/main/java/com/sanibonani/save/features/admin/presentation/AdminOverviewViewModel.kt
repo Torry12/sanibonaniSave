@@ -13,6 +13,7 @@ import com.sanibonani.save.domain.usecase.treasury.ObserveGroupLedgerUseCase
 import com.sanibonani.save.domain.utils.toUserMessage
 import com.sanibonani.save.service.AdminGroupContextCacheService
 import com.sanibonani.save.features.common.presentation.BaseViewModel
+import com.sanibonani.save.features.common.presentation.HydrationWatchdog
 import com.sanibonani.save.features.common.presentation.UIEvent
 import com.sanibonani.save.features.admin.presentation.coordination.AdminActionHost
 import com.sanibonani.save.features.admin.presentation.coordination.AdminGroupOperationsCoordinator
@@ -26,12 +27,9 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import javax.inject.Inject
-
-import kotlin.time.Duration.Companion.seconds
 
 @HiltViewModel
 class AdminOverviewViewModel @Inject constructor(
@@ -54,12 +52,19 @@ class AdminOverviewViewModel @Inject constructor(
     val state: StateFlow<AdminOverviewUiState> = uiState
 
     /**
-     * Whether the watchdog below already reported a load that did not arrive. The snapshot that
-     * eventually lands invalidates that report - it was a guess about a read that was still running
-     * - but it must not clear an error the admin has to act on, so the two are told apart here
-     * rather than by the message text.
+     * Gives a hydration that never answers a verdict, so the dashboard stops waiting on a read the
+     * server refused instead of spinning until the admin leaves the screen. AdminDialogs renders the
+     * verdict as a modal over the dashboard, and the snapshot that lands afterwards disproves it.
      */
-    private var hydrationTimedOut = false
+    private val hydrationWatchdog = HydrationWatchdog(
+        key = "hydration_safety_timer",
+        launch = { jobKey, block -> launchJob(jobKey) { block() } },
+        cancelJob = ::cancelJob,
+        shouldReport = { uiState.value.group == null },
+        onVerdict = { message ->
+            updateState { it.copy(isLoading = false, error = message) }
+        }
+    )
 
     private val host: AdminActionHost = object : AdminActionHost {
         override val adminState: StateFlow<AdminOverviewUiState> get() = state
@@ -161,8 +166,9 @@ class AdminOverviewViewModel @Inject constructor(
 
             if (context == null) {
                 if (selectedId != null) {
-                    // We have a selection but no data yet: give the wait a bound.
-                    armHydrationWatchdog()
+                    // We have a selection but no data yet. This is the same request [selectGroup]
+                    // armed, not a new one, so it must not restart the bound the wait is under.
+                    hydrationWatchdog.armIfIdle()
                 }
                 return@observeGroupContext
             }
@@ -179,9 +185,7 @@ class AdminOverviewViewModel @Inject constructor(
             // goes with it. AdminDialogs renders this error as a modal over the dashboard, so a
             // timeout left behind blocks data that has since arrived - the read was slow, not
             // refused.
-            cancelJob("hydration_safety_timer")
-            val timeoutReported = hydrationTimedOut
-            hydrationTimedOut = false
+            val timeoutReported = hydrationWatchdog.settle()
 
             updateState { s -> s.copy(
                 group = pkg.group,
@@ -189,7 +193,11 @@ class AdminOverviewViewModel @Inject constructor(
                 notifications = pkg.notifications,
                 memberMessages = pkg.messages,
                 feeStatus = context.feeStatus ?: AdminFeeState.DUE,
-                isLoading = !context.isFullyHydrated,
+                // The wait was for the group row, and it is on screen. A pillar that stayed cached
+                // keeps isFullyHydrated false for the rest of the session, so mirroring that flag
+                // here pinned the "Refreshing group data" curtain over a dashboard that had an
+                // answer on it. What the sync could not bring current is said by unverifiedSections.
+                isLoading = false,
                 error = if (timeoutReported) null else s.error
             ) }
 
@@ -199,25 +207,6 @@ class AdminOverviewViewModel @Inject constructor(
                 if (groupId != null) {
                     platformFeeCoordinator.loadOutstanding(host, groupId)
                 }
-            }
-        }
-    }
-
-    /**
-     * Gives a hydration that never answers a verdict, so the dashboard stops waiting on a read the
-     * server refused instead of spinning until the admin leaves the screen.
-     *
-     * Armed from [selectGroup] as well as from the collector above: that flow ends in
-     * distinctUntilChanged, and a null snapshot following the initial null is not a change, so the
-     * first group of a session never armed anything there.
-     */
-    private fun armHydrationWatchdog() {
-        hydrationTimedOut = false
-        launchJob("hydration_safety_timer") {
-            delay(HYDRATION_TIMEOUT)
-            if (uiState.value.group == null) {
-                hydrationTimedOut = true
-                updateState { it.copy(isLoading = false, error = "Loading timed out. Please try again.") }
             }
         }
     }
@@ -234,7 +223,11 @@ class AdminOverviewViewModel @Inject constructor(
                     getGroupBusinessInsights(group, members)
                 }.await()
             }
-            updateState { it.copy(businessInsight = insights) }
+            // The insight runs off the main dispatcher, so a group switch can land before it
+            // returns. The new dashboard must not inherit the group this calculation was for.
+            if (uiState.value.group?.id == groupId) {
+                updateState { it.copy(businessInsight = insights) }
+            }
 
             launch {
                 observeGroupLedger(groupId)
@@ -245,7 +238,9 @@ class AdminOverviewViewModel @Inject constructor(
                         // against no rows at all and the dashboard rendered an integrity verdict
                         // for a ledger that was never read.
                         res.onSuccess { ledger ->
-                            reportingCoordinator.verify(host, group, uiState.value.members, ledger)
+                            if (uiState.value.group?.id == groupId) {
+                                reportingCoordinator.verify(host, group, uiState.value.members, ledger)
+                            }
                         }.onFailure { e ->
                             // Keep the last verdict: the screen has no slot for a transient
                             // observation failure, and a modal on every retry would be noise.
@@ -290,12 +285,18 @@ class AdminOverviewViewModel @Inject constructor(
         }
         cancelJob("group_observation")
         cancelJob("refresh_members")
+        // A refresh, fee read, or audit started for the group being left. Their results are keyed
+        // by that group, and letting them finish writes its loader, its dues, or its report onto
+        // the group this selection is opening.
+        cancelJob("refresh_data")
+        cancelJob("platform_fees_loading")
+        cancelJob("audit_report_loading")
         // Selecting is what warms the group, and it warms it fresh: a second, non-forced warmup
         // here used to race the forced one and re-hydrate the same group twice.
         adminContextCacheService.selectGroup(groupId)
         // This is the one place that knows a book was asked for and is not on screen yet, so the
         // bound on the wait is set here rather than left to the collector.
-        armHydrationWatchdog()
+        hydrationWatchdog.arm()
         loadGroupAuditReport()
     }
 
@@ -305,9 +306,14 @@ class AdminOverviewViewModel @Inject constructor(
             ?: return
         updateState { it.copy(isLoading = true, error = null) }
         launchJob("refresh_data") {
-            adminContextCacheService.refreshGroup(groupId)
-                .onFailure { e -> updateState { state -> state.copy(error = e.toUserMessage()) } }
-            updateState { it.copy(isLoading = false) }
+            val result = adminContextCacheService.refreshGroup(groupId)
+            if (adminContextCacheService.selectedGroupId.value != groupId) return@launchJob
+            result.onFailure { e -> updateState { state -> state.copy(error = e.toUserMessage()) } }
+            // A refresh that returns before the snapshot is on screen must not drop the loader
+            // for a group that has not rendered yet.
+            if (uiState.value.group?.id == groupId) {
+                updateState { it.copy(isLoading = false) }
+            }
         }
         loadGroupAuditReport()
     }
@@ -347,25 +353,19 @@ class AdminOverviewViewModel @Inject constructor(
             loadManagedGroups()
             observeContext()
         } else {
+            // A dashboard left within the bound is no longer waiting on the book, so the wait must
+            // not report a timeout to a screen nobody is looking at.
+            hydrationWatchdog.cancel()
             listOf(
                 "context_observation",
                 "group_observation",
                 "managed_groups_loading",
                 "audit_report_loading",
-                // A dashboard left within the bound is no longer waiting on the book, so the wait
-                // must not report a timeout to a screen nobody is looking at.
-                "hydration_safety_timer"
+                "refresh_data",
+                "platform_fees_loading"
             ).forEach { cancelJob(it) }
         }
     }
 
     fun clearError() { updateState { it.copy(error = null) } }
-
-    private companion object {
-        /**
-         * How long the dashboard waits for a hydration before saying the book did not arrive.
-         * Long enough for a slow tier to answer, short enough that the admin keeps a way out.
-         */
-        val HYDRATION_TIMEOUT = 7.seconds
-    }
 }

@@ -2,7 +2,7 @@ package com.sanibonani.save.viewmodel
 
 import android.util.Log
 import androidx.arch.core.executor.testing.InstantTaskExecutorRule
-import androidx.lifecycle.viewModelScope
+import com.sanibonani.save.MainDispatcherRule
 import com.sanibonani.save.domain.model.*
 import com.sanibonani.save.domain.repository.auth.SupabaseRepository
 import com.sanibonani.save.domain.repository.equity.ContributionRepository
@@ -28,17 +28,12 @@ import com.sanibonani.save.features.common.presentation.UIEvent
 import com.sanibonani.save.service.AdminGroupContextCacheService
 import com.sanibonani.save.service.CachedAdminGroupContext
 import io.mockk.*
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
-import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
-import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
-import kotlinx.coroutines.test.setMain
 import kotlinx.coroutines.withTimeoutOrNull
 import org.junit.After
 import org.junit.Assert.*
@@ -55,6 +50,9 @@ import java.io.IOException
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class AdminMemberViewModelTest {
+
+    @get:Rule
+    val mainDispatcherRule = MainDispatcherRule()
 
     @get:Rule
     val instantExecutorRule = InstantTaskExecutorRule()
@@ -77,7 +75,7 @@ class AdminMemberViewModelTest {
     private val selectedGroupIdFlow = MutableStateFlow<String?>("g-1")
 
     private lateinit var viewModel: AdminMemberViewModel
-    private val testDispatcher = StandardTestDispatcher()
+    private val testDispatcher = mainDispatcherRule.dispatcher
 
     private val member = Member(id = "m-1", groupId = "g-1", fullName = "Thabo Mokoena")
 
@@ -93,13 +91,11 @@ class AdminMemberViewModelTest {
         mockkStatic(android.os.Looper::class)
         every { android.os.Looper.getMainLooper() } returns mockk(relaxed = true)
 
-        Dispatchers.setMain(testDispatcher)
-
         every { adminContextCacheService.contexts } returns contextsFlow
         every { adminContextCacheService.selectedGroupId } returns selectedGroupIdFlow
         every { contributionRepo.observeGroupContributions(any()) } returns flowOf(Result.success(emptyList()))
 
-        viewModel = AdminMemberViewModel(
+        viewModel = mainDispatcherRule.track(AdminMemberViewModel(
             adminContextCacheService,
             UpdateMemberBankingDetailsUseCase(memberRepo),
             ObserveGroupContributionsUseCase(contributionRepo),
@@ -114,14 +110,12 @@ class AdminMemberViewModelTest {
             validateLoanEligibilityUseCase,
             sendNotificationUseCase,
             paymentCalculator
-        )
+        ))
     }
 
     @After
     fun tearDown() {
-        viewModel.viewModelScope.cancel()
         testDispatcher.scheduler.advanceUntilIdle()
-        Dispatchers.resetMain()
         unmockkAll()
     }
 

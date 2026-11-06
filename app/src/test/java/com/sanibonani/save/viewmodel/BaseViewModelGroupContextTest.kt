@@ -2,20 +2,16 @@ package com.sanibonani.save.viewmodel
 
 import androidx.arch.core.executor.testing.InstantTaskExecutorRule
 import androidx.lifecycle.viewModelScope
+import com.sanibonani.save.MainDispatcherRule
 import com.sanibonani.save.features.common.presentation.BaseViewModel
 import io.mockk.unmockkAll
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
-import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
-import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
-import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 
@@ -28,18 +24,13 @@ import org.junit.Test
 class BaseViewModelGroupContextTest {
 
     @get:Rule
+    val mainDispatcherRule = MainDispatcherRule()
+
+    @get:Rule
     val instantExecutorRule = InstantTaskExecutorRule()
-
-    private val testDispatcher = StandardTestDispatcher()
-
-    @Before
-    fun setup() {
-        Dispatchers.setMain(testDispatcher)
-    }
 
     @After
     fun tearDown() {
-        Dispatchers.resetMain()
         unmockkAll()
     }
 
@@ -60,7 +51,7 @@ class BaseViewModelGroupContextTest {
 
     @Test
     fun `observing the group context again replaces the previous collector`() = runTest {
-        val probe = ContextProbe()
+        val probe = mainDispatcherRule.track(ContextProbe())
         try {
             probe.watch()
             probe.watch()
@@ -88,7 +79,7 @@ class BaseViewModelGroupContextTest {
 
     @Test
     fun `stopping the context observation by key ends the subscription`() = runTest {
-        val probe = ContextProbe()
+        val probe = mainDispatcherRule.track(ContextProbe())
         try {
             probe.watch()
             probe.selectedGroupId.value = "g-1"

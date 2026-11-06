@@ -3,6 +3,7 @@ package com.sanibonani.save.viewmodel
 import android.util.Log
 import androidx.arch.core.executor.testing.InstantTaskExecutorRule
 import com.google.firebase.crashlytics.FirebaseCrashlytics
+import com.sanibonani.save.MainDispatcherRule
 import com.sanibonani.save.domain.model.AsyncResult
 import com.sanibonani.save.domain.model.Group
 import com.sanibonani.save.domain.model.PlatformAnalytics
@@ -22,14 +23,10 @@ import io.mockk.mockk
 import io.mockk.mockkStatic
 import io.mockk.unmockkAll
 import java.io.IOException
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
-import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
-import kotlinx.coroutines.test.setMain
 import kotlinx.coroutines.withTimeoutOrNull
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -48,10 +45,13 @@ import org.junit.Test
 class PlatformAnalyticsLoadTest {
 
     @get:Rule
+    val mainDispatcherRule = MainDispatcherRule()
+
+    @get:Rule
     val instantExecutorRule = InstantTaskExecutorRule()
 
     private val platformRepo = mockk<PlatformRepository>()
-    private val testDispatcher = StandardTestDispatcher()
+    private val testDispatcher = mainDispatcherRule.dispatcher
     private lateinit var viewModel: PlatformAnalyticsViewModel
 
     @Before
@@ -69,7 +69,6 @@ class PlatformAnalyticsLoadTest {
         val mockCrashlytics = mockk<FirebaseCrashlytics>(relaxed = true)
         every { FirebaseCrashlytics.getInstance() } returns mockCrashlytics
 
-        Dispatchers.setMain(testDispatcher)
         coEvery { platformRepo.getPlatformAnalytics() } returns Result.success(PlatformAnalytics())
         coEvery { platformRepo.getAllGroups() } returns Result.success(
             listOf(
@@ -77,7 +76,7 @@ class PlatformAnalyticsLoadTest {
                 Group(id = "g-2", name = "Beta", province = "KwaZulu-Natal")
             )
         )
-        viewModel = PlatformAnalyticsViewModel(
+        viewModel = mainDispatcherRule.track(PlatformAnalyticsViewModel(
             getPlatformAnalytics = GetPlatformAnalyticsUseCase(platformRepo),
             getAllPlatformGroups = GetAllPlatformGroupsUseCase(platformRepo),
             computeSystemWideMetrics = mockk<ComputeSystemWideMetricsUseCase>(relaxed = true),
@@ -85,13 +84,12 @@ class PlatformAnalyticsLoadTest {
             calculateGroupHealthScore = mockk<CalculateGroupHealthScoreUseCase>(relaxed = true),
             deleteGroupFromPlatformUseCase = mockk<DeleteGroupFromPlatformUseCase>(relaxed = true),
             getPlatformDistributions = GetPlatformDistributionsUseCase()
-        )
+        ))
     }
 
     @After
     fun tearDown() {
         testDispatcher.scheduler.advanceUntilIdle()
-        Dispatchers.resetMain()
         unmockkAll()
     }
 

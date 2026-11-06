@@ -84,11 +84,21 @@ class GroupViewModel @Inject constructor(
 
     fun loadGroup(id: String) {
         launchSafeJob(DETAIL_JOB, "Failed to load group details") {
-            updateState { it.copy(isLoadingDetail = true, detailError = null) }
+            updateState {
+                val stillThisGroup = it.selectedGroup?.id == id
+                it.copy(
+                    isLoadingDetail = true,
+                    detailError = null,
+                    // The profile on screen belongs to the previous request. Leaving it up while this
+                    // read is out renders that group under the new route, and a failure then has no
+                    // empty slot to show itself in.
+                    selectedGroup = if (stillThisGroup) it.selectedGroup else null
+                )
+            }
             AppLogger.i(DISCOVERY_LOG_TAG, "group profile read attempted for $id")
             observeGroupDetail(id).collectLatest { res ->
                 res.onSuccess { g ->
-                    if (g == null) {
+                    if (g == null || g.id != id) {
                         // No row is not a loaded profile. Without a verdict here the screen falls
                         // through state.selectedGroup?.let and renders a page with nothing on it.
                         AppLogger.w(DISCOVERY_LOG_TAG, "group profile read found no row for $id")
@@ -109,7 +119,13 @@ class GroupViewModel @Inject constructor(
                         DISCOVERY_LOG_TAG,
                         "group profile read refused for $id: ${e.toUserMessage()}"
                     )
-                    updateState { it.copy(isLoadingDetail = false, detailError = e.toUserMessage()) }
+                    updateState {
+                        it.copy(
+                            isLoadingDetail = false,
+                            detailError = e.toUserMessage(),
+                            selectedGroup = if (it.selectedGroup?.id == id) it.selectedGroup else null
+                        )
+                    }
                     handleError(e)
                 }
             }

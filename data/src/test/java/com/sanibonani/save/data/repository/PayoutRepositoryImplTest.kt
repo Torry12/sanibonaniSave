@@ -15,6 +15,8 @@ import com.sanibonani.save.domain.model.PayoutType
 import com.sanibonani.save.domain.repository.admin.AuditLogRepository
 import io.mockk.Runs
 import io.mockk.coEvery
+import io.mockk.coVerify
+import io.mockk.every
 import io.mockk.just
 import io.mockk.mockk
 import io.mockk.slot
@@ -37,6 +39,9 @@ class PayoutRepositoryImplTest {
     private val localSource: LocalPayoutDataSource = mockk(relaxed = true)
     private val auditLogRepo: AuditLogRepository = mockk(relaxed = true)
     private val pendingOpDao: PendingOperationDao = mockk(relaxed = true)
+    private val db: com.sanibonani.save.data.local.SanibonaniDatabase =
+        mockk<com.sanibonani.save.data.local.SanibonaniDatabase>(relaxed = true)
+            .apply { every { pendingOperationDao() } returns pendingOpDao }
     private val json = Json { ignoreUnknownKeys = true }
 
     private fun repository() = PayoutRepositoryImpl(
@@ -44,7 +49,7 @@ class PayoutRepositoryImplTest {
         localSource,
         auditLogRepo,
         json,
-        pendingOpDao
+        javax.inject.Provider { db }
     )
 
     private fun payout(memberId: String?) = PayoutRequest(
@@ -139,5 +144,50 @@ class PayoutRepositoryImplTest {
 
         assertEquals("22222222-2222-2222-2222-222222222222", params["p_admin_id"]?.jsonPrimitive?.content)
         assertFalse(params.containsKey("p_payout_reference"))
+    }
+
+    @Test
+    fun `a replay whose existence read was refused does not re-open the payout`() = runBlocking {
+        // The outbox replays a queued payout under its idempotency key, and the create path is an
+        // upsert on that id. If the server would not answer the lookup, the only safe answer is to
+        // leave the row alone and try again - a timeout used to read as "no such payout".
+        coEvery { remoteSource.findPayoutById("p1") } returns
+            Result.failure(java.io.IOException("read refused"))
+
+        val result = repository().requestPayout(payout("m1"), idempotencyKey = "k1")
+
+        assertTrue(result.isFailure)
+        coVerify(exactly = 0) { remoteSource.requestPayout(any()) }
+        coVerify(exactly = 1) { pendingOpDao.upsert(any()) }
+    }
+
+    @Test
+    fun `a replay of a payout the server already has keeps the decided row`() = runBlocking {
+        coEvery { remoteSource.findPayoutById("p1") } returns Result.success(payout("m1"))
+
+        val result = repository().requestPayout(
+            payout("m1").copy(status = PayoutStatus.PENDING, processedBy = null, payoutReference = null),
+            idempotencyKey = "k1"
+        )
+
+        assertTrue(result.isSuccess)
+        val cached = slot<PayoutRequest>()
+        coVerify { localSource.savePayout(capture(cached)) }
+        assertEquals(PayoutStatus.PROCESSING, cached.captured.status)
+        coVerify(exactly = 0) { remoteSource.requestPayout(any()) }
+        // A replay is not a second request, so it must not write a second "PAYOUT_REQUESTED" line.
+        coVerify(exactly = 0) { auditLogRepo.logEvent(any()) }
+    }
+
+    @Test
+    fun `a replay creates the payout only when the server reports it absent`() = runBlocking {
+        coEvery { remoteSource.findPayoutById("p1") } returns Result.success(null)
+        coEvery { remoteSource.requestPayout(any()) } returns Result.success(payout("m1"))
+
+        val result = repository().requestPayout(payout("m1"), idempotencyKey = "k1")
+
+        assertTrue(result.isSuccess)
+        coVerify(exactly = 1) { remoteSource.requestPayout(any()) }
+        coVerify(exactly = 1) { auditLogRepo.logEvent(any()) }
     }
 }

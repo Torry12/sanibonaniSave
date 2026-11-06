@@ -3,6 +3,7 @@ package com.sanibonani.save.viewmodel
 import android.util.Log
 import androidx.arch.core.executor.testing.InstantTaskExecutorRule
 import com.google.firebase.crashlytics.FirebaseCrashlytics
+import com.sanibonani.save.MainDispatcherRule
 import com.sanibonani.save.domain.model.GroupAuditResult
 import com.sanibonani.save.domain.model.LedgerEntry
 import com.sanibonani.save.domain.model.Money
@@ -21,16 +22,12 @@ import io.mockk.mockk
 import io.mockk.mockkStatic
 import io.mockk.unmockkAll
 import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.flow.toList
-import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
-import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
-import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -48,12 +45,15 @@ import org.junit.Test
 class PlatformLedgerAuditTest {
 
     @get:Rule
+    val mainDispatcherRule = MainDispatcherRule()
+
+    @get:Rule
     val instantExecutorRule = InstantTaskExecutorRule()
 
     private val auditRepo = mockk<AuditRepository>(relaxed = true)
     private val ledgerRepo = mockk<LedgerRepository>(relaxed = true)
     private val reconRepo = mockk<ReconciliationRepository>(relaxed = true)
-    private val testDispatcher = StandardTestDispatcher()
+    private val testDispatcher = mainDispatcherRule.dispatcher
     private lateinit var viewModel: PlatformLedgerViewModel
 
     private val groupId = "group-1"
@@ -82,19 +82,17 @@ class PlatformLedgerAuditTest {
         val mockCrashlytics = mockk<FirebaseCrashlytics>(relaxed = true)
         every { FirebaseCrashlytics.getInstance() } returns mockCrashlytics
 
-        Dispatchers.setMain(testDispatcher)
-        viewModel = PlatformLedgerViewModel(
+        viewModel = mainDispatcherRule.track(PlatformLedgerViewModel(
             getPlatformLedger = GetPlatformLedgerUseCase(ledgerRepo),
             observeGroupReconciliations = ObserveGroupReconciliationsUseCase(reconRepo),
             auditGroupBalance = AuditGroupBalanceUseCase(auditRepo),
             consolidateLedger = ConsolidateGroupLedgerUseCase(ledgerRepo)
-        )
+        ))
     }
 
     @After
     fun tearDown() {
         testDispatcher.scheduler.advanceUntilIdle()
-        Dispatchers.resetMain()
         unmockkAll()
     }
 

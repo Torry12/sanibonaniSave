@@ -33,6 +33,7 @@ import io.github.jan.supabase.storage.storage
 import io.ktor.client.statement.bodyAsText
 import java.io.File
 import javax.inject.Inject
+import javax.inject.Provider
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -47,10 +48,12 @@ import com.sanibonani.save.domain.utils.safeRunCatching
 
 class PlatformRepositoryImpl @Inject constructor(
     private val protocol: DataConnectionProtocol,
-    private val db: SanibonaniDatabase,
+    private val dbProvider: Provider<SanibonaniDatabase>,
     private val actuarialRepo: ActuarialRepository,
     private val notifRepo: NotificationRepository,
 ) : BaseRepository("PlatformRepository"), PlatformRepository {
+
+    private val db: SanibonaniDatabase get() = dbProvider.get()
 
     private val supabase: SupabaseClient
         get() = protocol.getRemoteClient(SupabaseClient::class.java)

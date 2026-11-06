@@ -43,6 +43,8 @@ data class AdminOverviewUiState(
         businessInsight = null,
         notifications = emptyList(),
         memberMessages = emptyList(),
+        outstandingPlatformFees = emptyList(),
+        verificationResult = VerificationResult.Valid,
         isLoading = true,
         error = null,
         groupAuditReport = AsyncResult.Uninitialized

@@ -22,8 +22,10 @@ import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
+import java.io.IOException
 import java.time.LocalDate
 import kotlinx.coroutines.runBlocking
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -194,6 +196,25 @@ class ProcessLoanForcedSettlementUseCaseTest {
             paymentCalculator.calculateStatus(any(), any(), any<List<Contribution>>(), any<List<Loan>>(), any())
         }
         coVerify(exactly = 0) { memberRepository.updateMemberStatus("m1", MemberStatus.PROBATION) }
+    }
+
+    @Test
+    fun `a probation demotion the server refused is reported by the sweep that ordered it`() = runBlocking {
+        stubGroups(group("g1", GroupType.BURIAL_SOCIETY))
+        stubGroupLoans("g1", loan("l1", "g1", "500.00"))
+        stubPaymentShortfall("200.01")
+        coEvery { memberRepository.updateMemberStatus("m1", MemberStatus.PROBATION) } returns
+            Result.failure(IOException("HTTP 500"))
+
+        val result = useCase()
+
+        // The Result used to be dropped on the floor: the member keeps full standing, the sweep
+        // reports a clean run, and because the loan is no longer active nothing ever revisits it.
+        assertTrue(result.isFailure)
+        val message = result.exceptionOrNull()?.message.orEmpty()
+        assertTrue("the report names the sanction that did not apply: $message", message.contains("m1 probation"))
+        // and it must not read as though the settlement itself had not happened - that money moved.
+        assertFalse("the settled loan is not reported as unsettled: $message", message.contains("loan l1"))
     }
 
     private fun stubPaymentShortfall(shortfall: String) {

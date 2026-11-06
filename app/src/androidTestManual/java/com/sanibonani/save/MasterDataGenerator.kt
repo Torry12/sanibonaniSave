@@ -16,13 +16,15 @@ import java.util.*
 import kotlin.math.floor
 import kotlin.random.Random
 import java.time.LocalDate
-import org.junit.Ignore
 import java.time.format.DateTimeFormatter
 
 /**
  * PURE SEEDER: Generates a master data set using Service Role bypass.
+ *
+ * Not part of the default instrumentation run: it inserts groups and months of contributions
+ * into whatever tier SUPABASE_URL_LOCAL points at. Run it with the tools source set switched
+ * on: -Psanibonani.manualTools=true connectedDebugAndroidTest --tests com.sanibonani.save.MasterDataGenerator
  */
-@Ignore("Manual tool")
 @RunWith(AndroidJUnit4::class)
 class MasterDataGenerator {
 

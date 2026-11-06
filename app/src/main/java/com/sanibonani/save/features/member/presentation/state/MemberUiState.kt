@@ -108,6 +108,7 @@ data class MemberUiState(
         payouts = emptyList(),
         notifications = emptyList(),
         messages = emptyList(),
+        businessInsight = null,
         isLoading = true,
         error = null
     )

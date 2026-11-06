@@ -3,6 +3,7 @@ package com.sanibonani.save.data.local.room
 import com.sanibonani.save.data.datasource.LocalContributionDataSource
 import com.sanibonani.save.data.local.ContributionDao
 import com.sanibonani.save.data.local.PaymentDao
+import com.sanibonani.save.data.local.SanibonaniDatabase
 import com.sanibonani.save.data.local.toEntity
 import com.sanibonani.save.data.local.toModel
 import com.sanibonani.save.domain.model.Contribution
@@ -10,13 +11,16 @@ import com.sanibonani.save.domain.model.Payment
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import javax.inject.Inject
+import javax.inject.Provider
 import javax.inject.Singleton
 
 @Singleton
 class RoomContributionDataSourceImpl @Inject constructor(
-    private val contributionDao: ContributionDao,
-    private val paymentDao: PaymentDao
+    private val dbProvider: Provider<SanibonaniDatabase>
 ) : LocalContributionDataSource {
+
+    private val contributionDao: ContributionDao get() = dbProvider.get().contributionDao()
+    private val paymentDao: PaymentDao get() = dbProvider.get().paymentDao()
 
     override fun observeMemberContributions(memberId: String): Flow<List<Contribution>> =
         contributionDao.observeContributions(memberId).map { list -> list.map { it.toModel() } }

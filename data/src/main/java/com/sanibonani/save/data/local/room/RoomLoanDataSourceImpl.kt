@@ -2,6 +2,7 @@ package com.sanibonani.save.data.local.room
 
 import com.sanibonani.save.data.datasource.LocalLoanDataSource
 import com.sanibonani.save.data.local.LoanDao
+import com.sanibonani.save.data.local.SanibonaniDatabase
 import com.sanibonani.save.data.local.toEntity
 import com.sanibonani.save.data.local.toModel
 import com.sanibonani.save.domain.model.Loan
@@ -9,12 +10,15 @@ import com.sanibonani.save.domain.model.LoanRepayment
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import javax.inject.Inject
+import javax.inject.Provider
 import javax.inject.Singleton
 
 @Singleton
 class RoomLoanDataSourceImpl @Inject constructor(
-    private val loanDao: LoanDao
+    private val dbProvider: Provider<SanibonaniDatabase>
 ) : LocalLoanDataSource {
+
+    private val loanDao: LoanDao get() = dbProvider.get().loanDao()
 
     override fun observeMemberLoans(memberId: String): Flow<List<Loan>> =
         loanDao.observeLoans(memberId).map { list -> list.map { it.toModel() } }

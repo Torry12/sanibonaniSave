@@ -48,9 +48,8 @@ class AuthoritativeContributionReadTest {
         fun repository(): ContributionRepositoryImpl = ContributionRepositoryImpl(
             remoteSource = remote,
             localSource = local,
-            groupDao = mockk(relaxed = true),
             json = Json { ignoreUnknownKeys = true },
-            pendingOpDao = mockk(relaxed = true)
+            dbProvider = javax.inject.Provider { mockk(relaxed = true) }
         )
     }
 

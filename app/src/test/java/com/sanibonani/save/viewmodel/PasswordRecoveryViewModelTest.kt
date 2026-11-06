@@ -1,5 +1,6 @@
 package com.sanibonani.save.viewmodel
 
+import com.sanibonani.save.MainDispatcherRule
 import com.sanibonani.save.domain.repository.auth.SupabaseRepository
 import com.sanibonani.save.domain.usecase.auth.RequestPasswordResetUseCase
 import com.sanibonani.save.domain.utils.toUserMessage
@@ -8,40 +9,37 @@ import io.mockk.coEvery
 import io.mockk.mockk
 import io.mockk.unmockkAll
 import java.io.IOException
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
-import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
-import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Before
+import org.junit.Rule
 import org.junit.Test
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class PasswordRecoveryViewModelTest {
 
-    private val dispatcher = StandardTestDispatcher()
+    @get:Rule
+    val mainDispatcherRule = MainDispatcherRule()
+
     private lateinit var supabaseRepository: SupabaseRepository
 
     @Before
     fun setUp() {
-        Dispatchers.setMain(dispatcher)
         supabaseRepository = mockk(relaxed = true)
     }
 
     @After
     fun tearDown() {
-        Dispatchers.resetMain()
         unmockkAll()
     }
 
-    private fun viewModel() = PasswordRecoveryViewModel(
+    private fun viewModel() = mainDispatcherRule.track(PasswordRecoveryViewModel(
         requestPasswordReset = RequestPasswordResetUseCase(supabaseRepository)
-    )
+    ))
 
     // PasswordRecoveryScreen.kt:97-100 renders state.error and the screen collects no events, so
     // a refused reset request stopped the spinner and said nothing at all.

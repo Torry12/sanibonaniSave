@@ -3,6 +3,7 @@ package com.sanibonani.save.viewmodel
 import android.util.Log
 import androidx.arch.core.executor.testing.InstantTaskExecutorRule
 import com.google.firebase.crashlytics.FirebaseCrashlytics
+import com.sanibonani.save.MainDispatcherRule
 import com.sanibonani.save.domain.model.FinancialProvider
 import com.sanibonani.save.domain.model.FinancialProviderType
 import com.sanibonani.save.domain.usecase.payment.ObserveFinancialProvidersUseCase
@@ -12,13 +13,9 @@ import io.mockk.mockk
 import io.mockk.mockkStatic
 import io.mockk.unmockkAll
 import java.io.IOException
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.test.StandardTestDispatcher
-import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
-import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -37,12 +34,15 @@ import org.junit.Test
 class FinancialProviderLoadStateTest {
 
     @get:Rule
+    val mainDispatcherRule = MainDispatcherRule()
+
+    @get:Rule
     val instantExecutorRule = InstantTaskExecutorRule()
 
     private val bankProvider = FinancialProvider(id = "p-1", name = "Capitec Business", type = FinancialProviderType.BANK)
     private val providersFlow = MutableStateFlow<Result<List<FinancialProvider>>>(Result.success(emptyList()))
     private val observeProviders = mockk<ObserveFinancialProvidersUseCase>()
-    private val testDispatcher = StandardTestDispatcher()
+    private val testDispatcher = mainDispatcherRule.dispatcher
 
     @Before
     fun setup() {
@@ -58,19 +58,17 @@ class FinancialProviderLoadStateTest {
         mockkStatic(FirebaseCrashlytics::class)
         every { FirebaseCrashlytics.getInstance() } returns mockk<FirebaseCrashlytics>(relaxed = true)
 
-        Dispatchers.setMain(testDispatcher)
         every { observeProviders() } returns providersFlow
     }
 
     @After
     fun tearDown() {
         testDispatcher.scheduler.advanceUntilIdle()
-        Dispatchers.resetMain()
         unmockkAll()
     }
 
     private fun started(): FinancialProviderViewModel {
-        val viewModel = FinancialProviderViewModel(observeProviders)
+        val viewModel = mainDispatcherRule.track(FinancialProviderViewModel(observeProviders))
         testDispatcher.scheduler.advanceUntilIdle()
         return viewModel
     }

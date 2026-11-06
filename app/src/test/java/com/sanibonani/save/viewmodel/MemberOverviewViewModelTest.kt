@@ -2,7 +2,7 @@ package com.sanibonani.save.viewmodel
 
 import android.util.Log
 import androidx.arch.core.executor.testing.InstantTaskExecutorRule
-import androidx.lifecycle.viewModelScope
+import com.sanibonani.save.MainDispatcherRule
 import com.sanibonani.save.domain.model.*
 import com.sanibonani.save.domain.repository.admin.*
 import com.sanibonani.save.domain.repository.auth.*
@@ -43,9 +43,7 @@ import com.sanibonani.save.features.member.presentation.coordination.MemberLiveO
 import com.sanibonani.save.features.member.presentation.coordination.MemberMessagingCoordinator
 import io.mockk.*
 import java.io.IOException
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
@@ -69,6 +67,9 @@ import kotlinx.coroutines.flow.flow
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class MemberOverviewViewModelTest {
+
+    @get:Rule
+    val mainDispatcherRule = MainDispatcherRule()
 
     @get:Rule
     val instantExecutorRule = InstantTaskExecutorRule()
@@ -95,10 +96,9 @@ class MemberOverviewViewModelTest {
     private lateinit var viewModel: MemberOverviewViewModel
     private lateinit var contexts: MutableStateFlow<Map<String, CachedGroupContext>>
     private lateinit var staleSections: MutableStateFlow<Map<String, Set<String>>>
-    private val testDispatcher = StandardTestDispatcher()
-    private val createdViewModels = mutableListOf<MemberOverviewViewModel>()
+    private val testDispatcher = mainDispatcherRule.dispatcher
 
-    private fun createViewModel(): MemberOverviewViewModel = MemberOverviewViewModel(
+    private fun createViewModel(): MemberOverviewViewModel = mainDispatcherRule.track(MemberOverviewViewModel(
         memberContextCacheService,
         ObserveMembershipsUseCase(memberRepo),
         GetGroupByIdUseCase(groupRepo),
@@ -127,7 +127,7 @@ class MemberOverviewViewModelTest {
         ),
         devSettings,
         networkService
-    ).also { createdViewModels += it }
+    ))
 
     @Before
     fun setup() {
@@ -145,8 +145,6 @@ class MemberOverviewViewModelTest {
         mockkStatic(android.os.Looper::class)
         every { android.os.Looper.getMainLooper() } returns mockk(relaxed = true)
 
-        Dispatchers.setMain(testDispatcher)
-
         every { supabaseRepo.currentUserId } returns "user_123"
         contexts = MutableStateFlow(emptyMap())
         every { memberContextCacheService.contexts } returns contexts
@@ -160,11 +158,7 @@ class MemberOverviewViewModelTest {
 
     @After
     fun tearDown() {
-        // Cancel every ViewModel scope while Main is still set, otherwise a coroutine on
-        // Dispatchers.Default resumes after resetMain() and fails the *next* test.
-        createdViewModels.forEach { it.viewModelScope.cancel() }
         testDispatcher.scheduler.advanceUntilIdle()
-        Dispatchers.resetMain()
         unmockkAll()
     }
 

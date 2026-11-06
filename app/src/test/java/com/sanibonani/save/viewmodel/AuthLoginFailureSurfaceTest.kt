@@ -3,6 +3,7 @@ package com.sanibonani.save.viewmodel
 import android.util.Log
 import androidx.arch.core.executor.testing.InstantTaskExecutorRule
 import com.google.firebase.crashlytics.FirebaseCrashlytics
+import com.sanibonani.save.MainDispatcherRule
 import com.sanibonani.save.domain.repository.auth.CredentialsRepository
 import com.sanibonani.save.domain.repository.auth.SupabaseRepository
 import com.sanibonani.save.domain.repository.auth.UserProfileRepository
@@ -30,16 +31,12 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkStatic
 import io.mockk.unmockkAll
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
-import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
-import kotlinx.coroutines.test.setMain
 import kotlinx.coroutines.withTimeoutOrNull
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -56,6 +53,9 @@ import org.junit.Test
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class AuthLoginFailureSurfaceTest {
+
+    @get:Rule
+    val mainDispatcherRule = MainDispatcherRule()
 
     @get:Rule
     val instantExecutorRule = InstantTaskExecutorRule()
@@ -85,15 +85,14 @@ class AuthLoginFailureSurfaceTest {
         every { Log.e(any(), any()) } returns 0
         mockkStatic(FirebaseCrashlytics::class)
         every { FirebaseCrashlytics.getInstance() } returns mockk(relaxed = true)
-        testDispatcher = StandardTestDispatcher()
-        Dispatchers.setMain(testDispatcher)
+        testDispatcher = mainDispatcherRule.dispatcher
 
         every { connManager.currentClient } returns MutableStateFlow(null)
         every { supabaseRepo.sessionFlow } returns sessions
         coEvery { supabaseRepo.getUserRole() } returns com.sanibonani.save.domain.model.UserRole.MEMBER
         coEvery { userProfileRepo.getProfile(any()) } returns Result.success(null)
 
-        viewModel = AuthViewModel(
+        viewModel = mainDispatcherRule.track(AuthViewModel(
             ObserveAuthSessionUseCase(supabaseRepo),
             GetUserProfileUseCase(userProfileRepo),
             GetCurrentUserRoleUseCase(supabaseRepo),
@@ -114,13 +113,12 @@ class AuthLoginFailureSurfaceTest {
             loadQueue,
             mockk(relaxed = true),
             mockk(relaxed = true)
-        )
+        ))
     }
 
     @After
     fun tearDown() {
         testDispatcher.scheduler.advanceUntilIdle()
-        Dispatchers.resetMain()
         unmockkAll()
     }
 

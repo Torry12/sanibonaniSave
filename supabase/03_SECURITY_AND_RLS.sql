@@ -59,12 +59,6 @@ FROM PUBLIC, anon;
 REVOKE EXECUTE ON FUNCTION public.settle_expired_loan_v2(UUID) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.settle_expired_loan_v2(UUID) TO authenticated, service_role;
 
--- Retire the pre-v2 settlement entry point. Its caller-supplied member, group, and amount
--- parameters are not validated as one atomic settlement and must not remain an RPC bypass.
-REVOKE EXECUTE ON FUNCTION
-    public.record_loan_settlement_extraction_v1(UUID, UUID, NUMERIC, UUID)
-FROM PUBLIC, anon, authenticated, service_role;
-
 -- 2c. MONEY RPCs: THE SAME TREATMENT
 -- Every function below either moves a balance or rewrites a ledger, and the blanket grant in
 -- section 2 handed all of them to `anon` as well. Each one now carries its own caller check
@@ -106,23 +100,23 @@ TO authenticated, service_role;
 
 REVOKE EXECUTE ON FUNCTION
     public.increment_group_balance(UUID, NUMERIC, TEXT, TEXT, TEXT, UUID),
+    public.assert_ledger_wrapper_input_v1(UUID, NUMERIC, TEXT, TEXT, TEXT, TEXT),
     public.recompute_ledger_running_balances_v2(UUID),
     public.perform_group_reconciliation_v1(UUID),
     public.consolidate_group_ledger_v1(UUID),
     public.create_ledger_checkpoint_v1(UUID),
     public.automate_monthly_billing_v1(),
-    public.simulate_bulk_activity_v2(UUID, INT, INT),
-    public.record_platform_revenue_v1(NUMERIC, TEXT, TEXT, TEXT, UUID)
+    public.simulate_bulk_activity_v2(UUID, INT, INT)
 FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION
     public.increment_group_balance(UUID, NUMERIC, TEXT, TEXT, TEXT, UUID),
+    public.assert_ledger_wrapper_input_v1(UUID, NUMERIC, TEXT, TEXT, TEXT, TEXT),
     public.recompute_ledger_running_balances_v2(UUID),
     public.perform_group_reconciliation_v1(UUID),
     public.consolidate_group_ledger_v1(UUID),
     public.create_ledger_checkpoint_v1(UUID),
     public.automate_monthly_billing_v1(),
-    public.simulate_bulk_activity_v2(UUID, INT, INT),
-    public.record_platform_revenue_v1(NUMERIC, TEXT, TEXT, TEXT, UUID)
+    public.simulate_bulk_activity_v2(UUID, INT, INT)
 TO service_role;
 
 -- Re-derives aggregates from the ledger, so it moves no money, but the platform console calls it

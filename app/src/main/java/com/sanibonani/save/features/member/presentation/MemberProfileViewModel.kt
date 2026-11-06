@@ -47,21 +47,40 @@ class MemberProfileViewModel @Inject constructor(
             combine(memberContextCacheService.contexts, uiState.map { it.selectedGroupId }.distinctUntilChanged()) { contexts, id -> contexts[id] }
                 .collect { context ->
                     if ((context == null) || uiState.value.isImpersonating) return@collect
-                    updateState { it.copy(member = context.member, group = context.group) }
+                    val memberChanged = context.member?.id != uiState.value.member?.id
+                    updateState {
+                        it.copy(
+                            member = context.member,
+                            group = context.group,
+                            documents = if (memberChanged) emptyList() else it.documents
+                        )
+                    }
                     context.member?.id?.let { observeDocuments(it) }
                 }
         }
     }
 
     fun setImpersonationContext(member: Member?, group: Group?) {
-        updateState { it.copy(member = member, group = group, isImpersonating = member != null) }
+        val memberChanged = member?.id != uiState.value.member?.id
+        updateState {
+            it.copy(
+                member = member,
+                group = group,
+                isImpersonating = member != null,
+                documents = if (memberChanged) emptyList() else it.documents
+            )
+        }
         member?.id?.let { observeDocuments(it) }
     }
 
     private fun observeDocuments(memberId: String) {
         launchJob("documents_observation") {
             observeMemberDocuments(memberId).collect { res ->
-                res.onSuccess { docs -> updateState { it.copy(documents = docs) } }
+                res.onSuccess { docs ->
+                    updateState { state ->
+                        if (state.member?.id != memberId) state else state.copy(documents = docs)
+                    }
+                }
             }
         }
     }

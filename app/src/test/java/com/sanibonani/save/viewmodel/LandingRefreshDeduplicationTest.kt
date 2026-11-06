@@ -4,6 +4,7 @@ import android.util.Log
 import androidx.arch.core.executor.testing.InstantTaskExecutorRule
 import androidx.lifecycle.viewModelScope
 import com.google.firebase.crashlytics.FirebaseCrashlytics
+import com.sanibonani.save.MainDispatcherRule
 import com.sanibonani.save.domain.model.AuthSession
 import com.sanibonani.save.domain.model.PlatformAnalytics
 import com.sanibonani.save.domain.model.PlatformConfig
@@ -26,7 +27,6 @@ import io.mockk.mockk
 import io.mockk.mockkStatic
 import io.mockk.unmockkAll
 import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
@@ -34,13 +34,10 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
-import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
-import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
-import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -68,6 +65,9 @@ import org.junit.Test
 class LandingRefreshDeduplicationTest {
 
     @get:Rule
+    val mainDispatcherRule = MainDispatcherRule()
+
+    @get:Rule
     val instantExecutorRule = InstantTaskExecutorRule()
 
     private val getPlatformAnalytics = mockk<GetPlatformAnalyticsUseCase>()
@@ -81,7 +81,7 @@ class LandingRefreshDeduplicationTest {
     private val networkService = mockk<NetworkConnectivityService>(relaxed = true)
     private val devSettings = mockk<DevSettingsService>(relaxed = true)
 
-    private val testDispatcher = StandardTestDispatcher()
+    private val testDispatcher = mainDispatcherRule.dispatcher
 
     private lateinit var viewModel: LandingViewModel
 
@@ -99,8 +99,6 @@ class LandingRefreshDeduplicationTest {
         mockkStatic(android.os.Looper::class)
         every { android.os.Looper.getMainLooper() } returns mockk(relaxed = true)
 
-        Dispatchers.setMain(testDispatcher)
-
         every { devSettings.settingsChanged } returns MutableSharedFlow()
         every { networkService.isOnline } returns flowOf(true)
         every { networkService.isAirplaneModeActive } returns flowOf(false)
@@ -115,9 +113,7 @@ class LandingRefreshDeduplicationTest {
 
     @After
     fun tearDown() {
-        if (::viewModel.isInitialized) viewModel.viewModelScope.cancel()
         testDispatcher.scheduler.advanceUntilIdle()
-        Dispatchers.resetMain()
         unmockkAll()
     }
 
@@ -128,7 +124,7 @@ class LandingRefreshDeduplicationTest {
      */
     private fun buildViewModel(sessionSource: Flow<AuthSession?>): LandingViewModel {
         every { observeAuthSession() } returns sessionSource
-        return LandingViewModel(
+        return mainDispatcherRule.track(LandingViewModel(
             getPlatformAnalytics,
             refreshPlatformConfig,
             getMemberships,
@@ -139,7 +135,7 @@ class LandingRefreshDeduplicationTest {
             getAttributableActorId,
             networkService,
             devSettings
-        )
+        ))
     }
 
     /** Two publications 400 ms apart for the same member, then the stream closes. */

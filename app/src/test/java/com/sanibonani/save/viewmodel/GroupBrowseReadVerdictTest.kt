@@ -3,6 +3,7 @@ package com.sanibonani.save.viewmodel
 import android.util.Log
 import androidx.arch.core.executor.testing.InstantTaskExecutorRule
 import com.google.firebase.crashlytics.FirebaseCrashlytics
+import com.sanibonani.save.MainDispatcherRule
 import com.sanibonani.save.domain.model.Group
 import com.sanibonani.save.domain.model.GroupType
 import com.sanibonani.save.domain.usecase.group.FilterGroupsUseCase
@@ -14,14 +15,10 @@ import io.mockk.mockk
 import io.mockk.mockkStatic
 import io.mockk.unmockkAll
 import java.io.IOException
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
-import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
-import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -40,12 +37,15 @@ import org.junit.Test
 class GroupBrowseReadVerdictTest {
 
     @get:Rule
+    val mainDispatcherRule = MainDispatcherRule()
+
+    @get:Rule
     val instantExecutorRule = InstantTaskExecutorRule()
 
     private val stokvel = Group(id = "g-1", name = "Savings Circle", type = GroupType.STOKVEL, province = "Gauteng")
     private val groupsFlow = MutableStateFlow<Result<List<Group>>>(Result.success(emptyList()))
     private val getPublicGroups = mockk<GetPublicGroupsUseCase>()
-    private val testDispatcher = StandardTestDispatcher()
+    private val testDispatcher = mainDispatcherRule.dispatcher
 
     @Before
     fun setup() {
@@ -61,19 +61,17 @@ class GroupBrowseReadVerdictTest {
         mockkStatic(FirebaseCrashlytics::class)
         every { FirebaseCrashlytics.getInstance() } returns mockk<FirebaseCrashlytics>(relaxed = true)
 
-        Dispatchers.setMain(testDispatcher)
         every { getPublicGroups() } returns groupsFlow
     }
 
     @After
     fun tearDown() {
         testDispatcher.scheduler.advanceUntilIdle()
-        Dispatchers.resetMain()
         unmockkAll()
     }
 
     private fun started(): GroupViewModel {
-        val viewModel = GroupViewModel(FilterGroupsUseCase(), getPublicGroups, mockk<ObserveGroupDetailUseCase>(relaxed = true))
+        val viewModel = mainDispatcherRule.track(GroupViewModel(FilterGroupsUseCase(), getPublicGroups, mockk<ObserveGroupDetailUseCase>(relaxed = true)))
         // Entering the discovery screen is what starts the read; the view model itself reads nothing.
         viewModel.setActive(true)
         testDispatcher.scheduler.advanceUntilIdle()

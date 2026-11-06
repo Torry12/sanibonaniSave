@@ -2,6 +2,7 @@ package com.sanibonani.save.viewmodel
 
 import android.util.Log
 import androidx.arch.core.executor.testing.InstantTaskExecutorRule
+import com.sanibonani.save.MainDispatcherRule
 import com.sanibonani.save.domain.model.*
 import com.sanibonani.save.domain.repository.auth.*
 import com.sanibonani.save.domain.service.MfaService
@@ -10,7 +11,6 @@ import com.sanibonani.save.domain.usecase.auth.GetCurrentUserRoleUseCase
 import com.sanibonani.save.domain.usecase.auth.VerifyMfaChallengeUseCase
 import com.sanibonani.save.features.admin.presentation.PlatformAdminViewModel
 import io.mockk.*
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.*
@@ -25,6 +25,9 @@ import com.google.firebase.crashlytics.FirebaseCrashlytics
 class PlatformAdminViewModelTest {
 
     @get:Rule
+    val mainDispatcherRule = MainDispatcherRule()
+
+    @get:Rule
     val instantExecutorRule = InstantTaskExecutorRule()
 
     private val supabaseRepo = mockk<SupabaseRepository>(relaxed = true)
@@ -33,7 +36,6 @@ class PlatformAdminViewModelTest {
     private val syncMetrics = MutableStateFlow<Map<String, RealtimeSyncStatus>>(emptyMap())
 
     private lateinit var viewModel: PlatformAdminViewModel
-    private val testDispatcher = StandardTestDispatcher()
 
     @Before
     fun setup() {
@@ -49,24 +51,21 @@ class PlatformAdminViewModelTest {
         val mockCrashlytics = mockk<FirebaseCrashlytics>(relaxed = true)
         every { FirebaseCrashlytics.getInstance() } returns mockCrashlytics
 
-        Dispatchers.setMain(testDispatcher)
-
         val mockSession = mockk<com.sanibonani.save.domain.model.AuthSession>(relaxed = true)
         val sessionFlow = MutableStateFlow<com.sanibonani.save.domain.model.AuthSession?>(mockSession)
         every { supabaseRepo.sessionFlow } returns sessionFlow
         coEvery { supabaseRepo.getUserRole() } returns UserRole.PLATFORM_ADMIN
         every { syncService.syncMetrics } returns syncMetrics
 
-        viewModel = PlatformAdminViewModel(
+        viewModel = mainDispatcherRule.track(PlatformAdminViewModel(
             GetCurrentUserRoleUseCase(supabaseRepo),
             VerifyMfaChallengeUseCase(mfaService),
             syncService
-        )
+        ))
     }
 
     @After
     fun tearDown() {
-        Dispatchers.resetMain()
         unmockkAll()
     }
 

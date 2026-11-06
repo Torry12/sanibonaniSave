@@ -20,6 +20,8 @@ import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -59,15 +61,19 @@ class AdminGroupContextCacheService @Inject constructor(
     private val warmupCoordinator = GroupContextWarmupCoordinator()
 
     /**
-     * Hydrations this service may run at once, for every group the account administers together.
+     * Hydration reads this service may have in flight, for every group the account administers
+     * together.
      *
      * Sized against the transport's per-host dispatch cap rather than against the group count, so a
      * platform admin with thirty groups does not present thirty times the load of one with one.
      */
-    private val hydrationReadBudget = Semaphore(HYDRATION_CONCURRENT_RUNS)
+    private val hydrationReadBudget = Semaphore(HYDRATION_CONCURRENT_READS)
+
+    private suspend fun <T> hydrationRead(block: suspend () -> T): T =
+        hydrationReadBudget.withPermit { block() }
 
     private companion object {
-        const val HYDRATION_CONCURRENT_RUNS = 3
+        const val HYDRATION_CONCURRENT_READS = 3
     }
 
     fun getContext(groupId: String): CachedAdminGroupContext? = _contexts.value[groupId]
@@ -200,7 +206,7 @@ class AdminGroupContextCacheService @Inject constructor(
         warmupCoordinator.markReadsStarted(groupId)
 
         val rowOutcome = knownRow?.let { Result.success(it) }
-            ?: safeRunCatching { groupRepo.getGroupById(groupId).getOrThrow() }
+            ?: hydrationRead { safeRunCatching { groupRepo.getGroupById(groupId).getOrThrow() } }
         if (rowOutcome.isFailure) {
             AppLogger.w(
                 "AdminGroupContextCache",
@@ -209,14 +215,7 @@ class AdminGroupContextCacheService @Inject constructor(
             )
         }
 
-        // The legs below run one after another, so the reads this service can have in flight are the
-        // runs it allows at once. Passing over every group the account administers unbounded put eight
-        // payouts reads, eight member reads and eight metric reads to the same host inside two seconds -
-        // the burst the device log shows - and the group actually on screen waited behind them in a
-        // queue no timeout in the app can see.
-        hydrationReadBudget.withPermit {
-            readGroupContext(rowOutcome, groupId)
-        }
+        readGroupContext(rowOutcome, groupId)
         return rowOutcome
     }
 
@@ -227,18 +226,56 @@ class AdminGroupContextCacheService @Inject constructor(
         // Contained the same way as the member service's pillars: a section read that throws, rather
         // than answering with a failed Result, used to escape the warm-up and reach the coroutine
         // handler. Now it degrades to "this section did not answer" and the snapshot keeps its rows.
-        val membersOutcome = safeRunCatching { memberRepo.getGroupMembers(groupId).first().getOrThrow() }
-
-        val notificationsOutcome = safeRunCatching {
-            notificationRepo.syncNotifications(groupId)
-            notificationRepo.observeNotifications(groupId).first().getOrThrow()
+        //
+        // The legs are independent, so they run together and each takes its own read permit. Run one
+        // after another inside a single whole-sweep permit, the dashboard paid the sum of its
+        // round-trips for a book it could have had in about one, and a group tapped while a background
+        // sweep held that permit could not start until the sweep ended. The pressure the host sees
+        // stays bounded by the read budget, which is sized against its per-host dispatch cap.
+        val pillars = coroutineScope {
+            val members = async {
+                hydrationRead { safeRunCatching { memberRepo.getGroupMembers(groupId).first().getOrThrow() } }
+            }
+            val notifications = async {
+                hydrationRead {
+                    safeRunCatching {
+                        notificationRepo.syncNotifications(groupId)
+                        notificationRepo.observeNotifications(groupId).first().getOrThrow()
+                    }
+                }
+            }
+            val payouts = async {
+                hydrationRead { safeRunCatching { payoutRepo.observePayouts(groupId).first().getOrThrow() } }
+            }
+            val metrics = async {
+                hydrationRead { safeRunCatching { actuarialRepo.computeMetrics(groupId).getOrThrow() }.getOrNull() }
+            }
+            HydratedAdminPillars(
+                members = members.await(),
+                notifications = notifications.await(),
+                payouts = payouts.await(),
+                metrics = metrics.await()
+            )
         }
-        val payoutsOutcome = safeRunCatching { payoutRepo.observePayouts(groupId).first().getOrThrow() }
-        val metrics = safeRunCatching { actuarialRepo.computeMetrics(groupId).getOrThrow() }.getOrNull()
+
+        // The snapshot keeps whatever it already held, so a pillar that did not answer is invisible on
+        // screen: this is the only trace of which part of the book is being shown from the cache.
+        val missed = listOfNotNull(
+            "members".takeIf { pillars.members.isFailure },
+            "notifications".takeIf { pillars.notifications.isFailure },
+            "payouts".takeIf { pillars.payouts.isFailure },
+            "metrics".takeIf { pillars.metrics == null }
+        )
+        if (missed.isNotEmpty()) {
+            AppLogger.w(
+                "AdminGroupContextCache",
+                "Group $groupId hydration kept the cached ${missed.joinToString()}."
+            )
+        }
 
         updateContext(groupId) { prev ->
             val group = groupOutcome.getOrNull() ?: prev.group
-            val partitioned = notificationsOutcome.getOrNull()
+            val partitioned = pillars.notifications.getOrNull()
                 ?.filter { it.memberId == null || it.triggerEvent == NotifEvent.MEMBER_MESSAGE }
                 ?.partition { it.triggerEvent == NotifEvent.MEMBER_MESSAGE }
             // createdAt is the ISO-8601 string PostgREST returns, which sorts chronologically as
@@ -249,16 +286,16 @@ class AdminGroupContextCacheService @Inject constructor(
                 .sortedByDescending { it.createdAt ?: it.id ?: "" }
             prev.copy(
                 group = group,
-                members = membersOutcome.getOrNull() ?: prev.members,
+                members = pillars.members.getOrNull() ?: prev.members,
                 notifications = systemNotifs,
                 memberMessages = messages,
-                payouts = payoutsOutcome.getOrNull() ?: prev.payouts,
-                metrics = metrics ?: prev.metrics,
+                payouts = pillars.payouts.getOrNull() ?: prev.payouts,
+                metrics = pillars.metrics ?: prev.metrics,
                 feeStatus = group?.feeStatus ?: prev.feeStatus,
                 isFullyHydrated = groupOutcome.isSuccess &&
-                    membersOutcome.isSuccess &&
-                    notificationsOutcome.isSuccess &&
-                    payoutsOutcome.isSuccess
+                    pillars.members.isSuccess &&
+                    pillars.notifications.isSuccess &&
+                    pillars.payouts.isSuccess
             )
         }
     }
@@ -277,6 +314,15 @@ class AdminGroupContextCacheService @Inject constructor(
         warmupCoordinator.retainOnly(allowedGroupIds)
     }
 }
+
+/** What the four independent legs of one group's hydration answered, kept apart so the snapshot can
+ * hold its own rows wherever a read refused. */
+private data class HydratedAdminPillars(
+    val members: Result<List<Member>>,
+    val notifications: Result<List<AppNotification>>,
+    val payouts: Result<List<PayoutRequest>>,
+    val metrics: ActuarialMetrics?
+)
 
 data class CachedAdminGroupContext(
     val group: Group? = null,

@@ -3,6 +3,7 @@ package com.sanibonani.save.viewmodel
 import android.util.Log
 import androidx.arch.core.executor.testing.InstantTaskExecutorRule
 import com.google.firebase.crashlytics.FirebaseCrashlytics
+import com.sanibonani.save.MainDispatcherRule
 import com.sanibonani.save.domain.model.GroupType
 import com.sanibonani.save.domain.model.Money
 import com.sanibonani.save.domain.model.PlatformConfig
@@ -24,16 +25,12 @@ import io.mockk.unmockkAll
 import io.mockk.verify
 import java.io.IOException
 import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.flow.toList
-import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
-import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
-import kotlinx.coroutines.test.setMain
 import kotlinx.coroutines.withTimeoutOrNull
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -51,11 +48,14 @@ import org.junit.Test
 class PlatformFeeConfigSaveTest {
 
     @get:Rule
+    val mainDispatcherRule = MainDispatcherRule()
+
+    @get:Rule
     val instantExecutorRule = InstantTaskExecutorRule()
 
     private val platformRepo = mockk<PlatformRepository>(relaxed = true)
     private val configRepo = mockk<PlatformConfigRepository>(relaxed = true)
-    private val testDispatcher = StandardTestDispatcher()
+    private val testDispatcher = mainDispatcherRule.dispatcher
     private lateinit var viewModel: PlatformFeeConfigViewModel
 
     @Before
@@ -73,13 +73,12 @@ class PlatformFeeConfigSaveTest {
         val mockCrashlytics = mockk<FirebaseCrashlytics>(relaxed = true)
         every { FirebaseCrashlytics.getInstance() } returns mockCrashlytics
 
-        Dispatchers.setMain(testDispatcher)
-        viewModel = PlatformFeeConfigViewModel(
+        viewModel = mainDispatcherRule.track(PlatformFeeConfigViewModel(
             GetPlatformSettingsUseCase(platformRepo),
             GetGranularFeeConfigsUseCase(platformRepo),
             UpdateGlobalFeesUseCase(platformRepo, configRepo),
             UpdateGranularFeeConfigUseCase(platformRepo)
-        )
+        ))
     }
 
     @After
@@ -87,7 +86,6 @@ class PlatformFeeConfigSaveTest {
         // Drain while Main is still installed, otherwise a suspended collector resumes after
         // resetMain() and reports that the platform dispatcher is absent.
         testDispatcher.scheduler.advanceUntilIdle()
-        Dispatchers.resetMain()
         unmockkAll()
     }
 

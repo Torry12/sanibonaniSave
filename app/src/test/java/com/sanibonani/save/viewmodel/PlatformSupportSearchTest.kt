@@ -3,6 +3,7 @@ package com.sanibonani.save.viewmodel
 import android.util.Log
 import androidx.arch.core.executor.testing.InstantTaskExecutorRule
 import com.google.firebase.crashlytics.FirebaseCrashlytics
+import com.sanibonani.save.MainDispatcherRule
 import com.sanibonani.save.domain.model.MemberBehaviorInsight
 import com.sanibonani.save.domain.repository.admin.PlatformRepository
 import com.sanibonani.save.domain.usecase.admin.BroadcastPlatformMessageUseCase
@@ -18,14 +19,10 @@ import io.mockk.mockk
 import io.mockk.mockkStatic
 import io.mockk.unmockkAll
 import java.io.IOException
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
-import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
-import kotlinx.coroutines.test.setMain
 import kotlinx.coroutines.withTimeoutOrNull
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -44,10 +41,13 @@ import org.junit.Test
 class PlatformSupportSearchTest {
 
     @get:Rule
+    val mainDispatcherRule = MainDispatcherRule()
+
+    @get:Rule
     val instantExecutorRule = InstantTaskExecutorRule()
 
     private val platformRepo = mockk<PlatformRepository>()
-    private val testDispatcher = StandardTestDispatcher()
+    private val testDispatcher = mainDispatcherRule.dispatcher
     private lateinit var viewModel: PlatformSupportViewModel
 
     @Before
@@ -65,20 +65,18 @@ class PlatformSupportSearchTest {
         val mockCrashlytics = mockk<FirebaseCrashlytics>(relaxed = true)
         every { FirebaseCrashlytics.getInstance() } returns mockCrashlytics
 
-        Dispatchers.setMain(testDispatcher)
-        viewModel = PlatformSupportViewModel(
+        viewModel = mainDispatcherRule.track(PlatformSupportViewModel(
             syncGroupMembers = mockk<SyncGroupMembersUseCase>(relaxed = true),
             observeGroupMembers = mockk<ObserveGroupMembersUseCase>(relaxed = true),
             searchMemberInsights = SearchMemberBehaviorInsightsUseCase(platformRepo),
             recordImpersonationAudit = mockk<RecordImpersonationAuditUseCase>(relaxed = true),
             broadcastPlatformMessage = mockk<BroadcastPlatformMessageUseCase>(relaxed = true)
-        )
+        ))
     }
 
     @After
     fun tearDown() {
         testDispatcher.scheduler.advanceUntilIdle()
-        Dispatchers.resetMain()
         unmockkAll()
     }
 

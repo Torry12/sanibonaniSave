@@ -9,8 +9,10 @@ import com.sanibonani.save.domain.model.Group
 import com.sanibonani.save.domain.model.GroupType
 import com.sanibonani.save.di.TestAuthSessionController
 import com.sanibonani.save.domain.repository.group.GroupRepository
+import com.sanibonani.save.domain.repository.admin.PlatformRepository
 import dagger.hilt.android.testing.HiltAndroidRule
 import dagger.hilt.android.testing.HiltAndroidTest
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -28,6 +30,8 @@ import java.util.UUID
 class AdminNavigationSimulationTest {
 
     @Inject lateinit var groupRepo: GroupRepository
+
+    @Inject lateinit var platformRepository: PlatformRepository
 
     @get:Rule(order = 0)
     var hiltRule = HiltAndroidRule(this)
@@ -55,53 +59,79 @@ class AdminNavigationSimulationTest {
         composeTestRule.activityRule.scenario.recreate()
     }
 
+    /**
+     * waitUntil whose predicate survives the window setup() creates: after recreate() the old
+     * composition is gone and the new one is not yet frame-ready, and fetchSemanticsNodes() throws
+     * "No compose hierarchies found in the app" there instead of reporting no nodes.
+     */
+    private fun awaitNode(timeoutMs: Long = 30_000, matcher: () -> Boolean) {
+        composeTestRule.waitUntil(timeoutMs) { runCatching(matcher).getOrDefault(false) }
+    }
+
     @Test
     fun testPlatformAdminNavigationFlow() {
         // 1. Wait for Splash or Content to appear
-        composeTestRule.waitUntil(60000) {
-            runCatching {
-                composeTestRule.onAllNodesWithTag("branding_splash").fetchSemanticsNodes().isNotEmpty() ||
-                    composeTestRule.onAllNodesWithTag("main_content").fetchSemanticsNodes().isNotEmpty() ||
-                    composeTestRule.onAllNodesWithTag("connection_error_screen").fetchSemanticsNodes().isNotEmpty()
-            }.getOrDefault(false)
+        awaitNode(60_000) {
+            composeTestRule.onAllNodesWithTag("branding_splash").fetchSemanticsNodes().isNotEmpty() ||
+                composeTestRule.onAllNodesWithTag("main_content").fetchSemanticsNodes().isNotEmpty() ||
+                composeTestRule.onAllNodesWithTag("connection_error_screen").fetchSemanticsNodes().isNotEmpty()
         }
 
         // 2. Wait for Dashboard, Landing, or Access Denied to load
-        composeTestRule.waitUntil(60000) {
+        awaitNode(60_000) {
             composeTestRule.onAllNodesWithText("Platform Administrator", ignoreCase = true).fetchSemanticsNodes().isNotEmpty() ||
             composeTestRule.onAllNodesWithText("Sanibonani", substring = true, ignoreCase = true).fetchSemanticsNodes().isNotEmpty() ||
             composeTestRule.onAllNodesWithText("Access Denied", ignoreCase = true).fetchSemanticsNodes().isNotEmpty()
         }
 
         // 2. Wait for Platform Admin screen specifically
-        composeTestRule.waitUntil(60000) {
+        awaitNode(60_000) {
             composeTestRule.onAllNodesWithText("Platform Administrator", ignoreCase = true).fetchSemanticsNodes().isNotEmpty()
         }
 
         // 2. Select Maintenance Tab
+        awaitNode {
+            composeTestRule.onAllNodesWithText("Maintenance", ignoreCase = true).fetchSemanticsNodes().isNotEmpty()
+        }
         composeTestRule.onNodeWithText("Maintenance", ignoreCase = true).performScrollTo().performClick()
         composeTestRule.waitForIdle()
         composeTestRule.onNodeWithText("Maintenance", ignoreCase = true).assertIsSelected()
-        composeTestRule.waitUntil(30000) {
+        awaitNode {
             composeTestRule.onAllNodesWithText("Realtime System Status", ignoreCase = true).fetchSemanticsNodes().isNotEmpty()
         }
 
         // 3. Expand Support Tools Accordion
-        composeTestRule.waitUntil(30000) {
+        awaitNode {
             composeTestRule.onAllNodesWithText("Support Tools", ignoreCase = true).fetchSemanticsNodes().isNotEmpty()
         }
         composeTestRule.onNodeWithText("Support Tools", ignoreCase = true).performScrollTo().performClick()
         composeTestRule.waitForIdle()
 
         // 4. Trigger Impersonation
-        composeTestRule.waitUntil(20000) {
+        awaitNode(20_000) {
             composeTestRule.onAllNodesWithText("Impersonate Group Admin", ignoreCase = true).fetchSemanticsNodes().isNotEmpty()
         }
-        composeTestRule.onNodeWithText("Impersonate Group Admin", ignoreCase = true).performClick()
+        // Expanding "Support Tools" pushes this button below the fold, where a bare performClick
+        // injects a touch that hits nothing.
+        composeTestRule.onNodeWithText("Impersonate Group Admin", ignoreCase = true)
+            .performScrollTo().performClick()
         composeTestRule.waitForIdle()
 
-        // 5. Select a group from the list
-        composeTestRule.waitUntil(20000) {
+        // 5. The roster read, the dialog and the row are checked apart: one timeout on the group
+        // name cannot say which of the three never arrived.
+        val rosterRead = runBlocking { platformRepository.getAllGroups() }
+        val roster = rosterRead.getOrElse { emptyList() }
+        assertTrue(
+            "The platform roster read did not return the group created in setup. " +
+                "Rows: ${roster.map { it.name }} Refusal: ${rosterRead.exceptionOrNull()?.message}",
+            roster.any { it.name == "Admin navigation test group" }
+        )
+
+        awaitNode(10_000) {
+            composeTestRule.onAllNodesWithText("Select Group", ignoreCase = true)
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+        awaitNode(20_000) {
             composeTestRule.onAllNodesWithText("Admin navigation test group", ignoreCase = true)
                 .fetchSemanticsNodes().isNotEmpty()
         }
@@ -109,7 +139,7 @@ class AdminNavigationSimulationTest {
         composeTestRule.waitForIdle()
 
         // 6. Verify Support Dashboard
-        composeTestRule.waitUntil(30000) {
+        awaitNode {
             composeTestRule.onAllNodesWithText("Admin View (Support)", substring = true).fetchSemanticsNodes().isNotEmpty()
         }
 

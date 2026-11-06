@@ -56,7 +56,7 @@ class PlatformGroupRosterReadTest {
 
         repository = PlatformRepositoryImpl(
             protocol = protocol,
-            db = db,
+            dbProvider = javax.inject.Provider { db },
             actuarialRepo = mockk<ActuarialRepository>(relaxed = true),
             notifRepo = notifRepo
         )
