@@ -37,6 +37,10 @@
 --   per-kind counts say which class, then SCHEMA_OBJECT_FINGERPRINTS.sql lists the
 --   exact rows. E=0 is benign on a tier where pg_trgm lives in schema "extensions"
 --   rather than "public" - compare the other kinds before treating it as drift.
+--   OUTSTANDING: the masters now also define is_own_member(UUID), and fourteen bodies
+--   change under SYNC_DELTA_20261029 (not applied on either tier yet). A tier that has run
+--   it reports F=84 and 1033 objects; re-measure the digest there and replace the line
+--   above - the hash cannot be derived from the files alone.
 --
 -- MAINTENANCE: the block between "WITH inv(kind, name, detail, fp) AS (" and the
 -- first line containing only ")" is SCHEMA_OBJECT_FINGERPRINTS.sql verbatim. After

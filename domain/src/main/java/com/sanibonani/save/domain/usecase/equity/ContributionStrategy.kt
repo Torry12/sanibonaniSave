@@ -10,6 +10,7 @@ import com.sanibonani.save.domain.utils.PaymentCalculation
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import com.sanibonani.save.domain.usecase.financialResult
+import kotlinx.coroutines.flow.first
 
 /**
  * Strategy interface for handling different types of fund inflows.

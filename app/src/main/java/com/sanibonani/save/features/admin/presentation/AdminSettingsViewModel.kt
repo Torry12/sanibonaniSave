@@ -92,11 +92,18 @@ class AdminSettingsViewModel @Inject constructor(
     fun initiateBankLinking(providerId: String) {
         val groupId = uiState.value.group?.id ?: return
         launchJob("bank_linking") {
+            updateState { it.copy(isSaving = true) }
             linkBankAccount(groupId, providerId)
                 .onSuccess { result ->
+                    if (uiState.value.group?.id == groupId) {
+                        updateState { it.copy(isSaving = false) }
+                    }
                     sendEvent(UIEvent.OpenUrl(result.authUrl))
                 }
                 .onFailure { e ->
+                    if (uiState.value.group?.id == groupId) {
+                        updateState { it.copy(isSaving = false) }
+                    }
                     handleError(e)
                 }
         }

@@ -7,7 +7,9 @@ import com.sanibonani.save.domain.repository.member.MemberRepository
 import com.sanibonani.save.domain.usecase.admin.FlagMemberForReviewUseCase
 import com.sanibonani.save.domain.usecase.admin.GenerateBehaviorFinetuningDatasetUseCase
 import com.sanibonani.save.domain.usecase.admin.GetMemberBehaviorTrackUseCase
+import com.sanibonani.save.domain.usecase.admin.ObserveFraudEventsByMemberUseCase
 import com.sanibonani.save.domain.usecase.admin.UnflagMemberUseCase
+import com.sanibonani.save.domain.usecase.member.GetMemberByIdUseCase
 import com.sanibonani.save.domain.usecase.member.SuspendMemberUseCase
 import com.sanibonani.save.domain.usecase.member.UnsuspendMemberUseCase
 import com.sanibonani.save.domain.usecase.member.UpdateMemberStatusUseCase
@@ -51,6 +53,8 @@ class BehaviorTrackingViewModelTest {
 
     private fun viewModel() = mainDispatcherRule.track(BehaviorTrackingViewModel(
         getMemberBehaviorTrack = GetMemberBehaviorTrackUseCase(repository),
+        getMemberById = GetMemberByIdUseCase(memberRepository),
+        observeFraudEventsByMember = ObserveFraudEventsByMemberUseCase(repository),
         generateBehaviorFinetuningDataset = GenerateBehaviorFinetuningDatasetUseCase(repository),
         flagMemberForReview = FlagMemberForReviewUseCase(repository),
         unflagMemberUseCase = UnflagMemberUseCase(repository),

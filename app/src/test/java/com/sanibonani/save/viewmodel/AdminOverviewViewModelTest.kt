@@ -20,6 +20,7 @@ import com.sanibonani.save.domain.usecase.actuarial.ApplyViabilityPlanUseCase
 import com.sanibonani.save.domain.usecase.actuarial.CalculateViabilityUseCase
 import com.sanibonani.save.domain.usecase.admin.GenerateGroupAuditReportUseCase
 import com.sanibonani.save.domain.usecase.admin.GetPlatformSettingsUseCase
+import com.sanibonani.save.domain.usecase.admin.ObserveGroupHealthScoreUseCase
 import com.sanibonani.save.domain.usecase.auth.GetAttributableActorIdUseCase
 import com.sanibonani.save.domain.usecase.auth.GetCurrentUserRoleUseCase
 import com.sanibonani.save.domain.usecase.disbursement.ExecuteRoscaPayoutUseCase
@@ -86,6 +87,7 @@ class AdminOverviewViewModelTest {
     private val supabaseRepo = mockk<SupabaseRepository>(relaxed = true)
     private val memberRepo = mockk<MemberRepository>(relaxed = true)
     private val ledgerRepo = mockk<LedgerRepository>(relaxed = true)
+    private val healthScoreRepo = mockk<HealthScoreRepository>(relaxed = true)
     private val exportRepo = mockk<ExportRepository>(relaxed = true)
     private val verificationService = mockk<DataVerificationService>(relaxed = true)
     private val executeRoscaPayoutUseCase = mockk<ExecuteRoscaPayoutUseCase>(relaxed = true)
@@ -154,6 +156,7 @@ class AdminOverviewViewModelTest {
         adminContextCacheService,
         getManagedGroupsUseCase,
         getGroupBusinessInsightsUseCase,
+        ObserveGroupHealthScoreUseCase(healthScoreRepo),
         GetAttributableActorIdUseCase(supabaseRepo),
         GetCurrentUserRoleUseCase(supabaseRepo),
         ObserveGroupLedgerUseCase(ledgerRepo),

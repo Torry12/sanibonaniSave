@@ -13,6 +13,7 @@ import com.sanibonani.save.domain.event.PayoutProcessedEvent
 import kotlinx.serialization.json.*
 import javax.inject.Inject
 import com.sanibonani.save.domain.usecase.financialResult
+import kotlinx.coroutines.flow.first
 class ExecuteRoscaPayoutUseCase @Inject constructor(
     private val groupRepository: GroupRepository,
     private val memberRepository: MemberRepository,

@@ -5,6 +5,7 @@ import com.sanibonani.save.domain.model.*
 import com.sanibonani.save.domain.service.DevSettingsService
 import com.sanibonani.save.domain.service.NetworkConnectivityService
 import com.sanibonani.save.domain.service.RealtimeSyncService
+import com.sanibonani.save.domain.usecase.admin.ObserveGroupHealthScoreUseCase
 import com.sanibonani.save.domain.usecase.auth.GetAttributableActorIdUseCase
 import com.sanibonani.save.domain.usecase.auth.GetCurrentUserRoleUseCase
 import com.sanibonani.save.domain.usecase.group.GetManagedGroupsUseCase
@@ -36,6 +37,7 @@ class AdminOverviewViewModel @Inject constructor(
     private val adminContextCacheService: AdminGroupContextCacheService,
     private val getManagedGroups: GetManagedGroupsUseCase,
     private val getGroupBusinessInsights: GetGroupBusinessInsightsUseCase,
+    private val observeGroupHealthScore: ObserveGroupHealthScoreUseCase,
     private val getAttributableActorId: GetAttributableActorIdUseCase,
     private val getCurrentUserRole: GetCurrentUserRoleUseCase,
     private val observeGroupLedger: ObserveGroupLedgerUseCase,

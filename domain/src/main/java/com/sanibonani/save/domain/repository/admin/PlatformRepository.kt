@@ -35,5 +35,6 @@ interface PlatformRepository {
     suspend fun suspendGroup(groupId: String, reason: String): Result<Unit>
     suspend fun getGroupMetrics(groupId: String): Result<ActuarialMetrics>
     suspend fun broadcastPlatformMessage(message: String): Result<Unit>
+    suspend fun getPlatformLedger(): Result<List<LedgerEntry>>
     suspend fun deleteGroupFromPlatform(groupId: String): Result<Unit>
 }

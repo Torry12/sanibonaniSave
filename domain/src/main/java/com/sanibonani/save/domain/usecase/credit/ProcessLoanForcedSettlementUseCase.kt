@@ -21,6 +21,8 @@ import java.time.LocalDate
 import java.time.temporal.ChronoUnit
 import javax.inject.Inject
 import com.sanibonani.save.domain.usecase.financialResult
+import com.sanibonani.save.domain.usecase.firstValueOrNull
+import kotlinx.coroutines.flow.first
 
 /**
  * Handles the automatic extraction of remaining loan balances once a loan passes the platform's

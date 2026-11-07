@@ -59,6 +59,12 @@ FROM PUBLIC, anon;
 REVOKE EXECUTE ON FUNCTION public.settle_expired_loan_v2(UUID) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.settle_expired_loan_v2(UUID) TO authenticated, service_role;
 
+-- Retire the pre-v2 settlement entry point. Its caller-supplied member, group, and amount
+-- parameters are not validated as one atomic settlement and must not remain an RPC bypass.
+REVOKE EXECUTE ON FUNCTION
+    public.record_loan_settlement_extraction_v1(UUID, UUID, NUMERIC, UUID)
+FROM PUBLIC, anon, authenticated, service_role;
+
 -- 2c. MONEY RPCs: THE SAME TREATMENT
 -- Every function below either moves a balance or rewrites a ledger, and the blanket grant in
 -- section 2 handed all of them to `anon` as well. Each one now carries its own caller check

@@ -7,6 +7,7 @@ import com.sanibonani.save.domain.repository.equity.ContributionRepository
 import java.time.LocalDate
 import javax.inject.Inject
 import com.sanibonani.save.domain.utils.safeRunCatching
+import kotlinx.coroutines.flow.first
 
 class ValidateLoanEligibilityUseCase @Inject constructor(
     private val contributionRepository: ContributionRepository,

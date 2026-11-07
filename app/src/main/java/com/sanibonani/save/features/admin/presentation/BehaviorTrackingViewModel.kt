@@ -4,13 +4,19 @@ import com.sanibonani.save.domain.model.*
 import com.sanibonani.save.domain.usecase.admin.FlagMemberForReviewUseCase
 import com.sanibonani.save.domain.usecase.admin.GenerateBehaviorFinetuningDatasetUseCase
 import com.sanibonani.save.domain.usecase.admin.GetMemberBehaviorTrackUseCase
+import com.sanibonani.save.domain.usecase.admin.ObserveFraudEventsByMemberUseCase
 import com.sanibonani.save.domain.usecase.admin.UnflagMemberUseCase
+import com.sanibonani.save.domain.usecase.member.GetMemberByIdUseCase
 import com.sanibonani.save.domain.usecase.member.SuspendMemberUseCase
 import com.sanibonani.save.domain.usecase.member.UnsuspendMemberUseCase
 import com.sanibonani.save.features.common.presentation.BaseViewModel
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.StateFlow
 import javax.inject.Inject
+
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.firstOrNull
 
 data class BehaviorTrackingUiState(
     val track: MemberBehaviorTrack? = null,
@@ -20,6 +26,8 @@ data class BehaviorTrackingUiState(
 @HiltViewModel
 class BehaviorTrackingViewModel @Inject constructor(
     private val getMemberBehaviorTrack: GetMemberBehaviorTrackUseCase,
+    private val getMemberById: GetMemberByIdUseCase,
+    private val observeFraudEventsByMember: ObserveFraudEventsByMemberUseCase,
     private val generateBehaviorFinetuningDataset: GenerateBehaviorFinetuningDatasetUseCase,
     private val flagMemberForReview: FlagMemberForReviewUseCase,
     private val unflagMemberUseCase: UnflagMemberUseCase,

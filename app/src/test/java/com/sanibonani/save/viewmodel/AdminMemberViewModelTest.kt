@@ -13,6 +13,7 @@ import com.sanibonani.save.domain.repository.system.ExportRepository
 import com.sanibonani.save.domain.usecase.auth.BuildDocumentAuthHeadersUseCase
 import com.sanibonani.save.domain.usecase.credit.ValidateLoanEligibilityUseCase
 import com.sanibonani.save.domain.usecase.equity.ObserveGroupContributionsUseCase
+import com.sanibonani.save.domain.usecase.equity.ObserveMemberContributionsUseCase
 import com.sanibonani.save.domain.usecase.member.ObserveBeneficiariesUseCase
 import com.sanibonani.save.domain.usecase.member.ObserveMemberDocumentsUseCase
 import com.sanibonani.save.domain.usecase.member.UpdateBeneficiaryUseCase
@@ -99,6 +100,7 @@ class AdminMemberViewModelTest {
             adminContextCacheService,
             UpdateMemberBankingDetailsUseCase(memberRepo),
             ObserveGroupContributionsUseCase(contributionRepo),
+            ObserveMemberContributionsUseCase(contributionRepo),
             ObserveBeneficiariesUseCase(beneficiaryRepo),
             UpdateBeneficiaryUseCase(beneficiaryRepo),
             ObserveMemberDocumentsUseCase(memberDocumentRepo),

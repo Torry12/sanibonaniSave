@@ -2203,6 +2203,52 @@ BEGIN
 END;
 $$;
 
+-- 10.1.1 GOVERNANCE: EXPLICIT POLL CLOSE
+-- The voting screen's Close button calls this by name (VotingRepositoryImpl.closePoll), and until
+-- it existed the call resolved to nothing on any tier. The only close path was
+-- fn_trigger_sync_poll_status flipping a poll at its own ends_at, so a poll with a deadline months
+-- away could not be closed early even though the screen offered it - and the screen renders that
+-- button for every viewer, with no membership or admin check around it, so the entitlement had to
+-- be decided here rather than trusted from the client.
+CREATE OR REPLACE FUNCTION public.close_poll_v1(p_poll_id UUID)
+RETURNS VOID
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+    v_poll RECORD;
+BEGIN
+    SELECT * INTO v_poll FROM public.group_polls WHERE id = p_poll_id;
+    IF v_poll.id IS NULL THEN RAISE EXCEPTION '[SYS_001] POLL_NOT_FOUND'; END IF;
+
+    -- The worker that expires polls runs as service_role, so the exemption is what lets the
+    -- scheduler close a poll on a device with no login attached to the request.
+    IF auth.role() IS DISTINCT FROM 'service_role'
+       AND NOT (public.is_platform_admin() OR public.is_group_admin(v_poll.group_id)) THEN
+        RAISE EXCEPTION '[SEC_002] POLL_CLOSE_ACCESS_DENIED';
+    END IF;
+
+    IF v_poll.status <> 'open' THEN
+        RAISE EXCEPTION '[FIN_002] BAD_STATUS: Poll in % cannot be closed', v_poll.status;
+    END IF;
+
+    -- The tally is already maintained per vote by tr_sync_poll_vote_count, and the BEFORE UPDATE
+    -- trigger only writes its auto-close audit for a poll it finds open, so closing here arrives
+    -- with the status already set and produces no second audit row.
+    UPDATE public.group_polls SET status = 'closed', updated_at = NOW() WHERE id = p_poll_id;
+
+    PERFORM public.log_audit_event(
+        'POLL_CLOSED',
+        COALESCE(auth.uid()::text, 'system_gov'),
+        NULL,
+        v_poll.group_id,
+        jsonb_build_object('poll_id', p_poll_id, 'title', v_poll.title),
+        p_poll_id
+    );
+END;
+$$;
+
 -- 10.2 SIGNUP BOOTSTRAP
 -- Defined for baseline parity. No trigger is attached to auth.users here, matching the
 -- baseline: Supabase provisions that attachment out of band per project.
@@ -2244,6 +2290,129 @@ BEGIN
 END;
 $$;
 
+
+CREATE OR REPLACE FUNCTION public.settle_expired_loan_v2(
+    p_loan_id UUID
+) RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+    v_group_id UUID;
+    v_loan RECORD;
+    v_contribution RECORD;
+    v_repayment RECORD;
+    v_member_name TEXT;
+    v_has_contribution BOOLEAN;
+    v_has_repayment BOOLEAN;
+    v_remaining NUMERIC;
+    v_extraction_tx_id TEXT := 'forced-settlement-extraction:' || p_loan_id::text;
+    v_repayment_tx_id TEXT := 'forced-settlement-repayment:' || p_loan_id::text;
+    v_result JSONB;
+BEGIN
+    IF p_loan_id IS NULL THEN
+        RAISE EXCEPTION '[FIN_003] INVALID_LOAN_ID';
+    END IF;
+
+    SELECT group_id INTO v_group_id
+    FROM public.loans
+    WHERE id = p_loan_id;
+    IF NOT FOUND THEN RAISE EXCEPTION '[SYS_001] LOAN_NOT_FOUND'; END IF;
+
+    PERFORM id FROM public.groups WHERE id = v_group_id FOR UPDATE;
+    IF NOT FOUND THEN RAISE EXCEPTION '[SYS_001] GROUP_NOT_FOUND'; END IF;
+
+    SELECT * INTO v_loan
+    FROM public.loans
+    WHERE id = p_loan_id
+    FOR UPDATE;
+    IF NOT FOUND THEN RAISE EXCEPTION '[SYS_001] LOAN_NOT_FOUND'; END IF;
+    IF v_loan.group_id IS DISTINCT FROM v_group_id THEN
+        RAISE EXCEPTION '[SYS_002] LOAN_GROUP_CHANGED';
+    END IF;
+    IF auth.role() IS DISTINCT FROM 'service_role'
+       AND NOT (public.is_platform_admin() OR public.is_group_admin(v_group_id)) THEN
+        RAISE EXCEPTION '[SEC_002] LOAN_SETTLEMENT_ACCESS_DENIED';
+    END IF;
+
+    SELECT * INTO v_contribution
+    FROM public.contributions
+    WHERE group_id = v_group_id AND transaction_id = v_extraction_tx_id
+    FOR UPDATE;
+    v_has_contribution := FOUND;
+    SELECT * INTO v_repayment
+    FROM public.loan_repayments
+    WHERE group_id = v_group_id AND transaction_id = v_repayment_tx_id
+    FOR UPDATE;
+    v_has_repayment := FOUND;
+
+    IF v_has_contribution AND v_contribution.id IS NOT NULL THEN
+        IF v_contribution.member_id IS DISTINCT FROM v_loan.member_id
+           OR v_contribution.amount >= 0
+           OR v_contribution.type IS DISTINCT FROM 'loan_settlement_extraction'
+           OR v_contribution.status IS DISTINCT FROM 'paid'
+           OR v_repayment.id IS NULL
+           OR v_repayment.loan_id IS DISTINCT FROM p_loan_id
+           OR v_repayment.member_id IS DISTINCT FROM v_loan.member_id
+           OR v_repayment.amount IS DISTINCT FROM ABS(v_contribution.amount) THEN
+            RAISE EXCEPTION '[SYS_002] INCOMPLETE_OR_MISMATCHED_LOAN_SETTLEMENT';
+        END IF;
+        RETURN public.record_loan_repayment_v1(
+            p_loan_id, v_loan.member_id, v_group_id, v_repayment.amount,
+            'wallet', v_repayment_tx_id
+        );
+    ELSIF v_has_repayment AND v_repayment.id IS NOT NULL THEN
+        RAISE EXCEPTION '[SYS_002] INCOMPLETE_OR_MISMATCHED_LOAN_SETTLEMENT';
+    END IF;
+
+    IF v_loan.status IS NULL OR v_loan.status NOT IN ('active', 'partially_paid', 'overdue', 'defaulted') THEN
+        RAISE EXCEPTION '[FIN_002] INVALID_STATUS: Loan cannot be settled from status %', v_loan.status;
+    END IF;
+    IF v_loan.start_date IS NULL OR CURRENT_DATE < (v_loan.start_date + INTERVAL '3 months')::date THEN
+        RAISE EXCEPTION '[FIN_002] LOAN_TERM_NOT_EXPIRED';
+    END IF;
+
+    v_remaining := v_loan.total_to_repay - COALESCE(v_loan.total_repaid, 0);
+    IF v_remaining IS NULL OR v_remaining <= 0
+       OR v_remaining::text IN ('NaN', 'Infinity', '-Infinity')
+       OR v_remaining <> ROUND(v_remaining, 2) THEN
+        RAISE EXCEPTION '[FIN_003] INVALID_REMAINING_BALANCE';
+    END IF;
+
+    SELECT full_name INTO v_member_name
+    FROM public.members
+    WHERE id = v_loan.member_id AND group_id = v_group_id;
+    IF NOT FOUND THEN RAISE EXCEPTION '[SYS_001] MEMBER_NOT_FOUND'; END IF;
+
+    INSERT INTO public.contributions (
+        member_id, group_id, amount, due_date, paid_at, payment_method,
+        status, type, transaction_id
+    ) VALUES (
+        v_loan.member_id, v_group_id, -v_remaining, CURRENT_DATE, NOW(), 'wallet',
+        'paid', 'loan_settlement_extraction', v_extraction_tx_id
+    ) RETURNING * INTO v_contribution;
+
+    PERFORM public.increment_group_balance(
+        v_group_id, -v_remaining,
+        'Forced loan settlement extraction for ' || v_member_name,
+        'loan_settlement_extraction', v_extraction_tx_id, v_loan.member_id
+    );
+
+    v_result := public.record_loan_repayment_v1(
+        p_loan_id, v_loan.member_id, v_group_id, v_remaining,
+        'wallet', v_repayment_tx_id
+    );
+
+    PERFORM public.log_audit_event(
+        'LOAN_FORCED_SETTLEMENT', 'system', v_loan.member_id, v_group_id,
+        jsonb_build_object('loan_id', p_loan_id, 'amount', v_remaining),
+        p_loan_id
+    );
+
+    RETURN v_result;
+END;
+$$;
 
 CREATE OR REPLACE FUNCTION public.settle_expired_loan_v2(
     p_loan_id UUID
@@ -3304,6 +3473,12 @@ FROM PUBLIC, anon;
 
 REVOKE EXECUTE ON FUNCTION public.settle_expired_loan_v2(UUID) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.settle_expired_loan_v2(UUID) TO authenticated, service_role;
+
+-- Retire the pre-v2 settlement entry point. Its caller-supplied member, group, and amount
+-- parameters are not validated as one atomic settlement and must not remain an RPC bypass.
+REVOKE EXECUTE ON FUNCTION
+    public.record_loan_settlement_extraction_v1(UUID, UUID, NUMERIC, UUID)
+FROM PUBLIC, anon, authenticated, service_role;
 
 -- 2c. MONEY RPCs: THE SAME TREATMENT
 -- Every function below either moves a balance or rewrites a ledger, and the blanket grant in

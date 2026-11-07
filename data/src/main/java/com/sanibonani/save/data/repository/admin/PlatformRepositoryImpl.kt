@@ -3,6 +3,7 @@ package com.sanibonani.save.data.repository.admin
 import com.sanibonani.save.data.local.SanibonaniDatabase
 import com.sanibonani.save.data.local.toEntity
 import com.sanibonani.save.data.remote.PostgrestColumns
+import com.sanibonani.save.data.remote.supabase.fetchAllLedgerPages
 import com.sanibonani.save.data.repository.BaseRepository
 import com.sanibonani.save.domain.logging.AppLogger
 import com.sanibonani.save.domain.model.ActuarialMetrics
@@ -29,6 +30,7 @@ import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.functions.functions
 import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.postgrest.query.Columns
+import io.github.jan.supabase.postgrest.query.Order
 import io.github.jan.supabase.storage.storage
 import io.ktor.client.statement.bodyAsText
 import java.io.File
@@ -309,6 +311,16 @@ class PlatformRepositoryImpl @Inject constructor(
                 channel = NotifChannel.BOTH
             ))
         }
+    }
+
+    override suspend fun getPlatformLedger(): Result<List<LedgerEntry>> = retryWithExponentialBackoff {
+        fetchAllLedgerPages { from, to ->
+            supabase.postgrest["platform_ledger"].select {
+                order("created_at", order = Order.DESCENDING)
+                order("id", order = Order.DESCENDING)
+                range(from, to)
+            }.decodeList<LedgerEntry>()
+        }.map { it.copy(isPlatform = true) }
     }
 
     override suspend fun deleteGroupFromPlatform(groupId: String): Result<Unit> = authoritativeCall("deleteGroupFromPlatform") {

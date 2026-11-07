@@ -15,6 +15,7 @@ import com.sanibonani.save.domain.repository.system.*
 
 import com.sanibonani.save.domain.usecase.auth.BuildDocumentAuthHeadersUseCase
 import com.sanibonani.save.domain.usecase.equity.ObserveGroupContributionsUseCase
+import com.sanibonani.save.domain.usecase.equity.ObserveMemberContributionsUseCase
 import com.sanibonani.save.domain.usecase.member.*
 import com.sanibonani.save.domain.usecase.credit.ValidateLoanEligibilityUseCase
 import com.sanibonani.save.domain.usecase.system.*
@@ -80,6 +81,7 @@ class AdminViewModelWhatsAppTest {
             adminContextCache,
             UpdateMemberBankingDetailsUseCase(memberRepo),
             ObserveGroupContributionsUseCase(contributionRepo),
+            ObserveMemberContributionsUseCase(contributionRepo),
             ObserveBeneficiariesUseCase(beneficiaryRepo),
             UpdateBeneficiaryUseCase(beneficiaryRepo),
             ObserveMemberDocumentsUseCase(memberDocumentRepo),

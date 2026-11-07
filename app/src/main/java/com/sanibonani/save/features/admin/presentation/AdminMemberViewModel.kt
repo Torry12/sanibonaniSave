@@ -9,6 +9,7 @@ import com.sanibonani.save.domain.model.MemberStatus
 import com.sanibonani.save.domain.model.NotifChannel
 import com.sanibonani.save.domain.usecase.credit.ValidateLoanEligibilityUseCase
 import com.sanibonani.save.domain.usecase.equity.ObserveGroupContributionsUseCase
+import com.sanibonani.save.domain.usecase.equity.ObserveMemberContributionsUseCase
 import com.sanibonani.save.domain.usecase.auth.BuildDocumentAuthHeadersUseCase
 import com.sanibonani.save.domain.usecase.member.ObserveBeneficiariesUseCase
 import com.sanibonani.save.domain.usecase.member.ObserveMemberDocumentsUseCase
@@ -39,6 +40,7 @@ class AdminMemberViewModel @Inject constructor(
     private val adminContextCacheService: AdminGroupContextCacheService,
     private val updateMemberBankingDetails: UpdateMemberBankingDetailsUseCase,
     private val observeGroupContributions: ObserveGroupContributionsUseCase,
+    private val observeMemberContributions: ObserveMemberContributionsUseCase,
     private val observeBeneficiaries: ObserveBeneficiariesUseCase,
     private val updateBeneficiaryUseCase: UpdateBeneficiaryUseCase,
     private val observeMemberDocuments: ObserveMemberDocumentsUseCase,
