@@ -24,16 +24,8 @@ object ToastUtils {
         showShort(context, "✅ $message")
     }
 
-    fun showWarning(context: Context, message: String) {
-        showLong(context, "⚠️ $message")
-    }
-
     fun showInfo(context: Context, message: String) {
         showShort(context, "ℹ️ $message")
-    }
-
-    fun showProcessing(context: Context, message: String) {
-        showShort(context, "⏳ $message")
     }
 }
 

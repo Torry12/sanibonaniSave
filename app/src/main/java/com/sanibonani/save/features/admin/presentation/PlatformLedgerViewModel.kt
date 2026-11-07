@@ -45,6 +45,9 @@ class PlatformLedgerViewModel @Inject constructor(
             observeGroupReconciliations(groupId).collect { result ->
                 result.onSuccess { list ->
                     updateState { it.copy(groupReconciliations = it.groupReconciliations + (groupId to list)) }
+                }.onFailure { e ->
+                    // The group stays out of the map: an unread history is not an empty one.
+                    handleError(e, "Could not read the reconciliation history for this group.")
                 }
             }
         }

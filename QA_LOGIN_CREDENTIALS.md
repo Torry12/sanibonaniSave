@@ -3,15 +3,17 @@
 This document contains the login credentials for all high-fidelity personas and groups within the Master Seed data. These accounts are available in both **Local** and **Online** environments.
 
 ## 🔐 Global Credentials
-- **Password (All Accounts)**: `Pass123!`
+- **Password (seeded persona accounts)**: `Pass123!` — the `persona.*`, `seed.member.*` and `perf.*@scen.com` fixtures. The Payment Sandbox signs in as any of them, which is why they share one password.
+- **The two `platform_admin` accounts are NOT on it.** `torrymsimango@gmail.com` was rotated by `supabase/maintenance/ROTATE_PLATFORM_ADMIN_PASSWORD_20261018.sql` and `platform.admin@master.example.com` (the seed fixture that owns the `LIGHT-*`/`SEED-*` groups) by `ROTATE_SEED_PLATFORM_ADMIN_PASSWORD_20261103.sql`. Both were rotated again on **2026-11-03, on both tiers**, because the previous values had been printed into a chat transcript; each rotation revoked the account's `auth.sessions`, and a read-only sweep of `auth.users` afterward confirms 2 admins, 0 admin sessions, 118 accounts still on `Pass123!`, and no row that still answers the displaced values. Their values are never committed: `PLATFORM_ADMIN_PASSWORD` and `SEED_PLATFORM_ADMIN_PASSWORD` in the untracked `local.properties`, injected into the seed as `current_setting('sanibonani.seed_platform_admin_password')`.
 - **Encryption Tier**: Authoritative (AAL1/AAL2 enabled)
 
 ---
 
 ## 🏛️ Platform Administrator
-| Role | Email | Purpose |
-| :--- | :--- | :--- |
-| Platform Admin | `torrymsimango@gmail.com` | Global oversight, fee management, backups, and support mode. |
+| Role | Email | Password source | Purpose |
+| :--- | :--- | :--- | :--- |
+| Platform Admin | `torrymsimango@gmail.com` | `PLATFORM_ADMIN_PASSWORD` in `local.properties` | Global oversight, fee management, backups, and support mode. |
+| Platform Admin (seed fixture) | `platform.admin@master.example.com` | `SEED_PLATFORM_ADMIN_PASSWORD` in `local.properties` | Owns every seeded group, so admin/impersonation flows work straight after a seed. |
 
 ---
 

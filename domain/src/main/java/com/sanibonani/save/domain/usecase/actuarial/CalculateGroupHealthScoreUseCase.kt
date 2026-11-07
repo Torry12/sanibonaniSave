@@ -82,8 +82,19 @@ class CalculateGroupHealthScoreUseCase @Inject constructor(
         score
     }
     // ===== Component Calculations =====
+
+    /**
+     * A DUE or OVERDUE row is money the group has not received. Counting it as income inflates the
+     * reserve, solvency and loss components - and the score is then persisted for seven days, so an
+     * arrears book keeps reading as healthy for a week.
+     */
+    private fun receivedIncome(contributions: List<Contribution>): List<Contribution> =
+        contributions.filter {
+            it.status == ContributionStatus.PAID || it.status == ContributionStatus.PARTIAL
+        }
+
     private fun getAvgMonthlyContribution(contributions: List<Contribution>): Money {
-        val monthlyTotals = contributions
+        val monthlyTotals = receivedIncome(contributions)
             .filter { it.type == "contribution" }
             .groupBy {
                 safeRunCatching { it.dueDate.substringBeforeLast("-").substringBefore("T") }.getOrDefault("unknown")
@@ -105,7 +116,7 @@ class CalculateGroupHealthScoreUseCase @Inject constructor(
         val claimTypes = setOf("claim", "payout", "burial_claim", "loan_disbursement")
         val incomingTypes = setOf("contribution") // Only savings income for loss ratio base
         val totalClaims = contributions.filter { it.type in claimTypes }.fold(Money.ZERO) { acc, c -> acc + c.amount }
-        val totalIncoming = contributions.filter { it.type in incomingTypes }.fold(Money.ZERO) { acc, c -> acc + c.amount }
+        val totalIncoming = receivedIncome(contributions).filter { it.type in incomingTypes }.fold(Money.ZERO) { acc, c -> acc + c.amount }
         return totalClaims.ratio(totalIncoming)
     }
 

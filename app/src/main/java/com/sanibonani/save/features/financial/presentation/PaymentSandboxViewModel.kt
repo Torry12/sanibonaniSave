@@ -15,7 +15,6 @@ data class PaymentSandboxUiState(
     val groups: List<Group> = emptyList(),
     val selectedGroupId: String? = null,
     val selectedGroupMembers: List<Member> = emptyList(),
-    val isLoading: Boolean = false,
     val isSimulating: Boolean = false,
     val successMessage: String? = null,
     val error: String? = null,
@@ -34,27 +33,37 @@ class PaymentSandboxViewModel @Inject constructor(
 
     private fun loadGroups() {
         launchJob("load_groups") {
-            updateState { it.copy(isLoading = true) }
             getPublicGroups().first().onSuccess { groups ->
-                updateState { it.copy(groups = groups, isLoading = false) }
+                updateState { it.copy(groups = groups) }
                 if (groups.isNotEmpty() && (uiState.value.selectedGroupId == null)) {
                     selectGroup(groups.first().id ?: "")
                 }
+            }.onFailure { e ->
+                // The screen has no spinner for this read, so a refusal that set nothing at all left
+                // the operator staring at an empty dropdown with no way to tell it was not empty.
+                updateState { it.copy(error = e.toUserMessage()) }
             }
         }
     }
 
     fun selectGroup(groupId: String) {
-        updateState { it.copy(selectedGroupId = groupId) }
+        // Every simulate method books activity against this roster, so switching groups has to drop
+        // the previous one rather than let a failed read bill the new group for the old members.
+        updateState { it.copy(selectedGroupId = groupId, selectedGroupMembers = emptyList()) }
         launchJob("select_group") {
             observeGroupMembers(groupId).first().onSuccess { members ->
                 updateState { it.copy(selectedGroupMembers = members) }
+            }.onFailure { e ->
+                updateState { it.copy(error = e.toUserMessage()) }
             }
         }
     }
 
     fun simulateBankTransfer(amount: String, reference: String) {
-        val gid = uiState.value.selectedGroupId ?: return
+        val gid = uiState.value.selectedGroupId ?: run {
+            updateState { it.copy(error = MSG_NO_GROUP) }
+            return
+        }
         val cleanAmount = amount.trim().replace(Regex("[R\\s,]"), "")
         if (cleanAmount.isBlank()) {
             updateState { it.copy(error = "Please enter a valid amount") }
@@ -78,8 +87,14 @@ class PaymentSandboxViewModel @Inject constructor(
 
     fun simulateMonthlyCollections() {
         val st = uiState.value
-        val gid = st.selectedGroupId ?: return
-        val group = st.groups.find { it.id == gid } ?: return
+        val gid = st.selectedGroupId ?: run {
+            updateState { it.copy(error = MSG_NO_GROUP) }
+            return
+        }
+        val group = st.groups.find { it.id == gid } ?: run {
+            updateState { it.copy(error = MSG_STALE_GROUP) }
+            return
+        }
         val memberNames = st.selectedGroupMembers.map { it.fullName }
         if (memberNames.isEmpty()) {
             updateState { it.copy(error = "Selected group has no members to simulate") }
@@ -100,8 +115,14 @@ class PaymentSandboxViewModel @Inject constructor(
 
     fun simulateDeepHistoricalRun(months: Int) {
         val st = uiState.value
-        val gid = st.selectedGroupId ?: return
-        val group = st.groups.find { it.id == gid } ?: return
+        val gid = st.selectedGroupId ?: run {
+            updateState { it.copy(error = MSG_NO_GROUP) }
+            return
+        }
+        val group = st.groups.find { it.id == gid } ?: run {
+            updateState { it.copy(error = MSG_STALE_GROUP) }
+            return
+        }
         val memberNames = st.selectedGroupMembers.map { it.fullName }
         if (memberNames.isEmpty()) {
             updateState { it.copy(error = "Selected group has no members to simulate") }
@@ -129,4 +150,10 @@ class PaymentSandboxViewModel @Inject constructor(
         updateState { it.copy(successMessage = null, error = null) }
     }
 
+    private companion object {
+        // Every simulate path used to bail out of these two cases without touching the state, so the
+        // button looked pressed and nothing answered. The screen renders `state.error` as a modal.
+        const val MSG_NO_GROUP = "Select a group to simulate before running this."
+        const val MSG_STALE_GROUP = "That group is no longer in the list. Select a group again."
+    }
 }

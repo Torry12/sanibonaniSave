@@ -4,6 +4,7 @@ import com.sanibonani.save.domain.model.Beneficiary
 import com.sanibonani.save.domain.model.Contribution
 import com.sanibonani.save.domain.model.Group
 import com.sanibonani.save.domain.model.Member
+import com.sanibonani.save.domain.model.MemberDocument
 import com.sanibonani.save.domain.model.MemberStatus
 import com.sanibonani.save.domain.model.NotifChannel
 import com.sanibonani.save.domain.usecase.credit.ValidateLoanEligibilityUseCase
@@ -32,7 +33,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 
 @HiltViewModel
@@ -61,25 +61,23 @@ class AdminMemberViewModel @Inject constructor(
     }
 
     private fun observeContext() {
-        launchJob("context_observation") {
-            observeGroupContext(
-                groupIdFlow = adminContextCacheService.selectedGroupId,
-                contextSource = adminContextCacheService.contexts
-            ) { context ->
-                if (context == null) return@observeGroupContext
+        observeGroupContext(
+            key = "context_observation",
+            groupIdFlow = adminContextCacheService.selectedGroupId,
+            contextSource = adminContextCacheService.contexts
+        ) { context ->
+            if (context == null) return@observeGroupContext
 
-                val isNewGroup = context.group?.id != uiState.value.group?.id
+            val isNewGroup = context.group?.id != uiState.value.group?.id
 
-                updateState { it.copy(
-                    group = context.group,
-                    members = context.members,
-                    isLoading = !context.isFullyHydrated,
-                    selectedMember = if (isNewGroup) null else it.selectedMember
-                ) }
+            updateState { it.copy(
+                group = context.group,
+                members = context.members,
+                selectedMember = if (isNewGroup) null else it.selectedMember
+            ) }
 
-                if (context.isFullyHydrated && (context.group != null) && context.members.isNotEmpty()) {
-                    refreshAllMemberCalculations(context.group, context.members)
-                }
+            if (context.isFullyHydrated && (context.group != null) && context.members.isNotEmpty()) {
+                refreshAllMemberCalculations(context.group, context.members)
             }
         }
     }
@@ -87,8 +85,13 @@ class AdminMemberViewModel @Inject constructor(
     private fun refreshAllMemberCalculations(group: Group, members: List<Member>) {
         val groupId = group.id ?: return
         launchJob("calculations_refresh") {
+            // The flow re-emits on every sync pass, so a refusal is reported once per refresh: the
+            // standing it could not confirm does not change between passes, and a toast on each one
+            // buries the rest of the dashboard.
+            var refusalReported = false
             observeGroupContributions(groupId).collectLatest { result: Result<List<Contribution>> ->
                 result.onSuccess { allContribs ->
+                    refusalReported = false
                     val allCalculations = withContext(kotlinx.coroutines.Dispatchers.Default) {
                         val contribsByMember = allContribs.groupBy { it.memberId }
                         members.mapNotNull { member ->
@@ -100,16 +103,28 @@ class AdminMemberViewModel @Inject constructor(
                         memberCalculations = allCalculations,
                         selectedMemberCalculation = it.selectedMember?.id?.let { id -> allCalculations[id] } ?: it.selectedMemberCalculation
                     ) }
+                }.onFailure { e ->
+                    // The rows keep whatever the last successful read computed. That is only honest
+                    // if the screen says the computation did not run.
+                    if (!refusalReported) {
+                        refusalReported = true
+                        handleError(e, "Unable to refresh this group's contributions. The member statuses shown may be out of date.")
+                    }
                 }
             }
         }
     }
 
     fun selectMember(member: Member?) {
+        val memberChanged = member?.id != uiState.value.selectedMember?.id
         updateState { s ->
             s.copy(
                 selectedMember = member,
                 selectedMemberCalculation = member?.id?.let { uiState.value.memberCalculations[it] },
+                selectedMemberBeneficiaries = if (memberChanged) emptyList() else s.selectedMemberBeneficiaries,
+                selectedMemberDocuments = if (memberChanged) emptyList() else s.selectedMemberDocuments,
+                isEligibleForLoan = if (memberChanged) false else s.isEligibleForLoan,
+                loanIneligibilityReason = if (memberChanged) null else s.loanIneligibilityReason,
                 messageText = "",
                 messageSentSuccess = false
             )
@@ -121,18 +136,47 @@ class AdminMemberViewModel @Inject constructor(
         val memberId = member.id ?: return
         val group = uiState.value.group ?: return
         launchJob("member_details_loading") {
+            // combine re-emits while either leg is still failed, so each leg is reported once
+            // per member selection instead of on every emission.
+            val reported = mutableSetOf<String>()
+            // Each leg hands over its cached rows first and the refresh verdict after, so a refusal
+            // arrives while the previous rows are on screen. They stay: an empty list would claim
+            // the member has no beneficiaries rather than that the beneficiary read was refused.
+            var lastBeneficiaries = emptyList<Beneficiary>()
+            var lastDocuments = emptyList<MemberDocument>()
             combine(observeBeneficiaries(memberId), observeMemberDocuments(memberId)) { bRes, dRes ->
-                updateState { it.copy(selectedMemberBeneficiaries = bRes.getOrDefault(emptyList()), selectedMemberDocuments = dRes.getOrDefault(emptyList()), isLoading = false) }
+                bRes.getOrNull()?.let { lastBeneficiaries = it }
+                dRes.getOrNull()?.let { lastDocuments = it }
+                updateState { state ->
+                    if (state.selectedMember?.id != memberId) state
+                    else state.copy(
+                        selectedMemberBeneficiaries = lastBeneficiaries,
+                        selectedMemberDocuments = lastDocuments
+                    )
+                }
+                reportMemberDetailFailure(reported, "beneficiaries", bRes.exceptionOrNull())
+                reportMemberDetailFailure(reported, "documents", dRes.exceptionOrNull())
             }.collect()
         }
         checkLoanEligibility(member, group)
     }
 
+    private fun reportMemberDetailFailure(reported: MutableSet<String>, leg: String, failure: Throwable?) {
+        if (failure == null || !reported.add(leg)) return
+        handleError(failure, "Unable to load member $leg.")
+    }
+
     private fun checkLoanEligibility(member: Member, group: Group) {
         launchJob("loan_eligibility_check") {
             when (val result = validateLoanEligibility(member, group)) {
-                is ValidateLoanEligibilityUseCase.EligibilityResult.Eligible -> updateState { it.copy(isEligibleForLoan = true, loanIneligibilityReason = null) }
-                is ValidateLoanEligibilityUseCase.EligibilityResult.Ineligible -> updateState { it.copy(isEligibleForLoan = false, loanIneligibilityReason = result.reason) }
+                is ValidateLoanEligibilityUseCase.EligibilityResult.Eligible -> updateState { state ->
+                    if (state.selectedMember?.id != member.id) state
+                    else state.copy(isEligibleForLoan = true, loanIneligibilityReason = null)
+                }
+                is ValidateLoanEligibilityUseCase.EligibilityResult.Ineligible -> updateState { state ->
+                    if (state.selectedMember?.id != member.id) state
+                    else state.copy(isEligibleForLoan = false, loanIneligibilityReason = result.reason)
+                }
             }
         }
     }
@@ -185,15 +229,14 @@ class AdminMemberViewModel @Inject constructor(
 
     fun exportMemberStatement(member: Member, pdf: Boolean) {
         val group = uiState.value.group ?: return
-        val memberId = member.id ?: return
-        val groupId = group.id ?: return
 
         launchJob("export_member_statement") {
             updateState { it.copy(isExporting = true) }
             try {
-                val list = observeMemberContributions(memberId, groupId).first().getOrThrow()
-                val file = exportMemberStatementUseCase(group, member, list, pdf).getOrThrow()
-                updateState { it.copy(exportFile = file) }
+                // The use case reads the contribution book itself, from the server: taking the first
+                // emission of the observed flow hands over the cache, and a statement printed from it
+                // can omit a payment the server booked or confirm one the outbox never delivered.
+                val file = exportMemberStatementUseCase(group, member, pdf).getOrThrow()
                 sendEvent(UIEvent.OpenFile(file, if (pdf) "application/pdf" else "text/csv", "Statement"))
             } catch (e: CancellationException) {
                 throw e
@@ -246,6 +289,4 @@ class AdminMemberViewModel @Inject constructor(
                 .onFailure { handleError(it) }
         }
     }
-
-    fun clearError() { updateState { it.copy(error = null) } }
 }

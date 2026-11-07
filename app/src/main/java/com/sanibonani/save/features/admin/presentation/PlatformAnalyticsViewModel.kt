@@ -1,6 +1,7 @@
 package com.sanibonani.save.features.admin.presentation
 
 import com.sanibonani.save.domain.model.*
+import com.sanibonani.save.domain.usecase.actuarial.CalculateGroupHealthScoreUseCase
 import com.sanibonani.save.domain.usecase.admin.ComputeSystemWideMetricsUseCase
 import com.sanibonani.save.domain.usecase.admin.DeleteGroupFromPlatformUseCase
 import com.sanibonani.save.domain.usecase.admin.GetAllPlatformGroupsUseCase
@@ -22,6 +23,7 @@ class PlatformAnalyticsViewModel @Inject constructor(
     private val getAllPlatformGroups: GetAllPlatformGroupsUseCase,
     private val computeSystemWideMetrics: ComputeSystemWideMetricsUseCase,
     private val getGroupPlatformMetrics: GetGroupPlatformMetricsUseCase,
+    private val calculateGroupHealthScore: CalculateGroupHealthScoreUseCase,
     private val deleteGroupFromPlatformUseCase: DeleteGroupFromPlatformUseCase,
     private val getPlatformDistributions: GetPlatformDistributionsUseCase
 ) : BaseViewModel<PlatformAnalyticsUiState>(PlatformAnalyticsUiState()) {
@@ -33,9 +35,10 @@ class PlatformAnalyticsViewModel @Inject constructor(
             updateState { it.copy(isLoading = true, analytics = AsyncResult.Loading) }
             coroutineScope {
                 val analyticsTask = async { getPlatformAnalytics() }
-                val groupsDeferred = async { getAllPlatformGroups().getOrNull() ?: emptyList() }
+                val groupsTask = async { getAllPlatformGroups() }
 
-                val groups = groupsDeferred.await()
+                val groupsResult = groupsTask.await()
+                val groups = groupsResult.getOrElse { emptyList() }
                 val dist = getPlatformDistributions(groups)
                 val analyticsRes = analyticsTask.await()
 
@@ -61,6 +64,10 @@ class PlatformAnalyticsViewModel @Inject constructor(
                         isLoading = false
                     ) }
                 }
+
+                // The charts were built from whatever the roster read returned, so a refusal has to be
+                // named: an empty platform and an unread platform are different answers.
+                groupsResult.exceptionOrNull()?.let { handleError(it) }
             }
         }
     }
@@ -76,9 +83,28 @@ class PlatformAnalyticsViewModel @Inject constructor(
 
     fun fetchGroupMetrics(groupId: String) {
         launchJob("fetch_group_metrics") {
-            getGroupPlatformMetrics(groupId).onSuccess { metrics ->
-                updateState { it.copy(selectedGroupMetrics = metrics) }
-            }
+            // The dialog is titled with the row the admin just tapped but reads this one field, so
+            // the previous group's figures have to be gone before the new read starts.
+            updateState { it.copy(selectedGroupMetrics = null) }
+            getGroupPlatformMetrics(groupId)
+                .onSuccess { metrics -> updateState { it.copy(selectedGroupMetrics = metrics) } }
+                .onFailure { handleError(it) }
+        }
+    }
+
+    fun fetchGroupHealthScore(groupId: String) {
+        launchJob("fetch_group_health_score") {
+            // The composite score row and the button into the full report both hang off this field,
+            // so a new read starts from nothing rather than from the group before it.
+            updateState { it.copy(selectedGroupHealthScore = null, isLoadingHealthScore = true) }
+            calculateGroupHealthScore(groupId)
+                .onSuccess { score ->
+                    updateState { it.copy(selectedGroupHealthScore = score, isLoadingHealthScore = false) }
+                }
+                .onFailure { e ->
+                    updateState { it.copy(isLoadingHealthScore = false) }
+                    handleError(e)
+                }
         }
     }
 

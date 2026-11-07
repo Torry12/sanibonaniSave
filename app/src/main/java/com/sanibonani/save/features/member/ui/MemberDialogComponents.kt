@@ -23,6 +23,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.sanibonani.save.R
+import com.sanibonani.save.domain.config.LoanTerms
 import com.sanibonani.save.domain.model.*
 import com.sanibonani.save.ui.components.*
 import com.sanibonani.save.ui.theme.*
@@ -31,10 +32,14 @@ import java.math.BigDecimal
 @Composable
 fun LoanRequestDialog(group: Group?, onDismiss: () -> Unit, onConfirm: (java.math.BigDecimal, Int, String) -> Unit) {
     var a by remember { mutableStateOf("") }
-    var m by remember { mutableStateOf("3") }
     var p by remember { mutableStateOf("") }
 
     val cap = group?.loanMaxAmount?.takeIf { it.isPositive }
+
+    // The domain refuses what this dialog offers beyond the group's own term ceiling, so the two
+    // must be read from the same place or a member can submit a form the server rejects.
+    val maxTerm = group?.maxLoanTermMonths ?: LoanTerms.MAX_TERM_MONTHS
+    var m by remember(maxTerm) { mutableStateOf(maxTerm.toString()) }
 
     val amountError = remember(a, cap) {
         val parsed = a.toBigDecimalOrNull()
@@ -47,13 +52,13 @@ fun LoanRequestDialog(group: Group?, onDismiss: () -> Unit, onConfirm: (java.mat
         }
     }
 
-    val monthsError = remember(m) {
+    val monthsError = remember(m, maxTerm) {
         val months = m.toIntOrNull()
         when {
             m.isEmpty() -> null
             months == null -> "Invalid number"
             months < 1 -> "Minimum 1 month"
-            months > 3 -> "Maximum 3 months"
+            months > maxTerm -> "Maximum $maxTerm months"
             else -> null
         }
     }
@@ -89,7 +94,7 @@ fun LoanRequestDialog(group: Group?, onDismiss: () -> Unit, onConfirm: (java.mat
                     placeholder = "e.g. Medical emergency"
                 )
                 InfoBox(
-                    "Interest Rate: ${group?.loanInterestRate ?: 0}% • Max term: 3 months" +
+                    "Interest Rate: ${group?.loanInterestRate ?: 0}% • Max term: $maxTerm months" +
                         (cap?.let { " • Max per loan: ${it.format()}" } ?: ""),
                     type = InfoType.INFO
                 )
@@ -97,7 +102,7 @@ fun LoanRequestDialog(group: Group?, onDismiss: () -> Unit, onConfirm: (java.mat
         },
         confirmButton = {
             Button(
-                onClick = { onConfirm(a.toBigDecimalOrNull() ?: java.math.BigDecimal.ZERO, m.toIntOrNull() ?: 3, p) },
+                onClick = { onConfirm(a.toBigDecimalOrNull() ?: java.math.BigDecimal.ZERO, m.toIntOrNull() ?: maxTerm, p) },
                 enabled = a.isNotBlank() && m.isNotBlank() && amountError == null && monthsError == null
             ) { Text(stringResource(R.string.ui_submit)) }
         },

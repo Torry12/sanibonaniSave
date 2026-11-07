@@ -2,6 +2,7 @@ package com.sanibonani.save.viewmodel
 
 import android.util.Log
 import androidx.arch.core.executor.testing.InstantTaskExecutorRule
+import com.sanibonani.save.MainDispatcherRule
 import com.sanibonani.save.domain.model.*
 import com.sanibonani.save.domain.repository.admin.*
 import com.sanibonani.save.domain.repository.auth.*
@@ -21,7 +22,7 @@ import com.sanibonani.save.domain.validation.ValidationResult
 import com.sanibonani.save.domain.validation.ValidationUtils
 import com.sanibonani.save.features.financial.presentation.PaymentViewModel
 import io.mockk.*
-import kotlinx.coroutines.Dispatchers
+import java.io.IOException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.*
@@ -35,6 +36,9 @@ import com.sanibonani.save.domain.repository.credit.LoanRepository
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class PaymentViewModelTest {
+
+    @get:Rule
+    val mainDispatcherRule = MainDispatcherRule()
 
     @get:Rule
     val instantExecutorRule = InstantTaskExecutorRule()
@@ -59,7 +63,6 @@ class PaymentViewModelTest {
     )
 
     private lateinit var viewModel: PaymentViewModel
-    private val testDispatcher = StandardTestDispatcher()
 
     @Before
     fun setup() {
@@ -80,16 +83,14 @@ class PaymentViewModelTest {
         every { feeService.getRegistrationFee() } returns Money.ZERO
         every { feeService.getShortfallRecoveryFee() } returns Money.ZERO
 
-        Dispatchers.setMain(testDispatcher)
-
         every { supabaseRepo.currentUserId } returns "user_123"
         every { supabaseRepo.sessionFlow } returns flowOf(mockk(relaxed = true))
 
-        viewModel = PaymentViewModel(
+        viewModel = mainDispatcherRule.track(PaymentViewModel(
             loadContext,
             processContributionUseCase,
             paymentCalculator
-        )
+        ))
         viewModel.setActive(true)
     }
 
@@ -107,7 +108,6 @@ class PaymentViewModelTest {
 
     @After
     fun tearDown() {
-        Dispatchers.resetMain()
         unmockkAll()
     }
 
@@ -129,6 +129,37 @@ class PaymentViewModelTest {
         assertEquals("m1", state.member?.id)
         assertEquals(groupId, state.group?.id)
         assertNotNull(state.calculation)
+        assertTrue("a price the server answered for needs no warning", state.amountsVerified)
+    }
+
+    @Test
+    fun `loadPaymentContext - a refused refresh keeps the price and reports it unverified`() = runTest {
+        val groupId = "g1"
+        val member = Member(id = "m1", groupId = groupId, status = MemberStatus.ACTIVE)
+        val group = Group(id = groupId, monthlyContribution = Money("200.0"))
+        val paidContribution = Contribution(
+            id = "c1",
+            memberId = "m1",
+            groupId = groupId,
+            amount = Money("200.00"),
+            status = ContributionStatus.PAID
+        )
+
+        every { memberRepo.observeMemberByUserId("user_123", groupId) } returns flowOf(Result.success(member))
+        coEvery { groupRepo.getGroupById(groupId) } returns Result.success(group)
+        every { contributionRepo.observeMemberContributions("m1", groupId) } returns flowOf(
+            Result.success(listOf(paidContribution)),
+            Result.failure(IOException("gateway unreachable"))
+        )
+        every { loanRepo.getMemberLoans("m1") } returns flowOf(Result.success(emptyList()))
+
+        viewModel.loadPaymentContext(groupId, "contribution")
+        advanceUntilIdle()
+
+        val state = viewModel.state.value
+        assertEquals(listOf(paidContribution), state.contributions)
+        assertNotNull("the member is still shown a price to pay", state.calculation)
+        assertFalse("and told the server did not confirm it", state.amountsVerified)
     }
 
     @Test
@@ -266,5 +297,36 @@ class PaymentViewModelTest {
         assertEquals(2, transactionIds.size)
         assertEquals(transactionIds[0], transactionIds[1])
         assertTrue(viewModel.state.value.isSuccess)
+    }
+
+    @Test
+    fun `loadPaymentContext - an unresolved group clears the previous group's context`() = runTest {
+        mockPaymentContext("g1")
+        advanceUntilIdle()
+        assertNotNull(viewModel.state.value.member)
+
+        // The member row is still cached, but the group behind it cannot be resolved - so the use
+        // case answers Unavailable and there is nothing to pay against.
+        coEvery { groupRepo.getGroupById("g2") } returns Result.failure(IOException("group read failed"))
+        viewModel.loadPaymentContext("g2", "contribution")
+        advanceUntilIdle()
+
+        val state = viewModel.state.value
+        assertNull("g1's member must not stay on screen as g2's context", state.member)
+        assertNull(state.group)
+        assertNull(state.calculation)
+    }
+
+    @Test
+    fun `loadPaymentContext - an unresolved group reports itself instead of showing an empty form`() = runTest {
+        mockPaymentContext("g1")
+        advanceUntilIdle()
+
+        coEvery { groupRepo.getGroupById("g2") } returns Result.failure(IOException("group read failed"))
+        viewModel.loadPaymentContext("g2", "contribution")
+        advanceUntilIdle()
+
+        val error = viewModel.state.value.error
+        assertTrue("expected the unresolved context to surface, got: $error", !error.isNullOrBlank())
     }
 }

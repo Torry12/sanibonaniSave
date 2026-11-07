@@ -2,6 +2,7 @@
 
 package com.sanibonani.save.domain.model
 
+import com.sanibonani.save.domain.config.LoanTerms
 import java.math.BigDecimal
 import kotlinx.serialization.*
 import kotlinx.serialization.descriptors.PrimitiveKind
@@ -126,6 +127,14 @@ data class Group(
     val registrationFee: Money get() = com.sanibonani.save.domain.config.PlatformFees.REGISTRATION
     val isRegistrationFeeOutstanding: Boolean get() = !registrationPaid || feeStatus == AdminFeeState.DUE || feeStatus == AdminFeeState.PENDING_ACTIVATION
     val isActiveGroup: Boolean get() = !isRegistrationFeeOutstanding && !isPlatformSuspended && feeStatus == AdminFeeState.PAID
+
+    /**
+     * Longest term a member of this group may ask for. `loan_max_months` is the admin's setting and
+     * only ever tightens the platform ceiling, because the backend force-settles an unpaid loan at
+     * three months whatever the group configured.
+     */
+    val maxLoanTermMonths: Int
+        get() = loanMaxMonths?.takeIf { it > 0 }?.coerceAtMost(LoanTerms.MAX_TERM_MONTHS) ?: LoanTerms.MAX_TERM_MONTHS
 }
 
 @Serializable(with = GroupTypeSerializer::class)

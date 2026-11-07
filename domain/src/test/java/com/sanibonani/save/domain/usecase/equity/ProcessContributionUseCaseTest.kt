@@ -8,7 +8,6 @@ import com.sanibonani.save.domain.service.FraudDetectionService
 import com.sanibonani.save.domain.service.PaymentAllocationService
 import com.sanibonani.save.domain.usecase.admin.ActivateGroupUseCase
 import io.mockk.*
-import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertTrue
@@ -42,7 +41,7 @@ class ProcessContributionUseCaseTest {
             activateGroupUseCase
         )
         coEvery { fraudDetectionService.evaluateTransaction(any()) } returns Result.success(Unit)
-        every { loanRepository.getMemberLoans(any()) } returns flowOf(Result.success(emptyList()))
+        coEvery { loanRepository.getMemberLoansSync(any()) } returns Result.success(emptyList())
     }
 
     @After

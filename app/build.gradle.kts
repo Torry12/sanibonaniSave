@@ -24,6 +24,13 @@ android {
                 "$projectDir/schemas",
                 "$projectDir/../data/schemas"
             )
+            // src/androidTestManual holds the live-tier seeding and simulation utilities. They
+            // are tools, not tests: each writes real money to whatever tier the build points at,
+            // so keeping them in androidTest put three permanent fake failures in every report.
+            // Opt in with -Psanibonani.manualTools=true when one is actually being run.
+            if (providers.gradleProperty("sanibonani.manualTools").orNull?.toBooleanStrictOrNull() == true) {
+                java.srcDir("src/androidTestManual/java")
+            }
         }
     }
 
@@ -165,11 +172,6 @@ tasks.withType<KotlinCompile>().configureEach {
             "-opt-in=kotlinx.coroutines.ExperimentalCoroutinesApi",
             "-opt-in=kotlinx.serialization.ExperimentalSerializationApi",
             "-opt-in=kotlin.time.ExperimentalTime"
-        )
-    }
-    if (name == "compileDebugAndroidTestKotlin") {
-        exclude(
-            "**/e2e/**"
         )
     }
 }

@@ -100,6 +100,7 @@ fun AllGroupsTab(
                             onClick = {
                                 showMetricsFor = group
                                 vm.fetchGroupMetrics(group.id ?: "")
+                                vm.fetchGroupHealthScore(group.id ?: "")
                             },
                             accentColor = if (group.isPlatformSuspended) ErrorRed else MaterialTheme.colorScheme.primary,
                             modifier = Modifier.padding(vertical = 4.dp)

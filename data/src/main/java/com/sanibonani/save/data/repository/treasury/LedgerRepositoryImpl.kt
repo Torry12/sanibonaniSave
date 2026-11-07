@@ -31,21 +31,7 @@ class LedgerRepositoryImpl @Inject constructor(
         cacheSync = { localSource.saveLedgerEntries(it) }
     )
 
-    override suspend fun getMemberLedger(memberId: String): Result<List<LedgerEntry>> = remoteSource.getMemberLedger(memberId)
-
-    override fun observePlatformLedger(): Flow<Result<List<LedgerEntry>>> = observeAndSync(
-        dbFlow = localSource.observePlatformLedger(),
-        mapper = { it },
-        toEntity = { it },
-        networkFetch = { remoteSource.getPlatformLedger().getOrThrow() },
-        cacheSync = { localSource.saveLedgerEntries(it) }
-    )
-
     override suspend fun getPlatformLedger(): Result<List<LedgerEntry>> = remoteSource.getPlatformLedger()
-
-    override suspend fun logPlatformEvent(entry: LedgerEntry): Result<Unit> = authoritativeCall("logPlatformEvent") {
-        remoteSource.logPlatformEvent(entry).getOrThrow()
-    }
 
     override suspend fun consolidateGroupLedger(groupId: String): Result<ConsolidationReport> =
         authoritativeCall("consolidateGroupLedger") {

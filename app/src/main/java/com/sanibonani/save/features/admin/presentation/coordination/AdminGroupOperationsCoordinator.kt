@@ -59,7 +59,7 @@ class AdminGroupOperationsCoordinator @Inject constructor(
                 .onSuccess { msg ->
                     host.updateAdminState { it.copy(isLoading = false) }
                     host.sendUiEvent(UIEvent.ShowMessage("ROSCA Payout Processed: $msg"))
-                    adminContextCacheService.warmUpGroup(groupId)
+                    adminContextCacheService.warmUpGroup(groupId, force = true)
                 }
                 .onFailure { e ->
                     host.updateAdminState { it.copy(isLoading = false) }

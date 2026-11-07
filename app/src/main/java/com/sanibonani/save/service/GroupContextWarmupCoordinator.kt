@@ -1,16 +1,46 @@
 package com.sanibonani.save.service
 
+import com.sanibonani.save.domain.logging.AppLogger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.coroutines.coroutineContext
 
-internal class GroupContextWarmupCoordinator {
+/**
+ * One hydration slot per group.
+ *
+ * A request arriving before the owning run has read the group's pillars is answered by that run,
+ * so starting a second one would only make two hydrations race for the same snapshot. A request
+ * arriving after those reads cannot be answered by it any more, so it is kept and run when the
+ * owner finishes: discarding it instead left a post-write refresh invisible until the next sweep.
+ */
+internal class GroupContextWarmupCoordinator(
+    /**
+     * How long a run may wait for the warm-up it replaced before reading anyway.
+     *
+     * The replaced run is already cancelled, so an orderly one unwinds promptly and its last
+     * snapshot write lands first. A run parked in a read that will not answer holds the group's
+     * slot, and waiting on it without a bound is what turned "open this group" into a screen that
+     * never renders: the entry that should have replaced a stale warm-up became a second stall.
+     */
+    private val supersedeJoinMillis: Long = SUPERSEDE_JOIN_TIMEOUT_MS
+) {
 
-    private val jobs = ConcurrentHashMap<String, Job>()
+    private class Slot(val groupId: String) {
+        // markReadsStarted writes from the run's own thread, outside the map lock, so the
+        // coverage decision has to see it.
+        @Volatile var owner: Job? = null
+        @Volatile var scope: CoroutineScope? = null
+        @Volatile var readsStarted: Boolean = false
+        @Volatile var pending: (suspend () -> Unit)? = null
+        @Volatile var pendingCovered: Boolean = false
+    }
+
+    private val slots = ConcurrentHashMap<String, Slot>()
 
     fun launch(
         groupId: String,
@@ -18,49 +48,170 @@ internal class GroupContextWarmupCoordinator {
         replaceActive: Boolean = false,
         block: suspend () -> Unit
     ) {
+        var superseded: Job? = null
         var scheduled: Job? = null
-        jobs.compute(groupId) { _, current ->
-            if (!replaceActive && current?.isActive == true) {
-                current
+        slots.compute(groupId) { _, current ->
+            val slot = current ?: Slot(groupId)
+            val active = slot.owner
+            if (!replaceActive && active?.isActive == true) {
+                // A run that has not read yet still will, so it answers this request; once its
+                // reads are done the snapshot is fixed and only a fresh run can carry it.
+                slot.pending = block
+                slot.pendingCovered = !slot.readsStarted
+                slot
             } else {
-                current?.cancel()
-                scope.launch(start = CoroutineStart.LAZY) {
-                    try {
-                        block()
-                    } finally {
-                        jobs.remove(groupId, coroutineContext[Job])
+                superseded = active
+                slot.scope = scope
+                slot.readsStarted = false
+                slot.pending = null
+                slot.pendingCovered = false
+                slot.owner = startRun(slot, active, block).also { scheduled = it }
+                slot
+            }
+        }
+        // Cancelling resumes an unwinding run, and its slot release must not re-enter the map
+        // operation still holding this key's lock.
+        superseded?.cancel()
+        scheduled?.start()
+    }
+
+    /**
+     * Takes the group's slot for the whole of [block], cancelling whatever was warming it.
+     * [scope] owns a request that arrives after this run has read, so the follow-up is not left
+     * to die with the caller's scope.
+     */
+    suspend fun <T> runExclusive(
+        groupId: String,
+        scope: CoroutineScope,
+        block: suspend () -> T
+    ): T = coroutineScope {
+        val refreshJob = checkNotNull(coroutineContext[Job])
+        var superseded: Job? = null
+        slots.compute(groupId) { _, current ->
+            val slot = current ?: Slot(groupId)
+            superseded = slot.owner
+            slot.scope = scope
+            slot.readsStarted = false
+            slot.pending = null
+            slot.pendingCovered = false
+            slot.owner = refreshJob
+            slot
+        }
+        superseded?.cancel()
+        // Its last snapshot write has to land before this run reads, or stale data wins. The wait is
+        // what a Support Mode entry stalls on when a sweep is parked in a slow network read, and
+        // nothing on screen distinguishes that from a hydration that never started — so it is
+        // measured, bounded, and given up on rather than sat in.
+        try {
+            val held = superseded
+            if (held != null) {
+                val since = System.currentTimeMillis()
+                AppLogger.w(
+                    "GroupWarmup",
+                    "Hydration for group $groupId is waiting for the warmup already running for it."
+                )
+                if (held.awaitWithin(supersedeJoinMillis)) {
+                    AppLogger.w(
+                        "GroupWarmup",
+                        "Group $groupId's superseded warmup unwound after ${System.currentTimeMillis() - since}ms."
+                    )
+                } else {
+                    AppLogger.w(
+                        "GroupWarmup",
+                        "Group $groupId's superseded warmup never unwound within ${supersedeJoinMillis}ms; " +
+                            "reading without it, so its last write may still land after this one."
+                    )
+                }
+            }
+            block()
+        } finally {
+            release(groupId, refreshJob)
+        }
+    }
+
+    /** True when [this] finished within [millis]; a caller that gives up proceeds on its own. */
+    private suspend fun Job.awaitWithin(millis: Long): Boolean =
+        withTimeoutOrNull(millis) { join(); true } == true
+
+    /** Marks that the owning run began reading, so a later request needs a run of its own. */
+    suspend fun markReadsStarted(groupId: String) {
+        val slot = slots[groupId] ?: return
+        if (slot.owner === coroutineContext[Job]) slot.readsStarted = true
+    }
+
+    fun cancel(groupId: String) {
+        val superseded = slots.remove(groupId)?.owner
+        superseded?.cancel()
+    }
+
+    fun cancelAll() {
+        val superseded = slots.values.mapNotNull { slot ->
+            slot.pending = null
+            slot.owner.also { slot.owner = null }
+        }
+        slots.clear()
+        superseded.forEach { it.cancel() }
+    }
+
+    fun retainOnly(groupIds: Set<String>) {
+        slots.keys
+            .filterNot(groupIds::contains)
+            .forEach(::cancel)
+    }
+
+    private fun startRun(slot: Slot, superseded: Job?, block: suspend () -> Unit): Job {
+        val scope = checkNotNull(slot.scope) { "The warmup slot lost its scope." }
+        return scope.launch(start = CoroutineStart.LAZY) {
+            // A cancelled predecessor only stops once it unwinds, and its last snapshot write
+            // would otherwise land after the fresher one it was replaced for.
+            val held = superseded
+            if (held != null && !held.awaitWithin(supersedeJoinMillis)) {
+                AppLogger.w(
+                    "GroupWarmup",
+                    "Warmup for group ${slot.groupId} replaced one that never unwound within " +
+                        "${supersedeJoinMillis}ms; it reads anyway."
+                )
+            }
+            try {
+                block()
+            } finally {
+                release(slot.groupId, coroutineContext[Job])
+            }
+        }
+    }
+
+    private fun release(groupId: String, finished: Job?) {
+        var scheduled: Job? = null
+        slots.compute(groupId) { _, slot ->
+            when {
+                // A superseded run leaves the slot to its replacement: that run answers what was
+                // queued, and it must not inherit the superseded run's captured group.
+                slot == null -> null
+                slot.owner !== finished -> slot
+                else -> {
+                    val next = slot.pending
+                    val answered = slot.pendingCovered && slot.readsStarted
+                    slot.owner = null
+                    slot.readsStarted = false
+                    slot.pending = null
+                    slot.pendingCovered = false
+                    if (next == null || answered) null
+                    else {
+                        slot.owner = startRun(slot, null, next).also { scheduled = it }
+                        slot
                     }
-                }.also { scheduled = it }
+                }
             }
         }
         scheduled?.start()
     }
 
-    suspend fun <T> runExclusive(groupId: String, block: suspend () -> T): T = coroutineScope {
-        val refreshJob = checkNotNull(coroutineContext[Job])
-        jobs.compute(groupId) { _, current ->
-            current?.cancel()
-            refreshJob
-        }
-        try {
-            block()
-        } finally {
-            jobs.remove(groupId, refreshJob)
-        }
-    }
-
-    fun cancel(groupId: String) {
-        jobs.remove(groupId)?.cancel()
-    }
-
-    fun cancelAll() {
-        jobs.values.forEach { it.cancel() }
-        jobs.clear()
-    }
-
-    fun retainOnly(groupIds: Set<String>) {
-        jobs.keys
-            .filterNot(groupIds::contains)
-            .forEach(::cancel)
+    private companion object {
+        /**
+         * A superseded warm-up is cancelled before this wait, so the budget only has to cover a run
+         * wedged in an external call — long enough that an orderly one is never cut short, short
+         * enough that a wedged one is not the user's problem.
+         */
+        const val SUPERSEDE_JOIN_TIMEOUT_MS = 10_000L
     }
 }

@@ -1,4 +1,5 @@
 package com.sanibonani.save.domain.usecase.credit
+import com.sanibonani.save.domain.config.LoanTerms
 import com.sanibonani.save.domain.model.AppNotification
 import com.sanibonani.save.domain.model.Group
 import com.sanibonani.save.domain.model.GroupType
@@ -12,6 +13,7 @@ import com.sanibonani.save.domain.repository.credit.LoanRepository
 import com.sanibonani.save.domain.repository.equity.ContributionRepository
 import com.sanibonani.save.domain.repository.member.MemberRepository
 import com.sanibonani.save.domain.repository.system.NotificationRepository
+import com.sanibonani.save.domain.utils.DateProvider
 import com.sanibonani.save.domain.utils.PaymentCalculator
 import com.sanibonani.save.domain.logging.AppLogger
 import com.sanibonani.save.domain.utils.safeRunCatching
@@ -23,7 +25,8 @@ import com.sanibonani.save.domain.usecase.firstValueOrNull
 import kotlinx.coroutines.flow.first
 
 /**
- * Handles the automatic extraction of remaining loan balances after the 3-month maximum term.
+ * Handles the automatic extraction of remaining loan balances once a loan passes the platform's
+ * maximum term, which is the age `settle_expired_loan` itself will settle at.
  */
 class ProcessLoanForcedSettlementUseCase @Inject constructor(
     private val loanRepository: LoanRepository,
@@ -42,9 +45,7 @@ class ProcessLoanForcedSettlementUseCase @Inject constructor(
                 failures.add("group with missing ID")
                 continue
             }
-            val loanRead = safeRunCatching("$TAG.loadGroupLoans") {
-                loanRepository.getGroupLoans(groupId).first().getOrThrow()
-            }
+            val loanRead = loanRepository.getGroupLoansSync(groupId)
             if (loanRead.isFailure) {
                 AppLogger.w(TAG, "Unable to read loans for group $groupId; continuing sweep.", loanRead.exceptionOrNull())
                 failures.add("group $groupId loan history")
@@ -59,7 +60,7 @@ class ProcessLoanForcedSettlementUseCase @Inject constructor(
                 // This sweep runs across every group and is not resumable, so a single rejected
                 // RPC must not strand the settlements that come after it.
                 safeRunCatching("$TAG.settleLoan") {
-                    settleLoanFromContributions(loan, group)
+                    settleLoanFromContributions(loan, group, failures)
                 }.onFailure { e ->
                     AppLogger.w(TAG, "Forced settlement failed for loan ${loan.id}; continuing sweep.", e)
                     failures.add("loan ${loan.id ?: "with missing ID"}")
@@ -72,16 +73,16 @@ class ProcessLoanForcedSettlementUseCase @Inject constructor(
     }
     private fun isLoanTermExceeded(loan: Loan): Boolean {
         val startDate = loan.startDate?.let { LocalDate.parse(it.substringBefore("T")) } ?: return false
-        val monthsElapsed = ChronoUnit.MONTHS.between(startDate, LocalDate.now())
-        return monthsElapsed >= 3
+        val monthsElapsed = ChronoUnit.MONTHS.between(startDate, DateProvider.getCurrentDate())
+        return monthsElapsed >= LoanTerms.MAX_TERM_MONTHS
     }
-    private suspend fun settleLoanFromContributions(loan: Loan, group: Group) {
+    private suspend fun settleLoanFromContributions(loan: Loan, group: Group, failures: MutableList<String>) {
         val loanId = requireNotNull(loan.id) { "Cannot settle a loan without a persisted ID." }
         val settlement = loanRepository.settleExpiredLoan(loanId).getOrThrow()
         val settledAmount = settlement.repayment.amount
 
         if (group.type == GroupType.BURIAL_SOCIETY) {
-            handleBurialSocietyProbationReset(loan.memberId, group)
+            handleBurialSocietyProbationReset(loan.memberId, group, failures)
         }
         notificationRepository.sendNotification(
             AppNotification(
@@ -93,16 +94,28 @@ class ProcessLoanForcedSettlementUseCase @Inject constructor(
             )
         )
     }
-    private suspend fun handleBurialSocietyProbationReset(memberId: String, group: Group) {
+    private suspend fun handleBurialSocietyProbationReset(
+        memberId: String,
+        group: Group,
+        failures: MutableList<String>
+    ) {
         val updatedMember = memberRepository.getMemberById(memberId).getOrNull() ?: return
         // A history that never arrived contains no payments, and scoring that as arrears would put a
         // member who is up to date on probation. The sanction waits for a readable ledger instead.
         val contributions = contributionRepository
-            .observeMemberContributions(memberId, group.id ?: "").firstValueOrNull() ?: return
-        val loans = loanRepository.getMemberLoans(memberId).firstValueOrNull() ?: return
-        val status = paymentCalculator.calculateStatus(group, updatedMember, contributions, loans, LocalDate.now())
+            .syncMemberContributions(memberId, group.id ?: "").getOrNull() ?: return
+        val loans = loanRepository.getMemberLoansSync(memberId).getOrNull() ?: return
+        val status = paymentCalculator.calculateStatus(group, updatedMember, contributions, loans, DateProvider.getCurrentDate())
         if (status.shortfall > (group.monthlyContribution * PROBATION_SHORTFALL_MONTHS)) {
-            memberRepository.updateMemberStatus(memberId, MemberStatus.PROBATION)
+            memberRepository.updateMemberStatus(memberId, MemberStatus.PROBATION).onFailure { e ->
+                // The settlement above is money that has already moved, so this cannot fail the loan
+                // the way a refused settlement would; and the loan is no longer active, so no later
+                // sweep revisits this member. A sanction that did not apply has to at least be named
+                // in the report the operator reads, rather than disappear into the same run that
+                // claimed the sweep finished clean.
+                AppLogger.w(TAG, "Loan settled for member $memberId but the probation demotion was refused.", e)
+                failures.add("member $memberId probation demotion")
+            }
         }
     }
 

@@ -14,6 +14,13 @@ interface RemotePayoutDataSource {
     suspend fun getPendingPayouts(): Result<List<PayoutRequest>>
     suspend fun getPayoutsForMember(memberId: String): Result<List<PayoutRequest>>
     suspend fun getPayoutById(id: String): Result<PayoutRequest>
+
+    /**
+     * The same read with "no such row" as an answer rather than an error: [getPayoutById] decodes a
+     * single row, so a missing payout, a refused select and a timeout all arrive as a failure. A
+     * caller deciding between "create it" and "leave it alone" must not guess from that.
+     */
+    suspend fun findPayoutById(id: String): Result<PayoutRequest?>
     suspend fun updatePayoutStatus(
         payoutId: String,
         status: PayoutStatus,

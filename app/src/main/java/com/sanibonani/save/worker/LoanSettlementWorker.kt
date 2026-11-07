@@ -15,8 +15,8 @@ import dagger.assisted.AssistedInject
 import java.util.concurrent.TimeUnit
 
 /**
- * Daily background worker that triggers the forced settlement of loans
- * exceeding the 3-month maximum term.
+ * Daily background worker that triggers the forced settlement of loans past the platform's
+ * loan-term ceiling.
  */
 @HiltWorker
 class LoanSettlementWorker @AssistedInject constructor(
@@ -28,7 +28,7 @@ class LoanSettlementWorker @AssistedInject constructor(
     override suspend fun doWork(): Result {
         return forcedSettlement().fold(
             onSuccess = { Result.success() },
-            onFailure = { Result.retry() }
+            onFailure = { retryOrGiveUp(runAttemptCount) }
         )
     }
 

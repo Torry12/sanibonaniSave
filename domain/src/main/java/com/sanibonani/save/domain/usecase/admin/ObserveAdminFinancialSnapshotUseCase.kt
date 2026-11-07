@@ -13,7 +13,8 @@ import com.sanibonani.save.domain.repository.treasury.LedgerRepository
 import javax.inject.Inject
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.scan
 
 /**
  * Joins the five live streams behind the admin financial dashboard into one snapshot,
@@ -35,16 +36,21 @@ class ObserveAdminFinancialSnapshotUseCase @Inject constructor(
     )
 
     operator fun invoke(groupId: String): Flow<Snapshot> = combine(
-        ledgerRepository.observeConsolidatedAuditTrail(groupId).orEmptyList(),
-        bankRepository.observeUnreconciledTransactions(groupId).orEmptyList(),
-        payoutRepository.observePayouts(groupId).orEmptyList(),
-        loanRepository.getGroupLoans(groupId).orEmptyList(),
-        claimRepository.observeClaimsForGroup(groupId).orEmptyList()
+        ledgerRepository.observeConsolidatedAuditTrail(groupId).orLastKnownList(),
+        bankRepository.observeUnreconciledTransactions(groupId).orLastKnownList(),
+        payoutRepository.observePayouts(groupId).orLastKnownList(),
+        loanRepository.getGroupLoans(groupId).orLastKnownList(),
+        claimRepository.observeClaimsForGroup(groupId).orLastKnownList()
     ) { ledger, bankTx, payouts, loans, claims ->
         Snapshot(ledger, bankTx, payouts, loans, claims)
     }
 
-    /** A failed stream degrades to empty data instead of tearing down the dashboard. */
-    private fun <T> Flow<Result<List<T>>>.orEmptyList(): Flow<List<T>> =
-        map { result -> result.getOrDefault(emptyList()) }
+    /**
+     * A stream that never answered has nothing to show, so it degrades to an empty section rather than
+     * tearing the dashboard down. A stream that answered and then had its refresh refused keeps the rows
+     * it already delivered: an unread refresh is not evidence that the book went empty, and the
+     * repository now reports one as a failure on the same flow.
+     */
+    private fun <T> Flow<Result<List<T>>>.orLastKnownList(): Flow<List<T>> =
+        scan(emptyList<T>()) { lastKnown, result -> result.getOrNull() ?: lastKnown }.drop(1)
 }

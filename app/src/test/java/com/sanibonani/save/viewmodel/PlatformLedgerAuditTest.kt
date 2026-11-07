@@ -3,6 +3,7 @@ package com.sanibonani.save.viewmodel
 import android.util.Log
 import androidx.arch.core.executor.testing.InstantTaskExecutorRule
 import com.google.firebase.crashlytics.FirebaseCrashlytics
+import com.sanibonani.save.MainDispatcherRule
 import com.sanibonani.save.domain.model.GroupAuditResult
 import com.sanibonani.save.domain.model.LedgerEntry
 import com.sanibonani.save.domain.model.Money
@@ -48,12 +49,15 @@ import org.junit.Test
 class PlatformLedgerAuditTest {
 
     @get:Rule
+    val mainDispatcherRule = MainDispatcherRule()
+
+    @get:Rule
     val instantExecutorRule = InstantTaskExecutorRule()
 
     private val auditRepo = mockk<AuditRepository>(relaxed = true)
     private val ledgerRepo = mockk<LedgerRepository>(relaxed = true)
     private val reconRepo = mockk<ReconciliationRepository>(relaxed = true)
-    private val testDispatcher = StandardTestDispatcher()
+    private val testDispatcher = mainDispatcherRule.dispatcher
     private lateinit var viewModel: PlatformLedgerViewModel
 
     private val groupId = "group-1"
@@ -82,13 +86,12 @@ class PlatformLedgerAuditTest {
         val mockCrashlytics = mockk<FirebaseCrashlytics>(relaxed = true)
         every { FirebaseCrashlytics.getInstance() } returns mockCrashlytics
 
-        Dispatchers.setMain(testDispatcher)
-        viewModel = PlatformLedgerViewModel(
+        viewModel = mainDispatcherRule.track(PlatformLedgerViewModel(
             getPlatformLedger = GetPlatformLedgerUseCase(ledgerRepo),
             observeGroupReconciliations = ObserveGroupReconciliationsUseCase(reconRepo),
             auditGroupBalance = AuditGroupBalanceUseCase(auditRepo),
             consolidateLedger = ConsolidateGroupLedgerUseCase(ledgerRepo)
-        )
+        ))
     }
 
     @After

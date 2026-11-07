@@ -1,6 +1,6 @@
 -- ─────────────────────────────────────────────────────────────────────────────
 -- SanibonaniSave — GROUND ZERO MASTER MIGRATION (Consolidated)
--- Generated: 2026-10-30
+-- Generated: 2026-11-06
 -- Version: 2.2 (Regenerated from the authoritative master scripts)
 --
 -- Applied in this order, mirroring supabase/00_REBUILD_ALL.sql and
@@ -15,9 +15,16 @@
 
 --
 -- Deliberately excluded: 07_RESET_DATABASE.sql (destructive) and every SEED_*.sql
--- (dev fixtures are not part of the schema baseline). Delta migrations under
--- supabase/migrations/ that change routine behaviour are folded into the masters
--- (43_platform_fee_payment_idempotency.sql -> pay_platform_fee_v2 above).
+-- (dev fixtures are not part of the schema baseline).
+--
+-- This baseline is the ONLY file that belongs in supabase/migrations/. "supabase db
+-- reset" applies that directory after the baseline, so any extra file there overwrites
+-- whatever the masters just declared. Three idempotency migrations used to sit here and
+-- silently stripped the FIN_002 / FIN_003 / SEC_002 guards from increment_group_balance,
+-- pay_platform_fee_v2 and record_loan_repayment_v1 on every local reset; their logic is
+-- folded into 02_FUNCTIONS_AND_TRIGGERS.sql, so they now live in supabase/legacy_migrations/
+-- where nothing applies them. Add a structural change by editing a master and regenerating,
+-- never by dropping another file next to this one.
 -- ─────────────────────────────────────────────────────────────────────────────
 
 -- ─────────────────────────────────────────────────────────────────────────────
@@ -1551,8 +1558,17 @@ $$;
 CREATE OR REPLACE FUNCTION public.fn_sync_group_member_count()
 RETURNS TRIGGER AS $$
 BEGIN
-    UPDATE public.groups SET current_members = (SELECT count(*) FROM public.members WHERE group_id = COALESCE(NEW.group_id, OLD.group_id) AND status != 'suspended')
-    WHERE id = COALESCE(NEW.group_id, OLD.group_id);
+    -- Both sides of the row, not COALESCE(NEW.group_id, OLD.group_id): moving a member between
+    -- groups is an UPDATE, and a one-sided recount leaves the origin reporting a member it no
+    -- longer has. fn_trigger_sync_loan_repayment_total already handles its old key this way.
+    IF (TG_OP = 'INSERT' OR TG_OP = 'UPDATE') THEN
+        UPDATE public.groups SET current_members = (SELECT count(*) FROM public.members WHERE group_id = NEW.group_id AND status != 'suspended')
+        WHERE id = NEW.group_id;
+    END IF;
+    IF (TG_OP = 'DELETE' OR (TG_OP = 'UPDATE' AND OLD.group_id IS DISTINCT FROM NEW.group_id)) THEN
+        UPDATE public.groups SET current_members = (SELECT count(*) FROM public.members WHERE group_id = OLD.group_id AND status != 'suspended')
+        WHERE id = OLD.group_id;
+    END IF;
     RETURN NULL;
 END;
 $$ LANGUAGE plpgsql;
@@ -1904,12 +1920,15 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 CREATE OR REPLACE FUNCTION public.fn_trigger_sync_member_financials() RETURNS TRIGGER AS $$
-DECLARE
-    v_m_id UUID;
 BEGIN
-    v_m_id := COALESCE(NEW.member_id, OLD.member_id);
-    IF v_m_id IS NOT NULL THEN
-        PERFORM public.fn_sync_single_member_financials(v_m_id);
+    -- Both sides of the row. COALESCE(NEW.member_id, OLD.member_id) answered only where the
+    -- contribution landed, so re-assigning one left the origin member with a total_paid that
+    -- still counted money now credited to somebody else.
+    IF (TG_OP = 'INSERT' OR TG_OP = 'UPDATE') THEN
+        PERFORM public.fn_sync_single_member_financials(NEW.member_id);
+    END IF;
+    IF (TG_OP = 'DELETE' OR (TG_OP = 'UPDATE' AND OLD.member_id IS DISTINCT FROM NEW.member_id)) THEN
+        PERFORM public.fn_sync_single_member_financials(OLD.member_id);
     END IF;
     RETURN NULL;
 END;
@@ -1973,49 +1992,69 @@ CREATE TRIGGER tr_member_financial_sync_member AFTER INSERT OR UPDATE OF status 
 CREATE OR REPLACE FUNCTION public.fn_trigger_update_behavior_metrics() RETURNS TRIGGER AS $$
 DECLARE
     v_m_id UUID;
-    v_g_id UUID;
-    v_score NUMERIC(5,2) := 100.0;
-    v_risk TEXT := 'low';
+    v_score NUMERIC(5,2);
+    v_risk TEXT;
     v_late_count INT;
 BEGIN
-    v_m_id := COALESCE(NEW.member_id, OLD.member_id);
-    v_g_id := COALESCE(NEW.group_id, OLD.group_id);
+    -- Every member this row touched, on every event that can change their overdue count. The body
+    -- used to read COALESCE(NEW.member_id, OLD.member_id), so a re-assigned row rescored only the
+    -- member who gained it and left the other member carrying the penalty for contributions that
+    -- are no longer theirs - and DELETE was not in the event set at all, while the sync layer
+    -- purges orphaned contributions on every verified read.
+    FOR v_m_id IN
+        SELECT id FROM (
+            SELECT NEW.member_id AS id WHERE TG_OP IN ('INSERT', 'UPDATE')
+            UNION
+            SELECT OLD.member_id WHERE TG_OP IN ('DELETE', 'UPDATE') AND OLD.member_id IS DISTINCT FROM NEW.member_id
+        ) touched
+         WHERE id IS NOT NULL
+    LOOP
+        v_score := 100.0;
+        v_risk := 'low';
 
-    -- 1. Simple heuristic: Deduct 10 points for each overdue contribution
-    SELECT COUNT(*) INTO v_late_count FROM public.contributions WHERE member_id = v_m_id AND status = 'overdue';
-    v_score := (v_score - (v_late_count * 10.0))::NUMERIC(5,2);
+        -- 1. Simple heuristic: Deduct 10 points for each overdue contribution
+        SELECT COUNT(*) INTO v_late_count FROM public.contributions WHERE member_id = v_m_id AND status = 'overdue';
+        v_score := (v_score - (v_late_count * 10.0))::NUMERIC(5,2);
 
-    IF v_score < 40 THEN v_risk := 'high';
-    ELSIF v_score < 70 THEN v_risk := 'medium';
-    END IF;
+        IF v_score < 40 THEN v_risk := 'high';
+        ELSIF v_score < 70 THEN v_risk := 'medium';
+        END IF;
 
-    UPDATE public.member_behavior_track
-    SET behavior_score = GREATEST(0, v_score),
-        fraud_risk_level = v_risk,
-        updated_at = NOW()
-    WHERE member_id = v_m_id;
+        UPDATE public.member_behavior_track
+        SET behavior_score = GREATEST(0, v_score),
+            fraud_risk_level = v_risk,
+            updated_at = NOW()
+        WHERE member_id = v_m_id;
+    END LOOP;
 
     RETURN NULL;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 DROP TRIGGER IF EXISTS tr_update_behavior_metrics ON public.contributions;
-CREATE TRIGGER tr_update_behavior_metrics AFTER INSERT OR UPDATE ON public.contributions FOR EACH ROW EXECUTE FUNCTION public.fn_trigger_update_behavior_metrics();
+CREATE TRIGGER tr_update_behavior_metrics AFTER INSERT OR UPDATE OR DELETE ON public.contributions FOR EACH ROW EXECUTE FUNCTION public.fn_trigger_update_behavior_metrics();
 
 DROP TRIGGER IF EXISTS tr_update_behavior_metrics_loans ON public.loan_repayments;
-CREATE TRIGGER tr_update_behavior_metrics_loans AFTER INSERT OR UPDATE ON public.loan_repayments FOR EACH ROW EXECUTE FUNCTION public.fn_trigger_update_behavior_metrics();
+CREATE TRIGGER tr_update_behavior_metrics_loans AFTER INSERT OR UPDATE OR DELETE ON public.loan_repayments FOR EACH ROW EXECUTE FUNCTION public.fn_trigger_update_behavior_metrics();
 
 CREATE OR REPLACE FUNCTION public.fn_trigger_sync_poll_vote_count() RETURNS TRIGGER AS $$
 BEGIN
-    IF (TG_OP = 'INSERT') THEN UPDATE public.group_poll_options SET vote_count = vote_count + 1 WHERE id = NEW.option_id;
-    ELSIF (TG_OP = 'DELETE') THEN UPDATE public.group_poll_options SET vote_count = vote_count - 1 WHERE id = OLD.option_id;
+    -- Recounted from COUNT(*) on both touched options rather than incremented on one side, and
+    -- fired on UPDATE as well: castVote UPSERTs the vote on its (poll_id, member_id) key, so a
+    -- member changing their option is an UPDATE that used to answer nothing at all, and the
+    -- option they left kept a vote it no longer had.
+    IF (TG_OP = 'INSERT' OR TG_OP = 'UPDATE') THEN
+        UPDATE public.group_poll_options SET vote_count = (SELECT count(*) FROM public.group_poll_votes WHERE option_id = NEW.option_id) WHERE id = NEW.option_id;
+    END IF;
+    IF (TG_OP = 'DELETE' OR (TG_OP = 'UPDATE' AND OLD.option_id IS DISTINCT FROM NEW.option_id)) THEN
+        UPDATE public.group_poll_options SET vote_count = (SELECT count(*) FROM public.group_poll_votes WHERE option_id = OLD.option_id) WHERE id = OLD.option_id;
     END IF;
     RETURN NULL;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 DROP TRIGGER IF EXISTS tr_sync_poll_vote_count ON public.group_poll_votes;
-CREATE TRIGGER tr_sync_poll_vote_count AFTER INSERT OR DELETE ON public.group_poll_votes FOR EACH ROW EXECUTE FUNCTION public.fn_trigger_sync_poll_vote_count();
+CREATE TRIGGER tr_sync_poll_vote_count AFTER INSERT OR UPDATE OR DELETE ON public.group_poll_votes FOR EACH ROW EXECUTE FUNCTION public.fn_trigger_sync_poll_vote_count();
 
 CREATE OR REPLACE FUNCTION public.fn_trigger_sync_poll_status() RETURNS TRIGGER AS $$
 BEGIN
@@ -2039,6 +2078,12 @@ BEGIN
         ELSIF TG_TABLE_NAME = 'group_poll_votes' THEN
             PERFORM public.log_audit_event('VOTE_CAST', NEW.member_id::text, NEW.member_id, NEW.group_id, jsonb_build_object('poll_id', NEW.poll_id), NEW.poll_id);
         END IF;
+    ELSIF TG_OP = 'UPDATE' AND TG_TABLE_NAME = 'group_poll_votes'
+          AND OLD.option_id IS DISTINCT FROM NEW.option_id THEN
+        -- A re-pointed vote arrives as an UPDATE on the (poll_id, member_id) key, so without this
+        -- branch a member who changed their mind left no server-side record of voting at all.
+        PERFORM public.log_audit_event('VOTE_CHANGED', NEW.member_id::text, NEW.member_id, NEW.group_id,
+            jsonb_build_object('poll_id', NEW.poll_id, 'previous_option_id', OLD.option_id, 'option_id', NEW.option_id), NEW.poll_id);
     END IF;
     RETURN NEW;
 END;
@@ -2048,7 +2093,53 @@ DROP TRIGGER IF EXISTS tr_poll_audit ON public.group_polls;
 CREATE TRIGGER tr_poll_audit AFTER INSERT ON public.group_polls FOR EACH ROW EXECUTE FUNCTION public.fn_trigger_voting_audit();
 
 DROP TRIGGER IF EXISTS tr_vote_audit ON public.group_poll_votes;
-CREATE TRIGGER tr_vote_audit AFTER INSERT ON public.group_poll_votes FOR EACH ROW EXECUTE FUNCTION public.fn_trigger_voting_audit();
+CREATE TRIGGER tr_vote_audit AFTER INSERT OR UPDATE OF option_id ON public.group_poll_votes FOR EACH ROW EXECUTE FUNCTION public.fn_trigger_voting_audit();
+
+-- 10.1.1 GOVERNANCE: EXPLICIT POLL CLOSE
+-- The voting screen's Close button calls this by name (VotingRepositoryImpl.closePoll), and until
+-- it existed the call resolved to nothing on any tier. The only close path was
+-- fn_trigger_sync_poll_status flipping a poll at its own ends_at, so a poll with a deadline months
+-- away could not be closed early even though the screen offered it - and the screen renders that
+-- button for every viewer, with no membership or admin check around it, so the entitlement had to
+-- be decided here rather than trusted from the client.
+CREATE OR REPLACE FUNCTION public.close_poll_v1(p_poll_id UUID)
+RETURNS VOID
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+    v_poll RECORD;
+BEGIN
+    SELECT * INTO v_poll FROM public.group_polls WHERE id = p_poll_id;
+    IF v_poll.id IS NULL THEN RAISE EXCEPTION '[SYS_001] POLL_NOT_FOUND'; END IF;
+
+    -- The worker that expires polls runs as service_role, so the exemption is what lets the
+    -- scheduler close a poll on a device with no login attached to the request.
+    IF auth.role() IS DISTINCT FROM 'service_role'
+       AND NOT (public.is_platform_admin() OR public.is_group_admin(v_poll.group_id)) THEN
+        RAISE EXCEPTION '[SEC_002] POLL_CLOSE_ACCESS_DENIED';
+    END IF;
+
+    IF v_poll.status <> 'open' THEN
+        RAISE EXCEPTION '[FIN_002] BAD_STATUS: Poll in % cannot be closed', v_poll.status;
+    END IF;
+
+    -- The tally is already maintained per vote by tr_sync_poll_vote_count, and the BEFORE UPDATE
+    -- trigger only writes its auto-close audit for a poll it finds open, so closing here arrives
+    -- with the status already set and produces no second audit row.
+    UPDATE public.group_polls SET status = 'closed', updated_at = NOW() WHERE id = p_poll_id;
+
+    PERFORM public.log_audit_event(
+        'POLL_CLOSED',
+        COALESCE(auth.uid()::text, 'system_gov'),
+        NULL,
+        v_poll.group_id,
+        jsonb_build_object('poll_id', p_poll_id, 'title', v_poll.title),
+        p_poll_id
+    );
+END;
+$$;
 
 -- 10.1.1 GOVERNANCE: EXPLICIT POLL CLOSE
 -- The voting screen's Close button calls this by name (VotingRepositoryImpl.closePoll), and until
@@ -2138,53 +2229,128 @@ END;
 $$;
 
 
-CREATE OR REPLACE FUNCTION public.record_platform_revenue_v1(
-    p_amount NUMERIC,
-    p_description TEXT,
-    p_category TEXT,
-    p_transaction_id TEXT DEFAULT NULL,
-    p_group_id UUID DEFAULT NULL
-) RETURNS VOID AS $$
+CREATE OR REPLACE FUNCTION public.settle_expired_loan_v2(
+    p_loan_id UUID
+) RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
 DECLARE
-    v_last_balance NUMERIC;
+    v_group_id UUID;
+    v_loan RECORD;
+    v_contribution RECORD;
+    v_repayment RECORD;
+    v_member_name TEXT;
+    v_has_contribution BOOLEAN;
+    v_has_repayment BOOLEAN;
+    v_remaining NUMERIC;
+    v_extraction_tx_id TEXT := 'forced-settlement-extraction:' || p_loan_id::text;
+    v_repayment_tx_id TEXT := 'forced-settlement-repayment:' || p_loan_id::text;
+    v_result JSONB;
 BEGIN
-    PERFORM pg_advisory_xact_lock(hashtext('platform_ledger')::bigint);
-
-    IF p_transaction_id IS NOT NULL THEN
-        IF EXISTS (SELECT 1 FROM public.platform_ledger WHERE transaction_id = p_transaction_id LIMIT 1) THEN
-            RETURN;
-        END IF;
+    IF p_loan_id IS NULL THEN
+        RAISE EXCEPTION '[FIN_003] INVALID_LOAN_ID';
     END IF;
 
-    SELECT balance_after INTO v_last_balance FROM public.platform_ledger ORDER BY created_at DESC LIMIT 1;
-    INSERT INTO public.platform_ledger (transaction_id, amount, balance_after, description, category, group_id)
-    VALUES (p_transaction_id, p_amount, COALESCE(v_last_balance, 0) + p_amount, p_description, p_category, p_group_id);
+    SELECT group_id INTO v_group_id
+    FROM public.loans
+    WHERE id = p_loan_id;
+    IF NOT FOUND THEN RAISE EXCEPTION '[SYS_001] LOAN_NOT_FOUND'; END IF;
+
+    PERFORM id FROM public.groups WHERE id = v_group_id FOR UPDATE;
+    IF NOT FOUND THEN RAISE EXCEPTION '[SYS_001] GROUP_NOT_FOUND'; END IF;
+
+    SELECT * INTO v_loan
+    FROM public.loans
+    WHERE id = p_loan_id
+    FOR UPDATE;
+    IF NOT FOUND THEN RAISE EXCEPTION '[SYS_001] LOAN_NOT_FOUND'; END IF;
+    IF v_loan.group_id IS DISTINCT FROM v_group_id THEN
+        RAISE EXCEPTION '[SYS_002] LOAN_GROUP_CHANGED';
+    END IF;
+    IF auth.role() IS DISTINCT FROM 'service_role'
+       AND NOT (public.is_platform_admin() OR public.is_group_admin(v_group_id)) THEN
+        RAISE EXCEPTION '[SEC_002] LOAN_SETTLEMENT_ACCESS_DENIED';
+    END IF;
+
+    SELECT * INTO v_contribution
+    FROM public.contributions
+    WHERE group_id = v_group_id AND transaction_id = v_extraction_tx_id
+    FOR UPDATE;
+    v_has_contribution := FOUND;
+    SELECT * INTO v_repayment
+    FROM public.loan_repayments
+    WHERE group_id = v_group_id AND transaction_id = v_repayment_tx_id
+    FOR UPDATE;
+    v_has_repayment := FOUND;
+
+    IF v_has_contribution AND v_contribution.id IS NOT NULL THEN
+        IF v_contribution.member_id IS DISTINCT FROM v_loan.member_id
+           OR v_contribution.amount >= 0
+           OR v_contribution.type IS DISTINCT FROM 'loan_settlement_extraction'
+           OR v_contribution.status IS DISTINCT FROM 'paid'
+           OR v_repayment.id IS NULL
+           OR v_repayment.loan_id IS DISTINCT FROM p_loan_id
+           OR v_repayment.member_id IS DISTINCT FROM v_loan.member_id
+           OR v_repayment.amount IS DISTINCT FROM ABS(v_contribution.amount) THEN
+            RAISE EXCEPTION '[SYS_002] INCOMPLETE_OR_MISMATCHED_LOAN_SETTLEMENT';
+        END IF;
+        RETURN public.record_loan_repayment_v1(
+            p_loan_id, v_loan.member_id, v_group_id, v_repayment.amount,
+            'wallet', v_repayment_tx_id
+        );
+    ELSIF v_has_repayment AND v_repayment.id IS NOT NULL THEN
+        RAISE EXCEPTION '[SYS_002] INCOMPLETE_OR_MISMATCHED_LOAN_SETTLEMENT';
+    END IF;
+
+    IF v_loan.status IS NULL OR v_loan.status NOT IN ('active', 'partially_paid', 'overdue', 'defaulted') THEN
+        RAISE EXCEPTION '[FIN_002] INVALID_STATUS: Loan cannot be settled from status %', v_loan.status;
+    END IF;
+    IF v_loan.start_date IS NULL OR CURRENT_DATE < (v_loan.start_date + INTERVAL '3 months')::date THEN
+        RAISE EXCEPTION '[FIN_002] LOAN_TERM_NOT_EXPIRED';
+    END IF;
+
+    v_remaining := v_loan.total_to_repay - COALESCE(v_loan.total_repaid, 0);
+    IF v_remaining IS NULL OR v_remaining <= 0
+       OR v_remaining::text IN ('NaN', 'Infinity', '-Infinity')
+       OR v_remaining <> ROUND(v_remaining, 2) THEN
+        RAISE EXCEPTION '[FIN_003] INVALID_REMAINING_BALANCE';
+    END IF;
+
+    SELECT full_name INTO v_member_name
+    FROM public.members
+    WHERE id = v_loan.member_id AND group_id = v_group_id;
+    IF NOT FOUND THEN RAISE EXCEPTION '[SYS_001] MEMBER_NOT_FOUND'; END IF;
+
+    INSERT INTO public.contributions (
+        member_id, group_id, amount, due_date, paid_at, payment_method,
+        status, type, transaction_id
+    ) VALUES (
+        v_loan.member_id, v_group_id, -v_remaining, CURRENT_DATE, NOW(), 'wallet',
+        'paid', 'loan_settlement_extraction', v_extraction_tx_id
+    ) RETURNING * INTO v_contribution;
+
+    PERFORM public.increment_group_balance(
+        v_group_id, -v_remaining,
+        'Forced loan settlement extraction for ' || v_member_name,
+        'loan_settlement_extraction', v_extraction_tx_id, v_loan.member_id
+    );
+
+    v_result := public.record_loan_repayment_v1(
+        p_loan_id, v_loan.member_id, v_group_id, v_remaining,
+        'wallet', v_repayment_tx_id
+    );
+
+    PERFORM public.log_audit_event(
+        'LOAN_FORCED_SETTLEMENT', 'system', v_loan.member_id, v_group_id,
+        jsonb_build_object('loan_id', p_loan_id, 'amount', v_remaining),
+        p_loan_id
+    );
+
+    RETURN v_result;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
-
-
-CREATE OR REPLACE FUNCTION public.record_loan_settlement_extraction_v1(
-    p_member_id UUID,
-    p_group_id UUID,
-    p_amount NUMERIC,
-    p_loan_id UUID
-) RETURNS VOID AS $$
-DECLARE
-    v_m_name TEXT;
-BEGIN
-    SELECT full_name INTO v_m_name FROM public.members WHERE id = p_member_id;
-
-    INSERT INTO public.contributions (member_id, group_id, amount, due_date, paid_at, status, type, transaction_id)
-    VALUES (p_member_id, p_group_id, -p_amount, CURRENT_DATE, NOW(), 'paid', 'loan_settlement_extraction', 'ext-' || p_loan_id::text);
-
-    PERFORM public.record_loan_repayment_v1(p_loan_id, p_member_id, p_group_id, p_amount, 'wallet');
-
-    INSERT INTO public.group_ledger (group_id, member_id, amount, balance_after, description, category, transaction_id)
-    VALUES (p_group_id, p_member_id, 0, (SELECT balance FROM public.groups WHERE id = p_group_id), 'Loan settlement extraction for ' || v_m_name, 'loan_settlement', 'settle-' || p_loan_id::text);
-
-    PERFORM public.log_audit_event('LOAN_FORCED_SETTLEMENT', 'system', p_member_id, p_group_id, jsonb_build_object('loan_id', p_loan_id, 'amount', p_amount), p_loan_id);
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
+$$;
 
 CREATE OR REPLACE FUNCTION public.settle_expired_loan_v2(
     p_loan_id UUID
@@ -2629,6 +2795,23 @@ END;
 $$;
 
 
+-- Rebuilds one group's ledger from the five source tables and re-derives its cached balance.
+-- The contract is that this and the live write paths produce the SAME rows, because a rebuild is
+-- how a corrupted ledger gets repaired (SYNC_DELTA_20261101B ran it over 49 groups). Three ways it
+-- used to break that:
+--   * it replayed every contribution into group_ledger, so registration/member-fee money - which
+--     internal_post_contribution (line 238) books to platform_ledger instead - was re-filed into
+--     the group on each rebuild, and the platform side was never rebuilt at all.
+--   * it replayed only status = 'paid' while the live path books 'partial' too, so a rebuild lost
+--     that money.
+--   * it stamped balance_after = 0 for everything it booked, then reported "entries_reconstructed"
+--     as the rows created in the last five minutes - always zero, because a reconstruction stamps
+--     the historical paid_at instead.
+-- Contributions are read through COALESCE(type, 'contribution'): the CHECK on contributions.type
+-- passes NULL, while group_ledger.category is NOT NULL, so one typeless row aborted the whole rebuild.
+-- What it still does not do: repair a ledger row that exists under a source id with the WRONG amount.
+-- ON CONFLICT DO NOTHING leaves it, so the rebuild is idempotent but not self-correcting there - the
+-- mismatch is what [SEED_003] and BALANCE_VS_LEDGER_PROBE.sql are for.
 CREATE OR REPLACE FUNCTION public.consolidate_group_ledger_v1(p_group_id UUID)
 RETURNS JSONB
 LANGUAGE plpgsql
@@ -2636,43 +2819,120 @@ SECURITY DEFINER
 SET search_path = public, pg_temp
 AS $$
 DECLARE
-    v_total INT := 0;
+    v_contrib  INT := 0;
+    v_repay    INT := 0;
+    v_payout   INT := 0;
+    v_loan     INT := 0;
+    v_claim    INT := 0;
+    v_platform INT := 0;
+    v_recon    JSONB;
 BEGIN
-    -- 1. Contributions
+    -- One lock for the whole reconstruction: a concurrent live payment and this rebuild would
+    -- otherwise race on the same transaction ids (platform_ledger has no unique key to fall back on).
+    PERFORM id FROM public.groups WHERE id = p_group_id FOR UPDATE;
+    IF NOT FOUND THEN RAISE EXCEPTION '[SYS_001] GROUP_NOT_FOUND: %', p_group_id; END IF;
+
+    -- 1. Contributions the group keeps. The type filter and the category are internal_post_contribution's
+    --    (lines 235-243): the three platform types belong to the platform ledger, not this one.
     INSERT INTO public.group_ledger (group_id, transaction_id, amount, balance_after, description, category, member_id, created_at)
-    SELECT c.group_id, CAST(c.id AS TEXT), c.amount, 0, initcap(replace(c.type, '_', ' ')) || ' from ' || m.full_name, c.type, c.member_id, c.paid_at
-    FROM public.contributions c JOIN public.members m ON c.member_id = m.id
-    WHERE c.group_id = p_group_id AND c.status = 'paid'
+    SELECT c.group_id, CAST(c.id AS TEXT), c.amount, 0,
+           initcap(replace(COALESCE(c.type, 'contribution'), '_', ' ')) || ' from ' || m.full_name,
+           COALESCE(c.type, 'contribution'), c.member_id, COALESCE(c.paid_at, c.created_at)
+    FROM public.contributions c JOIN public.members m ON m.id = c.member_id
+    WHERE c.group_id = p_group_id AND c.status IN ('paid', 'partial')
+      AND COALESCE(c.type, 'contribution') NOT IN ('registration_contribution', 'member_fee', 'member_fee_ledger')
     ON CONFLICT (group_id, transaction_id) DO NOTHING;
-    v_total := v_total + (SELECT count(*) FROM public.group_ledger WHERE group_id = p_group_id AND transaction_id LIKE '%-%' AND created_at > NOW() - interval '5 minutes');
+    GET DIAGNOSTICS v_contrib = ROW_COUNT;
 
     -- 2. Repayments
     INSERT INTO public.group_ledger (group_id, transaction_id, amount, balance_after, description, category, member_id, created_at)
-    SELECT lr.group_id, CAST(lr.id AS TEXT), lr.amount, 0, 'Loan repayment from ' || m.full_name, 'loan_repayment', lr.member_id, lr.paid_at
-    FROM public.loan_repayments lr JOIN public.members m ON lr.member_id = m.id
+    SELECT lr.group_id, CAST(lr.id AS TEXT), lr.amount, 0,
+           'Loan repayment from ' || m.full_name, 'loan_repayment', lr.member_id,
+           COALESCE(lr.paid_at, lr.created_at)
+    FROM public.loan_repayments lr JOIN public.members m ON m.id = lr.member_id
     WHERE lr.group_id = p_group_id
     ON CONFLICT (group_id, transaction_id) DO NOTHING;
+    GET DIAGNOSTICS v_repay = ROW_COUNT;
 
     -- 3. Disbursements (Payouts)
     INSERT INTO public.group_ledger (group_id, transaction_id, amount, balance_after, description, category, member_id, created_at)
     SELECT p.group_id, CAST(p.id AS TEXT), -p.amount, 0, 'Disbursement Ref: ' || COALESCE(p.payout_reference, p.id::text), 'payout', p.member_id, p.processed_at
     FROM public.payouts p WHERE p.group_id = p_group_id AND p.status = 'completed'
     ON CONFLICT (group_id, transaction_id) DO NOTHING;
+    GET DIAGNOSTICS v_payout = ROW_COUNT;
 
     -- 4. Loan Disbursements
     INSERT INTO public.group_ledger (group_id, transaction_id, amount, balance_after, description, category, member_id, created_at)
-    SELECT loan.group_id, CAST(loan.id AS TEXT), -loan.amount, 0, 'Loan disbursement to ' || m.full_name, 'loan_disbursement', loan.member_id, COALESCE(loan.reviewed_at, loan.created_at)
-    FROM public.loans loan JOIN public.members m ON loan.member_id = m.id
+    SELECT loan.group_id, CAST(loan.id AS TEXT), -loan.amount, 0,
+           'Loan disbursement to ' || m.full_name, 'loan_disbursement', loan.member_id,
+           COALESCE(loan.reviewed_at, loan.created_at)
+    FROM public.loans loan JOIN public.members m ON m.id = loan.member_id
     WHERE loan.group_id = p_group_id AND loan.status NOT IN ('pending', 'rejected', 'cancelled')
     ON CONFLICT (group_id, transaction_id) DO NOTHING;
+    GET DIAGNOSTICS v_loan = ROW_COUNT;
 
     -- 5. Burial Claims
     INSERT INTO public.group_ledger (group_id, transaction_id, amount, balance_after, description, category, member_id, created_at)
     SELECT bc.group_id, CAST(bc.id AS TEXT), -bc.claim_amount, 0, 'Burial claim: ' || bc.beneficiary_name, 'claim', bc.member_id, bc.reviewed_at
     FROM public.beneficiary_payout_claims bc WHERE bc.group_id = p_group_id AND bc.status = 'paid'
     ON CONFLICT (group_id, transaction_id) DO NOTHING;
+    GET DIAGNOSTICS v_claim = ROW_COUNT;
 
-    RETURN jsonb_build_object('entries_reconstructed', v_total);
+    -- 6. Platform revenue the group paid. The type filter is internal_post_contribution's else-branch
+    --    (lines 238-243) and member_fee landing as 'platform_fee' is its v_l_cat CASE (line 235), so
+    --    these rows are what the live path would have written. platform_ledger.transaction_id has no
+    --    unique constraint, so the live path dedupes by lookup (record_platform_revenue_v2, line 163)
+    --    and so does this. balance_after is a running total over the whole table - the live path
+    --    stores SUM(amount) (line 174) - and is recomputed after the insert rather than stamped here,
+    --    because a rebuild backdates its rows and every total after them would otherwise sit too high.
+    --    The advisory lock is the one that writer takes (line 160); without it a concurrent fee
+    --    payment and this block would each read the same SUM and call it their own balance_after.
+    PERFORM pg_advisory_xact_lock(hashtext('platform_ledger')::bigint);
+    WITH new_rows AS (
+        SELECT c.group_id,
+               CAST(c.id AS TEXT) AS tx_id,
+               c.amount,
+               COALESCE(c.paid_at, c.created_at) AS posted_at,
+               CASE WHEN COALESCE(c.type, 'contribution') IN ('member_fee', 'member_fee_ledger') THEN 'platform_fee'
+                    ELSE COALESCE(c.type, 'contribution') END AS cat,
+               m.full_name
+        FROM public.contributions c JOIN public.members m ON m.id = c.member_id
+        WHERE c.group_id = p_group_id AND c.status IN ('paid', 'partial')
+          AND COALESCE(c.type, 'contribution') IN ('registration_contribution', 'member_fee', 'member_fee_ledger')
+          AND NOT EXISTS (SELECT 1 FROM public.platform_ledger pl WHERE pl.transaction_id = CAST(c.id AS TEXT))
+    )
+    INSERT INTO public.platform_ledger (group_id, transaction_id, amount, balance_after, description, category, created_at)
+    SELECT n.group_id, n.tx_id, n.amount, 0,
+           initcap(replace(n.cat, '_', ' ')) || ' from ' || n.full_name,
+           n.cat, n.posted_at
+    FROM new_rows n;
+    GET DIAGNOSTICS v_platform = ROW_COUNT;
+
+    UPDATE public.platform_ledger pl
+       SET balance_after = running.balance_after
+      FROM (
+        SELECT id, SUM(amount) OVER (ORDER BY created_at ASC NULLS LAST, id ASC) AS balance_after
+          FROM public.platform_ledger
+      ) running
+     WHERE pl.id = running.id
+       AND pl.balance_after IS DISTINCT FROM running.balance_after;
+
+    -- 7. balance_after across the group's ledger, and groups.balance re-derived from it. Same
+    --    primitive the live repair path uses, so this function never disagrees with it.
+    v_recon := public.recompute_ledger_running_balances_v2(p_group_id);
+
+    RETURN jsonb_build_object(
+        'entries_reconstructed', v_contrib + v_repay + v_payout + v_loan + v_claim,
+        'group_entries', v_contrib + v_repay + v_payout + v_loan + v_claim,
+        'platform_entries', v_platform,
+        'contributions', v_contrib,
+        'loan_repayments', v_repay,
+        'payouts', v_payout,
+        'loan_disbursements', v_loan,
+        'burial_claims', v_claim,
+        'final_balance', v_recon -> 'final_balance',
+        'ledger_rows', v_recon -> 'count'
+    );
 END;
 $$;
 
@@ -2768,6 +3028,46 @@ BEGIN
 END;
 $$;
 
+-- 10.3.2.3 LEDGER WRAPPER GUARDS
+-- record_disbursement_v1 and record_liquidity_v1 are the two signed-in-reachable front doors to
+-- increment_group_balance, and each carried its own copy of the same four refusals. One copy now,
+-- so a fifth wrapper cannot be added with a guard someone forgot to copy.
+CREATE OR REPLACE FUNCTION public.assert_ledger_wrapper_input_v1(
+    p_group_id UUID,
+    p_amount NUMERIC,
+    p_description TEXT,
+    p_category TEXT,
+    p_noun TEXT,
+    p_access_denied_code TEXT
+) RETURNS VOID
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+BEGIN
+    -- A ledger injection is a decision about the group's money, so it is an admin action: unlike
+    -- the contribution path there is no is_own_member allowance here, and a member calling it for
+    -- their own group is refused.
+    IF auth.role() IS DISTINCT FROM 'service_role'
+       AND NOT (public.is_platform_admin() OR public.is_group_admin(p_group_id)) THEN
+        RAISE EXCEPTION '[SEC_002] %', p_access_denied_code;
+    END IF;
+
+    IF p_amount IS NULL OR p_amount::TEXT IN ('NaN', 'Infinity', '-Infinity')
+       OR p_amount <= 0 OR p_amount <> ROUND(p_amount, 2) THEN
+        RAISE EXCEPTION '[FIN_003] INVALID_AMOUNT: % must be positive and have at most two decimal places', p_noun;
+    END IF;
+    IF p_description IS NULL OR BTRIM(p_description) = '' THEN
+        RAISE EXCEPTION '[FIN_003] INVALID_DESCRIPTION: A ledger description is required';
+    END IF;
+    -- group_ledger.category has no CHECK constraint, so the vocabulary is whatever the writers
+    -- pass; only a blank is refused here, not an unlisted value.
+    IF p_category IS NULL OR BTRIM(p_category) = '' THEN
+        RAISE EXCEPTION '[FIN_003] INVALID_CATEGORY: A ledger category is required';
+    END IF;
+END;
+$$;
+
 CREATE OR REPLACE FUNCTION public.record_disbursement_v1(
     p_group_id UUID,
     p_amount NUMERIC,
@@ -2781,29 +3081,11 @@ SECURITY DEFINER
 SET search_path = public, pg_temp
 AS $$
 BEGIN
-    -- A disbursement is a decision about someone else's money, so it is an admin action: unlike the
-    -- contribution path there is no is_own_member allowance here, and a member calling it for their
-    -- own group is refused.
-    IF auth.role() IS DISTINCT FROM 'service_role'
-       AND NOT (public.is_platform_admin() OR public.is_group_admin(p_group_id)) THEN
-        RAISE EXCEPTION '[SEC_002] DISBURSEMENT_ACCESS_DENIED';
-    END IF;
+    PERFORM public.assert_ledger_wrapper_input_v1(
+        p_group_id, p_amount, p_description, p_category, 'Disbursement', 'DISBURSEMENT_ACCESS_DENIED');
 
     -- Positive on the wire, negative in the ledger: the client's own guard is "Disbursement amount
     -- must be positive", and the returned balance is what GroupRepositoryImpl caches as Money.
-    IF p_amount IS NULL OR p_amount::TEXT IN ('NaN', 'Infinity', '-Infinity')
-       OR p_amount <= 0 OR p_amount <> ROUND(p_amount, 2) THEN
-        RAISE EXCEPTION '[FIN_003] INVALID_AMOUNT: Disbursement must be positive and have at most two decimal places';
-    END IF;
-    IF p_description IS NULL OR BTRIM(p_description) = '' THEN
-        RAISE EXCEPTION '[FIN_003] INVALID_DESCRIPTION: A ledger description is required';
-    END IF;
-    -- group_ledger.category has no CHECK constraint, so the vocabulary is whatever the writers
-    -- pass; only a blank is refused here, not an unlisted value.
-    IF p_category IS NULL OR BTRIM(p_category) = '' THEN
-        RAISE EXCEPTION '[FIN_003] INVALID_CATEGORY: A ledger category is required';
-    END IF;
-
     -- The primitive owns the FOR UPDATE group lock, the idempotency key and the insufficient-funds
     -- check ([FIN_002] INSUFFICIENT_FUNDS), so this wrapper adds the caller check and the sign and
     -- nothing else.
@@ -2838,26 +3120,11 @@ BEGIN
     -- would not do, because a contribution row also moves totalContributions, which is the unit
     -- denominator in CalculateInvestmentClubValuationUseCase - the injected capital would stop
     -- being capital and start being a unit purchase.
-    IF auth.role() IS DISTINCT FROM 'service_role'
-       AND NOT (public.is_platform_admin() OR public.is_group_admin(p_group_id)) THEN
-        RAISE EXCEPTION '[SEC_002] LIQUIDITY_ACCESS_DENIED';
-    END IF;
+    PERFORM public.assert_ledger_wrapper_input_v1(
+        p_group_id, p_amount, p_description, p_category, 'Liquidity', 'LIQUIDITY_ACCESS_DENIED');
 
     -- Positive here and positive in the ledger: this is an inflow, and the wrapper keeps the
     -- caller-facing sign convention the client's guards already assume.
-    IF p_amount IS NULL OR p_amount::TEXT IN ('NaN', 'Infinity', '-Infinity')
-       OR p_amount <= 0 OR p_amount <> ROUND(p_amount, 2) THEN
-        RAISE EXCEPTION '[FIN_003] INVALID_AMOUNT: Liquidity must be positive and have at most two decimal places';
-    END IF;
-    IF p_description IS NULL OR BTRIM(p_description) = '' THEN
-        RAISE EXCEPTION '[FIN_003] INVALID_DESCRIPTION: A ledger description is required';
-    END IF;
-    -- group_ledger.category has no CHECK constraint, so the vocabulary is whatever the writers
-    -- pass; only a blank is refused here, not an unlisted value.
-    IF p_category IS NULL OR BTRIM(p_category) = '' THEN
-        RAISE EXCEPTION '[FIN_003] INVALID_CATEGORY: A ledger category is required';
-    END IF;
-
     -- The primitive owns the FOR UPDATE group lock, the idempotency key and the ledger write, so
     -- this wrapper adds the caller check and the sign and nothing else.
     RETURN public.increment_group_balance(
@@ -3192,23 +3459,23 @@ TO authenticated, service_role;
 
 REVOKE EXECUTE ON FUNCTION
     public.increment_group_balance(UUID, NUMERIC, TEXT, TEXT, TEXT, UUID),
+    public.assert_ledger_wrapper_input_v1(UUID, NUMERIC, TEXT, TEXT, TEXT, TEXT),
     public.recompute_ledger_running_balances_v2(UUID),
     public.perform_group_reconciliation_v1(UUID),
     public.consolidate_group_ledger_v1(UUID),
     public.create_ledger_checkpoint_v1(UUID),
     public.automate_monthly_billing_v1(),
-    public.simulate_bulk_activity_v2(UUID, INT, INT),
-    public.record_platform_revenue_v1(NUMERIC, TEXT, TEXT, TEXT, UUID)
+    public.simulate_bulk_activity_v2(UUID, INT, INT)
 FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION
     public.increment_group_balance(UUID, NUMERIC, TEXT, TEXT, TEXT, UUID),
+    public.assert_ledger_wrapper_input_v1(UUID, NUMERIC, TEXT, TEXT, TEXT, TEXT),
     public.recompute_ledger_running_balances_v2(UUID),
     public.perform_group_reconciliation_v1(UUID),
     public.consolidate_group_ledger_v1(UUID),
     public.create_ledger_checkpoint_v1(UUID),
     public.automate_monthly_billing_v1(),
-    public.simulate_bulk_activity_v2(UUID, INT, INT),
-    public.record_platform_revenue_v1(NUMERIC, TEXT, TEXT, TEXT, UUID)
+    public.simulate_bulk_activity_v2(UUID, INT, INT)
 TO service_role;
 
 -- Re-derives aggregates from the ledger, so it moves no money, but the platform console calls it
@@ -3345,6 +3612,21 @@ BEGIN
 END $$;
 
 -- 8. SPECIAL CASES
+-- Audit Logs: the trail must be appendable by the person it names. audit_logs sat only in the AAL2
+-- tier, and the app's password-only platform-admin session never carries the aal2 claim, so every
+-- IMPERSONATION_REQUESTED insert was refused with 42501 and a support session left no server-side
+-- record of itself. INSERT is opened here and nothing else: reading stays AAL2-gated by sections 6
+-- and 7, and UPDATE/DELETE keep requiring MFA, so the trail is still append-only. A writer may only
+-- name themselves - a SYSTEM-stamped row is a platform-admin write, and a group admin may only append
+-- to their own group's trail - so the row a stolen password-only session could add is a truthful one
+-- about an action it was entitled to take.
+DROP POLICY IF EXISTS "Audit Logs: Append by named actor" ON public.audit_logs;
+CREATE POLICY "Audit Logs: Append by named actor" ON public.audit_logs FOR INSERT TO authenticated
+WITH CHECK (
+    (actor_id = auth.uid()::text OR (actor_id = 'SYSTEM' AND public.is_platform_admin()))
+    AND (public.is_platform_admin() OR public.is_group_admin(target_group_id))
+);
+
 -- Audit Logs: Allow users to see logs where they are the actor or the target
 DROP POLICY IF EXISTS "Audit Logs: View personal" ON public.audit_logs;
 CREATE POLICY "Audit Logs: View personal" ON public.audit_logs FOR SELECT TO authenticated

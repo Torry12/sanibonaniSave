@@ -15,6 +15,7 @@ import io.ktor.client.plugins.logging.Logging
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.serialization.json.Json
 import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.Dispatcher
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
@@ -25,11 +26,26 @@ import javax.inject.Singleton
 @InstallIn(SingletonComponent::class)
 object NetworkModule {
 
+    /** Above the seven reads a hydration may hold (3 background + 4 interactive), never above the tier. */
+    private const val MAX_CONCURRENT_REQUESTS_PER_HOST = 8
 
+    /**
+     * The one transport every Supabase read goes through.
+     *
+     * The per-host dispatch cap is the whole app's ceiling on concurrent requests, and the default
+     * of five is what let a platform hydration starve the screen: the sweep fires far more reads
+     * than that and everything past the cap waits in OkHttp's queue, where no timeout in the app
+     * can see it. `SyncRepositoryImpl` bounds its own sweep and interactive hydration below this
+     * number, so a read a user is waiting on always has a slot the background pass cannot take.
+     */
     @Provides
     @Singleton
     fun provideOkHttpClient(): OkHttpClient {
+        val dispatcher = Dispatcher().apply {
+            maxRequestsPerHost = MAX_CONCURRENT_REQUESTS_PER_HOST
+        }
         val builder = OkHttpClient.Builder()
+            .dispatcher(dispatcher)
             .connectTimeout(30, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
             .writeTimeout(30, TimeUnit.SECONDS)
@@ -42,22 +58,6 @@ object NetworkModule {
         }
 
         return builder.build()
-    }
-
-    @Provides
-    @Singleton
-    fun provideRetrofit(okHttpClient: OkHttpClient, json: Json): Retrofit {
-        val contentType = "application/json".toMediaType()
-        if (!BuildConfig.DEBUG) {
-            require(BuildConfig.SUPABASE_URL.startsWith("https://")) {
-                "Supabase URL must use HTTPS in release builds."
-            }
-        }
-        return Retrofit.Builder()
-            .baseUrl(BuildConfig.SUPABASE_URL + "/") // Base URL for Supabase Functions
-            .client(okHttpClient)
-            .addConverterFactory(json.asConverterFactory(contentType))
-            .build()
     }
 
     @Provides

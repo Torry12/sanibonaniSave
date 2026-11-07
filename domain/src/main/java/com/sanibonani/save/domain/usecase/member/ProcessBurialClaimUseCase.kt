@@ -60,12 +60,15 @@ class ProcessBurialClaimUseCase @Inject constructor(
             claimRepository.updateClaimStatus(claimId, status, reviewedBy, adminNotes, rejectionReason)
         }
 
-        val updated = claimRepository.getClaimById(claimId).getOrThrow()
-
-        if (updateResult.isSuccess) {
-            EventBus.emit(ClaimProcessedEvent(updated, status))
-        }
+        // The write decides the verdict, and it is read before the confirmation fetch. A refusal from
+        // the server is permanent for this payload; surfacing a failed read instead reported a
+        // transport problem and left the admin free to re-run a decision already rejected.
         updateResult.getOrThrow()
+
+        // A confirmation read that fails does not undo a cover the server paid out, so the decision
+        // is announced from the last row actually read.
+        val updated = claimRepository.getClaimById(claimId).getOrNull() ?: claim
+        EventBus.emit(ClaimProcessedEvent(updated, status))
         return Result.success(updated)
     }
 

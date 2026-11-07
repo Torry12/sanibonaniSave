@@ -40,11 +40,12 @@ fun MembersTab(
     onMemberClick: (Member) -> Unit,
     onRefresh: () -> Unit
 ) {
-    val navigator = rememberListDetailPaneScaffoldNavigator<Member>()
+    val navigator = rememberListDetailPaneScaffoldNavigator<String>()
 
     LaunchedEffect(state.selectedMember) {
-        if (state.selectedMember != null) {
-            navigator.navigateTo(ListDetailPaneScaffoldRole.Detail, state.selectedMember)
+        val member = state.selectedMember
+        if (member != null) {
+            navigator.navigateTo(ListDetailPaneScaffoldRole.Detail, member.id.orEmpty())
         } else {
             // 🛡️ Navigation Hardening: If selection is cleared, pop back to the list view
             // to prevent getting stuck in an empty Detail pane on small screens.

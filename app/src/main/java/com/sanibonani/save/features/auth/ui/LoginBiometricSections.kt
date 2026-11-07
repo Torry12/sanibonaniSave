@@ -72,11 +72,10 @@ internal fun LoginErrorBanner(state: AuthState, vm: AuthViewModel, clickDebounce
     // ── Error Info Banner ────────────────────────────────────────────────────
     AnimatedVisibility(visible = state.error != null, enter = fadeIn(), exit = fadeOut()) {
         state.error?.let { err ->
-            val isSuccess = state.errorType == "success"
             val isConnectionError = err.contains("Connection failed", ignoreCase = true)
 
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                InfoBox(err, type = if (isSuccess) InfoType.SUCCESS else InfoType.ERROR)
+                InfoBox(err, type = InfoType.ERROR)
 
                 if (isConnectionError) {
                     Button(

@@ -6,6 +6,7 @@ import com.sanibonani.save.analytics.AppAnalytics
 import com.sanibonani.save.domain.logging.AppLogger
 import com.sanibonani.save.domain.model.AsyncResult
 import com.sanibonani.save.domain.model.Group
+import com.sanibonani.save.domain.model.Member
 import com.sanibonani.save.domain.model.PlatformAnalytics
 import com.sanibonani.save.domain.model.PlatformConfig
 import com.sanibonani.save.domain.model.UserRole
@@ -67,10 +68,14 @@ class LandingViewModel @Inject constructor(
     val state: StateFlow<LandingUiState> = uiState
     private var refreshJob: Job? = null
 
-    private fun currentState(): LandingUiState = uiState.value
+    /** The actor the refresh now running is reading for, and the session the screen last answered. */
+    private var refreshActor: String? = null
+    private var observedSession: Pair<Boolean, UserRole>? = null
 
     init {
-        observeNetwork()
+        observeNetwork(networkService) { s, online, airplane ->
+            s.copy(isSystemOnline = online, isAirplaneMode = airplane)
+        }
         observeDevSettingsChanges()
         observeSession()
         refreshData()
@@ -83,13 +88,16 @@ class LandingViewModel @Inject constructor(
                 .distinctUntilChanged { old, new -> old?.accessToken == new?.accessToken }
                 .debounce(300)
                 .collect { session ->
-                    val current = currentState()
                     val signedIn = session != null
-                    if (signedIn == current.isLoggedIn && (current.userRole != UserRole.MEMBER)) {
-                        return@collect
-                    }
-
                     val userRole = if (signedIn) getCurrentUserRole() else UserRole.MEMBER
+
+                    // The two things a session can change on this screen are whether someone is
+                    // signed in and as what. The guard here used to compare the sign-in state only
+                    // once the role was not MEMBER, so a member re-refreshed on every publication -
+                    // including a renewed token, which reads the same landing the state already
+                    // holds.
+                    if (observedSession == (signedIn to userRole)) return@collect
+                    observedSession = signedIn to userRole
 
                     updateState { it.copy(isLoggedIn = signedIn, userRole = userRole) }
                     if (signedIn) {
@@ -103,31 +111,34 @@ class LandingViewModel @Inject constructor(
         launchJob("observe_dev_settings") {
             devSettings.settingsChanged.collect {
                 delay(500)
-                refreshData()
-            }
-        }
-    }
-
-    private fun observeNetwork() {
-        launchJob("observe_network") {
-            networkService.isOnline.collect { online ->
-                updateState { it.copy(isSystemOnline = online) }
-            }
-        }
-        launchJob("observe_airplane_mode") {
-            networkService.isAirplaneModeActive.collect { active ->
-                updateState { it.copy(isAirplaneMode = active) }
+                // Forced: the pass this replaces is reading the database that was just switched
+                // out, so its answer is not the one the screen should keep.
+                refreshData(force = true)
             }
         }
     }
 
     fun onIntent(intent: LandingIntent) {
         when (intent) {
-            LandingIntent.Refresh -> refreshData()
+            // Asked for by name - the retry on the hero or the pull - so it does not accept the
+            // answer a pass already running would give it.
+            LandingIntent.Refresh -> refreshData(force = true)
         }
     }
 
-    fun refreshData() {
+    /**
+     * Reads the landing's four legs.
+     *
+     * [force] is a caller that will not accept an answer already on its way - the retry the admin
+     * taps. Any other caller is served by the pass still running for the same actor, which is what
+     * the cold start needed: the screen appearing, the session publishing and the connectivity
+     * watcher each used to cancel the reads in front of them and start the same four again, so the
+     * log carried three refreshes and one answer.
+     */
+    fun refreshData(force: Boolean = false) {
+        val actor = getAttributableActorId()
+        if (!force && refreshJob?.isActive == true && refreshActor == actor) return
+        refreshActor = actor
         refreshJob?.cancel()
         refreshJob = launchJob("refresh_data") {
             try {
@@ -163,7 +174,10 @@ class LandingViewModel @Inject constructor(
                             Triple(
                                 safeRunCatching { analyticsDeferred.await() }.getOrElse { Result.failure(it) },
                                 safeRunCatching { settingsDeferred.await() }.getOrElse { Result.failure(it) },
-                                (safeRunCatching { membershipsDeferred?.await() }.getOrNull() to safeRunCatching { adminGroupsDeferred?.await() }.getOrNull())
+                                // A leg that threw stays a failed Result instead of collapsing to
+                                // null, which is how it used to be read as "no memberships".
+                                (membershipsDeferred?.let { deferred -> safeRunCatching { deferred.await() }.getOrElse { Result.failure(it) } } to
+                                    adminGroupsDeferred?.let { deferred -> safeRunCatching { deferred.await() }.getOrElse { Result.failure(it) } })
                             )
                         }
                     }
@@ -172,15 +186,26 @@ class LandingViewModel @Inject constructor(
                         val (analyticsRes, settingsRes, userRes) = results
                         val (membershipsRes, adminGroupsRes) = userRes
 
-                        var isMemberOrAdmin = false
-                        var pendingGroup: Group? = null
+                        var isMemberOrAdmin = uiState.value.isMemberOrAdmin
+                        var pendingGroup: Group? = uiState.value.pendingGroup
 
                         if (userId != null) {
-                            membershipsRes?.onSuccess { if (it.isNotEmpty()) isMemberOrAdmin = true }
-                            adminGroupsRes?.onSuccess { groups ->
-                                if (groups.isNotEmpty()) isMemberOrAdmin = true
-                                pendingGroup = groups.find { !it.registrationPaid }
+                            val verdict = landingMembershipVerdict(
+                                membershipsRes = membershipsRes,
+                                managedGroupsRes = adminGroupsRes,
+                                previousIsMemberOrAdmin = isMemberOrAdmin,
+                                previousPendingGroup = pendingGroup
+                            )
+                            isMemberOrAdmin = verdict.isMemberOrAdmin
+                            pendingGroup = verdict.pendingGroup
+                            verdict.failure?.let {
+                                handleError(it, "Unable to check which groups you belong to. The landing screen is showing the last result.")
                             }
+                        } else {
+                            // Not signed in is a proven answer, not a missing one: a visitor holds
+                            // no membership and has no registration to finish.
+                            isMemberOrAdmin = false
+                            pendingGroup = null
                         }
 
                         if (analyticsRes.isSuccess && settingsRes.isSuccess) {
@@ -197,11 +222,16 @@ class LandingViewModel @Inject constructor(
                             }
                             AppAnalytics.track(AnalyticsTaxonomy.Events.LANDING_REFRESH_SUCCESS)
                         } else {
-                            val error = analyticsRes.exceptionOrNull()?.toUserMessage() ?: settingsRes.exceptionOrNull()?.toUserMessage() ?: "Sync failed"
+                            val (analyticsError, settingsError) = landingSyncErrorMessages(
+                                analyticsRes.exceptionOrNull(),
+                                settingsRes.exceptionOrNull()
+                            )
                             updateState {
                                 it.copy(
-                                    analytics = if (analyticsRes.isFailure) AsyncResult.Error(error, "SyncError") else AsyncResult.Success(analyticsRes.getOrThrow()),
-                                    settings = if (settingsRes.isFailure) AsyncResult.Error(error, "SyncError") else AsyncResult.Success(settingsRes.getOrThrow()),
+                                    analytics = analyticsError?.let { message -> AsyncResult.Error(message, "SyncError") }
+                                        ?: AsyncResult.Success(analyticsRes.getOrThrow()),
+                                    settings = settingsError?.let { message -> AsyncResult.Error(message, "SyncError") }
+                                        ?: AsyncResult.Success(settingsRes.getOrThrow()),
                                     isLoggedIn = signedIn,
                                     isMemberOrAdmin = isMemberOrAdmin,
                                     pendingGroup = pendingGroup
@@ -222,3 +252,47 @@ class LandingViewModel @Inject constructor(
         }
     }
 }
+
+/**
+ * The two verdicts the landing hero acts on. `isMemberOrAdmin = false` puts "Join a group" in
+ * front of someone already in one, and a null `pendingGroup` hides the prompt to finish a
+ * registration whose joining fee is still owed, so neither may be asserted from a read that did
+ * not answer: `false` needs both legs to answer empty, and the pending registration is only
+ * cleared by the managed-groups read itself.
+ */
+internal data class LandingMembershipVerdict(
+    val isMemberOrAdmin: Boolean,
+    val pendingGroup: Group?,
+    val failure: Throwable?
+)
+
+internal fun landingMembershipVerdict(
+    membershipsRes: Result<List<Member>>?,
+    managedGroupsRes: Result<List<Group>>?,
+    previousIsMemberOrAdmin: Boolean,
+    previousPendingGroup: Group?
+): LandingMembershipVerdict {
+    val memberships = membershipsRes?.getOrNull()
+    val managed = managedGroupsRes?.getOrNull()
+
+    return LandingMembershipVerdict(
+        isMemberOrAdmin = when {
+            !memberships.isNullOrEmpty() || !managed.isNullOrEmpty() -> true
+            memberships != null && managed != null -> false
+            else -> previousIsMemberOrAdmin
+        },
+        pendingGroup = if (managed != null) managed.find { !it.registrationPaid } else previousPendingGroup,
+        failure = membershipsRes?.exceptionOrNull() ?: managedGroupsRes?.exceptionOrNull()
+    )
+}
+
+/**
+ * The analytics and settings cards render separately, so a leg that answered must not carry the
+ * other leg's cause. One shared string reported the analytics complaint on the settings card
+ * whenever both reads were refused, and hid a permission failure behind a network one.
+ */
+internal fun landingSyncErrorMessages(
+    analyticsFailure: Throwable?,
+    settingsFailure: Throwable?
+): Pair<String?, String?> =
+    analyticsFailure?.toUserMessage() to settingsFailure?.toUserMessage()

@@ -22,7 +22,7 @@ class BankSimulationGatewayUnitTest {
     @Before
     fun setUp() {
         every { db.bankTransactionDao() } returns dao
-        gateway = BankSimulationGatewayImpl(supabase, db)
+        gateway = BankSimulationGatewayImpl(supabase, javax.inject.Provider { db })
     }
 
     @Test

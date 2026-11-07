@@ -39,11 +39,11 @@ fun OverviewTab(
     ) {
         group?.let { g ->
             if (state.feeStatus == AdminFeeState.PENDING_ACTIVATION) {
-                AdminFeeBanner(g, state.feeStatus, state.daysOverdue) {
+                AdminFeeBanner(g, state.feeStatus) {
                     onPayClick(state.platformRegistrationFee)
                 }
             } else {
-                AdminFeeBanner(g, state.feeStatus, state.daysOverdue) {
+                AdminFeeBanner(g, state.feeStatus) {
                     vm.setTab(5) // Account Tab
                 }
             }
@@ -51,10 +51,20 @@ fun OverviewTab(
         }
 
         SanibonaniSectionHeader("Group Snapshot")
-        if (!state.isSystemOnline || state.isAirplaneMode) {
+        OfflineBanner(
+            isAirplaneMode = state.isAirplaneMode,
+            isSystemOnline = state.isSystemOnline
+        )
+        Spacer(Modifier.height(8.dp))
+        // Only while online: offline already has its own banner, and there every section is
+        // unverified, so naming the ones that failed last adds a second banner with no new fact.
+        if (state.isSystemOnline && !state.isAirplaneMode && state.unverifiedSections.isNotEmpty()) {
             OfflineBanner(
-                isOnline = false,
-                message = "⚠️ Offline: Data may be outdated."
+                isOnline = true,
+                message = stringResource(
+                    R.string.ui_sections_not_confirmed_with_server,
+                    state.unverifiedSections.joinToString()
+                )
             )
             Spacer(Modifier.height(8.dp))
         }

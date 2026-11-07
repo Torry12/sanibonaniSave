@@ -44,15 +44,19 @@ class PlatformFeeConfigViewModel @Inject constructor(
                     platformBranchCode = config.branchCode,
                     platformAccountHolder = config.accountHolder
                 ) }
+            }.onFailure {
+                // The form starts blank, so an unread config left it showing nothing over the real
+                // fees - and a save from there publishes those blanks.
+                handleError(it, "Unable to load the live platform fee settings.")
             }
             getGranularFeeConfigs().onSuccess { loaded ->
                 val configs = if (loaded.isNotEmpty()) loaded else createDefaultGranularFeeConfigs()
                 val inputs = buildGranularFeeInputs(configs)
                 updateState { it.copy(granularFees = configs, granularFeeInputs = inputs) }
             }.onFailure {
-                val configs = createDefaultGranularFeeConfigs()
-                val inputs = buildGranularFeeInputs(configs)
-                updateState { it.copy(granularFees = configs, granularFeeInputs = inputs) }
+                // A refused read must not seed the editable table: the in-code defaults would show
+                // as the platform's live pricing, and a save publishes whatever the table holds.
+                handleError(it, "Unable to load the live per-tier fees. The table was left empty so nothing can be saved over the real tiers.")
             }
         }
     }
@@ -75,7 +79,7 @@ class PlatformFeeConfigViewModel @Inject constructor(
 
     fun saveGlobalFees() {
         launchJob("save_fees") {
-            updateState { it.copy(isSaving = true) }
+            updateState { it.copy(isSaving = true, saveSuccess = false) }
             val current = uiState.value
             val invalid = firstInvalidFeeField(current)
             val suspensionDays = current.autoSuspensionDays.trim().toIntOrNull()?.takeIf { it > 0 }
@@ -200,11 +204,35 @@ class PlatformFeeConfigViewModel @Inject constructor(
     fun saveGranularFees() {
         launchJob("save_granular_fees") {
             updateState { it.copy(isSavingGranularFee = true) }
-            uiState.value.granularFees.forEach {
-                updateGranularFeeConfig(it).onFailure { e -> AppLogger.e("PlatformFeeConfigVM", "Failed to save fee for ${it.groupType}", e) }
+            if (uiState.value.granularFees.isEmpty()) {
+                // A read that answered installs the default table even when the platform has no
+                // tiers, so an empty table here can only mean the read was refused.
+                updateState { it.copy(isSavingGranularFee = false) }
+                handleError(
+                    IllegalStateException("Per-tier fee table was never read"),
+                    "The per-tier fees were never loaded from the server, so nothing was saved."
+                )
+                return@launchJob
+            }
+            // Each tier is its own write, so the table can half-apply. This used to log the
+            // refusals and toast success anyway, which left an admin pricing the platform on
+            // figures the server had rejected.
+            val failedTiers = mutableListOf<String>()
+            var firstFailure: Throwable? = null
+            uiState.value.granularFees.forEach { config ->
+                updateGranularFeeConfig(config).onFailure { e ->
+                    AppLogger.e("PlatformFeeConfigVM", "Failed to save fee for ${config.groupType}", e)
+                    failedTiers += "${config.groupType} cycle ${config.roscaCycle}"
+                    firstFailure = e
+                }
             }
             updateState { it.copy(isSavingGranularFee = false) }
-            showMessage("Granular fees saved")
+            val failure = firstFailure
+            if (failure == null) {
+                showMessage("Granular fees saved")
+            } else {
+                handleError(failure, "These fee tiers were not saved: ${failedTiers.joinToString(", ")}")
+            }
         }
     }
 

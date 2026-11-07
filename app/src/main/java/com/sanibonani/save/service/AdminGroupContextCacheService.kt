@@ -1,6 +1,7 @@
 package com.sanibonani.save.service
 
 import com.sanibonani.save.domain.utils.safeRunCatching
+import com.sanibonani.save.domain.logging.AppLogger
 import com.sanibonani.save.domain.model.ActuarialMetrics
 import com.sanibonani.save.domain.model.AdminFeeState
 import com.sanibonani.save.domain.model.AppNotification
@@ -19,11 +20,15 @@ import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 
 @Singleton
 class AdminGroupContextCacheService @Inject constructor(
@@ -43,8 +48,33 @@ class AdminGroupContextCacheService @Inject constructor(
     private val _selectedGroupId = MutableStateFlow<String?>(null)
     val selectedGroupId: StateFlow<String?> = _selectedGroupId.asStateFlow()
 
+    /**
+     * Per group, the relations the sync layer has not brought current.
+     *
+     * Read straight from the sync layer rather than copied into the snapshot: a pillar that lands
+     * on a later pass clears its group's entry without any warmup rebuilding it, and the dashboard
+     * must stop flagging the book the moment that happens.
+     */
+    val unverifiedSections: StateFlow<Map<String, Set<String>>> get() = syncRepo.staleGroups
+
     private var cachedUserId: String? = null
     private val warmupCoordinator = GroupContextWarmupCoordinator()
+
+    /**
+     * Hydration reads this service may have in flight, for every group the account administers
+     * together.
+     *
+     * Sized against the transport's per-host dispatch cap rather than against the group count, so a
+     * platform admin with thirty groups does not present thirty times the load of one with one.
+     */
+    private val hydrationReadBudget = Semaphore(HYDRATION_CONCURRENT_READS)
+
+    private suspend fun <T> hydrationRead(block: suspend () -> T): T =
+        hydrationReadBudget.withPermit { block() }
+
+    private companion object {
+        const val HYDRATION_CONCURRENT_READS = 3
+    }
 
     fun getContext(groupId: String): CachedAdminGroupContext? = _contexts.value[groupId]
 
@@ -57,6 +87,19 @@ class AdminGroupContextCacheService @Inject constructor(
         clearForUser(userId = null)
     }
 
+    /**
+     * Drops every cached snapshot after the developer database changes, keeping the selection.
+     *
+     * The rows were read from the tier that has just been replaced, so they are not a fallback -
+     * and a warm-up that rebuilds a snapshot equal to the one the cache already holds does not
+     * re-emit, which would leave a screen cleared for the change with nothing to refill it. The
+     * selected group stays selected so the caller's re-warm reads it from the tier now in front.
+     */
+    fun invalidateForDatabaseChange() {
+        _contexts.value = emptyMap()
+        warmupCoordinator.cancelAll()
+    }
+
     fun warmManagedGroupsInBackground(userId: String, groups: List<Group>) {
         ensureUserSession(userId)
         pruneToGroups(groups)
@@ -65,7 +108,7 @@ class AdminGroupContextCacheService @Inject constructor(
             val groupId = group.id
             if (groupId.isNullOrBlank()) return@forEach
             warmupCoordinator.launch(groupId, scope) {
-                warmGroupContext(group)
+                warmGroupContext(groupId, knownRow = group)
             }
         }
     }
@@ -75,7 +118,12 @@ class AdminGroupContextCacheService @Inject constructor(
         val groups = groupRepo.getGroupsByAdmin(userId).getOrElse {
             // An offline warm-up must keep the cached groups instead of pruning every context
             // to an empty admin set.
-            groupRepo.observeGroupsByAdmin(userId).first().getOrElse { emptyList() }
+            groupRepo.observeGroupsByAdmin(userId).first().getOrElse {
+                // Both reads failed, so the empty list here is a missing answer rather than an
+                // authoritative "administers nothing". Pruning with it would delete the very
+                // contexts this fallback protects; keep them and warm again once a read succeeds.
+                return
+            }
         }
         warmManagedGroupsInBackground(userId, groups)
     }
@@ -84,7 +132,11 @@ class AdminGroupContextCacheService @Inject constructor(
     fun selectGroup(groupId: String) {
         if (groupId.isBlank()) return
         _selectedGroupId.value = groupId
-        warmUpGroup(groupId)
+        // Opening a group is a request for its current money, and the snapshot's group row may
+        // come from the listing that filled the switcher. Only a forced warmup re-reads that row;
+        // the members pillar hydrates separately, so a stale balance otherwise sits next to a
+        // fresh member count.
+        warmUpGroup(groupId, force = true)
     }
 
     /**
@@ -100,11 +152,7 @@ class AdminGroupContextCacheService @Inject constructor(
         warmupCoordinator.launch(groupId, scope, replaceActive = force) {
             // A forced warmup must not reuse the snapshot's group: the row may have changed since
             // it was cached, and re-reading it is the point of the refresh.
-            val cachedGroup = if (force) null else _contexts.value[groupId]?.group
-            val group = cachedGroup
-                ?: safeRunCatching { groupRepo.getGroupById(groupId).getOrNull() }.getOrNull()
-                ?: return@launch
-            warmGroupContext(group)
+            warmGroupContext(groupId, knownRow = if (force) null else _contexts.value[groupId]?.group)
         }
     }
 
@@ -112,15 +160,23 @@ class AdminGroupContextCacheService @Inject constructor(
      * Pulls every group pillar from the network, then rebuilds the cached snapshot from the
      * freshly synced data. Awaitable, so a pull-to-refresh only reports completion once the
      * dashboard's source state has actually been replaced.
+     *
+     * Fails when the pull did not land. The snapshot is still rebuilt from the cache, because
+     * stale data on screen beats a blank dashboard, but the caller hears that the group was never
+     * brought current instead of being told the refresh succeeded.
      */
     suspend fun refreshGroup(groupId: String): Result<Unit> = safeRunCatching {
         if (groupId.isBlank()) return@safeRunCatching
         // Hold the group's warmup slot for the whole refresh so a background sweep cannot start a
-        // second hydration that finishes after this one. The slot is a child job, never the
+        // second hydration that finishes after this one; a sweep arriving once this run has read
+        // is queued behind it rather than discarded. The slot is a child job, never the
         // caller's, so a session change cancels the refresh instead of the caller's scope.
-        warmupCoordinator.runExclusive(groupId) {
-            syncRepo.syncGroupData(groupId)
-            warmGroupContext(groupRepo.getGroupById(groupId).getOrThrow())
+        warmupCoordinator.runExclusive(groupId, scope) {
+            val syncOutcome = syncRepo.syncGroupData(groupId)
+            // The caller asked for this group to be brought current, so a row the server refused
+            // fails the refresh even though the snapshot keeps the row it already held.
+            warmGroupContext(groupId, knownRow = null).getOrThrow()
+            syncOutcome.getOrThrow()
         }
     }
 
@@ -130,44 +186,116 @@ class AdminGroupContextCacheService @Inject constructor(
     ) {
         _contexts.update { cache ->
             val current = cache[groupId] ?: CachedAdminGroupContext()
-            cache + (groupId to reducer(current).copy(lastUpdatedMillis = System.currentTimeMillis()))
+            cache + (groupId to reducer(current))
         }
     }
 
-    private suspend fun warmGroupContext(group: Group) {
-        val groupId = group.id ?: return
+    /**
+     * Reads the group's pillars into its snapshot and reports the group row that snapshot was built
+     * from.
+     *
+     * [knownRow] is a row the caller already holds - the listing that filled the group switcher - and
+     * is used without a second read. Otherwise the row is read fresh, and when that read is refused
+     * the pillars are still hydrated onto the row the snapshot held. Abandoning the run instead left
+     * an admin with no members, no notifications and no payouts because one row did not answer, and
+     * the dashboard's only signal was its own guess that the load had timed out.
+     */
+    private suspend fun warmGroupContext(groupId: String, knownRow: Group?): Result<Group> {
+        // From here the snapshot is being built from data read now, so a warmup request that
+        // arrives later needs its own run rather than being credited to this one.
+        warmupCoordinator.markReadsStarted(groupId)
 
+        val rowOutcome = knownRow?.let { Result.success(it) }
+            ?: hydrationRead { safeRunCatching { groupRepo.getGroupById(groupId).getOrThrow() } }
+        if (rowOutcome.isFailure) {
+            AppLogger.w(
+                "AdminGroupContextCache",
+                "Group $groupId's row was refused; hydrating its pillars onto the cached row.",
+                rowOutcome.exceptionOrNull()
+            )
+        }
+
+        readGroupContext(rowOutcome, groupId)
+        return rowOutcome
+    }
+
+    private suspend fun readGroupContext(groupOutcome: Result<Group>, groupId: String) {
         // A failed section read must keep what the snapshot already holds: replacing it
         // with an empty list made an offline refresh look like an empty group, and the
         // hydrated flag then suppressed every later retry.
-        val membersOutcome = memberRepo.getGroupMembers(groupId).first()
-
-        val notificationsOutcome = safeRunCatching {
-            notificationRepo.syncNotifications(groupId)
-            notificationRepo.observeNotifications(groupId).first().getOrThrow()
+        // Contained the same way as the member service's pillars: a section read that throws, rather
+        // than answering with a failed Result, used to escape the warm-up and reach the coroutine
+        // handler. Now it degrades to "this section did not answer" and the snapshot keeps its rows.
+        //
+        // The legs are independent, so they run together and each takes its own read permit. Run one
+        // after another inside a single whole-sweep permit, the dashboard paid the sum of its
+        // round-trips for a book it could have had in about one, and a group tapped while a background
+        // sweep held that permit could not start until the sweep ended. The pressure the host sees
+        // stays bounded by the read budget, which is sized against its per-host dispatch cap.
+        val pillars = coroutineScope {
+            val members = async {
+                hydrationRead { safeRunCatching { memberRepo.getGroupMembers(groupId).first().getOrThrow() } }
+            }
+            val notifications = async {
+                hydrationRead {
+                    safeRunCatching {
+                        notificationRepo.syncNotifications(groupId)
+                        notificationRepo.observeNotifications(groupId).first().getOrThrow()
+                    }
+                }
+            }
+            val payouts = async {
+                hydrationRead { safeRunCatching { payoutRepo.observePayouts(groupId).first().getOrThrow() } }
+            }
+            val metrics = async {
+                hydrationRead { safeRunCatching { actuarialRepo.computeMetrics(groupId).getOrThrow() }.getOrNull() }
+            }
+            HydratedAdminPillars(
+                members = members.await(),
+                notifications = notifications.await(),
+                payouts = payouts.await(),
+                metrics = metrics.await()
+            )
         }
-        val payoutsOutcome = payoutRepo.observePayouts(groupId).first()
-        val metrics = actuarialRepo.computeMetrics(groupId).getOrNull()
+
+        // The snapshot keeps whatever it already held, so a pillar that did not answer is invisible on
+        // screen: this is the only trace of which part of the book is being shown from the cache.
+        val missed = listOfNotNull(
+            "members".takeIf { pillars.members.isFailure },
+            "notifications".takeIf { pillars.notifications.isFailure },
+            "payouts".takeIf { pillars.payouts.isFailure },
+            "metrics".takeIf { pillars.metrics == null }
+        )
+        if (missed.isNotEmpty()) {
+            AppLogger.w(
+                "AdminGroupContextCache",
+                "Group $groupId hydration kept the cached ${missed.joinToString()}."
+            )
+        }
 
         updateContext(groupId) { prev ->
-            val partitioned = notificationsOutcome.getOrNull()
+            val group = groupOutcome.getOrNull() ?: prev.group
+            val partitioned = pillars.notifications.getOrNull()
                 ?.filter { it.memberId == null || it.triggerEvent == NotifEvent.MEMBER_MESSAGE }
                 ?.partition { it.triggerEvent == NotifEvent.MEMBER_MESSAGE }
+            // createdAt is the ISO-8601 string PostgREST returns, which sorts chronologically as
+            // text; id is a uuid, so ordering by it put the feed in a random order.
             val messages = (partitioned?.first ?: prev.memberMessages)
-                .sortedByDescending { it.id ?: "" }
+                .sortedByDescending { it.createdAt ?: it.id ?: "" }
             val systemNotifs = (partitioned?.second ?: prev.notifications)
-                .sortedByDescending { it.id ?: "" }
+                .sortedByDescending { it.createdAt ?: it.id ?: "" }
             prev.copy(
                 group = group,
-                members = membersOutcome.getOrNull() ?: prev.members,
+                members = pillars.members.getOrNull() ?: prev.members,
                 notifications = systemNotifs,
                 memberMessages = messages,
-                payouts = payoutsOutcome.getOrNull() ?: prev.payouts,
-                metrics = metrics ?: prev.metrics,
-                feeStatus = group.feeStatus,
-                isFullyHydrated = membersOutcome.isSuccess &&
-                    notificationsOutcome.isSuccess &&
-                    payoutsOutcome.isSuccess
+                payouts = pillars.payouts.getOrNull() ?: prev.payouts,
+                metrics = pillars.metrics ?: prev.metrics,
+                feeStatus = group?.feeStatus ?: prev.feeStatus,
+                isFullyHydrated = groupOutcome.isSuccess &&
+                    pillars.members.isSuccess &&
+                    pillars.notifications.isSuccess &&
+                    pillars.payouts.isSuccess
             )
         }
     }
@@ -187,6 +315,15 @@ class AdminGroupContextCacheService @Inject constructor(
     }
 }
 
+/** What the four independent legs of one group's hydration answered, kept apart so the snapshot can
+ * hold its own rows wherever a read refused. */
+private data class HydratedAdminPillars(
+    val members: Result<List<Member>>,
+    val notifications: Result<List<AppNotification>>,
+    val payouts: Result<List<PayoutRequest>>,
+    val metrics: ActuarialMetrics?
+)
+
 data class CachedAdminGroupContext(
     val group: Group? = null,
     val members: List<Member> = emptyList(),
@@ -195,6 +332,10 @@ data class CachedAdminGroupContext(
     val payouts: List<PayoutRequest> = emptyList(),
     val metrics: ActuarialMetrics? = null,
     val feeStatus: AdminFeeState? = null,
-    val isFullyHydrated: Boolean = false,
-    val lastUpdatedMillis: Long = 0L
+    /**
+     * Every section of the snapshot answered from the cache. It says nothing about whether the
+     * server confirmed any of it - cache reads cannot fail, so that question belongs to
+     * [com.sanibonani.save.domain.repository.system.SyncRepository.staleGroups].
+     */
+    val isFullyHydrated: Boolean = false
 )

@@ -1,7 +1,6 @@
 package com.sanibonani.save.features.admin.presentation.state
 
 import com.sanibonani.save.domain.model.*
-import java.io.File
 
 data class AdminFinancialUiState(
     val ledger: List<LedgerEntry> = emptyList(),
@@ -9,21 +8,16 @@ data class AdminFinancialUiState(
     val payouts: List<PayoutRequest> = emptyList(),
     val groupLoans: List<Loan> = emptyList(),
     val burialClaims: List<BeneficiaryPayoutClaim> = emptyList(),
-    val isLoading: Boolean = false,
     val error: String? = null,
     val successMessage: String? = null,
     val isReconciling: Boolean = false,
     val isConsolidating: Boolean = false,
-    val isExporting: Boolean = false,
-    val exportFile: File? = null,
     val group: Group? = null,
     val members: List<Member> = emptyList(),
     val selectedMemberId: String? = null,
     val payoutAmount: String = "",
     val isRequestingPayout: Boolean = false,
-    val payoutRequestSuccess: Boolean = false,
     val isRefreshingBank: Boolean = false,
-    val bankRefreshSuccess: Boolean = false,
     val processingIds: Set<String> = emptySet(),
     val showMfaChallenge: Boolean = false,
     val mfaChallengeError: String? = null,

@@ -71,11 +71,28 @@ fun MemberOverviewTab(
         contentPadding = PaddingValues(20.dp),
         verticalArrangement = Arrangement.spacedBy(20.dp)
     ) {
+        // The guard keeps an empty item out of the list; the banner itself decides what to say.
         if (!uiState.isSystemOnline || uiState.isAirplaneMode) {
             item {
                 OfflineBanner(
-                    isOnline = false,
-                    message = if (uiState.isAirplaneMode) "⚠️ Airplane Mode: Syncing is paused." else "⚠️ Offline: Using cached data."
+                    isAirplaneMode = uiState.isAirplaneMode,
+                    isSystemOnline = uiState.isSystemOnline,
+                    airplaneColors = ErrorBg to ErrorRed,
+                    offlineColors = WarningBg to WarningAmber
+                )
+            }
+        }
+
+        // Only while online: offline already has its own banner, and there every section is
+        // unverified, so naming the ones that failed last adds a second banner with no new fact.
+        if (uiState.isSystemOnline && !uiState.isAirplaneMode && uiState.unverifiedSections.isNotEmpty()) {
+            item {
+                OfflineBanner(
+                    isOnline = true,
+                    message = stringResource(
+                        R.string.ui_sections_not_confirmed_with_server,
+                        uiState.unverifiedSections.joinToString()
+                    )
                 )
             }
         }
@@ -165,12 +182,19 @@ fun MemberOverviewTab(
         }
 
         item {
-            SanibonaniSectionHeader("Recent Activity", subtitle = "Your latest ledger entries")
+            SanibonaniSectionHeader("Recent Activity", subtitle = "Your latest payments")
             if (recentActivity.isEmpty()) {
+                // "No transactions" is a claim about the member's book, and an unanswered read or a
+                // stale ledger pillar is not one - the header above already shows money saved from
+                // contributions, so the two lists must not contradict each other by accident.
+                val unconfirmed = uiState.memberActivityIsUnconfirmed
                 EmptyState(
                     icon = "💸",
-                    title = "No transactions",
-                    description = "Your financial history will appear here.",
+                    title = if (unconfirmed) "Transactions unavailable" else "No transactions",
+                    description = stringResource(
+                        if (unconfirmed) R.string.ui_member_activity_not_confirmed
+                        else R.string.ui_member_activity_no_group_entries
+                    ),
                     actionLabel = "Refresh",
                     onAction = { vm.refreshData() }
                 )

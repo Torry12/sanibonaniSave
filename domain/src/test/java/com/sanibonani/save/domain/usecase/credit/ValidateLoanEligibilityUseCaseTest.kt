@@ -1,10 +1,10 @@
 package com.sanibonani.save.domain.usecase.credit
+import com.sanibonani.save.domain.config.LoanTerms
 import com.sanibonani.save.domain.model.*
 import com.sanibonani.save.domain.repository.equity.ContributionRepository
 import com.sanibonani.save.domain.repository.credit.LoanRepository
 import com.sanibonani.save.domain.utils.DateProvider
 import io.mockk.*
-import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -30,7 +30,7 @@ class ValidateLoanEligibilityUseCaseTest {
         useCase = ValidateLoanEligibilityUseCase(contributionRepository, loanRepository, paymentCalculator)
         mockkObject(DateProvider)
         every { DateProvider.getCurrentDate() } returns fixedNow
-        every { loanRepository.getMemberLoans(any()) } returns flowOf(Result.success(emptyList()))
+        coEvery { loanRepository.getMemberLoansSync(any()) } returns Result.success(emptyList())
     }
 
     @After
@@ -64,7 +64,8 @@ class ValidateLoanEligibilityUseCaseTest {
             dueDate = fixedNow.minusDays(10).toString()
         )
 
-        every { contributionRepository.observeMemberContributions("m1", "g1") } returns flowOf(Result.success(listOf(overdueContribution)))
+        coEvery { contributionRepository.syncMemberContributions("m1", "g1") } returns
+            Result.success(listOf(overdueContribution))
 
         val result = useCase(member, group)
 
@@ -85,16 +86,14 @@ class ValidateLoanEligibilityUseCaseTest {
     )
 
     private fun stubRecentContributions(total: String) {
-        every { contributionRepository.observeMemberContributions("m1", "g1") } returns flowOf(
-            Result.success(
-                listOf(
-                    Contribution(
-                        memberId = "m1",
-                        groupId = "g1",
-                        amount = Money(total),
-                        status = ContributionStatus.PAID,
-                        paidAt = "${fixedNow}T00:00:00Z"
-                    )
+        coEvery { contributionRepository.syncMemberContributions("m1", "g1") } returns Result.success(
+            listOf(
+                Contribution(
+                    memberId = "m1",
+                    groupId = "g1",
+                    amount = Money(total),
+                    status = ContributionStatus.PAID,
+                    paidAt = "${fixedNow}T00:00:00Z"
                 )
             )
         )
@@ -149,8 +148,12 @@ class ValidateLoanEligibilityUseCaseTest {
 
     @Test
     fun `invoke - unavailable contribution history cannot grant loan eligibility`() = runTest {
-        every { contributionRepository.observeMemberContributions("m1", "g1") } returns
-            flowOf(Result.failure(IllegalStateException("offline")))
+        // Stubbed on the one-shot read. The observe flow hands over the Room cache as its first
+        // emission and sends the refusal behind it, so a failure on its first value is a shape the
+        // production flow never gives: the eligibility rules - joining fee, borrowing power, good
+        // standing - have to be certified by a read that cannot answer without the server.
+        coEvery { contributionRepository.syncMemberContributions("m1", "g1") } returns
+            Result.failure(IllegalStateException("offline"))
 
         val result = useCase(activeMember, groupWithCap(null), requestedAmount = Money("100.00"))
 
@@ -159,13 +162,17 @@ class ValidateLoanEligibilityUseCaseTest {
             "Unable to verify contribution history. Please retry.",
             (result as ValidateLoanEligibilityUseCase.EligibilityResult.Ineligible).reason
         )
+        coVerify(exactly = 0) { loanRepository.getMemberLoansSync(any()) }
     }
 
     @Test
     fun `invoke - unavailable loan history cannot grant loan eligibility`() = runTest {
+        // The same one-shot contract as the contributions leg above: the observe flow would answer
+        // this member's cached loans and hide the refusal behind them, so borrowing power would be
+        // priced against a debt total the server never confirmed.
         stubRecentContributions("1000.00")
-        every { loanRepository.getMemberLoans("m1") } returns
-            flowOf(Result.failure(IllegalStateException("offline")))
+        coEvery { loanRepository.getMemberLoansSync("m1") } returns
+            Result.failure(IllegalStateException("offline"))
 
         val result = useCase(activeMember, groupWithCap(null), requestedAmount = Money("100.00"))
 
@@ -174,5 +181,65 @@ class ValidateLoanEligibilityUseCaseTest {
             "Unable to verify loan history. Please retry.",
             (result as ValidateLoanEligibilityUseCase.EligibilityResult.Ineligible).reason
         )
+    }
+
+    /**
+     * `groups.loan_max_months` is the term an admin sets on the group, and the platform ceiling in
+     * [LoanTerms] is the floor of that: the backend force-settles at three months whatever the
+     * group asks for, so a larger setting cannot buy a longer loan.
+     */
+    private fun groupWithTerm(maxMonths: Int?) = Group(
+        id = "g1",
+        type = GroupType.STOKVEL,
+        monthlyContribution = Money.ZERO,
+        loanMaxMonths = maxMonths
+    )
+
+    @Test
+    fun `invoke - a term over the group's own ceiling is refused even inside the platform ceiling`() = runTest {
+        stubRecentContributions("1000.00")
+
+        val result = useCase(activeMember, groupWithTerm(2), termMonths = 3)
+
+        assertTrue(result is ValidateLoanEligibilityUseCase.EligibilityResult.Ineligible)
+        val reason = (result as ValidateLoanEligibilityUseCase.EligibilityResult.Ineligible).reason
+        assertTrue("the refusal must name the ceiling it hit: $reason", reason.contains("maximum of 2 months"))
+    }
+
+    @Test
+    fun `invoke - a term at the group's own ceiling stays eligible`() = runTest {
+        stubRecentContributions("1000.00")
+
+        val result = useCase(activeMember, groupWithTerm(2), termMonths = 2)
+
+        assertTrue(
+            "the ceiling is inclusive, so two months is still a term the group agreed to allow",
+            result is ValidateLoanEligibilityUseCase.EligibilityResult.Eligible
+        )
+    }
+
+    @Test
+    fun `invoke - a group term above the platform ceiling buys nothing`() = runTest {
+        stubRecentContributions("1000.00")
+
+        val atCeiling = useCase(activeMember, groupWithTerm(12), termMonths = LoanTerms.MAX_TERM_MONTHS)
+        val overCeiling = useCase(activeMember, groupWithTerm(12), termMonths = LoanTerms.MAX_TERM_MONTHS + 1)
+
+        assertTrue(
+            "settling at three months is what the money path does, so the app may not promise longer",
+            atCeiling is ValidateLoanEligibilityUseCase.EligibilityResult.Eligible
+        )
+        assertTrue(overCeiling is ValidateLoanEligibilityUseCase.EligibilityResult.Ineligible)
+    }
+
+    @Test
+    fun `invoke - an unset group term falls back to the platform ceiling`() = runTest {
+        stubRecentContributions("1000.00")
+
+        val zero = useCase(activeMember, groupWithTerm(0), termMonths = LoanTerms.MAX_TERM_MONTHS)
+        val over = useCase(activeMember, groupWithTerm(0), termMonths = LoanTerms.MAX_TERM_MONTHS + 1)
+
+        assertTrue("0 is the schema default for not configured", zero is ValidateLoanEligibilityUseCase.EligibilityResult.Eligible)
+        assertTrue(over is ValidateLoanEligibilityUseCase.EligibilityResult.Ineligible)
     }
 }

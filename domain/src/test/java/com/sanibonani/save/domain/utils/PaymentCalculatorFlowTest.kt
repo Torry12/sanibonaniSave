@@ -203,20 +203,24 @@ class PaymentCalculatorFlowTest {
     }
 
     @Test
-    fun `unpaid contributions do not count while member total paid is the fallback`() {
+    fun `a joining fee row does not settle the monthly and no cached column stands in for it`() {
         val due = calculator.calculateStatus(
             group(), member(), listOf(paid("500.0", status = ContributionStatus.DUE)), emptyList(), LocalDate.of(2024, 1, 28)
         )
         assertEquals(Money("500.0"), due.shortfall)
 
-        val fallback = calculator.calculateStatus(
+        // This case used to assert a shortfall of zero, and the only reason it read that way is the
+        // fallback that #103 removes: the savings filter correctly returned nothing, so the
+        // calculator reached for member.totalPaid - the cached all-in column, which here is the
+        // R500.00 the member has never contributed. The rows are the answer.
+        val noSavingsRows = calculator.calculateStatus(
             group(),
             member(totalPaid = "500.0"),
             listOf(paid("200.0", type = "joining_fee")),
             emptyList(),
             LocalDate.of(2024, 1, 28)
         )
-        assertEquals(Money.ZERO, fallback.shortfall)
+        assertEquals(Money("500.0"), noSavingsRows.shortfall)
     }
 
     @Test
@@ -420,11 +424,75 @@ class PaymentCalculatorFlowTest {
             paid("50.0", type = "member_fee", dueDate = "2024-01-15")
         )
 
-        assertEquals(Money("1000.0"), calculator.calculatePaidSavings(paid, member))
+        assertEquals(Money("1000.0"), calculator.calculatePaidSavings(paid))
         assertEquals(
             LocalDate.of(2024, 1, 1),
             calculator.resolveJoinedDate(member, LocalDate.of(2024, 6, 1), paid)
         )
+    }
+
+    @Test
+    fun `a registration fee is platform revenue and never counts as member savings`() {
+        // internal_post_contribution routes these three types to record_platform_revenue_v2, so the
+        // group never holds the money. Counting it as savings both shortens the member's shortfall
+        // and advances their next due date against contributions they never made.
+        val paid = listOf(
+            paid("500.0"),
+            paid("500.0", type = "registration_contribution"),
+            paid("20.0", type = "member_fee"),
+            paid("30.0", type = "member_fee_ledger")
+        )
+
+        assertEquals(Money("500.0"), calculator.calculatePaidSavings(paid))
+
+        val status = calculator.calculateStatus(
+            group(monthly = "500.0"),
+            member(),
+            listOf(paid("500.0", type = "registration_contribution")),
+            emptyList(),
+            LocalDate.of(2024, 1, 28)
+        )
+        assertEquals(
+            "the fee cannot settle a contribution the member still owes",
+            Money("500.0"),
+            status.shortfall
+        )
+    }
+
+    @Test
+    fun `a member whose only payments were fees is credited with no savings`() {
+        // The filter above excludes the fee rows, and then the old code asked "is the result zero?
+        // use member.totalPaid instead" - the cached all-in column, fees included. So the exact rows
+        // the filter was written to reject came back as savings through the only door left open.
+        val rows = listOf(
+            paid("500.0", type = "registration_contribution"),
+            paid("20.0", type = "member_fee")
+        )
+
+        assertEquals(Money.ZERO, calculator.calculatePaidSavings(rows))
+
+        val status = calculator.calculateStatus(
+            group(monthly = "500.0"),
+            member(totalPaid = "520.0"),
+            rows,
+            emptyList(),
+            LocalDate.of(2024, 1, 28)
+        )
+
+        assertEquals(Money("500.0"), status.shortfall)
+        assertEquals(Money.ZERO, status.overpayment)
+    }
+
+    @Test
+    fun `a withdrawn settlement still nets the savings it actually moved`() {
+        // An empty-but-known feed is an answer, not a missing read: falling back to the cached column
+        // here would credit the member R1,000.00 of savings they had just taken back out.
+        val rows = listOf(
+            paid("1000.0"),
+            paid("-1000.0", type = "loan_settlement_extraction")
+        )
+
+        assertEquals(Money.ZERO, calculator.calculatePaidSavings(rows))
     }
 
     @Test

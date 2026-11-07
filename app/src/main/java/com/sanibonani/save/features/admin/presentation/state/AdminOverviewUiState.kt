@@ -6,11 +6,8 @@ data class AdminOverviewUiState(
     val group: Group? = null,
     val members: List<Member> = emptyList(),
     val managedGroups: AsyncResult<List<Group>> = AsyncResult.Uninitialized,
-    val metrics: ActuarialMetrics = ActuarialMetrics(),
     val businessInsight: Result<GroupFinancialInsight>? = null,
-    val healthScore: GroupHealthScore? = null,
     val feeStatus: AdminFeeState = AdminFeeState.DUE,
-    val daysOverdue: Int = 0,
     val viabilityPlan: ViabilityPlan? = null,
     val isCalculatingViability: Boolean = false,
     val notifications: List<AppNotification> = emptyList(),
@@ -21,6 +18,11 @@ data class AdminOverviewUiState(
     val verificationResult: VerificationResult = VerificationResult.Valid,
     val isSystemOnline: Boolean = true,
     val isAirplaneMode: Boolean = false,
+    /**
+     * Sections of the selected group whose last pull did not land. Non-empty means the snapshot on
+     * screen is the cache, not a book the server confirmed.
+     */
+    val unverifiedSections: Set<String> = emptySet(),
     val messageText: String = "",
     val isSendingMessage: Boolean = false,
     val messageSentSuccess: Boolean = false,
@@ -38,11 +40,11 @@ data class AdminOverviewUiState(
     fun clearGroupContext() = copy(
         group = null,
         members = emptyList(),
-        metrics = ActuarialMetrics(),
         businessInsight = null,
-        healthScore = null,
         notifications = emptyList(),
         memberMessages = emptyList(),
+        outstandingPlatformFees = emptyList(),
+        verificationResult = VerificationResult.Valid,
         isLoading = true,
         error = null,
         groupAuditReport = AsyncResult.Uninitialized
@@ -52,7 +54,6 @@ data class AdminOverviewUiState(
 data class AdminGroupContext(
     val group: Group,
     val members: List<Member>,
-    val metrics: ActuarialMetrics,
     val notifications: List<AppNotification>,
     val messages: List<AppNotification>
 )

@@ -18,11 +18,7 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkStatic
 import io.mockk.unmockkAll
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.test.UnconfinedTestDispatcher
-import kotlinx.coroutines.test.resetMain
-import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -41,6 +37,9 @@ import org.junit.Test
 class OnboardingWizardValidationTest {
 
     @get:Rule
+    val mainDispatcherRule = MainDispatcherRule(MainDispatcherRule.Kind.UNCONFINED)
+
+    @get:Rule
     val instantExecutorRule = InstantTaskExecutorRule()
 
     private val createGroupUseCase = mockk<CreateGroupUseCase>(relaxed = true)
@@ -49,11 +48,9 @@ class OnboardingWizardValidationTest {
     private val locationService = mockk<LocationService>(relaxed = true)
     private val supabaseRepo = mockk<SupabaseRepository>(relaxed = true)
 
-    private val testDispatcher = UnconfinedTestDispatcher()
 
     @Before
     fun setup() {
-        Dispatchers.setMain(testDispatcher)
         mockkStatic(Log::class)
         every { Log.d(any(), any()) } returns 0
         every { Log.i(any(), any()) } returns 0
@@ -72,11 +69,10 @@ class OnboardingWizardValidationTest {
 
     @After
     fun tearDown() {
-        Dispatchers.resetMain()
         unmockkAll()
     }
 
-    private fun viewModel() = GroupRegistrationViewModel(
+    private fun viewModel() = mainDispatcherRule.track(GroupRegistrationViewModel(
         createGroupUseCase,
         activateGroupUseCase,
         feeService,
@@ -84,7 +80,7 @@ class OnboardingWizardValidationTest {
         IsLoggedInUseCase(supabaseRepo),
         GetCurrentSessionEmailUseCase(supabaseRepo),
         GetAttributableActorIdUseCase(supabaseRepo)
-    )
+    ))
 
     private fun GroupRegistrationViewModel.fillStepOne() {
         onEvent(GroupFormEvent.NameChanged("Sunrise Stokvel"))

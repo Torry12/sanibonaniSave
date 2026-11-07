@@ -59,7 +59,7 @@ class WhatsAppNotificationTest {
 
         repo = NotificationRepositoryImpl(
             supabase,
-            db,
+            javax.inject.Provider { db },
             whatsAppChannel,
             router,
             taskQueue,

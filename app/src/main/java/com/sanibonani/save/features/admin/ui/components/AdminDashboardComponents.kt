@@ -20,6 +20,7 @@ import androidx.compose.ui.unit.dp
 import com.sanibonani.save.R
 import com.sanibonani.save.domain.model.*
 import com.sanibonani.save.features.admin.ui.AdminMemberPortalAccess
+import com.sanibonani.save.ui.components.OfflineBanner
 import com.sanibonani.save.ui.theme.*
 import com.sanibonani.save.features.admin.presentation.state.AdminOverviewUiState
 
@@ -142,38 +143,17 @@ fun AdminDashboardBannerSection(
             )
         }
 
-        if (state.isAirplaneMode) {
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                color = Color.Red,
-                contentColor = Color.White
-            ) {
-                Row(Modifier.padding(horizontal = 20.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.AirplanemodeActive, null, modifier = Modifier.size(16.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text(stringResource(R.string.ui_airplane_mode_active_turn_off_to_sync), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
-                }
-            }
-        } else if (!state.isSystemOnline) {
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                color = WarningAmber,
-                contentColor = Color.Black
-            ) {
-                Row(Modifier.padding(horizontal = 20.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.CloudOff, null, modifier = Modifier.size(16.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text(stringResource(R.string.ui_offline_mode_using_cached_data), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
-                }
-            }
-        }
+        OfflineBanner(
+            isAirplaneMode = state.isAirplaneMode,
+            isSystemOnline = state.isSystemOnline,
+            airplaneColors = Color.Red to Color.White
+        )
 
         if (state.feeStatus == AdminFeeState.PENDING_ACTIVATION) {
             state.group?.let { group ->
                 AdminFeeBanner(
                     group = group,
                     status = state.feeStatus,
-                    daysOverdue = state.daysOverdue,
                     onAction = {
                         group.id?.let { groupId ->
                             onNavigateToPayment("registration", state.platformRegistrationFee, groupId)

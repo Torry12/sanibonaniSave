@@ -68,7 +68,6 @@ internal fun PlatformAdminDisbursementsPage(
     vm: PlatformDisbursementsViewModel,
     onOpenMemberPortalFromDisbursement: (groupId: String, payoutId: String?) -> Unit,
     onImpersonateMember: (memberId: String, groupId: String) -> Unit,
-    onNavigateToHealthScore: (String) -> Unit,
     onNavigateToBehaviorTracking: (String) -> Unit
 ) {
     val groupNames = analyticsState.groupNames
@@ -94,11 +93,6 @@ internal fun PlatformAdminDisbursementsPage(
             claimEscalations = disbursementsState.escalatedClaims,
             behaviorInsights = supportState.memberBehaviorInsights,
             groupNames = groupNames,
-            loanMemberNames = analyticsState.loanMemberNames,
-            groupProvinces = groupProvinces,
-            isProcessingPayout = disbursementsState.isProcessingPayout,
-            isProcessingLoan = disbursementsState.isProcessingLoanRequest,
-            isProcessingClaim = disbursementsState.isProcessingClaim,
             processingIds = disbursementsState.processingIds,
             selectedMemberSummary = disbursementsState.selectedMemberSummary,
             isLoadingMemberSummary = disbursementsState.isLoadingMemberSummary,
@@ -109,7 +103,6 @@ internal fun PlatformAdminDisbursementsPage(
         vm = vm,
         onOpenMemberPortalFromDisbursement = onOpenMemberPortalFromDisbursement,
         onImpersonateMember = onImpersonateMember,
-        onNavigateToHealthScore = onNavigateToHealthScore,
         onNavigateToBehaviorTracking = onNavigateToBehaviorTracking
     )
 }

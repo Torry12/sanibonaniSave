@@ -20,15 +20,17 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
+import javax.inject.Provider
 import javax.inject.Singleton
 import com.sanibonani.save.domain.utils.safeRunCatching
 
 @Singleton
 class RealtimeSyncManager @Inject constructor(
     private val supabase: SupabaseClient,
-    private val db: SanibonaniDatabase,
+    private val dbProvider: Provider<SanibonaniDatabase>,
     private val json: Json
 ) : RealtimeSyncService {
+    private val db: SanibonaniDatabase get() = dbProvider.get()
     private val tag = "RealtimeSyncManager"
     private var managedScope: CoroutineScope? = null
     private val activeChannels = ConcurrentHashMap<String, RealtimeChannel>()

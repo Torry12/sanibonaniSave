@@ -48,6 +48,7 @@ import com.sanibonani.save.ui.utils.*
 import com.sanibonani.save.features.auth.presentation.AuthViewModel
 import com.sanibonani.save.features.auth.presentation.state.AuthState
 import com.sanibonani.save.features.common.presentation.DevSettingsViewModel
+import com.sanibonani.save.features.common.presentation.UIEvent
 import com.sanibonani.save.ui.components.InfoType
 
 @Composable
@@ -73,6 +74,18 @@ fun LoginScreen(
                 message = "Login success emitted role=${state.userRole} email=${state.email}"
             )
             onLoginSuccess(state.userRole)
+        }
+    }
+
+    // AuthViewModel reports a refused sign-in through handleError(), which is an event and not
+    // state, so without this collector the spinner simply stops and the member is told nothing.
+    LaunchedEffect(vm) {
+        vm.events.collect { event ->
+            when (event) {
+                is UIEvent.ShowMessage -> ToastUtils.showInfo(context, event.message)
+                is UIEvent.ShowError -> ToastUtils.showError(context, event.message)
+                else -> Unit
+            }
         }
     }
 

@@ -87,7 +87,7 @@ class MemberRegistrationViewModel @Inject constructor(
         // while concurrent updates contend, which would fire the search more than once.
         if (field == "street") searchAddress(value)
         updateState { s ->
-            when (field) {
+            val typed = when (field) {
                 "fullName" -> s.copy(fullName = value)
                 "idNumber" -> s.copy(idNumber = value)
                 "phone" -> s.copy(phone = value)
@@ -98,6 +98,10 @@ class MemberRegistrationViewModel @Inject constructor(
                 "province" -> s.copy(province = value)
                 else -> s
             }
+            // A message under a field describes the text that produced it. Leaving it up after the
+            // member edits that field keeps it marked invalid, and `canSubmit` reads an empty
+            // `fieldErrors` as the precondition for the join button.
+            typed.copy(fieldErrors = typed.fieldErrors - field)
         }
     }
 
@@ -123,21 +127,24 @@ class MemberRegistrationViewModel @Inject constructor(
         val s = uiState.value
         val userId = getAttributableActorId()
 
+        // Each rule is reported on the field it failed, because the join form renders a supporting
+        // message and an error outline per field; a single banner at the foot of a long form left
+        // the offending field looking clean.
         if (s.fullName.isBlank() || s.fullName.trim().length < 3) {
-            updateState { it.copy(error = "Full Name must be at least 3 characters.") }
+            updateState { it.copy(fieldErrors = mapOf("fullName" to "Full Name must be at least 3 characters.")) }
             return
         }
         if (s.idNumber.isNotBlank() && !ValidationUtils.isValidSAIdNumber(s.idNumber)) {
-            updateState { it.copy(error = "SA ID Number must be exactly 13 digits with a valid date of birth and checksum.") }
+            updateState { it.copy(fieldErrors = mapOf("idNumber" to "SA ID Number must be exactly 13 digits with a valid date of birth and checksum.")) }
             return
         }
         if (s.email.isNotBlank() && !ValidationUtils.isValidEmail(s.email.trim())) {
-            updateState { it.copy(error = "Please enter a valid email address.") }
+            updateState { it.copy(fieldErrors = mapOf("email" to "Please enter a valid email address.")) }
             return
         }
 
         launchJob("registration_submit") {
-            updateState { it.copy(isSubmitting = true, error = null) }
+            updateState { it.copy(isSubmitting = true, error = null, fieldErrors = emptyMap()) }
             val member = Member(
                 groupId = groupId,
                 userId = userId,

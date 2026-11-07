@@ -207,7 +207,7 @@ fun GroupRegistrationScreen(
                     .padding(horizontal = 24.dp, vertical = 16.dp)
             ) {
                 if (state.success) {
-                    RegistrationSuccessContent()
+                    RegistrationSuccessContent(warning = state.constitutionWarning)
                 } else {
                     val progress by remember { derivedStateOf { state.currentStep / state.totalSteps.toFloat() } }
                     Column(Modifier.fillMaxWidth().padding(bottom = 24.dp)) {
@@ -304,7 +304,7 @@ fun GroupRegistrationScreen(
 
 /** Shown while the success redirect fires. */
 @Composable
-private fun RegistrationSuccessContent() {
+private fun RegistrationSuccessContent(warning: String?) {
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -338,6 +338,11 @@ private fun RegistrationSuccessContent() {
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+
+            if (warning != null) {
+                Spacer(Modifier.height(20.dp))
+                InfoBox(message = warning, type = InfoType.WARNING)
+            }
         }
     }
 }

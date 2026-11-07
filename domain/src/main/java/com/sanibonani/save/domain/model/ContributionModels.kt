@@ -35,3 +35,17 @@ enum class ContributionStatus(val displayName: String) {
     @SerialName("overdue") OVERDUE("Overdue"),
     @SerialName("partial") PARTIAL("Partial")
 }
+
+/**
+ * The types `internal_post_contribution` sends to `record_platform_revenue_v2` instead of
+ * `increment_group_balance`, so the money lands in `platform_ledger` - which has no `member_id`
+ * column - and the group never holds it. `members.total_paid` still counts a registration fee as
+ * paid in, so anything that calls that column "savings" has to take these rows back out.
+ * `joining_fee` is deliberately absent: the older spelling is booked to the group.
+ */
+private val platformBookedContributionTypes = setOf(
+    "registration_contribution", "member_fee", "member_fee_ledger"
+)
+
+val Contribution.isPlatformFee: Boolean
+    get() = type in platformBookedContributionTypes

@@ -1,6 +1,5 @@
 package com.sanibonani.save.data.repository.admin
 
-import com.sanibonani.save.data.local.SanibonaniDatabase
 import com.sanibonani.save.domain.repository.admin.ActuarialRepository
 import com.sanibonani.save.domain.repository.system.DataConnectionProtocol
 import com.sanibonani.save.domain.repository.system.NotificationRepository
@@ -34,7 +33,7 @@ class PlatformLedgerReadTest {
 
         repository = PlatformRepositoryImpl(
             protocol = protocol,
-            db = mockk<SanibonaniDatabase>(relaxed = true),
+            dbProvider = javax.inject.Provider { mockk(relaxed = true) },
             actuarialRepo = mockk<ActuarialRepository>(relaxed = true),
             notifRepo = mockk<NotificationRepository>(relaxed = true)
         )

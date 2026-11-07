@@ -10,6 +10,12 @@ interface RemoteClaimDataSource {
     suspend fun getClaimsForMember(memberId: String, groupId: String): Result<List<BeneficiaryPayoutClaim>>
     suspend fun getClaimsForGroup(groupId: String): Result<List<BeneficiaryPayoutClaim>>
     suspend fun getClaimById(id: String): Result<BeneficiaryPayoutClaim>
+
+    /**
+     * The same read with "no such row" as an answer rather than an error, so a replay can tell an
+     * absent claim from a select the server refused.
+     */
+    suspend fun findClaimById(id: String): Result<BeneficiaryPayoutClaim?>
     suspend fun updateClaimStatus(claimId: String, status: BeneficiaryClaimStatus, reviewedBy: String?, adminNotes: String?, rejectionReason: String?): Result<Unit>
     suspend fun updateClaimDocumentStatus(claimId: String, docKey: String, status: DocumentStatus): Result<Unit>
     suspend fun payClaimAtomic(claimId: String, adminId: String, notes: String?): Result<Unit>

@@ -124,4 +124,40 @@ class ProcessGroupPlatformFeePaymentUseCaseTest {
             financialRepository.payPlatformFee("group-1", any(), any(), any())
         }
     }
+
+    @Test
+    fun `an overpaid fee cannot cancel another fee s debt`() = runBlocking {
+        // fee-a was settled with R30 more than it owed. fee-b is genuinely unpaid.
+        val overpaid = PlatformFee(
+            id = "fee-a",
+            groupId = "group-1",
+            feeType = "monthly",
+            amountDue = Money("100.0"),
+            amountPaid = Money("130.0"),
+            monthReference = "2026-09"
+        )
+        val unpaid = PlatformFee(
+            id = "fee-b",
+            groupId = "group-1",
+            feeType = "monthly",
+            amountDue = Money("100.0"),
+            amountPaid = Money.ZERO,
+            monthReference = "2026-10"
+        )
+        coEvery { groupRepository.getGroupById("group-1") } returns Result.success(group("group-1"))
+        coEvery { financialRepository.getOutstandingPlatformFees("group-1") } returns
+            Result.success(listOf(overpaid, unpaid))
+
+        val amountSlot = slot<Money>()
+        coEvery {
+            financialRepository.payPlatformFee("group-1", capture(amountSlot), any(), any())
+        } returns Result.success(Unit)
+
+        val result = useCase("group-1")
+
+        // Summing the signed balances nets R70, which under-charges the platform and leaves fee-b
+        // outstanding forever. A fee can be paid down to zero, never below.
+        assertTrue(result.isSuccess)
+        assertEquals(Money("100.0"), amountSlot.captured)
+    }
 }

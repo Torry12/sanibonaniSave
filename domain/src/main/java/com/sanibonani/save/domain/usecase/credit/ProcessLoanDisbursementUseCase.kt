@@ -2,8 +2,6 @@ package com.sanibonani.save.domain.usecase.credit
 import com.sanibonani.save.domain.model.*
 import com.sanibonani.save.domain.repository.admin.AuditLogRepository
 import com.sanibonani.save.domain.repository.credit.LoanRepository
-import com.sanibonani.save.domain.event.EventBus
-import com.sanibonani.save.domain.event.LoanDisbursedEvent
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.encodeToJsonElement
 import javax.inject.Inject
@@ -32,7 +30,10 @@ class ProcessLoanDisbursementUseCase @Inject constructor(
         // 3. Execute atomic disbursement in backend
         loanRepository.disburseLoan(loanId, paymentMethod, adminId).getOrThrow()
 
-        val updatedLoan = loanRepository.getLoanById(loanId).getOrThrow()
+        // The confirmation read runs after the write verdict and cannot undo it: the funds had
+        // already left the group, so a read that fails reports the last row actually held rather
+        // than inviting the admin to disburse the same loan a second time.
+        val updatedLoan = loanRepository.getLoanById(loanId).getOrNull() ?: loan
 
         // 4. Audit Trail
         auditLogRepository.logEvent(
@@ -48,8 +49,8 @@ class ProcessLoanDisbursementUseCase @Inject constructor(
                 ))
             )
         )
-        // 5. Emit Domain Event
-        EventBus.emit(LoanDisbursedEvent(updatedLoan))
+        // 5. LoanDisbursedEvent is announced by LoanRepositoryImpl.disburseLoan inside the
+        // authoritative write, so it is not emitted a second time here.
 
         return@financialResult updatedLoan
     }

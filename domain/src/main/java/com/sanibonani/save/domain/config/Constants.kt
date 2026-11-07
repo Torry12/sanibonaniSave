@@ -1,8 +1,8 @@
 package com.sanibonani.save.domain.config
 
 /**
- * Central constants for the SanibonaniSave platform: identity/bank validation shapes
- * and upload limits.
+ * Central constants for the SanibonaniSave platform: identity/bank validation shapes,
+ * upload limits and the loan-term ceiling.
  */
 
 // ── Member Validation ──────────────────────────────────────────────────────
@@ -52,4 +52,17 @@ object BankAccountValidation {
 // ── File Upload Limits ─────────────────────────────────────────────────────
 object FileUploadLimits {
     const val MAX_FILE_SIZE_BYTES = 3 * 1024 * 1024 // 3MB
+}
+
+// ── Loan Terms ─────────────────────────────────────────────────────────────
+object LoanTerms {
+    /**
+     * Platform ceiling on one loan's term, and the age at which an unpaid loan is force-settled.
+     *
+     * It is not a free choice: `settle_expired_loan` refuses to settle before
+     * `start_date + INTERVAL '3 months'`, so a longer term the app allowed would simply be swept
+     * at month three. A group may shorten this through `groups.loan_max_months`, never lengthen
+     * it — see [com.sanibonani.save.domain.model.Group.maxLoanTermMonths].
+     */
+    const val MAX_TERM_MONTHS = 3
 }

@@ -10,7 +10,6 @@ data class AdminSettingsState(
     val isSaving: Boolean = false,
     val saveSuccess: Boolean = false,
     val bankConnection: BankConnection? = null,
-    val isLinkingBank: Boolean = false,
     val isSyncing: Boolean = false,
     val isPlatformAdmin: Boolean = false
 )

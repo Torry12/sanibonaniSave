@@ -60,6 +60,15 @@ fun Throwable.requiresMfaChallenge(): Boolean =
     this is MfaRequiredException || message?.contains(MfaRequiredException.MARKER) == true
 
 /**
+ * True when the server refused the credentials because the address has never been confirmed. The
+ * login screen's "resend the confirmation link" affordance is the only self-service fix for this,
+ * so the sign-in path has to be able to name the failure without matching on prose.
+ */
+fun Throwable.isUnverifiedEmail(): Boolean =
+    message?.contains("Email not confirmed", ignoreCase = true) == true ||
+        message?.contains("email_not_confirmed", ignoreCase = true) == true
+
+/**
  * Convert Throwable to user-friendly error message
  */
 fun Throwable.toUserMessage(): String {
@@ -83,8 +92,7 @@ fun Throwable.toUserMessage(): String {
             msg.contains("invalid_credentials", ignoreCase = true) ->
             return "Invalid email or password. Please try again or reset your password."
 
-        msg.contains("Email not confirmed", ignoreCase = true) ||
-            msg.contains("email_not_confirmed", ignoreCase = true) ->
+        isUnverifiedEmail() ->
             return "Please confirm your email address before signing in. Check your inbox for the confirmation link."
 
         msg.contains("Magic link", ignoreCase = true) && msg.contains("expired", ignoreCase = true) ->

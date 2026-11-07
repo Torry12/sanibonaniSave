@@ -10,14 +10,19 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import javax.inject.Inject
+import javax.inject.Provider
 
 class ContributionRepositoryImpl @Inject constructor(
     private val remoteSource: RemoteContributionDataSource,
     private val localSource: LocalContributionDataSource,
-    private val groupDao: com.sanibonani.save.data.local.GroupDao,
     private val json: Json,
-    private val pendingOpDao: com.sanibonani.save.data.local.PendingOperationDao
+    private val dbProvider: Provider<com.sanibonani.save.data.local.SanibonaniDatabase>
 ) : BaseRepository("ContributionRepository"), ContributionRepository {
+
+    private val groupDao: com.sanibonani.save.data.local.GroupDao
+        get() = dbProvider.get().groupDao()
+    private val pendingOpDao: com.sanibonani.save.data.local.PendingOperationDao
+        get() = dbProvider.get().pendingOperationDao()
 
     override suspend fun recordContribution(
         contribution: Contribution,
@@ -49,6 +54,15 @@ class ContributionRepositoryImpl @Inject constructor(
         cacheSync = { localSource.syncMemberContributions(memberId, it) }
     )
 
+    override suspend fun syncMemberContributions(
+        memberId: String,
+        groupId: String
+    ): Result<List<Contribution>> = authoritativeCall("syncMemberContributions") {
+        val rows = remoteSource.getMemberContributions(memberId, groupId).getOrThrow()
+        localSource.syncMemberContributions(memberId, rows)
+        rows
+    }
+
     override fun observeGroupContributions(groupId: String): Flow<Result<List<Contribution>>> = observeAndSync(
         dbFlow = localSource.observeGroupContributions(groupId),
         mapper = { it },
@@ -56,6 +70,13 @@ class ContributionRepositoryImpl @Inject constructor(
         networkFetch = { remoteSource.getGroupContributions(groupId).getOrThrow() },
         cacheSync = { localSource.syncGroupContributions(groupId, it) }
     )
+
+    override suspend fun syncGroupContributions(groupId: String): Result<List<Contribution>> =
+        authoritativeCall("syncGroupContributions") {
+            val rows = remoteSource.getGroupContributions(groupId).getOrThrow()
+            localSource.syncGroupContributions(groupId, rows)
+            rows
+        }
 
     override suspend fun recordPayment(payment: Payment): Result<String> = authoritativeCall("recordPayment") {
         val paymentId = remoteSource.recordPayment(payment).getOrThrow()

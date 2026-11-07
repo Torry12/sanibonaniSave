@@ -2,8 +2,8 @@ package com.sanibonani.save.viewmodel
 
 import android.util.Log
 import androidx.arch.core.executor.testing.InstantTaskExecutorRule
-import androidx.lifecycle.viewModelScope
 import com.google.firebase.crashlytics.FirebaseCrashlytics
+import com.sanibonani.save.MainDispatcherRule
 import com.sanibonani.save.data.sync.RealtimeSyncManager
 import com.sanibonani.save.data.utils.DevSettings
 import com.sanibonani.save.domain.model.*
@@ -44,20 +44,18 @@ import com.sanibonani.save.features.common.presentation.UIEvent
 import com.sanibonani.save.service.AdminGroupContextCacheService
 import com.sanibonani.save.service.CachedAdminGroupContext
 import io.mockk.*
-import kotlinx.coroutines.Dispatchers
+import java.io.IOException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
-import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
-import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
-import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
@@ -74,19 +72,22 @@ import org.junit.Test
 class AdminOverviewViewModelTest {
 
     @get:Rule
+    val mainDispatcherRule = MainDispatcherRule()
+
+    @get:Rule
     val instantExecutorRule = InstantTaskExecutorRule()
 
     private val adminContextCacheService = mockk<AdminGroupContextCacheService>(relaxed = true)
     private val getManagedGroupsUseCase = mockk<GetManagedGroupsUseCase>(relaxed = true)
     private val auditRepo = mockk<AuditRepository>(relaxed = true)
     private val getGroupBusinessInsightsUseCase = mockk<GetGroupBusinessInsightsUseCase>(relaxed = true)
-    private val healthScoreRepo = mockk<HealthScoreRepository>(relaxed = true)
     private val calculateViabilityUseCase = mockk<CalculateViabilityUseCase>(relaxed = true)
     private val applyViabilityPlanUseCase = mockk<ApplyViabilityPlanUseCase>(relaxed = true)
     private val sendNotificationUseCase = mockk<SendNotificationUseCase>(relaxed = true)
     private val supabaseRepo = mockk<SupabaseRepository>(relaxed = true)
     private val memberRepo = mockk<MemberRepository>(relaxed = true)
     private val ledgerRepo = mockk<LedgerRepository>(relaxed = true)
+    private val healthScoreRepo = mockk<HealthScoreRepository>(relaxed = true)
     private val exportRepo = mockk<ExportRepository>(relaxed = true)
     private val verificationService = mockk<DataVerificationService>(relaxed = true)
     private val executeRoscaPayoutUseCase = mockk<ExecuteRoscaPayoutUseCase>(relaxed = true)
@@ -100,9 +101,11 @@ class AdminOverviewViewModelTest {
 
     private val contextsFlow = MutableStateFlow<Map<String, CachedAdminGroupContext>>(emptyMap())
     private val selectedGroupIdFlow = MutableStateFlow<String?>(null)
+    private val staleSectionsFlow = MutableStateFlow<Map<String, Set<String>>>(emptyMap())
+    private val settingsChangedFlow = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
 
     private lateinit var viewModel: AdminOverviewViewModel
-    private val testDispatcher = StandardTestDispatcher()
+    private val testDispatcher = mainDispatcherRule.dispatcher
 
     @Before
     fun setup() {
@@ -120,22 +123,19 @@ class AdminOverviewViewModelTest {
         mockkStatic(android.os.Looper::class)
         every { android.os.Looper.getMainLooper() } returns mockk(relaxed = true)
 
-        Dispatchers.setMain(testDispatcher)
-
         every { adminContextCacheService.contexts } returns contextsFlow
         every { adminContextCacheService.selectedGroupId } returns selectedGroupIdFlow
+        every { adminContextCacheService.unverifiedSections } returns staleSectionsFlow
         every { supabaseRepo.currentUserId } returns "admin-1"
         coEvery { supabaseRepo.getUserRole() } returns UserRole.GROUP_ADMIN
         coEvery { platformRepo.getPlatformSettings() } returns Result.success(PlatformConfig())
         every { feeService.getRegistrationFee(any()) } returns Money("50.00")
         every { getManagedGroupsUseCase.observeManagedGroups(any(), any(), any()) } returns
             flowOf(Result.success(emptyList()))
-        every { devSettings.settingsChanged } returns MutableSharedFlow()
+        every { devSettings.settingsChanged } returns settingsChangedFlow
         every { syncManager.syncMetrics } returns MutableStateFlow(emptyMap())
         every { networkService.isOnline } returns flowOf(true)
         every { networkService.isAirplaneModeActive } returns flowOf(false)
-        every { healthScoreRepo.observeGroupHealthScore(any()) } returns
-            flowOf(Result.failure(Exception("no score")))
         every { ledgerRepo.observeGroupLedger(any()) } returns flowOf(Result.success(emptyList()))
         coEvery { verificationService.verifyGroupAdminData(any(), any(), any()) } returns VerificationResult.Valid
         coEvery { getGroupBusinessInsightsUseCase(any(), any()) } returns Result.success(GroupFinancialInsight())
@@ -148,23 +148,11 @@ class AdminOverviewViewModelTest {
 
     @After
     fun tearDown() {
-        // Cancel the ViewModel scope while Main is still set. A Default-dispatched flow producer
-        // finishes asynchronously, so wait for the whole scope to complete — draining its Main
-        // queue as we go — before resetMain(), otherwise its cancellation is dispatched to a
-        // Main dispatcher that no longer exists and fails the *next* test.
-        val scopeJob = viewModel.viewModelScope.coroutineContext[Job]
-        viewModel.viewModelScope.cancel()
-        val deadline = System.nanoTime() + 5_000_000_000L
-        while (scopeJob?.isCompleted == false && System.nanoTime() < deadline) {
-            testDispatcher.scheduler.runCurrent()
-            Thread.sleep(1)
-        }
         testDispatcher.scheduler.advanceUntilIdle()
-        Dispatchers.resetMain()
         unmockkAll()
     }
 
-    private fun buildViewModel() = AdminOverviewViewModel(
+    private fun buildViewModel() = mainDispatcherRule.track(AdminOverviewViewModel(
         adminContextCacheService,
         getManagedGroupsUseCase,
         getGroupBusinessInsightsUseCase,
@@ -196,7 +184,7 @@ class AdminOverviewViewModelTest {
             adminContextCacheService
         ),
         networkService
-    )
+    ))
 
     private suspend fun TestScope.hydrateGroup(groupId: String = "g-1") {
         selectedGroupIdFlow.value = groupId
@@ -219,6 +207,42 @@ class AdminOverviewViewModelTest {
         assertEquals("admin-1", viewModel.state.value.currentUserId)
         assertEquals("50.00", viewModel.state.value.platformRegistrationFee.toPlainString())
         assertEquals(true, viewModel.state.value.isSystemOnline)
+    }
+
+    @Test
+    fun `the dashboard names the sections the sync could not bring current`() = runTest {
+        // Boot is best-effort, so a snapshot can be complete as a cache read and still unverified
+        // against the server. The dashboard has to say so rather than present the book as live.
+        staleSectionsFlow.value = mapOf("g-1" to setOf("the ledger", "members"))
+        hydrateGroup()
+
+        assertEquals(setOf("the ledger", "members"), viewModel.state.value.unverifiedSections)
+
+        // Moving to a group the sweep covered clears the verdict; it belongs to the group, not the
+        // session, so a stale flag from the previous group must not follow the admin across.
+        selectedGroupIdFlow.value = "g-2"
+        contextsFlow.value = mapOf(
+            "g-2" to CachedAdminGroupContext(
+                group = Group(id = "g-2", name = "Second Group"),
+                members = emptyList(),
+                metrics = ActuarialMetrics(),
+                feeStatus = AdminFeeState.DUE,
+                isFullyHydrated = true
+            )
+        )
+        advanceUntilIdle()
+
+        assertTrue(
+            "a group the sync verified must not stay flagged",
+            viewModel.state.value.unverifiedSections.isEmpty()
+        )
+
+        // A later pass that loses a relation on the group now in view surfaces it immediately,
+        // without any warmup rebuilding the snapshot.
+        staleSectionsFlow.value = mapOf("g-2" to setOf("the ledger"))
+        advanceUntilIdle()
+
+        assertEquals(setOf("the ledger"), viewModel.state.value.unverifiedSections)
     }
 
     @Test
@@ -245,12 +269,17 @@ class AdminOverviewViewModelTest {
     @Test
     fun `selectGroup resets context and hands the selection to the cache`() = runTest {
         viewModel.selectGroup("g-1")
-        advanceUntilIdle()
+        // runCurrent, not advanceUntilIdle: selecting arms the 7s hydration bound, and draining the
+        // queue advances virtual time far enough to fire it, which would report a timeout in a test
+        // about the instant after a selection.
+        runCurrent()
 
         assertNull(viewModel.state.value.group)
         assertTrue(viewModel.state.value.isLoading)
         verify { adminContextCacheService.selectGroup("g-1") }
-        verify { adminContextCacheService.warmUpGroup("g-1") }
+        // Selecting is what warms the group, and it warms it fresh inside the cache service. A
+        // second warmup from here used to race that one and hydrate the group twice.
+        verify(exactly = 0) { adminContextCacheService.warmUpGroup(any(), any()) }
     }
 
     @Test
@@ -276,6 +305,63 @@ class AdminOverviewViewModelTest {
 
         assertNotNull(viewModel.state.value.error)
         assertFalse(viewModel.state.value.isLoading)
+    }
+
+    @Test
+    fun `a refresh in flight is dropped when another group is selected`() = runTest {
+        hydrateGroup("g-1")
+        val refresh = CompletableDeferred<Result<Unit>>()
+        coEvery { adminContextCacheService.refreshGroup("g-1") } coAnswers { refresh.await() }
+        every { adminContextCacheService.selectGroup(any()) } answers {
+            selectedGroupIdFlow.value = firstArg()
+        }
+
+        viewModel.refreshData()
+        runCurrent()
+
+        viewModel.selectGroup("g-2")
+        runCurrent()
+        refresh.complete(Result.failure(IOException("offline")))
+        runCurrent()
+
+        assertEquals("g-2", selectedGroupIdFlow.value)
+        assertNull("the group that was left owns that failure", viewModel.state.value.error)
+        assertNull(viewModel.state.value.group)
+        assertTrue(viewModel.state.value.isLoading)
+    }
+
+    @Test
+    fun `a fee read that returns after a group switch cannot bill the new group`() = runTest {
+        val g1Fee = PlatformFee(groupId = "g-1", feeType = "monthly", amountDue = Money("50.00"))
+        val g1Fees = CompletableDeferred<Result<List<PlatformFee>>>()
+        coEvery { financialRepo.getOutstandingPlatformFees("g-1") } coAnswers { g1Fees.await() }
+        coEvery { financialRepo.getOutstandingPlatformFees("g-2") } returns Result.success(emptyList())
+
+        selectedGroupIdFlow.value = "g-1"
+        contextsFlow.value = mapOf(
+            "g-1" to CachedAdminGroupContext(
+                group = Group(id = "g-1", name = "Test Group"),
+                isFullyHydrated = true
+            )
+        )
+        runCurrent()
+
+        selectedGroupIdFlow.value = "g-2"
+        contextsFlow.value = mapOf(
+            "g-2" to CachedAdminGroupContext(
+                group = Group(id = "g-2", name = "Second Group"),
+                isFullyHydrated = true
+            )
+        )
+        runCurrent()
+        g1Fees.complete(Result.success(listOf(g1Fee)))
+        runCurrent()
+
+        assertEquals("g-2", viewModel.state.value.group?.id)
+        assertTrue(
+            "g-1's dues must not arrive on g-2",
+            viewModel.state.value.outstandingPlatformFees.isEmpty()
+        )
     }
 
     @Test
@@ -381,5 +467,288 @@ class AdminOverviewViewModelTest {
         viewModel.clearError()
         advanceUntilIdle()
         assertNull(viewModel.state.value.error)
+    }
+
+    @Test
+    fun `a ledger read that fails cannot certify the group`() = runTest {
+        // The observation used to flatten a failed read with getOrDefault(emptyList()), so the
+        // verifier compared groups.balance against no rows at all and the dashboard rendered either
+        // a false integrity banner or a false all-clear for a read that never happened.
+        val drifted = VerificationResult(
+            isValid = false,
+            issues = listOf(VerificationIssue("Integrity", "no rows", IssueSeverity.WARNING))
+        )
+        coEvery { verificationService.verifyGroupAdminData(any(), any(), any()) } returns drifted
+        every { ledgerRepo.observeGroupLedger(any()) } returns
+            flowOf(Result.failure(java.io.IOException("ledger read failed")))
+
+        hydrateGroup()
+        // Give the read the same window the passing case below is proven to need, so a verdict that
+        // never arrives means the failed read was skipped, not that the scheduler ran out of turns.
+        awaitLedgerStage()
+
+        assertEquals(
+            "a ledger the read refused must not overwrite the verdict",
+            VerificationResult.Valid,
+            viewModel.state.value.verificationResult
+        )
+        coVerify(exactly = 0) { verificationService.verifyGroupAdminData(any(), any(), any()) }
+    }
+
+    @Test
+    fun `an empty ledger that the read answered is still certified`() = runTest {
+        // The other half: a group with no rows is a real answer, and the verifier has to see it,
+        // otherwise a genuinely empty book never gets its integrity banner.
+        val drifted = VerificationResult(
+            isValid = false,
+            issues = listOf(VerificationIssue("Integrity", "no rows", IssueSeverity.WARNING))
+        )
+        coEvery { verificationService.verifyGroupAdminData(any(), any(), any()) } returns drifted
+        every { ledgerRepo.observeGroupLedger(any()) } returns flowOf(Result.success(emptyList()))
+
+        hydrateGroup()
+        awaitLedgerStage()
+
+        coVerify(exactly = 1) { verificationService.verifyGroupAdminData(any(), any(), any()) }
+        // The verdict the dashboard banner reads has to be the one the verifier produced.
+        assertEquals(drifted, viewModel.state.value.verificationResult)
+    }
+
+    /**
+     * The insights task runs on the real Dispatchers.Default and the ledger flow is `flowOn` it, so
+     * the collector's resumption can arrive after the test scheduler has already gone idle. Pump
+     * until the ledger stage has had its turn rather than trusting a single drain.
+     */
+    private fun TestScope.awaitLedgerStage() {
+        val insightDeadline = System.nanoTime() + 5_000_000_000L
+        while (viewModel.state.value.businessInsight == null && System.nanoTime() < insightDeadline) {
+            testDispatcher.scheduler.runCurrent()
+            Thread.sleep(5)
+        }
+        assertNotNull("the group observation never reached the insight await", viewModel.state.value.businessInsight)
+
+        val verdictDeadline = System.nanoTime() + 1_000_000_000L
+        while (System.nanoTime() < verdictDeadline) {
+            testDispatcher.scheduler.advanceUntilIdle()
+            Thread.sleep(5)
+        }
+        testDispatcher.scheduler.advanceUntilIdle()
+    }
+
+    @Test
+    fun `a failed outstanding-fee read cannot show the previous group's dues`() = runTest {
+        // The Account tab sums outstandingPlatformFees, and switching groups does not clear that
+        // slice. With no failure leg the list kept whatever the last group answered, so a read that
+        // never landed still billed the new group for the old group's months.
+        val g1Fee = PlatformFee(groupId = "g-1", feeType = "monthly", amountDue = Money("50.00"))
+        coEvery { financialRepo.getOutstandingPlatformFees("g-1") } returns Result.success(listOf(g1Fee))
+        coEvery { financialRepo.getOutstandingPlatformFees("g-2") } returns
+            Result.failure(java.io.IOException("fees read failed"))
+
+        hydrateGroup("g-1")
+        awaitLedgerStage()
+        assertEquals(listOf(g1Fee), viewModel.state.value.outstandingPlatformFees)
+
+        selectedGroupIdFlow.value = "g-2"
+        contextsFlow.value = mapOf(
+            "g-2" to CachedAdminGroupContext(
+                group = Group(id = "g-2", name = "Second Group"),
+                members = emptyList(),
+                feeStatus = AdminFeeState.DUE,
+                isFullyHydrated = true
+            )
+        )
+        advanceUntilIdle()
+        awaitLedgerStage()
+
+        assertTrue(
+            "g-1's dues must not be presented as g-2's",
+            viewModel.state.value.outstandingPlatformFees.isEmpty()
+        )
+        assertTrue(
+            "the admin has to be told the read failed",
+            viewModel.events.first() is UIEvent.ShowError
+        )
+    }
+
+    @Test
+    fun `a refused managed-groups read is reported instead of silently hiding the switcher`() = runTest {
+        // The verdict field recorded the refusal, but no composable renders AsyncResult.Error
+        // for it, so the only visible change was that the group switcher never appeared.
+        every { getManagedGroupsUseCase.observeManagedGroups(any(), any(), any()) } returns
+            flowOf(Result.failure(IOException("managed groups read failed")))
+
+        viewModel.setActive(true)
+        advanceUntilIdle()
+
+        assertTrue(
+            "the roster must record that the server refused it",
+            viewModel.state.value.managedGroups is AsyncResult.Error
+        )
+        assertTrue(
+            "the admin has to be told the roster did not load",
+            viewModel.events.first() is UIEvent.ShowError
+        )
+    }
+
+    @Test
+    fun `leaving the dashboard stops the group context collector`() = runTest {
+        // The screen calls setActive(false) when the admin navigates away. That cancel used to hit
+        // the wrapper around the collector, not the collector itself: observeGroupContext launched
+        // straight onto viewModelScope, so the job never entered the registry and the dashboard kept
+        // reading for a screen nobody was looking at - and every return to it stacked another one.
+        hydrateGroup("g-1")
+        advanceUntilIdle()
+        coVerify(exactly = 1) { financialRepo.getOutstandingPlatformFees("g-1") }
+
+        viewModel.setActive(false)
+        advanceUntilIdle()
+
+        // A background sweep hydrates a different group while the dashboard is off-screen.
+        selectedGroupIdFlow.value = "g-2"
+        contextsFlow.value = mapOf(
+            "g-2" to CachedAdminGroupContext(
+                group = Group(id = "g-2", name = "Second Group"),
+                members = emptyList(),
+                metrics = ActuarialMetrics(),
+                feeStatus = AdminFeeState.DUE,
+                isFullyHydrated = true
+            )
+        )
+        advanceUntilIdle()
+
+        coVerify(exactly = 0) { financialRepo.getOutstandingPlatformFees("g-2") }
+    }
+
+    @Test
+    fun `a first hydration that never answers says so instead of spinning`() = runTest {
+        // The safety timer used to be armed only from inside the context collector, and that flow
+        // ends in distinctUntilChanged: a null snapshot following the initial null is not a change,
+        // so the first group of a session armed nothing at all and the dashboard never stopped
+        // pretending to load.
+        viewModel.selectGroup("g-1")
+        selectedGroupIdFlow.value = "g-1"
+        runCurrent()
+
+        assertTrue(viewModel.state.value.isLoading)
+
+        advanceTimeBy(8_000L)
+        runCurrent()
+
+        assertFalse(
+            "the dashboard has to stop waiting on a read that is not coming",
+            viewModel.state.value.isLoading
+        )
+        assertNotNull("and say that the book never arrived", viewModel.state.value.error)
+    }
+
+    @Test
+    fun `a hydration that lands after the timeout does not keep its verdict`() = runTest {
+        // AdminDialogs renders state.error as a modal over the dashboard, so a timeout that outlives
+        // the hydration it was armed for blocks a book that has since arrived - the read was slow,
+        // not refused.
+        hydrateGroup("g-1")
+        viewModel.selectGroup("g-2")
+        selectedGroupIdFlow.value = "g-2"
+        runCurrent()
+
+        advanceTimeBy(8_000L)
+        runCurrent()
+        assertNotNull("the wait was real while nothing had arrived", viewModel.state.value.error)
+
+        contextsFlow.value = contextsFlow.value + (
+            "g-2" to CachedAdminGroupContext(
+                group = Group(id = "g-2", name = "Second Group"),
+                isFullyHydrated = true
+            )
+            )
+        advanceUntilIdle()
+
+        assertEquals("g-2", viewModel.state.value.group?.id)
+        assertNull(
+            "a dashboard that has rendered must not still be showing a load timeout",
+            viewModel.state.value.error
+        )
+    }
+
+    @Test
+    fun `leaving the dashboard cancels the hydration timeout`() = runTest {
+        hydrateGroup("g-1")
+        viewModel.selectGroup("g-2")
+        selectedGroupIdFlow.value = "g-2"
+        runCurrent()
+
+        viewModel.setActive(false)
+
+        advanceTimeBy(8_000L)
+        runCurrent()
+
+        assertNull(
+            "a load nobody is waiting on must not report a timeout",
+            viewModel.state.value.error
+        )
+    }
+
+    @Test
+    fun `a group that is on screen is never left pretending to load`() = runTest {
+        // A pillar that stays cached keeps isFullyHydrated false for the rest of the session, and the
+        // dashboard mirrored that flag into isLoading. SoftLoadingOverlay renders while isLoading is
+        // set, so the admin got a permanent "Refreshing group data…" curtain - and a permanently
+        // spinning pull-to-refresh - over a group row they could not even read through it.
+        viewModel.selectGroup("g-1")
+        selectedGroupIdFlow.value = "g-1"
+        contextsFlow.value = mapOf(
+            "g-1" to CachedAdminGroupContext(
+                group = Group(id = "g-1", name = "Test Group"),
+                members = listOf(Member(id = "m1", groupId = "g-1")),
+                isFullyHydrated = false
+            )
+        )
+        advanceUntilIdle()
+
+        assertEquals("g-1", viewModel.state.value.group?.id)
+        assertFalse(
+            "the book the dashboard waits on is the group row, and it has arrived",
+            viewModel.state.value.isLoading
+        )
+    }
+
+    @Test
+    fun `a dev database change re-hydrates the dashboard instead of leaving it blank`() = runTest {
+        // Switching the developer database is the one event that replaces the tier every row on
+        // screen came from. The observer used to null the group and its members and then re-read
+        // only the roster: the selection never changed, so no warm-up was asked for, and a snapshot
+        // that equals what the cache already holds deliberately does not re-emit - so the blanked
+        // dashboard stayed blank until the admin picked a group again.
+        hydrateGroup("g-1")
+        assertEquals("g-1", viewModel.state.value.group?.id)
+
+        settingsChangedFlow.emit(Unit)
+        runCurrent()
+
+        assertNull(
+            "the replaced tier's balance must not stay on screen as if it were the new one",
+            viewModel.state.value.group
+        )
+        verify(exactly = 1) { adminContextCacheService.invalidateForDatabaseChange() }
+        coVerify(exactly = 1) { adminContextCacheService.warmUpForUser("admin-1") }
+
+        // What the invalidation leaves behind is the request that refills it: the cache cleared to
+        // nothing, then the tier now in front answers for the group still selected.
+        contextsFlow.value = emptyMap()
+        runCurrent()
+        contextsFlow.value = mapOf(
+            "g-1" to CachedAdminGroupContext(
+                group = Group(id = "g-1", name = "Test Group on the new tier"),
+                isFullyHydrated = true
+            )
+        )
+        advanceUntilIdle()
+
+        assertEquals("Test Group on the new tier", viewModel.state.value.group?.name)
+        assertFalse(
+            "the loader has to release once the book the change asked for arrives",
+            viewModel.state.value.isLoading
+        )
     }
 }

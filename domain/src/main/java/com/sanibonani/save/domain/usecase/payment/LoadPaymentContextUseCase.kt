@@ -54,7 +54,12 @@ class LoadPaymentContextUseCase @Inject constructor(
         val loans: List<Loan>,
         val calculation: PaymentCalculation,
         val config: PlatformConfig?,
-        val destination: PaymentDestination
+        val destination: PaymentDestination,
+        /**
+         * False while the figures on screen rest on rows the server has not just answered for, so the
+         * member is charged for a debt nobody re-confirmed without being told the total is unverified.
+         */
+        val amountsVerified: Boolean
     )
 
     fun currentUserId(): String? = authRepository.currentUserId
@@ -82,22 +87,30 @@ class LoadPaymentContextUseCase @Inject constructor(
         val config = platformConfigRepository.current()
         val destination = destinationFor(params.type)
 
+        var lastContributions = emptyList<Contribution>()
+        var lastLoans = emptyList<Loan>()
+
         emitAll(
             combine(
                 contributionRepository.observeMemberContributions(memberId, params.groupId),
                 loanRepository.getMemberLoans(memberId)
             ) { contributionsResult, loansResult ->
-                val contributions = contributionsResult.getOrDefault(emptyList())
-                val loans = loansResult.getOrDefault(emptyList())
+                // Each leg answers from the cache first and only then reports whether the refresh
+                // landed, so a refusal arrives after rows are already on screen. Blanketing them
+                // here would bill the member as if nothing had ever been booked; the price holds
+                // until the server confirms a contribution the member can see.
+                contributionsResult.getOrNull()?.let { lastContributions = it }
+                loansResult.getOrNull()?.let { lastLoans = it }
                 Outcome.Ready(
                     Context(
                         member = member,
                         group = group,
-                        contributions = contributions,
-                        loans = loans,
-                        calculation = paymentCalculator.calculateStatus(group, member, contributions, loans),
+                        contributions = lastContributions,
+                        loans = lastLoans,
+                        calculation = paymentCalculator.calculateStatus(group, member, lastContributions, lastLoans),
                         config = config,
-                        destination = destination
+                        destination = destination,
+                        amountsVerified = contributionsResult.isSuccess && loansResult.isSuccess
                     )
                 )
             }

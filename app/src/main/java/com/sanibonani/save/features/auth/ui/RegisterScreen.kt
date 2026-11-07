@@ -34,6 +34,7 @@ import com.sanibonani.save.ui.components.*
 import com.sanibonani.save.ui.theme.*
 import com.sanibonani.save.ui.utils.KeyboardAwareScrollColumn
 import com.sanibonani.save.ui.utils.ToastUtils
+import com.sanibonani.save.features.common.presentation.UIEvent
 import com.sanibonani.save.ui.utils.rememberClickDebouncer
 import com.sanibonani.save.features.auth.presentation.AuthViewModel
 import com.sanibonani.save.ui.components.InfoType
@@ -58,6 +59,18 @@ fun RegisterScreen(
 
     LaunchedEffect(state.error) {
         state.error?.let { ToastUtils.showError(context, it) }
+    }
+
+    // A refused registration reaches AuthViewModel.handleError(), which is an event rather than
+    // state.error, so without this collector the form simply stops spinning.
+    LaunchedEffect(vm) {
+        vm.events.collect { event ->
+            when (event) {
+                is UIEvent.ShowMessage -> ToastUtils.showInfo(context, event.message)
+                is UIEvent.ShowError -> ToastUtils.showError(context, event.message)
+                else -> Unit
+            }
+        }
     }
 
     val passwordsMatch = state.password.isNotEmpty() && state.password == state.confirmPw

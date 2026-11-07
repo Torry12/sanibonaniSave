@@ -12,7 +12,6 @@ import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.postgrest.rpc
 import kotlinx.coroutines.runBlocking
 import org.junit.Before
-import org.junit.Ignore
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -22,7 +21,13 @@ import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.UUID
 
-@Ignore("Manual live seeding utility; excluded from automated instrumentation runs.")
+/**
+ * Manual live seeding utility: signs up a group_admin and writes 100 members x 12 months of
+ * contributions to whatever tier the app is pointed at.
+ *
+ * Not part of the default instrumentation run. Switch the tools source set on to run it:
+ * -Psanibonani.manualTools=true connectedDebugAndroidTest --tests com.sanibonani.save.LiveSeeder
+ */
 @HiltAndroidTest
 @RunWith(AndroidJUnit4::class)
 class LiveSeeder {

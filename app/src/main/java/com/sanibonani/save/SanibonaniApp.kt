@@ -6,6 +6,7 @@ import androidx.preference.PreferenceManager
 import com.google.firebase.analytics.FirebaseAnalytics
 import com.sanibonani.save.analytics.AppAnalytics
 import com.sanibonani.save.data.logging.AndroidLogSink
+import com.sanibonani.save.data.logging.DiagnosticFileSink
 import com.sanibonani.save.data.sync.RealtimeSyncManager
 import com.sanibonani.save.domain.event.EventHandlerInitializer
 import com.sanibonani.save.domain.logging.AppLogger
@@ -35,6 +36,9 @@ class SanibonaniApp : Application(), Configuration.Provider {
     lateinit var androidLogSink: AndroidLogSink
 
     @Inject
+    lateinit var diagnosticFileSink: DiagnosticFileSink
+
+    @Inject
     lateinit var refreshPlatformConfig: RefreshPlatformConfigUseCase
 
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -47,8 +51,9 @@ class SanibonaniApp : Application(), Configuration.Provider {
     override fun onCreate() {
         super.onCreate()
         // Bind the pure-Kotlin domain logging facade to android.util.Log before any
-        // other component logs, so startup diagnostics reach logcat.
-        AppLogger.install(androidLogSink)
+        // other component logs, so startup diagnostics reach logcat. The debug build mirrors them into
+        // files/diagnostics.log too, because some firmware drops app-authored logcat lines entirely.
+        AppLogger.install(if (BuildConfig.DEBUG) diagnosticFileSink else androidLogSink)
 
         AppAnalytics.initialize(FirebaseAnalytics.getInstance(this))
 

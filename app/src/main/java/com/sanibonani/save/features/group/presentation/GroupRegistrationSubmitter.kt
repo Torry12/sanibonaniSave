@@ -78,7 +78,7 @@ internal class GroupRegistrationSubmitter(
         val group = groupRes.getOrThrow()
 
         host.launchJob("submit_group") {
-            host.updateState { it.copy(isSubmitting = true, error = null) }
+            host.updateState { it.copy(isSubmitting = true, error = null, constitutionWarning = null) }
             val result = if (state.street.isNotBlank() || state.township.isNotBlank()) {
                 createGroup(
                     group = group,
@@ -131,9 +131,21 @@ internal class GroupRegistrationSubmitter(
         }
 
         host.launchJob("finalize_payment") {
-            val alreadyPaidOrActive = getGroupById?.invoke(groupId)?.getOrNull()?.let { group ->
+            val registrationRead = getGroupById?.invoke(groupId)
+            val alreadyPaidOrActive = registrationRead?.getOrNull()?.let { group ->
                 group.registrationPaid || group.feeStatus == AdminFeeState.PAID || !group.isRegistrationFeeOutstanding
             } == true
+
+            if (registrationRead != null && registrationRead.isFailure) {
+                // The duplicate check cannot answer, so activation runs anyway. That is safe:
+                // ActivateGroupUseCase writes only fee_status, registration_paid and the admin's
+                // member status - `groups` has one trigger, AFTER INSERT, so a repeat books no
+                // money - and the use case reads the group again before it writes.
+                AppLogger.w(
+                    "GroupRegSubmitter",
+                    "Registration state is unreadable for group $groupId, so activation ran without the duplicate check."
+                )
+            }
 
             if (alreadyPaidOrActive) {
                 AppLogger.w("GroupRegSubmitter", "Skipping duplicate activation for group $groupId; registration is already paid/active.")
@@ -147,7 +159,7 @@ internal class GroupRegistrationSubmitter(
                 return@launchJob
             }
 
-            host.updateState { it.copy(isSubmitting = true, error = null) }
+            host.updateState { it.copy(isSubmitting = true, error = null, constitutionWarning = null) }
             storePendingConstitution(groupId, host)
             activateGroup(groupId, txId)
                 .onSuccess {
@@ -162,7 +174,9 @@ internal class GroupRegistrationSubmitter(
 
     /**
      * Losing a completed registration because a PDF could not be stored would discard the
-     * group, so the upload is intentionally non-fatal and only logged.
+     * group, so the upload is intentionally non-fatal. It is not silent: the bytes stay held for a
+     * retry and the run reports the missing document next to its success, because "group created"
+     * alone tells the admin their rules are on file when they are not.
      */
     private suspend fun storePendingConstitution(groupId: String, host: GroupRegistrationHost) {
         val bytes = pendingConstitutionBytes ?: return
@@ -171,10 +185,13 @@ internal class GroupRegistrationSubmitter(
         useCase(groupId, bytes, fileName)
             .onSuccess { url ->
                 pendingConstitutionBytes = null
-                host.updateState { it.copy(constitutionUrl = url) }
+                host.updateState { it.copy(constitutionUrl = url, constitutionWarning = null) }
             }
             .onFailure { e ->
                 AppLogger.w("GroupRegSubmitter", "Constitution upload failed for group $groupId: ${e.message}")
+                host.updateState {
+                    it.copy(constitutionWarning = "The group is set up, but the constitution file could not be saved to the server. Please keep a copy of it.")
+                }
             }
     }
 

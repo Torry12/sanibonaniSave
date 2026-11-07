@@ -18,12 +18,13 @@ import dagger.hilt.android.testing.HiltAndroidTest
 import java.util.*
 import kotlin.math.abs
 
-import org.junit.Ignore
-
 /**
  * PURE SIMULATION: Verifies the backend financial integrity by bypassing RLS via Service Role.
+ *
+ * Not part of the default instrumentation run: this writes real money to whatever tier
+ * SUPABASE_URL_LOCAL points at. Run it with the tools source set switched on, e.g.
+ * -Psanibonani.manualTools=true connectedDebugAndroidTest --tests com.sanibonani.save.LiveFinancialFlowSimulation
  */
-@Ignore("Local Supabase mock server utility")
 @HiltAndroidTest
 @RunWith(AndroidJUnit4::class)
 class LiveFinancialFlowSimulation {

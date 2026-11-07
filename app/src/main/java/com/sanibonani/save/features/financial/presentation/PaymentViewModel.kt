@@ -8,7 +8,6 @@ import com.sanibonani.save.domain.utils.RealtimePaymentPreview
 import com.sanibonani.save.domain.validation.ValidationResult
 import com.sanibonani.save.domain.validation.ValidationUtils
 import com.sanibonani.save.domain.model.*
-import com.sanibonani.save.domain.model.AsyncResult
 import com.sanibonani.save.domain.model.Contribution
 import com.sanibonani.save.domain.usecase.equity.ProcessContributionUseCase
 import com.sanibonani.save.domain.usecase.payment.LoadPaymentContextUseCase
@@ -22,7 +21,6 @@ import javax.inject.Inject
 import java.util.UUID
 
 data class PaymentUiState(
-    val paymentContext: AsyncResult<PaymentContextPackage> = AsyncResult.Uninitialized,
     val isProcessing: Boolean = false,
     val isSuccess: Boolean = false,
     val error: String? = null,
@@ -39,16 +37,7 @@ data class PaymentUiState(
     val checkoutUrl: String? = null,
     val platformConfig: PlatformConfig? = null,
     val destination: PaymentDestination = PaymentDestination.GROUP,
-)
-
-data class PaymentContextPackage(
-    val member: Member,
-    val group: Group,
-    val contributions: List<Contribution>,
-    val loans: List<Loan>,
-    val calculation: PaymentCalculation,
-    val preview: RealtimePaymentPreview,
-    val config: PlatformConfig?,
+    val amountsVerified: Boolean = true,
 )
 
 @HiltViewModel
@@ -113,12 +102,25 @@ class PaymentViewModel @Inject constructor(
 
         paymentContextJob?.cancel()
         paymentContextJob = launchJob("load_payment_context") {
-            updateState { it.copy(paymentContext = AsyncResult.Loading) }
-
             loadContext(LoadPaymentContextUseCase.Params(userId, groupId, type)).collectLatest { outcome ->
                 when (outcome) {
                     LoadPaymentContextUseCase.Outcome.Unavailable ->
-                        updateState { it.copy(paymentContext = AsyncResult.Error("Failed to load context", "LoadError")) }
+                        // Nothing was resolved, so nothing from the group the member was last looking
+                        // at may stay on screen: the amount field, the due figures and the destination
+                        // would all still bill them against the old group. The screen renders state.error.
+                        updateState {
+                            it.copy(
+                                member = null,
+                                group = null,
+                                contributions = emptyList(),
+                                calculation = null,
+                                platformConfig = null,
+                                realtimeShortfall = Money.ZERO,
+                                realtimeOverpayment = Money.ZERO,
+                                nextDueDate = "",
+                                error = "Could not load your payment details. Check your connection and open this group again."
+                            )
+                        }
 
                     is LoadPaymentContextUseCase.Outcome.Ready -> {
                         val context = outcome.context
@@ -127,17 +129,6 @@ class PaymentViewModel @Inject constructor(
                                 context.member, context.group, context.contributions, context.calculation, state.currentInputAmount
                             )
                             state.copy(
-                                paymentContext = AsyncResult.Success(
-                                    PaymentContextPackage(
-                                        member = context.member,
-                                        group = context.group,
-                                        contributions = context.contributions,
-                                        loans = context.loans,
-                                        calculation = context.calculation,
-                                        preview = preview,
-                                        config = context.config
-                                    )
-                                ),
                                 member = context.member,
                                 group = context.group,
                                 contributions = context.contributions,
@@ -148,6 +139,8 @@ class PaymentViewModel @Inject constructor(
                                 nextDueDate = preview.nextDueDate,
                                 platformConfig = context.config,
                                 destination = context.destination,
+                                amountsVerified = context.amountsVerified,
+                                error = null
                             )
                         }
                     }
@@ -273,7 +266,7 @@ class PaymentViewModel @Inject constructor(
         val paidContributions = contributions.filter {
             it.status == ContributionStatus.PAID || it.status == ContributionStatus.PARTIAL
         }
-        val totalPaidBefore = paymentCalculator.calculatePaidSavings(paidContributions, member)
+        val totalPaidBefore = paymentCalculator.calculatePaidSavings(paidContributions)
         val joinedDate = paymentCalculator.resolveJoinedDate(member, java.time.LocalDate.now(), contributions)
 
         return paymentCalculator.calculateRealtime(

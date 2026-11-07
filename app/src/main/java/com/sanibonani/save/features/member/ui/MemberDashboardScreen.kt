@@ -94,24 +94,6 @@ fun MemberDashboardScreen(
     var showFileActionDialog by remember { mutableStateOf<Triple<String, String, Map<String, String>>?>(null) }
     var selectedLedgerEntry by remember { mutableStateOf<LedgerEntry?>(null) }
 
-    LaunchedEffect(overviewState.exportFile) {
-        overviewState.exportFile?.let { file ->
-            val uri = androidx.core.content.FileProvider.getUriForFile(
-                context,
-                "${context.packageName}.fileprovider",
-                file
-            )
-            val isPdf = file.extension.equals("pdf", ignoreCase = true)
-            val intent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
-                type = if (isPdf) "application/pdf" else "text/csv"
-                putExtra(android.content.Intent.EXTRA_STREAM, uri)
-                addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            }
-            val chooserTitle = if (isPdf) "Open/Share Document" else "Share Statement"
-            context.startActivity(android.content.Intent.createChooser(intent, chooserTitle))
-        }
-    }
-
     LaunchedEffect(Unit) {
         val handleEvent: (UIEvent) -> Unit = { event ->
             when (event) {
@@ -177,13 +159,15 @@ fun MemberDashboardScreen(
 
     // ── Privacy Lock Hardening ──
     // If Support Mode is active, we MUST NOT show the dashboard until the specifically
-    // targeted member's record is loaded. We check both member.id and member.userId against targetMemberId.
-    val isPrivacyLocked = overviewState.isImpersonating && !overviewState.isExiting &&
-            (overviewState.member == null ||
-             (overviewState.member?.id != overviewState.targetMemberId &&
-              overviewState.member?.userId != overviewState.targetMemberId))
+    // targeted member's record is loaded. The check lives in MemberUiState because a refused
+    // entry has to release it: no record is coming, and the lock outranked the refusal below.
+    val isPrivacyLocked = overviewState.isPrivacyLocked
 
-    if ((overviewState.isLoading || isPrivacyLocked) && (overviewState.member == null || overviewState.group == null) && !overviewState.isExiting) {
+    val showPortalLoading = (overviewState.isLoading || isPrivacyLocked) &&
+            (overviewState.member == null || overviewState.group == null) &&
+            !overviewState.isExiting && !overviewState.supportEntryWasRefused
+
+    if (showPortalLoading) {
         SanibonaniLoadingScreen(message = if (isPrivacyLocked) stringResource(R.string.ui_entering_support_mode) else stringResource(R.string.ui_syncing_your_portal))
     } else {
         AdaptiveScaffold(
@@ -316,8 +300,6 @@ private fun MemberDashboardContent(
     onLogout: () -> Unit
 ) {
     Column(modifier) {
-        VerificationSummary(overviewState.verificationResult)
-
         MemberStatCards(overviewState)
 
         PullToRefreshBox(

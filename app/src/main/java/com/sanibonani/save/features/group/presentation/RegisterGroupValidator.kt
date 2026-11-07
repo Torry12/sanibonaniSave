@@ -4,6 +4,7 @@ import com.sanibonani.save.domain.utils.safeRunCatching
 import com.sanibonani.save.domain.model.Group
 import com.sanibonani.save.domain.model.GroupType
 import com.sanibonani.save.domain.model.Money
+import com.sanibonani.save.domain.utils.LocationUtils
 import com.sanibonani.save.domain.utils.parseMoneyAmountOrNull
 import com.sanibonani.save.domain.validation.ValidationUtils
 
@@ -91,7 +92,12 @@ object RegisterGroupValidator {
             },
             latitude = state.latitude,
             longitude = state.longitude,
-            geohash = state.geohash,
+            // Derived here from the coordinates the map picker wrote, rather than carried as its own
+            // form field: a hash of its own could outlive the point it describes, and clearing the
+            // location would have to remember to clear it too.
+            geohash = state.latitude?.let { lat ->
+                state.longitude?.let { lon -> LocationUtils.encodeGeohash(lat, lon) }
+            },
             lateFeeGraceDays = graceDays,
             probationMonths = probationMonths,
             paymentDueDay = paymentDueDay,
@@ -99,7 +105,9 @@ object RegisterGroupValidator {
             goalAmount = goalAmount,
             periodMonths = periodMonths,
             constitutionUrl = state.constitutionUrl,
-            constitutionStatus = state.constitutionStatus,
+            // No status is copied: a group being created has not been through verification, and
+            // both upload paths in :data stamp the row PENDING anyway, so any other value the form
+            // could carry was unreachable.
             isPublic = true
         )
     }

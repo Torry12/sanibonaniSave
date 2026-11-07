@@ -29,13 +29,15 @@ import com.sanibonani.save.domain.utils.safeRunCatching
 
 class NotificationRepositoryImpl @Inject constructor(
     private val supabase: SupabaseClient,
-    private val db: SanibonaniDatabase,
+    private val dbProvider: javax.inject.Provider<SanibonaniDatabase>,
     private val whatsAppChannel: WhatsAppChannel,
     private val router: NotificationRouter,
     private val taskQueue: NotificationTaskQueue,
     private val edgeFunctionGateway: EdgeFunctionGateway,
     private val payloadFactory: com.sanibonani.save.data.repository.mappers.DataPayloadFactory
 ) : BaseRepository("NotificationRepository"), NotificationRepository {
+
+    private val db: SanibonaniDatabase get() = dbProvider.get()
 
     override fun observeNotifications(groupId: String): Flow<Result<List<AppNotification>>> = this.observeAndSync(
         dbFlow = db.notificationDao().observeNotifications(groupId),

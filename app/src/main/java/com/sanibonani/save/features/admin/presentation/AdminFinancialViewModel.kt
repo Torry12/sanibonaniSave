@@ -72,11 +72,9 @@ class AdminFinancialViewModel @Inject constructor(
 
     // region Group context & observation
 
-    private var contextJob: Job? = null
-
     private fun observeContext() {
-        contextJob?.cancel()
-        contextJob = observeGroupContext(
+        observeGroupContext(
+            key = "context_observation",
             groupIdFlow = adminContextCacheService.selectedGroupId,
             contextSource = adminContextCacheService.contexts
         ) { context ->
@@ -88,7 +86,14 @@ class AdminFinancialViewModel @Inject constructor(
                 group = context.group,
                 members = context.members,
                 selectedMemberId = if (isNewGroup) null else it.selectedMemberId,
-                payoutAmount = if (isNewGroup) "" else it.payoutAmount
+                payoutAmount = if (isNewGroup) "" else it.payoutAmount,
+                ledger = if (isNewGroup) emptyList() else it.ledger,
+                unreconciledBankTx = if (isNewGroup) emptyList() else it.unreconciledBankTx,
+                payouts = if (isNewGroup) emptyList() else it.payouts,
+                groupLoans = if (isNewGroup) emptyList() else it.groupLoans,
+                burialClaims = if (isNewGroup) emptyList() else it.burialClaims,
+                selectedClaim = if (isNewGroup) null else it.selectedClaim,
+                selectedPayout = if (isNewGroup) null else it.selectedPayout
             ) }
 
             loadFinancialData(context.group?.id ?: return@observeGroupContext)
@@ -97,18 +102,16 @@ class AdminFinancialViewModel @Inject constructor(
 
     private fun loadFinancialData(groupId: String) {
         launchJob("load_financial_data") {
-            updateState { it.copy(isLoading = true) }
-
             observeFinancialSnapshot(groupId)
                 .distinctUntilChanged()
                 .collect { snapshot ->
+                    if (uiState.value.group?.id != groupId) return@collect
                     updateState { it.copy(
                         ledger = snapshot.ledger,
                         unreconciledBankTx = snapshot.unreconciledBankTx,
                         payouts = snapshot.payouts,
                         groupLoans = snapshot.loans,
-                        burialClaims = snapshot.claims,
-                        isLoading = false
+                        burialClaims = snapshot.claims
                     ) }
                 }
         }

@@ -58,9 +58,16 @@ $headerTemplate = @'
 
 --
 -- Deliberately excluded: 07_RESET_DATABASE.sql (destructive) and every SEED_*.sql
--- (dev fixtures are not part of the schema baseline). Delta migrations under
--- supabase/migrations/ that change routine behaviour are folded into the masters
--- (43_platform_fee_payment_idempotency.sql -> pay_platform_fee_v2 above).
+-- (dev fixtures are not part of the schema baseline).
+--
+-- This baseline is the ONLY file that belongs in supabase/migrations/. "supabase db
+-- reset" applies that directory after the baseline, so any extra file there overwrites
+-- whatever the masters just declared. Three idempotency migrations used to sit here and
+-- silently stripped the FIN_002 / FIN_003 / SEC_002 guards from increment_group_balance,
+-- pay_platform_fee_v2 and record_loan_repayment_v1 on every local reset; their logic is
+-- folded into 02_FUNCTIONS_AND_TRIGGERS.sql, so they now live in supabase/legacy_migrations/
+-- where nothing applies them. Add a structural change by editing a master and regenerating,
+-- never by dropping another file next to this one.
 @RULE@
 '@
 

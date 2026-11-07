@@ -98,6 +98,13 @@ The application implements a "Local-First" pattern with an **Offline Outbox** fo
 2.  **Pillar-Parallel Sync**: Simultaneously fetches from Supabase in domain-parallel blocks (Treasury, Equity, etc.).
 3.  **Delta Update**: Merges remote changes into local Room cache.
 
+### Hydration verdicts (`SyncRepository.staleGroups`):
+A `Result.success` from the read path describes the **cache**, not the server: `observeAndSync` emits what Room holds and a remote read that never arrives is logged and dropped, because an offline device must still open. Nothing on that path may therefore certify money from a success emission alone. The sync layer keeps the separate verdict:
+
+1.  **Best-effort boot**: `syncAllData()` hydrates every group the user has, three at a time under one 120-second cap, pulling `GroupHydrationPlan.startupPillars(role)`. A group that will not answer is logged and the app still opens on the cache.
+2.  **Per-relation accounting**: each pull names its relation, and misses accumulate as `staleGroups: Map<groupId, Set<relation>>`. A relation is cleared only when a later pass actually read it (`- covered + missed`), so a treasury refresh never wipes an outstanding ledger miss, and a fresh sweep starts from an empty map so no session inherits the last one's gaps.
+3.  **Who must ask**: `DataVerificationServiceImpl` turns an outstanding miss into a `Sync` finding instead of comparing cached rows against a cached balance, and `AdminOverviewViewModel` / `MemberOverviewViewModel` surface the same set on the dashboard and portal. A user-initiated `syncGroupData()` is not best-effort: an unlanded pull fails the refresh rather than reporting a clean group.
+
 ### Write Path (Outbox Pattern):
 1.  **Optimistic Attempt**: App attempts the Supabase RPC immediately.
 2.  **Auto-Queuing**: If a network break (timeout, connect error) occurs, the full JSON payload is saved to `pending_operations`.
@@ -106,24 +113,28 @@ The application implements a "Local-First" pattern with an **Offline Outbox** fo
 ### Example (BaseRepository.kt):
 ```kotlin
 fun <T, E> observeAndSync(
-    dbFlow: Flow<E>,
+    dbFlow: Flow<List<E>>,
     mapper: (E) -> T,
-    networkFetch: suspend () -> T,
-    cacheSync: suspend (T) -> Unit
-): Flow<Result<T>> = channelFlow {
-    // 1. Observe DB
-    launch {
-        dbFlow.collect { entity ->
-            send(Result.success(mapper(entity)))
+    toEntity: (T) -> E,
+    networkFetch: suspend () -> List<T>,
+    cacheSync: suspend (List<E>) -> Unit
+): Flow<Result<List<T>>> = channelFlow {
+    // 1. Observe DB - this is what the caller sees, including while offline.
+    val dbJob = launch {
+        dbFlow.collect { entities ->
+            send(Result.success(entities.map(mapper)))
         }
     }
-    // 2. Sync from Network
+    // 2. Sync from Network - a failure is logged and dropped, never sent to the caller.
     try {
         val remoteData = networkFetch()
-        cacheSync(remoteData)
+        cacheSync(remoteData.map(toEntity))
     } catch (e: Exception) {
-        send(Result.failure(e))
+        if (e is CancellationException) throw e
+        AppLogger.e(tag, "Sync failed: ${e.logAndGetMessage(tag)}")
     }
+
+    awaitClose { dbJob.cancel() }
 }
 ```
 

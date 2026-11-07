@@ -81,17 +81,23 @@ class ProcessDisbursementUseCase @Inject constructor(
         }
 
         // 5. Fetch updated record
-        val updated = payoutRepository.getPayoutById(payoutId).getOrThrow()
+        //
+        // The write decides the verdict, so its result is examined before anything else is read.
+        // A refusal from the server is permanent for this payload; letting a failed confirmation read
+        // surface instead told the admin the connection had timed out, and the outbox replayed a
+        // payout the server had already rejected.
+        updateResult
+            .onFailure { AppLogger.e(TAG, "Failed to update payout $payoutId: ${it.message}") }
+            .getOrThrow()
+
+        // The confirmation read cannot undo a transition the server accepted, so a failed read falls
+        // back to the last row actually read instead of failing the call.
+        val updated = payoutRepository.getPayoutById(payoutId).getOrNull() ?: payout
 
         // 6. Emit Event on Success
-        updateResult.onSuccess {
-            EventBus.emit(PayoutProcessedEvent(updated, status))
-            AppLogger.i(TAG, "Payout $payoutId successfully moved to $status")
-        }.onFailure {
-            AppLogger.e(TAG, "Failed to update payout $payoutId: ${it.message}")
-        }
+        EventBus.emit(PayoutProcessedEvent(updated, status))
+        AppLogger.i(TAG, "Payout $payoutId successfully moved to $status")
 
-        updateResult.getOrThrow()
         return@financialResult updated
     }
 

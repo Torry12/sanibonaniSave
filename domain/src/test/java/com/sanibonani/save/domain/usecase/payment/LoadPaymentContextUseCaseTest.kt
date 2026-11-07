@@ -1,6 +1,9 @@
 package com.sanibonani.save.domain.usecase.payment
 
+import com.sanibonani.save.domain.model.Contribution
+import com.sanibonani.save.domain.model.ContributionStatus
 import com.sanibonani.save.domain.model.Group
+import com.sanibonani.save.domain.model.Loan
 import com.sanibonani.save.domain.model.Member
 import com.sanibonani.save.domain.model.MemberStatus
 import com.sanibonani.save.domain.model.Money
@@ -17,12 +20,16 @@ import com.sanibonani.save.domain.utils.PaymentCalculator
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.verify
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.io.IOException
 
 /**
  * Pins what the payment screen must resolve before it can take money: the payer, the
@@ -129,5 +136,69 @@ class LoadPaymentContextUseCaseTest {
 
         assertEquals("user-1", useCase.currentUserId())
         assertTrue(outcome() is LoadPaymentContextUseCase.Outcome.Ready)
+    }
+
+    // A refresh that did not land now arrives as its own emission behind the cache. Blanking the
+    // legs there would re-price the payment from nothing: the member would be billed the monthly
+    // amount again as if no contribution had ever been booked.
+    @Test
+    fun `a refused refresh prices the payment from the rows already read`() = runTest {
+        val contribution = Contribution(
+            id = "c-1",
+            memberId = "member-1",
+            groupId = groupId,
+            amount = Money("200.00"),
+            status = com.sanibonani.save.domain.model.ContributionStatus.PAID
+        )
+        val loan = Loan(id = "loan-1", groupId = groupId)
+        stubResolvedContext()
+        every { contributionRepository.observeMemberContributions("member-1", groupId) } returns flowOf(
+            Result.success(listOf(contribution)),
+            Result.failure(IOException("contribution refresh refused"))
+        )
+        every { loanRepository.getMemberLoans("member-1") } returns flowOf(
+            Result.success(listOf(loan)),
+            Result.failure(IOException("loan refresh refused"))
+        )
+
+        val emissions = useCase(params()).toList()
+        val refused = emissions.last() as LoadPaymentContextUseCase.Outcome.Ready
+
+        assertEquals(listOf(contribution), refused.context.contributions)
+        assertEquals(listOf(loan), refused.context.loans)
+        assertFalse(
+            "the figures are kept, but the screen cannot claim the server agreed to them",
+            refused.context.amountsVerified
+        )
+        verify {
+            paymentCalculator.calculateStatus(group, member, listOf(contribution), listOf(loan), any())
+        }
+    }
+
+    @Test
+    fun `a payment priced from rows the server answered is verified`() = runTest {
+        stubResolvedContext()
+
+        val ready = outcome() as LoadPaymentContextUseCase.Outcome.Ready
+
+        assertTrue(ready.context.amountsVerified)
+    }
+
+    @Test
+    fun `one refused book is enough to make the pricing unverified`() = runTest {
+        // The two legs refuse independently, and the member cannot tell which of the two numbers they
+        // are about to pay against is the stale one.
+        stubResolvedContext()
+        every { contributionRepository.observeMemberContributions("member-1", groupId) } returns
+            flowOf(Result.success(emptyList()))
+        every { loanRepository.getMemberLoans("member-1") } returns flowOf(
+            Result.success(emptyList()),
+            Result.failure(IOException("loan refresh refused"))
+        )
+
+        val emissions = useCase(params()).toList()
+
+        assertTrue((emissions.first() as LoadPaymentContextUseCase.Outcome.Ready).context.amountsVerified)
+        assertFalse((emissions.last() as LoadPaymentContextUseCase.Outcome.Ready).context.amountsVerified)
     }
 }

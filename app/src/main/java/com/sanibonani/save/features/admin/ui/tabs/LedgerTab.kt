@@ -44,12 +44,13 @@ fun LedgerTab(
     state: AdminFinancialUiState,
     vm: AdminFinancialViewModel? = null
 ) {
-    val navigator = rememberListDetailPaneScaffoldNavigator<LedgerEntry>()
+    val navigator = rememberListDetailPaneScaffoldNavigator<String>()
     var selectedLedgerEntry by remember { mutableStateOf<LedgerEntry?>(null) }
 
     LaunchedEffect(selectedLedgerEntry) {
-        if (selectedLedgerEntry != null) {
-            navigator.navigateTo(ListDetailPaneScaffoldRole.Detail, selectedLedgerEntry)
+        val entry = selectedLedgerEntry
+        if (entry != null) {
+            navigator.navigateTo(ListDetailPaneScaffoldRole.Detail, entry.id.orEmpty())
         } else {
             if (navigator.canNavigateBack()) {
                 navigator.navigateBack()

@@ -24,6 +24,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.sanibonani.save.R
 import com.sanibonani.save.domain.model.*
+import com.sanibonani.save.domain.utils.parseMoneyAmountOrNull
 import com.sanibonani.save.ui.components.*
 import com.sanibonani.save.ui.theme.*
 import com.sanibonani.save.ui.utils.formatZAR
@@ -108,7 +109,9 @@ fun WithdrawalRequestDialog(
 
                 SanibonaniTextField(
                     value = amount,
-                    onValueChange = { if (it.isEmpty() || it.toDoubleOrNull() != null) amount = it },
+                    // The house money gate, not toDoubleOrNull: a binary float accepts "1e30",
+                    // "Infinity" and three decimal places, and the third silently rounds to R2.00.
+                    onValueChange = { if (it.isEmpty() || it.parseMoneyAmountOrNull() != null) amount = it },
                     label = "Amount (R)",
                     enabled = hasBanking,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
@@ -120,12 +123,12 @@ fun WithdrawalRequestDialog(
             }
         },
         confirmButton = {
+            val enteredAmount = amount.parseMoneyAmountOrNull()
             Button(
                 onClick = {
-                    val a = amount.toBigDecimalOrNull() ?: java.math.BigDecimal.ZERO
-                    if (a > BigDecimal.ZERO) onConfirm(Money(a))
+                    if (enteredAmount != null && enteredAmount > BigDecimal.ZERO) onConfirm(Money(enteredAmount))
                 },
-                enabled = hasBanking && amount.isNotBlank() && (amount.toBigDecimalOrNull() ?: BigDecimal.ZERO) > BigDecimal.ZERO
+                enabled = hasBanking && enteredAmount != null && enteredAmount > BigDecimal.ZERO
             ) {
                 Text("Submit Request")
             }
@@ -188,7 +191,7 @@ fun LedgerItem(entry: LedgerEntry, onClick: () -> Unit) {
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Text(
-                    text = entry.description,
+                    text = if (entry.isPlatform) PlatformFeeLabel(entry.category) else entry.description,
                     fontWeight = FontWeight.Bold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
@@ -206,11 +209,25 @@ fun LedgerItem(entry: LedgerEntry, onClick: () -> Unit) {
                     color = color
                 )
                 Text(
-                    text = "Bal: " + formatZAR(entry.balanceAfter),
+                    // A fee the platform kept never entered the group's running balance, so the row
+                    // says which book it was paid into instead of printing a balance nobody held.
+                    text = if (entry.isPlatform) stringResource(R.string.ui_member_activity_paid_to_platform)
+                    else "Bal: " + formatZAR(entry.balanceAfter),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                 )
             }
         }
     }
+}
+
+/**
+ * The row title for money the platform kept, which has no description of its own because it was never
+ * a ledger entry. [category] carries the contribution type the payment was filed under.
+ */
+@Composable
+internal fun PlatformFeeLabel(category: String): String = when (category) {
+    "registration_contribution" -> stringResource(R.string.ui_registration_fee)
+    "member_fee", "member_fee_ledger" -> stringResource(R.string.ui_member_fee)
+    else -> stringResource(R.string.ui_member_platform_fees_paid)
 }

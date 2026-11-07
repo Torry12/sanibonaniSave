@@ -29,7 +29,6 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -111,10 +110,6 @@ fun PlatformLedgerTab(
         InfoBox(
             stringResource(R.string.ui_central_record_of_registration_fees_and_), type = InfoType.INFO
         )
-
-        if (state.isExporting) {
-            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-        }
 
         LazyColumn(
             modifier = Modifier.weight(1f),

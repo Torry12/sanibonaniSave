@@ -30,8 +30,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.sanibonani.save.domain.model.IssueSeverity
-import com.sanibonani.save.domain.model.VerificationResult
 import com.sanibonani.save.ui.theme.*
 
 /**
@@ -99,34 +97,6 @@ fun InfoBox(
                 lineHeight = 20.sp
             )
         }
-    }
-}
-
-@Composable
-fun VerificationSummary(
-    result: VerificationResult,
-    modifier: Modifier = Modifier
-) {
-    if (result.isValid) return
-
-    val issues = result.issues
-    if (issues.isEmpty()) return
-
-    val criticalIssues = issues.filter { it.severity == IssueSeverity.CRITICAL }
-    val warningIssues = issues.filter { it.severity == IssueSeverity.WARNING }
-
-    val primaryIssue = criticalIssues.firstOrNull() ?: warningIssues.firstOrNull() ?: issues.first()
-    val type = when (primaryIssue.severity) {
-        IssueSeverity.CRITICAL -> InfoType.ERROR
-        IssueSeverity.WARNING -> InfoType.WARNING
-        else -> InfoType.INFO
-    }
-
-    Column(modifier = modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        InfoBox(
-            message = "Data Integrity: ${primaryIssue.message}${if (issues.size > 1) " (+${issues.size - 1} more)" else ""}",
-            type = type
-        )
     }
 }
 

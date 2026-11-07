@@ -1,6 +1,7 @@
 package com.sanibonani.save.service
 
 import com.sanibonani.save.domain.utils.safeRunCatching
+import com.sanibonani.save.domain.logging.AppLogger
 import com.sanibonani.save.domain.utils.PaymentCalculation
 import com.sanibonani.save.domain.utils.PaymentCalculator
 import com.sanibonani.save.domain.utils.filterNotificationsForMember
@@ -10,7 +11,6 @@ import com.sanibonani.save.domain.model.Beneficiary
 import com.sanibonani.save.domain.model.Contribution
 import com.sanibonani.save.domain.model.Group
 import com.sanibonani.save.domain.model.Loan
-import com.sanibonani.save.domain.model.LoanRepayment
 import com.sanibonani.save.domain.model.Member
 import com.sanibonani.save.domain.repository.credit.LoanRepository
 import com.sanibonani.save.domain.repository.equity.MemberContributionRepository
@@ -31,6 +31,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 
 @Singleton
 class MemberGroupContextCacheService @Inject constructor(
@@ -49,8 +51,36 @@ class MemberGroupContextCacheService @Inject constructor(
 	private val _contexts = MutableStateFlow<Map<String, CachedGroupContext>>(emptyMap())
 	val contexts: StateFlow<Map<String, CachedGroupContext>> = _contexts.asStateFlow()
 
+	/**
+	 * Per group, the relations the sync layer has not brought current.
+	 *
+	 * Read straight from the sync layer rather than copied into the snapshot: a pillar that lands
+	 * on a later pass clears its group's entry without any warmup rebuilding it, and the portal
+	 * must stop flagging the book the moment that happens.
+	 */
+	val unverifiedSections: StateFlow<Map<String, Set<String>>> get() = syncRepo.staleGroups
+
 	private var cachedUserId: String? = null
 	private val warmupCoordinator = GroupContextWarmupCoordinator()
+
+	/**
+	 * Reads a background hydration may hold at once, for every membership of the account together.
+	 *
+	 * A warm-up read all six pillars of all the account's groups simultaneously, so a member in four
+	 * groups put twenty-four requests to the same host in one pass, sixteen of them measured in flight
+	 * at once. The transport's per-host dispatch cap is smaller than that and everything past it waits
+	 * in a queue no timeout in the app can see, which left the portal the user was actually looking at
+	 * behind a re-read of groups they had not opened. Bounding the pass keeps the pressure constant
+	 * instead of proportional to the group count.
+	 */
+	private val hydrationReadBudget = Semaphore(HYDRATION_CONCURRENT_READS)
+
+	private suspend fun <T> hydrationRead(block: suspend () -> T): T =
+		hydrationReadBudget.withPermit { block() }
+
+	private companion object {
+		const val HYDRATION_CONCURRENT_READS = 3
+	}
 
 	fun getContext(groupId: String): CachedGroupContext? = _contexts.value[groupId]
 
@@ -61,6 +91,30 @@ class MemberGroupContextCacheService @Inject constructor(
 
 	fun clearForSignOut() {
 		clearForUser(userId = null)
+	}
+
+	/**
+	 * Drops every cached portal after the developer database changes, keeping whose session it was.
+	 *
+	 * The rows came from the tier that has just been replaced, so they are not a fallback, and the
+	 * warm-ups still reading it would write that tier's book back over the empty cache. The user id
+	 * stays: this is the same member on a different database, and a re-warm that looked like a new
+	 * session would clear again - and cancel - the very pass the portal is starting.
+	 */
+	fun invalidateForDatabaseChange() {
+		_contexts.value = emptyMap()
+		warmupCoordinator.cancelAll()
+	}
+
+	/**
+	 * Stops every background warm-up so a Support Mode entry can take the hydration permits.
+	 *
+	 * Those warm-ups run on this service's scope, not on the portal that asked for them, and the
+	 * entry reads through the same three-permit budget. Left running, the operator's own groups
+	 * keep the permits and the impersonation waits on "Entering Support Mode…" until they finish.
+	 */
+	fun cancelBackgroundWarmups() {
+		warmupCoordinator.cancelAll()
 	}
 
 	fun warmMembershipsInBackground(userId: String, memberships: List<Member>) {
@@ -81,7 +135,12 @@ class MemberGroupContextCacheService @Inject constructor(
 		val memberships = memberRepo.getMemberships(userId).getOrElse {
 			// An offline warm-up must keep the cached memberships instead of pruning every
 			// context to an empty membership set.
-			memberRepo.observeMemberships(userId).first().getOrElse { emptyList() }
+			memberRepo.observeMemberships(userId).first().getOrElse {
+				// Both reads failed, so the empty list here is a missing answer rather than an
+				// authoritative "no memberships". Pruning with it would delete the very contexts
+				// this fallback protects; keep them and warm again once a read succeeds.
+				return
+			}
 		}
 		warmMembershipsInBackground(userId, memberships)
 	}
@@ -90,33 +149,41 @@ class MemberGroupContextCacheService @Inject constructor(
 	 * Pulls every group pillar from the network, then rebuilds the snapshot of [userId]'s
 	 * membership. Unlike [warmMembershipsInBackground] this always re-hydrates, even when
 	 * the context is already marked as fully hydrated.
+	 *
+	 * Fails when the pull did not land: the portal is still rebuilt from the cache, but the
+	 * caller is told the member's book was never brought current.
 	 */
 	suspend fun refreshGroup(userId: String, groupId: String): Result<Unit> = safeRunCatching {
 		if (groupId.isBlank()) return@safeRunCatching
 		// Hold the group's warmup slot for the whole refresh so a background sweep cannot start a
-		// second hydration that finishes after this one. The slot is a child job, never the
+		// second hydration that finishes after this one; a sweep arriving once this run has read
+		// is queued behind it rather than discarded. The slot is a child job, never the
 		// caller's, so a session change cancels the refresh instead of the caller's scope.
-		warmupCoordinator.runExclusive(groupId) {
-			syncRepo.syncGroupData(groupId)
+		warmupCoordinator.runExclusive(groupId, scope) {
+			val syncOutcome = syncRepo.syncGroupData(groupId)
 			val membership = _contexts.value[groupId]?.member
 				?: memberRepo.getMemberByUserId(userId, groupId).getOrElse { throw it }
 			warmGroupContext(userId = userId, groupId = groupId, membership = membership)
+			syncOutcome.getOrThrow()
 		}
 	}
 
 	/**
 	 * Re-syncs the group and rebuilds the portal for the member an admin is impersonating.
 	 * The member is re-read by id, never by the operator's user id.
+	 *
+	 * A sync that pulled nothing fails: Support Mode is where an admin judges someone else's
+	 * money, so a stale book must never be presented as the live one.
 	 */
 	suspend fun refreshImpersonatedMember(memberId: String, groupId: String): Result<Unit> =
 		safeRunCatching {
 			if (memberId.isBlank() || groupId.isBlank()) return@safeRunCatching
-			warmupCoordinator.runExclusive(groupId) {
-				syncRepo.syncGroupData(groupId)
+			warmupCoordinator.runExclusive(groupId, scope) {
+				val syncOutcome = syncRepo.syncGroupData(groupId)
 				check(hydrateImpersonatedMember(memberId, groupId).member?.id == memberId) {
 					"The selected member could not be verified after hydration."
 				}
-				Unit
+				syncOutcome.getOrThrow()
 			}
 		}
 
@@ -128,9 +195,16 @@ class MemberGroupContextCacheService @Inject constructor(
 	suspend fun impersonateMember(memberId: String, groupId: String): Result<CachedGroupContext> =
 		safeRunCatching {
 			require(memberId.isNotBlank() && groupId.isNotBlank()) { "A member and group must be selected." }
-			warmupCoordinator.runExclusive(groupId) {
+			warmupCoordinator.runExclusive(groupId, scope) {
 				hydrateImpersonatedMember(memberId, groupId)
 			}
+		}.onFailure {
+			// The screen shows a refusal as a message with no member in it, and the entry can stop at
+			// any of six reads, so the trace has to name who was being opened and where it halted.
+			AppLogger.w(
+				"MemberGroupContextCache",
+				"Support Mode entry for member $memberId stopped in group $groupId: ${it.message}"
+			)
 		}
 
 	private suspend fun hydrateImpersonatedMember(memberId: String, groupId: String): CachedGroupContext {
@@ -152,7 +226,16 @@ class MemberGroupContextCacheService @Inject constructor(
 	) {
 		_contexts.update { cache ->
 			val current = cache[groupId] ?: CachedGroupContext()
-			cache + (groupId to reducer(current).copy(lastUpdatedMillis = System.currentTimeMillis()))
+			val next = reducer(current)
+			// The clock is deliberately left out of this comparison: it is the only field that
+			// differs when a warm-up reads the same book twice, and a snapshot that looks new sends
+			// the portal re-subscribing all nine of its observation flows - each with a Supabase
+			// read and a Room write behind it.
+			if (next.copy(lastUpdatedMillis = current.lastUpdatedMillis) == current) {
+				cache
+			} else {
+				cache + (groupId to next.copy(lastUpdatedMillis = System.currentTimeMillis()))
+			}
 		}
 	}
 
@@ -162,19 +245,24 @@ class MemberGroupContextCacheService @Inject constructor(
 		membership: Member,
 		authoritativeMember: Member? = null
 	) {
+		// From here the snapshot is being built from data read now, so a warmup request that
+		// arrives later needs its own run rather than being credited to this one.
+		warmupCoordinator.markReadsStarted(groupId)
 		// A failed section read must keep what the snapshot already holds: replacing it with an
 		// empty list made an offline refresh look like an empty portal, and the hydrated flag
 		// then suppressed every later retry.
 		val (groupOutcome, memberOutcome) = coroutineScope {
 			val groupTask = async {
-				safeRunCatching { groupRepo.getGroupById(groupId).getOrThrow() }
+				hydrationRead { safeRunCatching { groupRepo.getGroupById(groupId).getOrThrow() } }
 			}
 			val memberTask = async {
 				when {
 					authoritativeMember != null -> Result.success(authoritativeMember)
 					userId.isBlank() -> Result.success(membership)
-					else -> safeRunCatching {
-						memberRepo.getMemberByUserId(userId, groupId).getOrThrow()
+					else -> hydrationRead {
+						safeRunCatching {
+							memberRepo.getMemberByUserId(userId, groupId).getOrThrow()
+						}
 					}
 				}
 			}
@@ -185,23 +273,31 @@ class MemberGroupContextCacheService @Inject constructor(
 		val hydrated = coroutineScope {
 			val contributionsTask = async {
 				member.id?.takeIf { it.isNotBlank() }?.let {
-					safeRunCatching { contributionRepo.getMemberContributions(it, groupId).first().getOrThrow() }
+					hydrationRead {
+						safeRunCatching { contributionRepo.getMemberContributions(it, groupId).first().getOrThrow() }
+					}
 				} ?: Result.success(emptyList())
 			}
 			val beneficiariesTask = async {
 				member.id?.takeIf { it.isNotBlank() }?.let {
-					safeRunCatching { beneficiaryRepo.syncBeneficiaries(it).getOrThrow() }
+					hydrationRead {
+						safeRunCatching { beneficiaryRepo.syncBeneficiaries(it).getOrThrow() }
+					}
 				} ?: Result.success(emptyList())
 			}
 			val loansTask = async {
 				member.id?.takeIf { it.isNotBlank() }?.let {
-					safeRunCatching { loanRepo.getMemberLoans(it).first().getOrThrow() }
+					hydrationRead {
+						safeRunCatching { loanRepo.getMemberLoans(it).first().getOrThrow() }
+					}
 				} ?: Result.success(emptyList())
 			}
 			val notificationsTask = async {
-				safeRunCatching {
-					notificationRepo.syncNotifications(groupId)
-					notificationRepo.observeNotifications(groupId).first().getOrThrow()
+				hydrationRead {
+					safeRunCatching {
+						notificationRepo.syncNotifications(groupId)
+						notificationRepo.observeNotifications(groupId).first().getOrThrow()
+					}
 				}
 			}
 			HydratedMemberData(
@@ -209,6 +305,23 @@ class MemberGroupContextCacheService @Inject constructor(
 				beneficiaries = beneficiariesTask.await(),
 				loans = loansTask.await(),
 				notifications = notificationsTask.await()
+			)
+		}
+
+		// The snapshot keeps whatever it already held, so a pillar that did not answer is invisible on
+		// screen: this is the only trace of which part of the book is being shown from the cache.
+		val missed = listOfNotNull(
+			"group".takeIf { groupOutcome.isFailure },
+			"member".takeIf { memberOutcome.isFailure },
+			"contributions".takeIf { hydrated.contributions.isFailure },
+			"beneficiaries".takeIf { hydrated.beneficiaries.isFailure },
+			"loans".takeIf { hydrated.loans.isFailure },
+			"notifications".takeIf { hydrated.notifications.isFailure }
+		)
+		if (missed.isNotEmpty()) {
+			AppLogger.w(
+				"MemberGroupContextCache",
+				"Group $groupId hydration kept the cached ${missed.joinToString()}."
 			)
 		}
 
@@ -271,10 +384,14 @@ data class CachedGroupContext(
 	val contributions: List<Contribution> = emptyList(),
 	val beneficiaries: List<Beneficiary> = emptyList(),
 	val loans: List<Loan> = emptyList(),
-	val loanRepayments: List<LoanRepayment> = emptyList(),
 	val notifications: List<AppNotification> = emptyList(),
 	val messages: List<AppNotification> = emptyList(),
 	val calculation: PaymentCalculation? = null,
+	/**
+	 * Every section of the portal answered from the cache. It says nothing about whether the
+	 * server confirmed any of it - cache reads cannot fail, so that question belongs to
+	 * [com.sanibonani.save.domain.repository.system.SyncRepository.staleGroups].
+	 */
 	val isFullyHydrated: Boolean = false,
 	val lastUpdatedMillis: Long = 0L
 )

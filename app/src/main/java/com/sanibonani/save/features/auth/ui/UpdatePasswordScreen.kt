@@ -27,6 +27,7 @@ import com.sanibonani.save.ui.components.*
 import com.sanibonani.save.ui.theme.*
 import com.sanibonani.save.ui.utils.KeyboardAwareScrollColumn
 import com.sanibonani.save.ui.utils.ToastUtils
+import com.sanibonani.save.features.common.presentation.UIEvent
 import com.sanibonani.save.ui.utils.rememberClickDebouncer
 import com.sanibonani.save.ui.components.InfoType
 import com.sanibonani.save.features.auth.presentation.AuthViewModel
@@ -51,6 +52,18 @@ fun UpdatePasswordScreen(
 
     LaunchedEffect(state.error) {
         state.error?.let { ToastUtils.showError(context, it) }
+    }
+
+    // A refused password update reaches AuthViewModel.handleError() only, so without this
+    // collector the screen would keep the old password and say nothing about it.
+    LaunchedEffect(vm) {
+        vm.events.collect { event ->
+            when (event) {
+                is UIEvent.ShowMessage -> ToastUtils.showInfo(context, event.message)
+                is UIEvent.ShowError -> ToastUtils.showError(context, event.message)
+                else -> Unit
+            }
+        }
     }
 
       Scaffold(topBar = { SanibonaniTopBar("Reset Password", onBack = onBack) }) { padding ->

@@ -3,6 +3,7 @@ package com.sanibonani.save.viewmodel
 import android.util.Log
 import androidx.arch.core.executor.testing.InstantTaskExecutorRule
 import com.google.firebase.crashlytics.FirebaseCrashlytics
+import com.sanibonani.save.MainDispatcherRule
 import com.sanibonani.save.domain.model.Beneficiary
 import com.sanibonani.save.domain.model.Member
 import com.sanibonani.save.domain.model.MemberStatus
@@ -24,15 +25,11 @@ import io.mockk.mockk
 import io.mockk.mockkStatic
 import io.mockk.slot
 import io.mockk.unmockkAll
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.flow.toList
-import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
-import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
-import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -50,13 +47,15 @@ import org.junit.Test
 class MemberBeneficiaryIdValidationTest {
 
     @get:Rule
+    val mainDispatcherRule = MainDispatcherRule()
+
+    @get:Rule
     val instantExecutorRule = InstantTaskExecutorRule()
 
     private val beneficiaryRepo = mockk<BeneficiaryRepository>(relaxed = true)
     private val claimRepo = mockk<BeneficiaryClaimRepository>(relaxed = true)
     private val fileStorageService = mockk<FileStorageService>(relaxed = true)
 
-    private val testDispatcher = StandardTestDispatcher()
     private lateinit var viewModel: MemberBeneficiaryViewModel
 
     // Luhn-valid per InputValidator.verifySAIdChecksum, DOB segment 800101.
@@ -77,9 +76,7 @@ class MemberBeneficiaryIdValidationTest {
         val mockCrashlytics = mockk<FirebaseCrashlytics>(relaxed = true)
         every { FirebaseCrashlytics.getInstance() } returns mockCrashlytics
 
-        Dispatchers.setMain(testDispatcher)
-
-        viewModel = MemberBeneficiaryViewModel(
+        viewModel = mainDispatcherRule.track(MemberBeneficiaryViewModel(
             addBeneficiaryUseCase = AddBeneficiaryUseCase(beneficiaryRepo),
             updateBeneficiaryUseCase = UpdateBeneficiaryUseCase(beneficiaryRepo),
             removeBeneficiary = RemoveBeneficiaryUseCase(beneficiaryRepo),
@@ -87,7 +84,7 @@ class MemberBeneficiaryIdValidationTest {
             submitBurialClaim = SubmitBurialClaimUseCase(claimRepo),
             fileStorageService = fileStorageService,
             validateClaimEligibility = ValidateBurialClaimEligibilityUseCase()
-        )
+        ))
 
         viewModel.setImpersonationContext(
             Member(id = "m1", groupId = "g1", fullName = "Alpha Member", status = MemberStatus.ACTIVE),
@@ -97,7 +94,6 @@ class MemberBeneficiaryIdValidationTest {
 
     @After
     fun tearDown() {
-        Dispatchers.resetMain()
         unmockkAll()
     }
 

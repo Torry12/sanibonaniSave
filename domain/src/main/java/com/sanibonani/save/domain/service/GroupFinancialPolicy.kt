@@ -49,12 +49,14 @@ class GroupFinancialPolicy @Inject constructor() {
     }
 
     /**
-     * Burial cover is the configured claim amount; the working reserve is five months of
-     * contributions. Stokvel holds 10% and emergency funds 20% of their balance. Everything
-     * else holds nothing.
+     * Burial cover is the configured claim amount; the working reserve is five months of what the
+     * group collects. `monthlyContribution` is the per-member rate, so the floor scales with the
+     * roster the same way `PlatformFeeService` and the stokvel projection already do. Stokvel holds
+     * 10% and emergency funds 20% of their balance. Everything else holds nothing.
      */
     fun requiredReserve(group: Group): Money = when (group.type) {
-        GroupType.BURIAL_SOCIETY -> group.monthlyContribution * 5.0
+        GroupType.BURIAL_SOCIETY ->
+            group.monthlyContribution * group.currentMembers.coerceAtLeast(1) * 5
         GroupType.STOKVEL -> group.balance.percent(10)
         GroupType.EMERGENCY_FUND -> group.balance.percent(20)
         else -> Money.ZERO

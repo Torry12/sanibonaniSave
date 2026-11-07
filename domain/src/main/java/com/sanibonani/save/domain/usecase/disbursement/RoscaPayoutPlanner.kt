@@ -8,6 +8,7 @@ import com.sanibonani.save.domain.model.MemberBehaviorTrack
 import com.sanibonani.save.domain.model.MemberStatus
 import com.sanibonani.save.domain.model.Money
 import com.sanibonani.save.domain.model.PayoutRequest
+import com.sanibonani.save.domain.model.isPlatformFee
 import com.sanibonani.save.domain.usecase.disbursement.CalculateRoscaRotationUseCase.RoscaSubgroup
 
 internal data class RoscaLoanDeduction(
@@ -93,7 +94,11 @@ internal object RoscaPayoutPlanner {
             .filter {
                 it.memberId in subgroup.memberIds &&
                     it.dueDate.startsWith(period) &&
-                    it.status == ContributionStatus.PAID
+                    it.status == ContributionStatus.PAID &&
+                    // A registration or member fee is booked to platform_ledger by
+                    // internal_post_contribution and never enters the group, so it is not pot money
+                    // even though it lands in this member's contribution rows.
+                    !it.isPlatformFee
             }
             .fold(Money.ZERO) { acc, contribution -> acc + contribution.amount }
         if (!actualCollectedPot.isPositive) {

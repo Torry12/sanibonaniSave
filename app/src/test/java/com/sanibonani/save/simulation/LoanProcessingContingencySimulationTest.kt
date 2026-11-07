@@ -10,7 +10,6 @@ import com.sanibonani.save.domain.usecase.credit.ValidateLoanEligibilityUseCase
 import com.sanibonani.save.domain.utils.DateProvider
 import com.sanibonani.save.domain.utils.PaymentCalculator
 import io.mockk.*
-import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.*
@@ -62,7 +61,7 @@ class LoanProcessingContingencySimulationTest {
 
         val result = validateEligibility(member, group, Money("1000.0"), 6) // Term 6 months
         assertTrue(result is ValidateLoanEligibilityUseCase.EligibilityResult.Ineligible)
-        assertEquals("Loan term exceeds the 3-month maximum limit.", (result as ValidateLoanEligibilityUseCase.EligibilityResult.Ineligible).reason)
+        assertEquals("Loan term exceeds this group's maximum of 3 months.", (result as ValidateLoanEligibilityUseCase.EligibilityResult.Ineligible).reason)
     }
 
     @Test
@@ -75,8 +74,8 @@ class LoanProcessingContingencySimulationTest {
         val contributions = listOf(
             Contribution(memberId = "m1", groupId = "g1", amount = Money("500.0"), status = ContributionStatus.PAID, paidAt = fixedNow.minusMonths(1).toString())
         )
-        every { contributionRepo.observeMemberContributions("m1", "g1") } returns flowOf(Result.success(contributions))
-        every { loanRepo.getMemberLoans("m1") } returns flowOf(Result.success(emptyList()))
+        coEvery { contributionRepo.syncMemberContributions("m1", "g1") } returns Result.success(contributions)
+        coEvery { loanRepo.getMemberLoansSync("m1") } returns Result.success(emptyList())
 
         // Attempting to borrow R2,500 (> R150 max borrowing power)
         val result = validateEligibility(member, group, Money("2500.0"), 2)

@@ -33,7 +33,8 @@ fun GroupProfileScreen(
     val clickDebouncer = rememberClickDebouncer()
 
     DisposableEffect(Unit) {
-        vm.setActive(true)
+        // No setActive(true) here: this profile renders one group, and resuming the shared view
+        // model's observation would read the whole public group list to draw nothing from it.
         onDispose {
             vm.setActive(false)
         }
