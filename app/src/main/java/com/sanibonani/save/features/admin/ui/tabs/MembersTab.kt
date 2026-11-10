@@ -30,6 +30,7 @@ import com.sanibonani.save.domain.model.Member
 import com.sanibonani.save.domain.model.MemberStatus
 import com.sanibonani.save.ui.components.*
 import com.sanibonani.save.ui.theme.*
+import com.sanibonani.save.ui.utils.formatZAR
 import com.sanibonani.save.features.admin.presentation.state.AdminMemberUiState
 
 @OptIn(ExperimentalMaterial3AdaptiveApi::class)
@@ -151,7 +152,7 @@ fun MemberDetailSection(member: Member, calculation: PaymentCalculation?) {
                 Spacer(Modifier.height(8.dp))
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     Text("Total Paid:")
-                    Text(member.totalPaid.toString(), fontWeight = FontWeight.Bold)
+                    Text(formatZAR(member.totalPaid), fontWeight = FontWeight.Bold)
                 }
                 if (calculation != null) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {

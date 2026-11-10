@@ -9,6 +9,11 @@ import androidx.sqlite.db.SupportSQLiteDatabase
  * several tables gained columns or lost NOT NULL constraints without a rebuild, so a
  * pre-Money install would fail Room's schema validation as soon as it opened v82.
  *
+ * The money-bearing tables the dashboards read — groups, members and contributions — are
+ * rebuilt here too. Their column sets already matched v82, but a legacy REAL amount would
+ * still surface as a coerced value rather than the money string the entity decodes, so the
+ * balance a payment just moved would not reach the screen that shows it.
+ *
  * Room validates against these tables one at a time, so the whole set is repaired here
  * rather than one failing release at a time. Data is preserved: REAL money is converted
  * to canonical 2-dp strings, epoch-millis columns keep their numeric value as text, and
@@ -16,6 +21,9 @@ import androidx.sqlite.db.SupportSQLiteDatabase
  */
 val MIGRATION_81_82 = object : Migration(81, 82) {
     override fun migrate(db: SupportSQLiteDatabase) {
+        db.rebuildGroups()
+        db.rebuildMembers()
+        db.rebuildContributions()
         db.rebuildPayments()
         db.rebuildPayouts()
         db.rebuildLoans()
@@ -56,10 +64,10 @@ private fun coalescedText(source: Set<String>, name: String, fallback: String): 
     if (name in source) "COALESCE(`$name`, $fallback)" else fallback
 
 private fun moneyOf(source: Set<String>, name: String, fallback: String = "'0.00'"): String =
-    if (name in source) "printf('%.2f', COALESCE(`$name`, 0))" else fallback
+    if (name in source) "COALESCE(printf('%.2f', CAST(`$name` AS REAL)), $fallback)" else fallback
 
 private fun nullableMoneyOf(source: Set<String>, name: String): String =
-    if (name in source) "CASE WHEN `$name` IS NULL THEN NULL ELSE printf('%.2f', `$name`) END" else "NULL"
+    if (name in source) "CASE WHEN `$name` IS NULL THEN NULL ELSE printf('%.2f', CAST(`$name` AS REAL)) END" else "NULL"
 
 private fun numberOrZero(source: Set<String>, name: String): String =
     if (name in source) "COALESCE(`$name`, 0)" else "0"
@@ -86,6 +94,221 @@ private fun SupportSQLiteDatabase.rebuildV82Table(
 }
 
 // ── Rebuilds ────────────────────────────────────────────────────────────────
+
+/**
+ * groups.balance is what the group dashboard renders, so a legacy REAL column must reach v82 as
+ * the same money string the entity reads, not as whatever SQLite happens to coerce it to.
+ */
+private fun SupportSQLiteDatabase.rebuildGroups() = rebuildV82Table(
+    table = "groups",
+    createSql = """
+        CREATE TABLE `groups` (
+            `id` TEXT NOT NULL, `name` TEXT NOT NULL, `type` TEXT NOT NULL,
+            `province` TEXT NOT NULL, `city` TEXT NOT NULL, `township` TEXT NOT NULL,
+            `description` TEXT NOT NULL, `logo_emoji` TEXT,
+            `late_fee_grace_days` INTEGER NOT NULL, `probation_months` INTEGER NOT NULL,
+            `payment_due_day` INTEGER NOT NULL, `max_members` INTEGER NOT NULL,
+            `current_members` INTEGER NOT NULL, `is_public` INTEGER NOT NULL,
+            `allow_partial_payment` INTEGER NOT NULL, `auto_suspend_after` INTEGER NOT NULL,
+            `bank_name` TEXT, `account_number` TEXT, `branch_code` TEXT, `account_type` TEXT NOT NULL,
+            `admin_user_id` TEXT, `fee_status` TEXT NOT NULL, `registration_paid` INTEGER NOT NULL,
+            `is_platform_suspended` INTEGER NOT NULL, `period_months` INTEGER NOT NULL,
+            `constitution_url` TEXT, `constitution_status` TEXT NOT NULL,
+            `max_beneficiaries` INTEGER NOT NULL, `beneficiary_increase_pct` REAL NOT NULL,
+            `burial_claim_amount` TEXT NOT NULL, `min_members_for_claims` INTEGER NOT NULL,
+            `min_reserve_percentage` REAL NOT NULL, `created_at` TEXT,
+            `investment_payout_date` TEXT, `latitude` REAL, `longitude` REAL, `geohash` TEXT,
+            `rosca_rotation_method` TEXT NOT NULL, `loan_interest_rate` REAL,
+            `loan_max_months` INTEGER, `financial_provider_id` TEXT,
+            `joining_fee` TEXT NOT NULL, `monthly_contribution` TEXT NOT NULL,
+            `late_fee` TEXT NOT NULL, `balance` TEXT NOT NULL, `goal_amount` TEXT NOT NULL,
+            `loan_max_amount` TEXT, `updated_at` TEXT, PRIMARY KEY(`id`)
+        )
+    """.trimIndent(),
+    indices = listOf(
+        "CREATE INDEX IF NOT EXISTS `index_groups_is_public` ON `groups` (`is_public`)",
+        "CREATE INDEX IF NOT EXISTS `index_groups_admin_user_id` ON `groups` (`admin_user_id`)",
+        "CREATE INDEX IF NOT EXISTS `index_groups_fee_status` ON `groups` (`fee_status`)"
+    ),
+) { source ->
+    listOf(
+        "id" to textOf(source, "id", "''"),
+        "name" to textOf(source, "name", "''"),
+        "type" to textOf(source, "type", "'OTHER'"),
+        "province" to textOf(source, "province", "''"),
+        "city" to textOf(source, "city", "''"),
+        "township" to textOf(source, "township", "''"),
+        "description" to textOf(source, "description", "''"),
+        "logo_emoji" to textOf(source, "logo_emoji"),
+        "late_fee_grace_days" to numberOrZero(source, "late_fee_grace_days"),
+        "probation_months" to numberOrZero(source, "probation_months"),
+        "payment_due_day" to numberOrZero(source, "payment_due_day"),
+        "max_members" to numberOrZero(source, "max_members"),
+        "current_members" to numberOrZero(source, "current_members"),
+        "is_public" to numberOrZero(source, "is_public"),
+        "allow_partial_payment" to numberOrZero(source, "allow_partial_payment"),
+        "auto_suspend_after" to numberOrZero(source, "auto_suspend_after"),
+        "bank_name" to textOf(source, "bank_name"),
+        "account_number" to textOf(source, "account_number"),
+        "branch_code" to textOf(source, "branch_code"),
+        "account_type" to textOf(source, "account_type", "'SAVINGS'"),
+        "admin_user_id" to textOf(source, "admin_user_id"),
+        "fee_status" to textOf(source, "fee_status", "'DUE'"),
+        "registration_paid" to numberOrZero(source, "registration_paid"),
+        "is_platform_suspended" to numberOrZero(source, "is_platform_suspended"),
+        "period_months" to numberOrZero(source, "period_months"),
+        "constitution_url" to textOf(source, "constitution_url"),
+        "constitution_status" to textOf(source, "constitution_status", "'PENDING'"),
+        "max_beneficiaries" to numberOrZero(source, "max_beneficiaries"),
+        "beneficiary_increase_pct" to numberOrZero(source, "beneficiary_increase_pct"),
+        "burial_claim_amount" to moneyOf(source, "burial_claim_amount", "'10000.00'"),
+        "min_members_for_claims" to numberOrZero(source, "min_members_for_claims"),
+        "min_reserve_percentage" to numberOrZero(source, "min_reserve_percentage"),
+        "created_at" to textOf(source, "created_at"),
+        "investment_payout_date" to textOf(source, "investment_payout_date"),
+        "latitude" to textOf(source, "latitude"),
+        "longitude" to textOf(source, "longitude"),
+        "geohash" to textOf(source, "geohash"),
+        "rosca_rotation_method" to textOf(source, "rosca_rotation_method", "'FIXED'"),
+        "loan_interest_rate" to textOf(source, "loan_interest_rate"),
+        "loan_max_months" to textOf(source, "loan_max_months"),
+        "financial_provider_id" to textOf(source, "financial_provider_id"),
+        "joining_fee" to moneyOf(source, "joining_fee"),
+        "monthly_contribution" to moneyOf(source, "monthly_contribution"),
+        "late_fee" to moneyOf(source, "late_fee"),
+        "balance" to moneyOf(source, "balance"),
+        "goal_amount" to moneyOf(source, "goal_amount"),
+        "loan_max_amount" to nullableMoneyOf(source, "loan_max_amount"),
+        "updated_at" to textOf(source, "updated_at")
+    )
+}
+
+/** members.total_paid backs the member dashboard's savings figure. */
+private fun SupportSQLiteDatabase.rebuildMembers() = rebuildV82Table(
+    table = "members",
+    createSql = """
+        CREATE TABLE `members` (
+            `id` TEXT NOT NULL, `group_id` TEXT NOT NULL, `user_id` TEXT, `member_key` TEXT,
+            `full_name` TEXT NOT NULL, `id_number` TEXT, `phone` TEXT, `email` TEXT,
+            `street` TEXT, `suburb` TEXT, `city` TEXT, `province` TEXT,
+            `status` TEXT NOT NULL, `joined_at` TEXT, `probation_end_at` TEXT,
+            `profile_photo_url` TEXT,
+            `document_1_url` TEXT, `document_1_type` TEXT, `document_1_status` TEXT NOT NULL,
+            `document_2_url` TEXT, `document_2_type` TEXT, `document_2_status` TEXT NOT NULL,
+            `document_3_url` TEXT, `document_3_type` TEXT, `document_3_status` TEXT NOT NULL,
+            `document_4_url` TEXT, `document_4_type` TEXT, `document_4_status` TEXT NOT NULL,
+            `document_5_url` TEXT, `document_5_type` TEXT, `document_5_status` TEXT NOT NULL,
+            `contract_url` TEXT, `contract_status` TEXT NOT NULL,
+            `bank_name` TEXT, `account_no` TEXT, `branch_code` TEXT,
+            `beneficiary_count` INTEGER, `beneficiary_over_65_count` INTEGER,
+            `monthly_contribution_override` TEXT, `total_contributions` INTEGER,
+            `total_paid` TEXT NOT NULL DEFAULT '0.00', `fcm_token` TEXT,
+            `notification_pref` TEXT NOT NULL, `rosca_position` INTEGER,
+            `created_at` TEXT, `updated_at` TEXT, PRIMARY KEY(`id`)
+        )
+    """.trimIndent(),
+    indices = listOf(
+        "CREATE INDEX IF NOT EXISTS `index_members_group_id` ON `members` (`group_id`)",
+        "CREATE INDEX IF NOT EXISTS `index_members_user_id` ON `members` (`user_id`)",
+        "CREATE INDEX IF NOT EXISTS `index_members_status` ON `members` (`status`)",
+        "CREATE UNIQUE INDEX IF NOT EXISTS `index_members_member_key` ON `members` (`member_key`)"
+    ),
+) { source ->
+    listOf(
+        "id" to textOf(source, "id", "''"),
+        "group_id" to textOf(source, "group_id", "''"),
+        "user_id" to textOf(source, "user_id"),
+        "member_key" to textOf(source, "member_key"),
+        "full_name" to textOf(source, "full_name", "''"),
+        "id_number" to textOf(source, "id_number"),
+        "phone" to textOf(source, "phone"),
+        "email" to textOf(source, "email"),
+        "street" to textOf(source, "street"),
+        "suburb" to textOf(source, "suburb"),
+        "city" to textOf(source, "city"),
+        "province" to textOf(source, "province"),
+        "status" to textOf(source, "status", "'PROBATION'"),
+        "joined_at" to textOf(source, "joined_at"),
+        "probation_end_at" to textOf(source, "probation_end_at"),
+        "profile_photo_url" to textOf(source, "profile_photo_url"),
+        "document_1_url" to textOf(source, "document_1_url"),
+        "document_1_type" to textOf(source, "document_1_type"),
+        "document_1_status" to textOf(source, "document_1_status", "'PENDING'"),
+        "document_2_url" to textOf(source, "document_2_url"),
+        "document_2_type" to textOf(source, "document_2_type"),
+        "document_2_status" to textOf(source, "document_2_status", "'PENDING'"),
+        "document_3_url" to textOf(source, "document_3_url"),
+        "document_3_type" to textOf(source, "document_3_type"),
+        "document_3_status" to textOf(source, "document_3_status", "'PENDING'"),
+        "document_4_url" to textOf(source, "document_4_url"),
+        "document_4_type" to textOf(source, "document_4_type"),
+        "document_4_status" to textOf(source, "document_4_status", "'PENDING'"),
+        "document_5_url" to textOf(source, "document_5_url"),
+        "document_5_type" to textOf(source, "document_5_type"),
+        "document_5_status" to textOf(source, "document_5_status", "'PENDING'"),
+        "contract_url" to textOf(source, "contract_url"),
+        "contract_status" to textOf(source, "contract_status", "'PENDING'"),
+        "bank_name" to textOf(source, "bank_name"),
+        "account_no" to textOf(source, "account_no"),
+        "branch_code" to textOf(source, "branch_code"),
+        "beneficiary_count" to textOf(source, "beneficiary_count"),
+        "beneficiary_over_65_count" to textOf(source, "beneficiary_over_65_count"),
+        "monthly_contribution_override" to nullableMoneyOf(source, "monthly_contribution_override"),
+        "total_contributions" to textOf(source, "total_contributions"),
+        "total_paid" to moneyOf(source, "total_paid"),
+        "fcm_token" to textOf(source, "fcm_token"),
+        "notification_pref" to textOf(source, "notification_pref", "'BOTH'"),
+        "rosca_position" to textOf(source, "rosca_position"),
+        "created_at" to textOf(source, "created_at"),
+        "updated_at" to textOf(source, "updated_at")
+    )
+}
+
+/**
+ * Contributions carry the payment rows the dashboards total up. A REAL `amount` column left
+ * over from before the Money migration is the difference between a payment that shows and one
+ * that does not, so this table is rebuilt even though the column set already matched v82.
+ */
+private fun SupportSQLiteDatabase.rebuildContributions() = rebuildV82Table(
+    table = "contributions",
+    createSql = """
+        CREATE TABLE `contributions` (
+            `id` TEXT NOT NULL, `member_id` TEXT NOT NULL, `group_id` TEXT NOT NULL,
+            `policy_id` TEXT, `amount` TEXT NOT NULL, `created_at` TEXT,
+            `due_date` TEXT NOT NULL, `paid_at` TEXT, `status` TEXT NOT NULL,
+            `type` TEXT NOT NULL DEFAULT 'contribution',
+            `payment_method` TEXT NOT NULL DEFAULT 'bank',
+            `late_fees_applied` INTEGER NOT NULL DEFAULT 0,
+            `late_fee_amount` TEXT NOT NULL, `principal_amount` TEXT NOT NULL,
+            `transaction_id` TEXT, `updated_at` TEXT, PRIMARY KEY(`id`)
+        )
+    """.trimIndent(),
+    indices = listOf(
+        "CREATE INDEX IF NOT EXISTS `index_contributions_member_id` ON `contributions` (`member_id`)",
+        "CREATE INDEX IF NOT EXISTS `index_contributions_group_id` ON `contributions` (`group_id`)",
+        "CREATE INDEX IF NOT EXISTS `index_contributions_status` ON `contributions` (`status`)",
+        "CREATE INDEX IF NOT EXISTS `index_contributions_due_date` ON `contributions` (`due_date`)"
+    ),
+) { source ->
+    listOf(
+        "id" to textOf(source, "id", "''"),
+        "member_id" to textOf(source, "member_id", "''"),
+        "group_id" to textOf(source, "group_id", "''"),
+        "policy_id" to textOf(source, "policy_id"),
+        "amount" to moneyOf(source, "amount"),
+        "created_at" to textOf(source, "created_at"),
+        "due_date" to textOf(source, "due_date", "''"),
+        "paid_at" to textOf(source, "paid_at"),
+        "status" to textOf(source, "status", "'DUE'"),
+        "type" to textOf(source, "type", "'contribution'"),
+        "payment_method" to textOf(source, "payment_method", "'bank'"),
+        "late_fees_applied" to numberOrZero(source, "late_fees_applied"),
+        "late_fee_amount" to moneyOf(source, "late_fee_amount"),
+        "principal_amount" to moneyOf(source, "principal_amount"),
+        "transaction_id" to textOf(source, "transaction_id"),
+        "updated_at" to textOf(source, "updated_at")
+    )
+}
 
 private fun SupportSQLiteDatabase.rebuildPayments() = rebuildV82Table(
     table = "payments",

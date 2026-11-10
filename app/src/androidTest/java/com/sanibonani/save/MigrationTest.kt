@@ -85,6 +85,17 @@ class MigrationTest {
             )
             execSQL(
                 """
+                INSERT INTO `contributions` (
+                    `id`, `member_id`, `group_id`, `policy_id`, `amount`, `created_at`, `due_date`,
+                    `paid_at`, `status`, `late_fees_applied`, `yoco_transaction_id`, `updated_at`
+                ) VALUES (
+                    'contribution-legacy', 'member-legacy', 'group-legacy', NULL, 250.5, '2025-01-01T00:00:00Z',
+                    '2025-01-31', '2025-01-02T00:00:00Z', 'PAID', 0, 'yoco-legacy', 123456789
+                )
+                """.trimIndent()
+            )
+            execSQL(
+                """
                 INSERT INTO `payments` (
                     `id`, `member_id`, `group_id`, `amount`, `payment_type`, `payment_method`,
                     `transaction_id`, `status`, `processed_at`, `created_at`, `updated_at`
@@ -155,6 +166,19 @@ class MigrationTest {
         assertEquals(10.0, groupCursor.getDouble(5), 0.0)
         groupCursor.close()
 
+        // The group dashboard renders groups.balance, so the legacy REAL balance has to arrive as
+        // the 2-dp money string the entity decodes rather than a coerced value.
+        val balanceCursor = db.query(
+            "SELECT `balance`, typeof(`balance`), `joining_fee`, `monthly_contribution`, `goal_amount` FROM `groups` WHERE `id` = 'group-legacy'"
+        )
+        assertTrue("Legacy group balance should survive migration", balanceCursor.moveToFirst())
+        assertEquals("500.00", balanceCursor.getString(0))
+        assertEquals("groups.balance should be stored as TEXT", "text", balanceCursor.getString(1))
+        assertEquals("120.00", balanceCursor.getString(2))
+        assertEquals("250.00", balanceCursor.getString(3))
+        assertEquals("50000.00", balanceCursor.getString(4))
+        balanceCursor.close()
+
         val memberCursor = db.query(
             """
             SELECT `full_name`, `member_key`, `document_3_status`, `document_4_status`, `document_5_status`,
@@ -175,6 +199,30 @@ class MigrationTest {
         assertEquals("Johannesburg", memberCursor.getString(8))
         assertEquals("Gauteng", memberCursor.getString(9))
         memberCursor.close()
+
+        val totalPaidCursor = db.query(
+            "SELECT `total_paid`, typeof(`total_paid`) FROM `members` WHERE `id` = 'member-legacy'"
+        )
+        assertTrue("Legacy member total_paid should survive migration", totalPaidCursor.moveToFirst())
+        assertEquals("1750.00", totalPaidCursor.getString(0))
+        assertEquals("members.total_paid should be stored as TEXT", "text", totalPaidCursor.getString(1))
+        totalPaidCursor.close()
+
+        val contributionCursor = db.query(
+            """
+            SELECT `amount`, typeof(`amount`), `status`, `type`, `payment_method`, `transaction_id`
+            FROM `contributions`
+            WHERE `id` = 'contribution-legacy'
+            """.trimIndent()
+        )
+        assertTrue("Legacy contribution row should survive migration", contributionCursor.moveToFirst())
+        assertEquals("Legacy REAL amount should become a 2-dp Money string", "250.50", contributionCursor.getString(0))
+        assertEquals("Contributions amount should be stored as TEXT", "text", contributionCursor.getString(1))
+        assertEquals("PAID", contributionCursor.getString(2))
+        assertEquals("contribution", contributionCursor.getString(3))
+        assertEquals("bank", contributionCursor.getString(4))
+        assertEquals("yoco-legacy", contributionCursor.getString(5))
+        contributionCursor.close()
 
         val paymentCursor = db.query(
             """
