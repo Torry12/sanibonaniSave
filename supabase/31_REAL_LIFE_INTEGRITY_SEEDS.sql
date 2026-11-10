@@ -110,6 +110,14 @@ BEGIN
     VALUES (v_member_id, v_emergency_id, 5000.00, 15.00, 5750.00, 0.00, 479.17, (v_now - interval '4 months')::date, (v_now + interval '8 months')::date, 'overdue', 'Emergency Repairs')
     RETURNING id INTO v_loan_id;
 
+    -- An overdue loan is a disbursement that happened four months ago, so the R10,000 grant above
+    -- has to cover it now; the R5,000 debit is booked with the row instead of only appearing when
+    -- someone reconstructs the ledger.
+    PERFORM pg_temp.seed_post_loan_disbursement(
+        v_loan_id, v_emergency_id, v_member_id, 5000.00, 'Lindiwe Debt',
+        v_now - interval '4 months'
+    );
+
 
     -- 3. SCENARIO: The "Escalated Claim" (LIGHT-Burial Society)
     -- Purpose: Test Platform Admin intervention workflow and claim limits.

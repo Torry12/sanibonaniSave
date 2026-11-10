@@ -20,6 +20,8 @@ import com.sanibonani.save.domain.usecase.auth.SignInUseCase
 import com.sanibonani.save.domain.usecase.auth.UpdatePasswordUseCase
 import com.sanibonani.save.domain.validation.InputValidator
 import com.sanibonani.save.domain.validation.ValidationUtils
+import com.sanibonani.save.domain.utils.isUnverifiedEmail
+import com.sanibonani.save.domain.utils.toUserMessage
 import com.sanibonani.save.service.AdminGroupContextCacheService
 import com.sanibonani.save.service.MemberGroupContextCacheService
 import com.sanibonani.save.service.UserProfileCacheService
@@ -128,11 +130,11 @@ class AuthViewModel @Inject constructor(
         }
     }
 
-    fun updateEmail(email: String) { updateState { it.copy(email = email) } }
+    fun updateEmail(email: String) { updateState { it.copy(email = email, fieldErrors = it.fieldErrors - "email") } }
     fun updateRememberMe(remember: Boolean) { updateState { it.copy(rememberMe = remember) } }
-    fun updateFullName(name: String) { updateState { it.copy(fullName = name) } }
-    fun updatePasswordState(password: String) { updateState { it.copy(password = password) } }
-    fun updateConfirmPw(confirmPw: String) { updateState { it.copy(confirmPw = confirmPw) } }
+    fun updateFullName(name: String) { updateState { it.copy(fullName = name, fieldErrors = it.fieldErrors - "fullName") } }
+    fun updatePasswordState(password: String) { updateState { it.copy(password = password, fieldErrors = it.fieldErrors - "password") } }
+    fun updateConfirmPw(confirmPw: String) { updateState { it.copy(confirmPw = confirmPw, fieldErrors = it.fieldErrors - "confirmPw") } }
     fun clearNavigation() { updateState { it.copy(navigateTo = null) } }
     fun clearNewRegistrationFlag() { updateState { it.copy(isNewRegistration = false) } }
 
@@ -142,19 +144,33 @@ class AuthViewModel @Inject constructor(
     fun signIn() {
         val s = uiState.value
         if (!ValidationUtils.isValidEmail(s.email.trim())) {
-            updateState { it.copy(error = "Please enter a valid email address") }
+            updateState { it.copy(fieldErrors = mapOf("email" to "Please enter a valid email address")) }
             return
         }
         launchJob("auth_operation") {
-            updateState { it.copy(isLoading = true, error = null) }
+            updateState { it.copy(isLoading = true, error = null, errorType = null, fieldErrors = emptyMap()) }
             val email = s.email.trim().lowercase()
             signInUseCase(email, s.password, s.rememberMe).onSuccess {
                 // isLoggedIn and userRole are published by [accountStatus] once the session has
                 // hydrated. Setting them here would route the login screen on a role that has
                 // not been resolved yet, sending admins to the member dashboard first.
             }.onFailure { e ->
-                updateState { it.copy(isLoading = false) }
-                handleError(e)
+                if (e.isUnverifiedEmail()) {
+                    // The only self-service fix - resending the link - lives in the banner under the
+                    // fields, so this rejection has to be written where that button renders. A toast
+                    // would say the address is unconfirmed and offer nothing to do about it.
+                    AppLogger.w("AuthViewModel", "Sign-in refused: that address has not been confirmed")
+                    updateState {
+                        it.copy(
+                            isLoading = false,
+                            error = e.toUserMessage(),
+                            errorType = "unverified"
+                        )
+                    }
+                } else {
+                    updateState { it.copy(isLoading = false) }
+                    handleError(e)
+                }
             }
         }
     }
@@ -169,24 +185,24 @@ class AuthViewModel @Inject constructor(
         val password = s.password
 
         if (fullName.length < 3) {
-            updateState { it.copy(error = "Full Name must be at least 3 characters") }
+            updateState { it.copy(fieldErrors = mapOf("fullName" to "Full Name must be at least 3 characters")) }
             return
         }
         if (!ValidationUtils.isValidEmail(email)) {
-            updateState { it.copy(error = "Please enter a valid email address") }
+            updateState { it.copy(fieldErrors = mapOf("email" to "Please enter a valid email address")) }
             return
         }
         InputValidator.validatePassword(password).getErrorMessage()?.let { message ->
-            updateState { it.copy(error = message) }
+            updateState { it.copy(fieldErrors = mapOf("password" to message)) }
             return
         }
         if (password != s.confirmPw) {
-            updateState { it.copy(error = "Passwords do not match") }
+            updateState { it.copy(fieldErrors = mapOf("confirmPw" to "Passwords do not match")) }
             return
         }
 
         launchJob("auth_operation") {
-            updateState { it.copy(isLoading = true, error = null) }
+            updateState { it.copy(isLoading = true, error = null, errorType = null, fieldErrors = emptyMap()) }
             registerAccount(email, password, fullName, role)
                 .onSuccess {
                     userProfileCache.save(fullName, email, "")
@@ -225,10 +241,15 @@ class AuthViewModel @Inject constructor(
      * until this runs.
      */
     fun refreshUserRole() {
-        val userId = getAttributableActorId() ?: uiState.value.userId ?: return
+        val userId = getAttributableActorId() ?: uiState.value.userId
         launchJob("refresh_role") {
+            // The role is resolved from the session itself, so a ViewModel that never captured a user
+            // id has no reason to skip the refresh: dropping it kept the creator on the role they had
+            // before the group was made.
             val role = getCurrentUserRole()
-            updateState { it.copy(userId = userId, userRole = role) }
+            updateState {
+                if (userId == null) it.copy(userRole = role) else it.copy(userId = userId, userRole = role)
+            }
         }
     }
 
@@ -261,7 +282,7 @@ class AuthViewModel @Inject constructor(
         launchJob("resend_verification") {
             updateState { it.copy(isLoading = true, error = null) }
             resendVerificationEmail(uiState.value.email).onSuccess {
-                updateState { it.copy(isLoading = false, error = null) }
+                updateState { it.copy(isLoading = false, error = null, errorType = null) }
                 showMessage("Verification email sent! Please check your inbox.")
             }.onFailure { handleError(it) }
         }
@@ -280,9 +301,15 @@ class AuthViewModel @Inject constructor(
     fun handleDeepLink(url: String) {
         launchSafeJob("deep_link", "Could not process the link") {
             if (url.contains("reset-password")) {
-                updateState { it.copy(isResettingPassword = true) }
+                // The flag is only raised once the token behind the link has actually been exchanged.
+                // It also unlocks the auth-entry guards in NavUtils, so a link the client refused left
+                // the app sitting in a half-authenticated state that nothing ever cleared.
                 handleAuthDeepLink(url)
-                    .onFailure { AppLogger.w("AuthViewModel", "Reset-password deep link failed: ${it.message}") }
+                    .onSuccess { updateState { it.copy(isResettingPassword = true) } }
+                    .onFailure { e ->
+                        AppLogger.w("AuthViewModel", "Reset-password deep link refused: ${e.message}")
+                        handleError(e)
+                    }
             } else if (url.contains("bank/linked")) {
                 val uri = android.net.Uri.parse(url)
                 val connectionId = uri.getQueryParameter("connection_id") ?: ""
@@ -290,7 +317,10 @@ class AuthViewModel @Inject constructor(
                 com.sanibonani.save.domain.event.EventBus.emit(com.sanibonani.save.domain.event.BankCallbackEvent(connectionId, status))
             } else {
                 handleAuthDeepLink(url)
-                    .onFailure { AppLogger.w("AuthViewModel", "Deep link failed: ${it.message}") }
+                    .onFailure { e ->
+                        AppLogger.w("AuthViewModel", "Deep link refused: ${e.message}")
+                        handleError(e)
+                    }
             }
         }
     }

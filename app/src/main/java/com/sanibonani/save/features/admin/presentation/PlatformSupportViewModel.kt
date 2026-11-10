@@ -45,6 +45,11 @@ class PlatformSupportViewModel @Inject constructor(
         launchJob("search_members") {
             searchMemberInsights(query).onSuccess { insights ->
                 updateState { it.copy(memberBehaviorInsights = insights) }
+            }.onFailure {
+                // The console decides who to impersonate or suspend, so hits for an earlier term
+                // must not stay rendered under a query the server refused to answer.
+                updateState { it.copy(memberBehaviorInsights = emptyList()) }
+                handleError(it)
             }
         }
     }

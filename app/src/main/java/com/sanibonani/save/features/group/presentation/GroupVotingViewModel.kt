@@ -16,8 +16,6 @@ data class GroupVotingUiState(
     val groupId: String = "",
     val memberId: String? = null,
     val polls: List<GroupPollWithOptions> = emptyList(),
-    val isLoading: Boolean = false,
-    val isSaving: Boolean = false,
     val message: String? = null,
     val error: String? = null
 )
@@ -40,8 +38,10 @@ class GroupVotingViewModel @Inject constructor(
         pollsJob?.cancel()
         pollsJob = launchJob("load_polls") {
             observeGroupPolls(groupId, memberId).collectLatest { res ->
-                res.onSuccess { list -> updateState { it.copy(polls = list, isLoading = false) } }
-                    .onFailure { updateState { it.copy(isLoading = false) } }
+                res.onSuccess { list -> updateState { it.copy(polls = list) } }
+                    // The screen renders state.error, so a failed poll read says so instead of
+                    // showing an empty list.
+                    .onFailure { e -> updateState { it.copy(error = e.toUserMessage()) } }
             }
         }
     }
@@ -49,10 +49,15 @@ class GroupVotingViewModel @Inject constructor(
     fun createPoll(title: String, description: String?, options: List<String>, allowMultipleChoice: Boolean = false) {
         val s = uiState.value
         launchJob("create_poll") {
-            updateState { it.copy(isSaving = true) }
-            createGroupPoll(s.groupId, s.memberId, title, description, options, allowMultipleChoice).onSuccess {
-                updateState { it.copy(isSaving = false, message = "Poll created") }
-            }
+            createGroupPoll(s.groupId, s.memberId, title, description, options, allowMultipleChoice)
+                .onSuccess {
+                    updateState { it.copy(message = "Poll created", error = null) }
+                }
+                // A poll the server refuses is an ordinary answer, but until now it was the only
+                // answer this call could give: the admin pressed Create and nothing changed.
+                .onFailure { error ->
+                    updateState { it.copy(message = null, error = error.toUserMessage()) }
+                }
         }
     }
 
@@ -60,20 +65,26 @@ class GroupVotingViewModel @Inject constructor(
         val s = uiState.value
         if (s.memberId == null) return
         launchJob("cast_vote") {
-            castGroupPollVote(s.groupId, pollId, optionId, s.memberId).onSuccess {
-                updateState { it.copy(message = "Vote submitted") }
-            }
+            castGroupPollVote(s.groupId, pollId, optionId, s.memberId)
+                .onSuccess {
+                    updateState { it.copy(message = "Vote submitted", error = null) }
+                }
+                // A vote is a record the member believes was counted, so a refusal - closed poll,
+                // not a member, a duplicate ballot - has to be visible instead of silently dropped.
+                .onFailure { error ->
+                    updateState { it.copy(message = null, error = error.toUserMessage()) }
+                }
         }
     }
 
     fun closePoll(pollId: String) {
         launchJob("close_poll") {
             closeGroupPoll(pollId)
-                .onSuccess { updateState { it.copy(message = "Poll closed") } }
+                .onSuccess { updateState { it.copy(message = "Poll closed", error = null) } }
                 // The database decides who may close a poll, so a refusal is an ordinary answer
                 // here, not an anomaly. Without this leg the button appeared to do nothing.
                 .onFailure { error ->
-                    updateState { it.copy(error = error.toUserMessage()) }
+                    updateState { it.copy(message = null, error = error.toUserMessage()) }
                 }
         }
     }

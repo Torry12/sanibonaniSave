@@ -130,10 +130,17 @@
     <string name="ui_support_mode_active_all_actions_are_logged">Support Mode Active — All actions are logged.</string>
     <string name="ui_airplane_mode_active_syncing_is_paused">Airplane Mode Active — Syncing is paused.</string>
     <string name="ui_offline_mode_using_cached_data">Offline Mode — Using cached data.</string>
+    <string name="ui_sections_not_confirmed_with_server">Not confirmed with the server: %s.</string>
+    <string name="ui_payment_amounts_not_verified">These amounts come from records saved on this device and have not been confirmed with the server.</string>
+    <string name="ui_member_activity_not_confirmed">This list has not been confirmed with the server, so an empty screen proves nothing. Pull to refresh.</string>
+    <string name="ui_member_activity_no_group_entries">No entries in this member\'s group ledger. A registration fee or member fee is platform revenue and is never booked to the group.</string>
     <string name="ui_switch_group_label">Switch Group: %s</string>
     <string name="ui_could_not_load_membership">Could not load membership</string>
     <string name="ui_retry">Retry</string>
     <string name="ui_total_savings">Total Savings</string>
+    <string name="ui_member_platform_fees_paid">Platform Fees Paid</string>
+    <string name="ui_member_fee">Member Fee</string>
+    <string name="ui_member_activity_paid_to_platform">Paid to the platform</string>
     <string name="ui_next_payment_label">Next Payment</string>
     <string name="ui_overdue">Overdue</string>
     <string name="ui_due_soon">Due Soon</string>
@@ -169,7 +176,6 @@
     <string name="ui_admin_view_support">Admin View (Support)</string>
     <string name="ui_admin_dashboard">Admin Dashboard</string>
     <string name="ui_support_mode_active_access_is_logged">Support Mode Active — Access is logged.</string>
-    <string name="ui_airplane_mode_active_turn_off_to_sync">Airplane Mode Active — Turn off to sync data.</string>
     <string name="ui_switch_group">Switch Group</string>
     <string name="ui_balance">Balance</string>
     <string name="ui_members">Members</string>
@@ -180,8 +186,6 @@
     <string name="ui_target_time_period_months">Target Time Period (Months)</string>
     <string name="ui_months">months</string>
     <string name="ui_suggested_strategy">Suggested Strategy</string>
-    <string name="ui_financial_analytics">Financial Analytics</string>
-    <string name="ui_group_health_score">Group Health Score</string>
     <string name="ui_group_ledger">Group Ledger</string>
     <string name="ui_immutable_audit_trail">Immutable Audit Trail</string>
     <string name="ui_no_transactions">No Transactions</string>
@@ -191,7 +195,6 @@
     <string name="ui_edit_beneficiary">Edit Beneficiary</string>
     <string name="ui_full_name">Full Name</string>
     <string name="ui_id_number">ID Number</string>
-    <string name="ui_relationship">Relationship</string>
     <string name="ui_save">Save</string>
     <string name="ui_claim_details_label">Claim Details: %s</string>
     <string name="ui_requisite_documents">Requisite Documents</string>

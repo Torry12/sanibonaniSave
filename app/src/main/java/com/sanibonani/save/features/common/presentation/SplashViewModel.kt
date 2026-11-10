@@ -64,9 +64,13 @@ class SplashViewModel @Inject constructor(
             val isReachable = checkBackendReachability(fallbackResult = hasAuthenticatedSession)
 
             if (!isReachable) {
-                // Offline-first startup continues with the local Room cache. Network recovery
-                // and outbox synchronization happen after the UI is available.
-                AppLogger.i("SplashViewModel", "Network unavailable; continuing in offline mode")
+                // The probe only answers false when there is also no session to fall back on, so this
+                // device has neither the network nor cached money to open: the bootloader's retry
+                // screen is the honest state. A returning member never lands here, because the probe
+                // hands a signed-in app the "try anyway" fallback and offline startup continues.
+                AppLogger.w("SplashViewModel", "Network unavailable with no local session; showing retry")
+                _connectionError.value =
+                    "Cannot reach the SanibonaniSave servers and no account is signed in on this device. Check your connection and try again."
             } else {
                 AppLogger.i("SplashViewModel", "Connection verified successfully")
             }

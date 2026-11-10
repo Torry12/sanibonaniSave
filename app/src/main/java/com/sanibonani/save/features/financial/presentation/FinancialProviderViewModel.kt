@@ -30,9 +30,13 @@ class FinancialProviderViewModel @Inject constructor(
             updateState { it.copy(isLoading = true, error = null) }
             observeFinancialProviders().collect { result ->
                 result.onSuccess { list ->
-                    updateState { it.copy(providers = list, isLoading = false) }
+                    updateState { it.copy(providers = list, isLoading = false, error = null) }
                 }.onFailure { e ->
+                    // The list stays as it stands: an unread stream is not evidence that the platform
+                    // has no providers. The refusal is recorded so the section can render its own state
+                    // instead of the empty column an answered empty list also produces.
                     updateState { it.copy(isLoading = false, error = e.toUserMessage()) }
+                    handleError(e)
                 }
             }
         }

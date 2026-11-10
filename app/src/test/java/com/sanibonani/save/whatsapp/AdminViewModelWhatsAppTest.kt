@@ -3,6 +3,7 @@ package com.sanibonani.save.whatsapp
 import android.util.Log
 import androidx.arch.core.executor.testing.InstantTaskExecutorRule
 import com.google.firebase.crashlytics.FirebaseCrashlytics
+import com.sanibonani.save.MainDispatcherRule
 import com.sanibonani.save.domain.model.*
 import com.sanibonani.save.domain.repository.admin.*
 import com.sanibonani.save.domain.repository.auth.*
@@ -23,10 +24,10 @@ import com.sanibonani.save.service.AdminGroupContextCacheService
 import com.sanibonani.save.features.admin.presentation.AdminMemberViewModel
 import com.sanibonani.save.domain.model.AuthSession
 import io.mockk.*
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.test.*
+import kotlinx.coroutines.withTimeoutOrNull
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
@@ -37,9 +38,10 @@ import org.junit.Test
 class AdminViewModelWhatsAppTest {
 
     @get:Rule
-    val instantExecutorRule = InstantTaskExecutorRule()
+    val mainDispatcherRule = MainDispatcherRule()
 
-    private val testDispatcher = StandardTestDispatcher()
+    @get:Rule
+    val instantExecutorRule = InstantTaskExecutorRule()
 
     private val groupRepo              = mockk<GroupRepository>(relaxed = true)
     private val memberRepo             = mockk<MemberRepository>(relaxed = true)
@@ -75,9 +77,7 @@ class AdminViewModelWhatsAppTest {
         mockkStatic(FirebaseCrashlytics::class)
         every { FirebaseCrashlytics.getInstance() } returns mockk(relaxed = true)
 
-        Dispatchers.setMain(testDispatcher)
-
-        viewModel = AdminMemberViewModel(
+        viewModel = mainDispatcherRule.track(AdminMemberViewModel(
             adminContextCache,
             UpdateMemberBankingDetailsUseCase(memberRepo),
             ObserveGroupContributionsUseCase(contributionRepo),
@@ -85,7 +85,7 @@ class AdminViewModelWhatsAppTest {
             ObserveBeneficiariesUseCase(beneficiaryRepo),
             UpdateBeneficiaryUseCase(beneficiaryRepo),
             ObserveMemberDocumentsUseCase(memberDocumentRepo),
-            ExportMemberStatementUseCase(exportRepo),
+            ExportMemberStatementUseCase(exportRepo, contributionRepo),
             BuildDocumentAuthHeadersUseCase(supabaseRepo),
             updateMemberStatus,
             verifyMemberDocument,
@@ -93,12 +93,11 @@ class AdminViewModelWhatsAppTest {
             validateLoanEligibility,
             sendNotification,
             paymentCalculator
-        )
+        ))
     }
 
     @After
     fun tearDown() {
-        Dispatchers.resetMain()
         unmockkAll()
     }
 
@@ -115,6 +114,7 @@ class AdminViewModelWhatsAppTest {
         advanceUntilIdle()
 
         assertTrue(viewModel.state.value.messageSentSuccess)
-        assertNull(viewModel.state.value.error)
+        val event = withTimeoutOrNull(2_000) { viewModel.events.first() }
+        assertNull("a successful send reports nothing wrong, emitted: $event", event)
     }
 }

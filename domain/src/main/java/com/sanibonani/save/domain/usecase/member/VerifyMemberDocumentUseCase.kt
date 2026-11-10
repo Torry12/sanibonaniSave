@@ -14,10 +14,12 @@ class VerifyMemberDocumentUseCase @Inject constructor(
     suspend operator fun invoke(memberId: String, docIndex: Int, approve: Boolean): Result<Unit> {
         val status = if (approve) DocumentStatus.VERIFIED else DocumentStatus.REJECTED
         return memberRepo.updateMemberDocumentStatus(memberId, docIndex, status)
-            .onSuccess {
+            .mapCatching {
                 if (!approve) {
-                    // Automatically suspend member if a required document is rejected
-                    updateMemberStatusUseCase(memberId, MemberStatus.SUSPENDED)
+                    // Automatically suspend member if a required document is rejected.
+                    // Refusing to report a suspension that did not apply told the admin the rejection
+                    // had taken effect, over a member who stayed active with a rejected ID on file.
+                    updateMemberStatusUseCase(memberId, MemberStatus.SUSPENDED).getOrThrow()
                 }
             }
     }

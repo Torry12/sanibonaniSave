@@ -3,6 +3,7 @@ package com.sanibonani.save.viewmodel
 import android.util.Log
 import androidx.arch.core.executor.testing.InstantTaskExecutorRule
 import com.google.firebase.crashlytics.FirebaseCrashlytics
+import com.sanibonani.save.MainDispatcherRule
 import com.sanibonani.save.data.remote.SupabaseConnectionManager
 import com.sanibonani.save.data.sync.RealtimeSyncManager
 import com.sanibonani.save.domain.model.AuthSession
@@ -24,27 +25,28 @@ import com.sanibonani.save.domain.usecase.auth.SetBiometricEnabledUseCase
 import com.sanibonani.save.domain.usecase.auth.SignInUseCase
 import com.sanibonani.save.domain.usecase.auth.UpdatePasswordUseCase
 import com.sanibonani.save.features.auth.presentation.AuthViewModel
+import com.sanibonani.save.features.common.presentation.UIEvent
 import com.sanibonani.save.features.common.presentation.LoadStateQueue
 import com.sanibonani.save.service.AdminGroupContextCacheService
 import com.sanibonani.save.service.MemberGroupContextCacheService
 import com.sanibonani.save.service.UserProfileCacheService
 import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkStatic
 import io.mockk.unmockkAll
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.TestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
-import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
-import kotlinx.coroutines.test.setMain
+import kotlinx.coroutines.withTimeoutOrNull
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
@@ -57,6 +59,9 @@ import org.junit.Test
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class AuthViewModelHydrationTest {
+
+    @get:Rule
+    val mainDispatcherRule = MainDispatcherRule()
 
     @get:Rule
     val instantExecutorRule = InstantTaskExecutorRule()
@@ -87,17 +92,14 @@ class AuthViewModelHydrationTest {
         every { Log.e(any(), any()) } returns 0
         mockkStatic(FirebaseCrashlytics::class)
         every { FirebaseCrashlytics.getInstance() } returns mockk(relaxed = true)
-        // A fresh scheduler per test: the ViewModel's collectors outlive the test body, and a
-        // shared scheduler lets one test's leaked coroutine fail the next one.
-        testDispatcher = StandardTestDispatcher()
-        Dispatchers.setMain(testDispatcher)
+        testDispatcher = mainDispatcherRule.dispatcher
 
         every { connManager.currentClient } returns MutableStateFlow(null)
         every { supabaseRepo.sessionFlow } returns sessions
         coEvery { supabaseRepo.getUserRole() } returns UserRole.GROUP_ADMIN
         coEvery { userProfileRepo.getProfile(any()) } returns Result.success(null)
 
-        viewModel = AuthViewModel(
+        viewModel = mainDispatcherRule.track(AuthViewModel(
             ObserveAuthSessionUseCase(supabaseRepo),
             GetUserProfileUseCase(userProfileRepo),
             GetCurrentUserRoleUseCase(supabaseRepo),
@@ -118,7 +120,7 @@ class AuthViewModelHydrationTest {
             loadQueue,
             mockk(relaxed = true),
             mockk(relaxed = true)
-        )
+        ))
     }
 
     @After
@@ -126,7 +128,6 @@ class AuthViewModelHydrationTest {
         // Drain while Main is still installed, otherwise a suspended collector resumes after
         // resetMain() and reports "Dispatchers.Main was accessed ...".
         testDispatcher.scheduler.advanceUntilIdle()
-        Dispatchers.resetMain()
         unmockkAll()
     }
 
@@ -171,6 +172,28 @@ class AuthViewModelHydrationTest {
     }
 
     @Test
+    fun `a member boot warms the member cache but not the admin cache`() = runTest {
+        coEvery { supabaseRepo.getUserRole() } returns UserRole.MEMBER
+
+        sessions.value = AuthSession(userId = "u1", email = "member@example.com", accessToken = "token")
+        advanceUntilIdle()
+
+        assertEquals(UserRole.MEMBER, viewModel.state.value.userRole)
+        coVerify(exactly = 1) { memberCache.warmUpForUser("u1") }
+        coVerify(exactly = 0) { adminCache.warmUpForUser(any()) }
+    }
+
+    @Test
+    fun `an admin boot warms both context caches`() = runTest {
+        sessions.value = AuthSession(userId = "u1", email = "admin@example.com", accessToken = "token")
+        advanceUntilIdle()
+
+        assertEquals(UserRole.GROUP_ADMIN, viewModel.state.value.userRole)
+        coVerify(exactly = 1) { memberCache.warmUpForUser("u1") }
+        coVerify(exactly = 1) { adminCache.warmUpForUser("u1") }
+    }
+
+    @Test
     fun `a role lookup failure falls back to the least privileged role`() = runTest {
         coEvery { supabaseRepo.getUserRole() } throws IllegalStateException("metadata unavailable")
 
@@ -196,5 +219,57 @@ class AuthViewModelHydrationTest {
 
         assertEquals(UserRole.GROUP_ADMIN, viewModel.state.value.userRole)
         assertTrue(viewModel.state.value.isLoggedIn)
+    }
+
+    @Test
+    fun `a role refresh with no user id still resolves the role`() = runTest {
+        every { supabaseRepo.currentUserId } returns null
+
+        // The caller is the group-created callback. Refusing to run because the ViewModel never
+        // captured an id left the creator on the role they held before creating the group.
+        coEvery { supabaseRepo.getUserRole() } returns UserRole.GROUP_ADMIN
+        viewModel.refreshUserRole()
+        advanceUntilIdle()
+
+        assertEquals(UserRole.GROUP_ADMIN, viewModel.state.value.userRole)
+        assertNull("and the missing id is not invented", viewModel.state.value.userId)
+    }
+
+    @Test
+    fun `a reset link the client refuses is reported and does not arm the password form`() = runTest {
+        coEvery { supabaseRepo.handleDeepLink(any()) } returns
+            Result.failure(IllegalStateException("Email link could not be verified"))
+
+        viewModel.handleDeepLink("sanibonani://reset-password?token_hash=abc123&next=/update")
+        advanceUntilIdle()
+
+        // isResettingPassword also unlocks the auth-entry guards in NavUtils, so leaving it set on a
+        // link that never verified would keep the app in a half-authenticated state indefinitely.
+        assertTrue("a refused ticket cannot arm the guard", !viewModel.state.value.isResettingPassword)
+        val event = withTimeoutOrNull(2_000) { viewModel.events.first() }
+        assertTrue("emitted event: $event", event is UIEvent.ShowError)
+    }
+
+    @Test
+    fun `a reset link the client accepts arms the password form with no error`() = runTest {
+        coEvery { supabaseRepo.handleDeepLink(any()) } returns Result.success(Unit)
+
+        viewModel.handleDeepLink("sanibonani://reset-password?token_hash=abc123&next=/update")
+        advanceUntilIdle()
+
+        assertTrue(viewModel.state.value.isResettingPassword)
+        assertNull(withTimeoutOrNull(2_000) { viewModel.events.first() })
+    }
+
+    @Test
+    fun `a callback link that fails is reported rather than only logged`() = runTest {
+        coEvery { supabaseRepo.handleDeepLink(any()) } returns
+            Result.failure(IllegalStateException("invalid flow state"))
+
+        viewModel.handleDeepLink("sanibonani://auth/callback?code=xyz")
+        advanceUntilIdle()
+
+        val event = withTimeoutOrNull(2_000) { viewModel.events.first() }
+        assertTrue("emitted event: $event", event is UIEvent.ShowError)
     }
 }

@@ -2,14 +2,15 @@ package com.sanibonani.save.viewmodel
 
 import android.util.Log
 import androidx.arch.core.executor.testing.InstantTaskExecutorRule
+import com.sanibonani.save.MainDispatcherRule
 import com.sanibonani.save.domain.model.*
 import com.sanibonani.save.domain.repository.auth.*
 import com.sanibonani.save.domain.service.MfaService
+import com.sanibonani.save.domain.service.RealtimeSyncService
 import com.sanibonani.save.domain.usecase.auth.GetCurrentUserRoleUseCase
 import com.sanibonani.save.domain.usecase.auth.VerifyMfaChallengeUseCase
 import com.sanibonani.save.features.admin.presentation.PlatformAdminViewModel
 import io.mockk.*
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.*
@@ -24,13 +25,17 @@ import com.google.firebase.crashlytics.FirebaseCrashlytics
 class PlatformAdminViewModelTest {
 
     @get:Rule
+    val mainDispatcherRule = MainDispatcherRule()
+
+    @get:Rule
     val instantExecutorRule = InstantTaskExecutorRule()
 
     private val supabaseRepo = mockk<SupabaseRepository>(relaxed = true)
     private val mfaService = mockk<MfaService>(relaxed = true)
+    private val syncService = mockk<RealtimeSyncService>()
+    private val syncMetrics = MutableStateFlow<Map<String, RealtimeSyncStatus>>(emptyMap())
 
     private lateinit var viewModel: PlatformAdminViewModel
-    private val testDispatcher = StandardTestDispatcher()
 
     @Before
     fun setup() {
@@ -46,22 +51,21 @@ class PlatformAdminViewModelTest {
         val mockCrashlytics = mockk<FirebaseCrashlytics>(relaxed = true)
         every { FirebaseCrashlytics.getInstance() } returns mockCrashlytics
 
-        Dispatchers.setMain(testDispatcher)
-
         val mockSession = mockk<com.sanibonani.save.domain.model.AuthSession>(relaxed = true)
         val sessionFlow = MutableStateFlow<com.sanibonani.save.domain.model.AuthSession?>(mockSession)
         every { supabaseRepo.sessionFlow } returns sessionFlow
         coEvery { supabaseRepo.getUserRole() } returns UserRole.PLATFORM_ADMIN
+        every { syncService.syncMetrics } returns syncMetrics
 
-        viewModel = PlatformAdminViewModel(
+        viewModel = mainDispatcherRule.track(PlatformAdminViewModel(
             GetCurrentUserRoleUseCase(supabaseRepo),
-            VerifyMfaChallengeUseCase(mfaService)
-        )
+            VerifyMfaChallengeUseCase(mfaService),
+            syncService
+        ))
     }
 
     @After
     fun tearDown() {
-        Dispatchers.resetMain()
         unmockkAll()
     }
 
@@ -78,11 +82,18 @@ class PlatformAdminViewModelTest {
         assertEquals(3, viewModel.state.value.selectedTab)
     }
 
+    // MaintenanceTab lists whatever this field holds, so it has to be the sync layer's own answer
+    // and not a list the screen invents: an empty map reads as "nothing is subscribed".
     @Test
-    fun `clearError resets error state`() = runTest {
+    fun `the maintenance tab reports the subscriptions the sync layer actually holds`() = runTest {
         advanceUntilIdle()
-        viewModel.clearError()
-        assertNull(viewModel.state.value.error)
+        assertEquals(emptyMap<String, RealtimeSyncStatus>(), viewModel.state.value.syncMetrics)
+
+        syncMetrics.value = mapOf("group_ledger" to RealtimeSyncStatus(isSubscribed = true, lastUpdate = 123L))
+        advanceUntilIdle()
+
+        assertEquals(setOf("group_ledger"), viewModel.state.value.syncMetrics.keys)
+        assertEquals(true, viewModel.state.value.syncMetrics["group_ledger"]?.isSubscribed)
     }
 
     @Test

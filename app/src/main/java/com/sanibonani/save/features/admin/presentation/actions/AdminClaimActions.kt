@@ -27,7 +27,7 @@ class AdminClaimActions @Inject constructor(
             return
         }
         host.launchAction("process_claim") {
-            host.updateActionState { it.copy(isLoading = true, error = null, processingIds = it.processingIds + claimId) }
+            host.updateActionState { it.copy(error = null, processingIds = it.processingIds + claimId) }
             val status = if (approve) BeneficiaryClaimStatus.PAID else BeneficiaryClaimStatus.REJECTED
             processBurialClaim(
                 claimId = claimId,
@@ -37,13 +37,11 @@ class AdminClaimActions @Inject constructor(
                 host.updateActionState { s ->
                     s.copy(
                         burialClaims = s.burialClaims.map { if (it.id == updated.id) updated else it },
-                        isLoading = false,
                         successMessage = "Claim ${if (approve) "processed as PAID" else "rejected"}"
                     )
                 }
-                if (approve) adminContextCacheService.warmUpGroup(groupId)
+                if (approve) adminContextCacheService.warmUpGroup(groupId, force = true)
             }.onFailure { e ->
-                host.updateActionState { it.copy(isLoading = false) }
                 host.reportActionError(e)
             }
             host.updateActionState { it.copy(processingIds = it.processingIds - claimId) }
@@ -52,13 +50,12 @@ class AdminClaimActions @Inject constructor(
 
     fun verifyClaimDocument(host: AdminFinancialActionHost, claimId: String, docKey: String, approve: Boolean) {
         host.launchAction("verify_claim_document") {
-            host.updateActionState { it.copy(isLoading = true, error = null) }
+            host.updateActionState { it.copy(error = null) }
             verifyClaimDocumentUseCase(claimId, docKey, approve)
                 .onSuccess {
-                    host.updateActionState { it.copy(isLoading = false, successMessage = "Claim document ${if (approve) "verified" else "rejected"}") }
+                    host.updateActionState { it.copy(successMessage = "Claim document ${if (approve) "verified" else "rejected"}") }
                 }
                 .onFailure { e ->
-                    host.updateActionState { it.copy(isLoading = false) }
                     host.reportError(e)
                 }
         }

@@ -38,6 +38,14 @@ class SupabaseConnectionManager @Inject constructor(
     private val _currentDatabase = MutableStateFlow<SanibonaniDatabase?>(null)
     val currentDatabase: StateFlow<SanibonaniDatabase?> = _currentDatabase.asStateFlow()
 
+    // The cache last built, and the tier it was built for. Rebuilding the Room cache on a plain
+    // reconnect used to close the open instance and open a second one over the same SQLite file, so
+    // only a tier flip rebuilds it, because each tier is a different file. Readers take
+    // Provider<SanibonaniDatabase> and resolve through this holder per access, so a flip that does
+    // happen cannot leave a repository on the cache it replaced.
+    private var builtDatabase: SanibonaniDatabase? = null
+    private var builtForOnlineTier: Boolean? = null
+
     private val _remoteStatus = MutableStateFlow<ConnectionStatus>(ConnectionStatus.Idle)
     override val remoteStatus: StateFlow<ConnectionStatus> = _remoteStatus.asStateFlow()
 
@@ -64,6 +72,8 @@ class SupabaseConnectionManager @Inject constructor(
     override suspend fun shutdown(): Result<Unit> = safeRunCatching {
         _currentDatabase.value?.close()
         _currentClient.value?.close()
+        builtDatabase = null
+        builtForOnlineTier = null
         _remoteStatus.value = ConnectionStatus.Idle
         _localStatus.value = ConnectionStatus.Idle
     }
@@ -92,19 +102,33 @@ class SupabaseConnectionManager @Inject constructor(
         _localStatus.value = ConnectionStatus.Connecting
 
         try {
-            // Close old instances in background to avoid blocking main thread
+            // Close the old network transport in background to avoid blocking the main thread
             val oldClient = _currentClient.value
-            val oldDb = _currentDatabase.value
             scope.launch(Dispatchers.IO) {
                 safeRunCatching { oldClient?.close() }
-                safeRunCatching { oldDb?.close() }
             }
 
             _currentClient.value = clientProvider.createClient(useOnline)
             _remoteStatus.value = ConnectionStatus.Connected
 
-            _currentDatabase.value = dbProvider.createDatabase(useOnline)
-            _localStatus.value = ConnectionStatus.Connected
+            val cacheIsCurrent = builtDatabase != null && builtForOnlineTier == useOnline
+            if (cacheIsCurrent) {
+                _localStatus.value = ConnectionStatus.Connected
+            } else {
+                val staleCache = builtDatabase
+                builtDatabase = null
+                builtForOnlineTier = null
+
+                if (staleCache != null) {
+                    scope.launch(Dispatchers.IO) { safeRunCatching { staleCache.close() } }
+                }
+
+                val cache = dbProvider.createDatabase(useOnline)
+                builtDatabase = cache
+                builtForOnlineTier = useOnline
+                _currentDatabase.value = cache
+                _localStatus.value = ConnectionStatus.Connected
+            }
 
             AppLogger.i(tag, "✅ Connections rebuilt.")
         } catch (e: kotlinx.coroutines.CancellationException) {

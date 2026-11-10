@@ -8,10 +8,7 @@ interface LedgerRepository {
     fun observeGroupLedger(groupId: String): Flow<Result<List<LedgerEntry>>>
     suspend fun getGroupLedger(groupId: String): Result<List<LedgerEntry>>
     fun observeMemberLedger(memberId: String): Flow<Result<List<LedgerEntry>>>
-    suspend fun getMemberLedger(memberId: String): Result<List<LedgerEntry>>
-    fun observePlatformLedger(): Flow<Result<List<LedgerEntry>>>
     suspend fun getPlatformLedger(): Result<List<LedgerEntry>>
-    suspend fun logPlatformEvent(entry: LedgerEntry): Result<Unit>
 
     /**
      * Reconstructs missing ledger entries from sub-ledgers (Contributions, Repayments, Payouts, Claims).

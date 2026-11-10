@@ -2,6 +2,7 @@ package com.sanibonani.save.features.admin.presentation
 
 import com.sanibonani.save.domain.model.GroupHealthScore
 import com.sanibonani.save.domain.usecase.actuarial.CalculateGroupHealthScoreUseCase
+import com.sanibonani.save.domain.utils.toUserMessage
 import com.sanibonani.save.features.common.presentation.BaseViewModel
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
@@ -31,7 +32,7 @@ class HealthScoreViewModel @Inject constructor(
                     updateState { it.copy(score = score, isLoading = false) }
                 }
                 .onFailure { e ->
-                    updateState { it.copy(isLoading = false) }
+                    updateState { it.copy(isLoading = false, error = e.toUserMessage()) }
                     handleError(e)
                 }
         }

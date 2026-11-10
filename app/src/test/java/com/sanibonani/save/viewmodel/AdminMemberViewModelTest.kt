@@ -2,7 +2,7 @@ package com.sanibonani.save.viewmodel
 
 import android.util.Log
 import androidx.arch.core.executor.testing.InstantTaskExecutorRule
-import androidx.lifecycle.viewModelScope
+import com.sanibonani.save.MainDispatcherRule
 import com.sanibonani.save.domain.model.*
 import com.sanibonani.save.domain.repository.auth.SupabaseRepository
 import com.sanibonani.save.domain.repository.equity.ContributionRepository
@@ -29,23 +29,20 @@ import com.sanibonani.save.features.common.presentation.UIEvent
 import com.sanibonani.save.service.AdminGroupContextCacheService
 import com.sanibonani.save.service.CachedAdminGroupContext
 import io.mockk.*
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
-import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
-import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
-import kotlinx.coroutines.test.setMain
+import kotlinx.coroutines.withTimeoutOrNull
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import java.io.File
+import java.io.IOException
 
 /**
  * Pins the transient-flag behaviour of [AdminMemberViewModel]: every dialog action that
@@ -54,6 +51,9 @@ import java.io.File
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class AdminMemberViewModelTest {
+
+    @get:Rule
+    val mainDispatcherRule = MainDispatcherRule()
 
     @get:Rule
     val instantExecutorRule = InstantTaskExecutorRule()
@@ -76,7 +76,7 @@ class AdminMemberViewModelTest {
     private val selectedGroupIdFlow = MutableStateFlow<String?>("g-1")
 
     private lateinit var viewModel: AdminMemberViewModel
-    private val testDispatcher = StandardTestDispatcher()
+    private val testDispatcher = mainDispatcherRule.dispatcher
 
     private val member = Member(id = "m-1", groupId = "g-1", fullName = "Thabo Mokoena")
 
@@ -92,13 +92,11 @@ class AdminMemberViewModelTest {
         mockkStatic(android.os.Looper::class)
         every { android.os.Looper.getMainLooper() } returns mockk(relaxed = true)
 
-        Dispatchers.setMain(testDispatcher)
-
         every { adminContextCacheService.contexts } returns contextsFlow
         every { adminContextCacheService.selectedGroupId } returns selectedGroupIdFlow
         every { contributionRepo.observeGroupContributions(any()) } returns flowOf(Result.success(emptyList()))
 
-        viewModel = AdminMemberViewModel(
+        viewModel = mainDispatcherRule.track(AdminMemberViewModel(
             adminContextCacheService,
             UpdateMemberBankingDetailsUseCase(memberRepo),
             ObserveGroupContributionsUseCase(contributionRepo),
@@ -106,7 +104,7 @@ class AdminMemberViewModelTest {
             ObserveBeneficiariesUseCase(beneficiaryRepo),
             UpdateBeneficiaryUseCase(beneficiaryRepo),
             ObserveMemberDocumentsUseCase(memberDocumentRepo),
-            ExportMemberStatementUseCase(exportRepo),
+            ExportMemberStatementUseCase(exportRepo, contributionRepo),
             BuildDocumentAuthHeadersUseCase(supabaseRepo),
             updateMemberStatusUseCase,
             verifyMemberDocumentUseCase,
@@ -114,14 +112,12 @@ class AdminMemberViewModelTest {
             validateLoanEligibilityUseCase,
             sendNotificationUseCase,
             paymentCalculator
-        )
+        ))
     }
 
     @After
     fun tearDown() {
-        viewModel.viewModelScope.cancel()
         testDispatcher.scheduler.advanceUntilIdle()
-        Dispatchers.resetMain()
         unmockkAll()
     }
 
@@ -141,30 +137,31 @@ class AdminMemberViewModelTest {
     @Test
     fun `export failure clears the busy flag instead of leaving the dialog stuck`() = runTest {
         hydrateGroup()
-        every { contributionRepo.observeMemberContributions("m-1", "g-1") } returns
-            flowOf(Result.failure(IllegalStateException("disk full")))
+        // The statement reads the book straight from the server, so this is the refusal the export can
+        // actually meet; an observed flow could never answer failure as its first emission.
+        coEvery { contributionRepo.syncMemberContributions("m-1", "g-1") } returns
+            Result.failure(IOException("gateway unreachable"))
 
         viewModel.exportMemberStatement(member, pdf = true)
         advanceUntilIdle()
 
         assertFalse(viewModel.state.value.isExporting)
-        assertNull(viewModel.state.value.exportFile)
         assertTrue(viewModel.events.first() is UIEvent.ShowError)
+        coVerify(exactly = 0) { exportRepo.exportContributionsToPdf(any(), any(), any()) }
     }
 
     @Test
     fun `export success publishes the file and clears the busy flag`() = runTest {
         hydrateGroup()
         val statement = File("statement.csv")
-        every { contributionRepo.observeMemberContributions("m-1", "g-1") } returns
-            flowOf(Result.success(emptyList()))
+        coEvery { contributionRepo.syncMemberContributions("m-1", "g-1") } returns Result.success(emptyList())
         coEvery { exportRepo.exportContributionsToCsv(any(), any(), any()) } returns Result.success(statement)
 
         viewModel.exportMemberStatement(member, pdf = false)
         advanceUntilIdle()
 
         assertFalse(viewModel.state.value.isExporting)
-        assertEquals(statement, viewModel.state.value.exportFile)
+        assertEquals(statement, (viewModel.events.first() as UIEvent.OpenFile).file)
     }
 
     @Test
@@ -249,5 +246,95 @@ class AdminMemberViewModelTest {
         val event = viewModel.events.first()
         assertTrue(event is UIEvent.ShowMessage)
         assertEquals("Beneficiary updated", (event as UIEvent.ShowMessage).message)
+    }
+
+    @Test
+    fun `a failed kyc read is reported instead of showing an empty member record`() = runTest {
+        hydrateGroup()
+        coEvery { validateLoanEligibilityUseCase(any(), any()) } returns
+            ValidateLoanEligibilityUseCase.EligibilityResult.Eligible()
+        every { beneficiaryRepo.observeBeneficiaries("m-1") } returns
+            flowOf(Result.failure(IOException("beneficiary read failed")))
+        every { memberDocumentRepo.observeMemberDocuments("m-1") } returns
+            flowOf(Result.failure(IOException("document read failed")))
+
+        viewModel.selectMember(member)
+        advanceUntilIdle()
+
+        val event = withTimeoutOrNull(2_000) { viewModel.events.first() }
+        assertTrue("emitted event: $event", event is UIEvent.ShowError)
+    }
+
+    // The member table's standing comes from this one read, so a pass the server refused has to
+    // say so: the rows keep showing the statuses computed from the last successful read, and an
+    // admin who acts on them is acting on a contribution history the sync could not confirm.
+    @Test
+    fun `a refused group contribution read is reported instead of passing as current`() = runTest {
+        every { contributionRepo.observeGroupContributions("g-1") } returns
+            flowOf(Result.failure(IOException("contribution read failed")))
+
+        hydrateGroup()
+        advanceUntilIdle()
+
+        val event = withTimeoutOrNull(2_000) { viewModel.events.first() }
+        assertTrue("emitted event: $event", event is UIEvent.ShowError)
+        val message = (event as? UIEvent.ShowError)?.message.orEmpty()
+        assertTrue(
+            "the admin has to be told the standing may be out of date, got: $message",
+            message.contains("out of date")
+        )
+    }
+
+    @Test
+    fun `switching members cannot leave the previous member's beneficiaries on screen`() = runTest {
+        val other = Member(id = "m-2", groupId = "g-1", fullName = "Naledi Dlamini")
+        hydrateGroup()
+        coEvery { validateLoanEligibilityUseCase(any(), any()) } returns
+            ValidateLoanEligibilityUseCase.EligibilityResult.Eligible()
+        every { beneficiaryRepo.observeBeneficiaries("m-1") } returns flowOf(
+            Result.success(listOf(Beneficiary(id = "b-1", groupId = "g-1", memberId = "m-1", fullName = "Kin")))
+        )
+        every { beneficiaryRepo.observeBeneficiaries("m-2") } returns
+            flowOf(Result.failure(IOException("read failed")))
+        every { memberDocumentRepo.observeMemberDocuments(any()) } returns flowOf(Result.success(emptyList()))
+
+        viewModel.selectMember(member)
+        advanceUntilIdle()
+        assertEquals(listOf("b-1"), viewModel.state.value.selectedMemberBeneficiaries.map { it.id })
+
+        viewModel.selectMember(other)
+        advanceUntilIdle()
+
+        assertTrue(
+            "m-1's beneficiaries must not be presented as m-2's",
+            viewModel.state.value.selectedMemberBeneficiaries.isEmpty()
+        )
+    }
+
+    // The refresh now rides behind the cache as its own emission, so a refusal arrives over rows
+    // the admin is already reading. Emptying them here would say "this member has no
+    // beneficiaries", which is a different claim from "the beneficiary refresh did not land".
+    @Test
+    fun `a refused beneficiary refresh keeps the rows already on screen`() = runTest {
+        hydrateGroup()
+        coEvery { validateLoanEligibilityUseCase(any(), any()) } returns
+            ValidateLoanEligibilityUseCase.EligibilityResult.Eligible()
+        every { memberDocumentRepo.observeMemberDocuments("m-1") } returns
+            flowOf(Result.success(emptyList()))
+        every { beneficiaryRepo.observeBeneficiaries("m-1") } returns flowOf(
+            Result.success(listOf(Beneficiary(id = "b-1", groupId = "g-1", memberId = "m-1", fullName = "Kin"))),
+            Result.failure(IOException("beneficiary refresh refused"))
+        )
+
+        viewModel.selectMember(member)
+        advanceUntilIdle()
+
+        assertEquals(
+            listOf("b-1"),
+            viewModel.state.value.selectedMemberBeneficiaries.map { it.id }
+        )
+        val event = withTimeoutOrNull(2_000) { viewModel.events.first() }
+        assertTrue("the refusal is still named, got: $event", event is UIEvent.ShowError)
+        assertEquals("Unable to load member beneficiaries.", (event as UIEvent.ShowError).message)
     }
 }

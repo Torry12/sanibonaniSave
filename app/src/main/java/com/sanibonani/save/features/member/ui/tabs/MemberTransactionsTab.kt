@@ -31,6 +31,7 @@ import com.sanibonani.save.ui.components.EmptyState
 import com.sanibonani.save.ui.utils.formatDate
 import com.sanibonani.save.ui.utils.formatMonthYear
 import com.sanibonani.save.features.member.ui.LedgerItem
+import com.sanibonani.save.features.member.ui.PlatformFeeLabel
 import com.sanibonani.save.ui.theme.*
 
 @OptIn(ExperimentalMaterial3AdaptiveApi::class, ExperimentalFoundationApi::class)
@@ -44,13 +45,16 @@ fun MemberTransactionsTab(
     onItemClick: (LedgerEntry) -> Unit,
     onRefresh: () -> Unit = {},
     windowSizeClass: WindowSizeClass,
+    /** False while the read that fills [ledger] has not answered, or the ledger pillar is stale. */
+    ledgerUnconfirmed: Boolean = false,
 ) {
-    val navigator = rememberListDetailPaneScaffoldNavigator<LedgerEntry>()
+    val navigator = rememberListDetailPaneScaffoldNavigator<String>()
     var selectedEntry by remember { mutableStateOf<LedgerEntry?>(null) }
 
     LaunchedEffect(selectedEntry) {
-        if (selectedEntry != null) {
-            navigator.navigateTo(ListDetailPaneScaffoldRole.Detail, selectedEntry)
+        val entry = selectedEntry
+        if (entry != null) {
+            navigator.navigateTo(ListDetailPaneScaffoldRole.Detail, entry.id.orEmpty())
         } else {
             if (navigator.canNavigateBack()) {
                 navigator.navigateBack()
@@ -64,6 +68,7 @@ fun MemberTransactionsTab(
         listPane = {
             MemberTransactionsList(
                 ledger = ledger,
+                ledgerUnconfirmed = ledgerUnconfirmed,
                 isExporting = isExporting,
                 onExportCsv = onExportCsv,
                 onDownloadPdf = onDownloadPdf,
@@ -88,6 +93,7 @@ fun MemberTransactionsTab(
 @Composable
 fun MemberTransactionsList(
     ledger: List<LedgerEntry>,
+    ledgerUnconfirmed: Boolean,
     isExporting: Boolean,
     onExportCsv: () -> Unit,
     onDownloadPdf: () -> Unit,
@@ -125,8 +131,11 @@ fun MemberTransactionsList(
                 item {
                     EmptyState(
                         icon = "💸",
-                        title = "No transactions",
-                        description = "No ledger entries found.",
+                        title = if (ledgerUnconfirmed) "Transactions unavailable" else "No transactions",
+                        description = stringResource(
+                            if (ledgerUnconfirmed) R.string.ui_member_activity_not_confirmed
+                            else R.string.ui_member_activity_no_group_entries
+                        ),
                         actionLabel = "Refresh",
                         onAction = onRefresh
                     )
@@ -169,7 +178,7 @@ fun MemberTransactionDetail(entry: LedgerEntry) {
         Text("Transaction Detail", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(16.dp))
 
-        DetailItem("Description", entry.description)
+        DetailItem("Description", if (entry.isPlatform) PlatformFeeLabel(entry.category) else entry.description)
         DetailItem("Category", entry.category.uppercase())
         DetailItem("Amount", entry.amount.format())
         DetailItem("Date", formatDate(entry.createdAt))

@@ -10,6 +10,7 @@ import com.sanibonani.save.data.local.SanibonaniDatabase
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
+import javax.inject.Provider
 
 class SignOutUseCase @Inject constructor(
     private val supabaseRepo: SupabaseRepository,
@@ -17,7 +18,7 @@ class SignOutUseCase @Inject constructor(
     private val memberGroupContextCacheService: MemberGroupContextCacheService,
     private val userProfileCacheService: UserProfileCacheService,
     private val realtimeSyncManager: RealtimeSyncManager,
-    private val database: SanibonaniDatabase
+    private val dbProvider: Provider<SanibonaniDatabase>
 ) {
     suspend operator fun invoke(): Result<Unit> = safeRunCatching {
         realtimeSyncManager.stop()
@@ -27,7 +28,7 @@ class SignOutUseCase @Inject constructor(
 
         // Securely wipe all locally cached user data to prevent cross-account contamination
         withContext(Dispatchers.IO) {
-            safeRunCatching { database.clearAllTables() }
+            safeRunCatching { dbProvider.get().clearAllTables() }
         }
 
         supabaseRepo.signOut()

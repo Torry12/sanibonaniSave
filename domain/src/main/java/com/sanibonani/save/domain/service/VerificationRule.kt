@@ -27,7 +27,7 @@ class MemberTotalPaidSyncRule : VerificationRule<MemberVerificationContext> {
 
         val displayedTotalPaid = context.member.totalPaid
 
-        return if ((calculatedTotalPaid - displayedTotalPaid).abs() > Money("0.01")) {
+        return if (!LedgerDrift.isBalanced(calculatedTotalPaid - displayedTotalPaid)) {
             listOf(VerificationIssue(
                 category = "Financial",
                 message = "Displayed 'Total Paid' (${displayedTotalPaid.format()}) does not match sum of transactions (${calculatedTotalPaid.format()}).",
@@ -76,14 +76,17 @@ data class GroupVerificationContext(
 
 class GroupBalanceSyncRule : VerificationRule<GroupVerificationContext> {
     override suspend fun verify(context: GroupVerificationContext): List<VerificationIssue> {
-        val displayedBalance = context.group.balance
-        val latestEntry = context.ledger.maxByOrNull { it.createdAt ?: "" } ?: context.ledger.firstOrNull()
-        val ledgerBalance = latestEntry?.balanceAfter ?: Money.ZERO
+        // No cached rows means no audit, not a clean book: stay silent instead of comparing the
+        // balance against an empty ledger and reporting R0.00 as the ledger.
+        if (context.ledger.isEmpty()) return emptyList()
 
-        return if ((displayedBalance - ledgerBalance).abs() > Money("0.01") && context.ledger.isNotEmpty()) {
+        val displayedBalance = context.group.balance
+        val ledgerBalance = LedgerDrift.sum(context.ledger.map { it.amount })
+
+        return if (!LedgerDrift.isBalanced(displayedBalance - ledgerBalance)) {
             listOf(VerificationIssue(
                 category = "Financial",
-                message = "Group balance (${displayedBalance.format()}) is out of sync with the latest ledger entry (${ledgerBalance.format()}).",
+                message = "Group balance (${displayedBalance.format()}) is out of sync with the sum of its ledger entries (${ledgerBalance.format()}).",
                 severity = IssueSeverity.CRITICAL,
                 suggestedAction = "Perform a manual balance reconciliation."
             ))

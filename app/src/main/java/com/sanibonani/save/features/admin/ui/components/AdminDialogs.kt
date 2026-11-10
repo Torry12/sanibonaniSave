@@ -122,8 +122,15 @@ fun AdminDashboardDialogs(
         AdminErrorDialog(error, onDismiss = { financialVm.clearError() })
     }
 
-    memberState.error?.let { error ->
-        AdminErrorDialog(error, onDismiss = { memberVm.clearError() })
+    // A high-value approval that needs AAL2 fails with this flag rather than an error text,
+    // so the dialog has to be hosted where the financial actions are triggered.
+    if (financialState.showMfaChallenge) {
+        MfaChallengeDialog(
+            onVerify = { financialVm.verifyMfaChallenge(it) },
+            onDismiss = { financialVm.dismissMfaChallenge() },
+            error = financialState.mfaChallengeError,
+            isLoading = financialState.isVerifyingMfa
+        )
     }
 
     // File Action Dialog

@@ -136,12 +136,31 @@ enum class ReconciliationStatus {
     @SerialName("resolved") RESOLVED
 }
 
+/**
+ * The single definition of ledger drift: the recorded group balance minus the sum of its ledger
+ * rows. `recalculate_all_group_financials_v3` derives a group's balance from exactly this sum and
+ * calls a gap of one cent or less balanced, so every Kotlin-side audit has to answer the same
+ * question the same way or the app and the server disagree about the same book.
+ */
+object LedgerDrift {
+
+    /** One cent — the tolerance `02_FUNCTIONS_AND_TRIGGERS.sql` applies to a rebuilt ledger. */
+    val TOLERANCE = Money("0.01")
+
+    fun sum(ledgerAmounts: Iterable<Money>): Money =
+        ledgerAmounts.fold(Money.ZERO) { acc, amount -> acc + amount }
+
+    /** Positive means the recorded balance holds money the ledger never booked. */
+    fun between(actualBalance: Money, ledgerAmounts: Iterable<Money>): Money =
+        actualBalance - sum(ledgerAmounts)
+
+    fun isBalanced(drift: Money): Boolean = drift.abs() <= TOLERANCE
+}
+
 @Serializable
 data class ConsolidationReport(
     @SerialName("group_id") val groupId: String,
     @SerialName("entries_reconstructed") val entriesCreated: Int = 0,
-    @SerialName("duplicates_found") val duplicatesFound: Int = 0,
     @SerialName("final_balance") val finalBalance: Money = Money.ZERO,
-    @SerialName("reconciliation_report") val reconciliationRecord: ReconciliationRecord? = null,
-    val errors: List<String> = emptyList()
+    @SerialName("reconciliation_report") val reconciliationRecord: ReconciliationRecord? = null
 )

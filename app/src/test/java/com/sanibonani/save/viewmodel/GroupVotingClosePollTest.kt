@@ -1,6 +1,7 @@
 package com.sanibonani.save.viewmodel
 
 import androidx.arch.core.executor.testing.InstantTaskExecutorRule
+import com.sanibonani.save.MainDispatcherRule
 import com.sanibonani.save.domain.repository.group.VotingRepository
 import com.sanibonani.save.domain.usecase.group.CastGroupPollVoteUseCase
 import com.sanibonani.save.domain.usecase.group.CloseGroupPollUseCase
@@ -35,28 +36,24 @@ import org.junit.Test
 class GroupVotingClosePollTest {
 
     @get:Rule
+    val mainDispatcherRule = MainDispatcherRule()
+
+    @get:Rule
     val instantExecutorRule = InstantTaskExecutorRule()
 
     private val votingRepo = mockk<VotingRepository>(relaxed = true)
-    private val testDispatcher = StandardTestDispatcher()
     private lateinit var viewModel: GroupVotingViewModel
 
     private val pollId = "22222222-2222-2222-2222-222222222222"
 
     @Before
     fun setup() {
-        Dispatchers.setMain(testDispatcher)
-        viewModel = GroupVotingViewModel(
+        viewModel = mainDispatcherRule.track(GroupVotingViewModel(
             observeGroupPolls = ObserveGroupPollsUseCase(votingRepo),
             createGroupPoll = mockk<CreateGroupPollUseCase>(relaxed = true),
             castGroupPollVote = mockk<CastGroupPollVoteUseCase>(relaxed = true),
             closeGroupPoll = CloseGroupPollUseCase(votingRepo)
-        )
-    }
-
-    @After
-    fun tearDown() {
-        Dispatchers.resetMain()
+        ))
     }
 
     @Test

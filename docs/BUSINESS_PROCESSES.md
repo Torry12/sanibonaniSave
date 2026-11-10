@@ -35,10 +35,10 @@ Lending is restricted based on group type and member standing.
 
 1.  **Eligibility** (`ValidateLoanEligibilityUseCase`):
     - Member must be `ACTIVE` (past probation).
-    - No loan in `PENDING`, `APPROVED`, `ACTIVE` or `PARTIALLY_PAID`.
+    - A `PENDING`, `APPROVED`, `ACTIVE` or `PARTIALLY_PAID` loan is not refused outright — it is summed and subtracted from the borrowing power, and what is left is what the member may still borrow.
     - Zero contribution shortfall and no overdue flag from `PaymentCalculator`.
     - A consistency score above 70% is **not** part of the check — nothing in the loan path reads `payment_consistency_score`.
-2.  **Application**: Member requests an amount capped at 30% of their trailing-six-month contributions minus their active loan total, and by `group.loan_max_amount` when that per-loan ceiling is set, over a term of at most 3 months. `RequestLoanUseCase` runs the same eligibility check before pricing, so an over-cap or over-term request is refused at submission.
+2.  **Application**: Member requests an amount capped at 30% of their trailing-six-month contributions minus their active loan total, and by `group.loan_max_amount` when that per-loan ceiling is set, over a term of at most `LoanTerms.MAX_TERM_MONTHS` (3 months) or `group.loan_max_months` when that term ceiling is set below it. `RequestLoanUseCase` runs the same eligibility check before pricing, so an over-cap or over-term request is refused at submission.
 3.  **Approval**: Group Admin reviews and approves the request.
 4.  **Disbursement**: Platform Admin performs the final disbursement through `approve_and_disburse_loan_v2`, which checks the loan state, asserts AAL2 above R10,000 (`[SEC_001]`), fails closed on liquidity (`[FIN_001]`), then moves `groups.balance` and appends `group_ledger` in one transaction. The RPC does not verify the caller's identity — see the open authorization gap in `supabase/SQL_DOCUMENTATION.md`.
 
@@ -46,9 +46,9 @@ Lending is restricted based on group type and member standing.
 
 ## 4. Automated Loan Settlement (Forced Extraction)
 
-To protect the group from long-term defaults, the system enforces a 3-month maximum loan term.
+To protect the group from long-term defaults, the system enforces the `LoanTerms.MAX_TERM_MONTHS` ceiling (3 months), which a group may shorten through `groups.loan_max_months` but never lengthen.
 
-1.  **Term Monitoring**: `ProcessLoanForcedSettlementUseCase` sweeps every group and selects `ACTIVE` or `PARTIALLY_PAID` loans whose `startDate` is at least three whole months ago. `LoanSettlementWorker` wraps it for a daily run, enqueued by `BackgroundWorkScheduler` for a platform-admin session — the sweep reads every group through `PlatformRepository.getAllGroups`, which RLS confines to that role, so an ordinary group admin does not get it.
+1.  **Term Monitoring**: `ProcessLoanForcedSettlementUseCase` sweeps every group and selects `ACTIVE` or `PARTIALLY_PAID` loans whose `startDate` is at least `LoanTerms.MAX_TERM_MONTHS` whole months ago — the platform ceiling rather than the group's own shorter setting, because the database will not settle a loan before three months whatever the group asked for. `LoanSettlementWorker` wraps it for a daily run, enqueued by `BackgroundWorkScheduler` for a platform-admin session — the sweep reads every group through `PlatformRepository.getAllGroups`, which RLS confines to that role, so an ordinary group admin does not get it.
 2.  **Forced Extraction**: the use case calls `LoanRepository.settleExpiredLoan(loanId)`, which posts the `settle_expired_loan_v2(UUID)` RPC. The RPC refuses a caller who is neither a platform admin nor that group's admin (`[SEC_002]`), a loan that is not in a settleable state (`[FIN_002]`), a term that has not expired (`[FIN_002] LOAN_TERM_NOT_EXPIRED`), and a remaining balance that is not a clean two-decimal positive number (`[FIN_003]`).
 3.  **Savings Offset**: the remaining balance (`total_to_repay − total_repaid`) is written as a negative `loan_settlement_extraction` contribution, `groups.balance` is debited through `increment_group_balance` (so the ledger records it), and the repayment is booked via `record_loan_repayment_v1`. `fn_sync_single_member_financials` then recomputes `members.total_paid`, which is how the member's recorded savings absorb the extraction.
 4.  **Idempotency**: if a previous attempt wrote the extraction but not the repayment — or the pair does not match on member, group and amount — the RPC raises `[SYS_002] INCOMPLETE_OR_MISMATCHED_LOAN_SETTLEMENT` instead of guessing; when both legs already match, it completes the repayment without double-posting.

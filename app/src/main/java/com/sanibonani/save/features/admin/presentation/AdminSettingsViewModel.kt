@@ -23,6 +23,9 @@ class AdminSettingsViewModel @Inject constructor(
 
     val state: StateFlow<AdminSettingsState> = uiState
 
+    /** True while the admin has typed into the form and those edits have not been saved. */
+    private var settingsDirty = false
+
     init {
         checkUserRole()
         observeGroupContext(
@@ -30,14 +33,23 @@ class AdminSettingsViewModel @Inject constructor(
             contextSource = adminContextCacheService.contexts
         ) { context ->
             val group = context?.group
-            updateState { s -> s.copy(group = group, settings = group?.let { toGroupSettings(it) } ?: GroupSettings()) }
-
-            if (group != null) {
-                val groupId = group.id
-                if (groupId != null) {
-                    observeBankConnection(groupId)
-                }
+            val previousId = uiState.value.group?.id
+            val nextId = group?.id
+            if (nextId != previousId) settingsDirty = false
+            updateState { s ->
+                s.copy(
+                    group = group,
+                    settings = when {
+                        group == null -> GroupSettings()
+                        nextId != previousId || !settingsDirty -> toGroupSettings(group)
+                        else -> s.settings
+                    },
+                    bankConnection = if (nextId != previousId) null else s.bankConnection,
+                    saveSuccess = if (nextId != previousId) false else s.saveSuccess
+                )
             }
+
+            if (nextId != null) observeBankConnection(nextId)
         }
         observeBankCallbacks()
     }
@@ -65,7 +77,14 @@ class AdminSettingsViewModel @Inject constructor(
     private fun observeBankConnection(groupId: String) {
         launchJob("bank_connection_observation") {
             bankRepo.observeBankConnection(groupId).collect { res ->
-                updateState { it.copy(bankConnection = res.getOrNull()) }
+                if (uiState.value.group?.id != groupId) return@collect
+                res.onSuccess { connection ->
+                    updateState { it.copy(bankConnection = connection) }
+                }.onFailure { e ->
+                    // A refused read is not evidence that the account is unlinked, so the last
+                    // answer the server gave stays on screen while the failure is reported.
+                    handleError(e, "Could not read the bank connection for this group.")
+                }
             }
         }
     }
@@ -73,14 +92,18 @@ class AdminSettingsViewModel @Inject constructor(
     fun initiateBankLinking(providerId: String) {
         val groupId = uiState.value.group?.id ?: return
         launchJob("bank_linking") {
-            updateState { it.copy(isLinkingBank = true) }
+            updateState { it.copy(isSaving = true) }
             linkBankAccount(groupId, providerId)
                 .onSuccess { result ->
-                    updateState { it.copy(isLinkingBank = false) }
+                    if (uiState.value.group?.id == groupId) {
+                        updateState { it.copy(isSaving = false) }
+                    }
                     sendEvent(UIEvent.OpenUrl(result.authUrl))
                 }
                 .onFailure { e ->
-                    updateState { it.copy(isLinkingBank = false) }
+                    if (uiState.value.group?.id == groupId) {
+                        updateState { it.copy(isSaving = false) }
+                    }
                     handleError(e)
                 }
         }
@@ -91,6 +114,7 @@ class AdminSettingsViewModel @Inject constructor(
         launchJob("bank_unlinking") {
             updateState { it.copy(isSaving = true) }
             bankRepo.deleteBankConnection(groupId).onSuccess {
+                if (uiState.value.group?.id != groupId) return@onSuccess
                 updateState { it.copy(isSaving = false, bankConnection = null) }
                 sendEvent(UIEvent.ShowMessage("Bank account unlinked."))
             }.onFailure { handleError(it) }
@@ -113,6 +137,7 @@ class AdminSettingsViewModel @Inject constructor(
     }
 
     fun updateSetting(key: String, value: Any) {
+        settingsDirty = true
         updateState { s ->
             val updated = when (key) {
                 "joining_fee" -> s.settings.copy(joiningFee = value as String)
@@ -140,9 +165,11 @@ class AdminSettingsViewModel @Inject constructor(
         launchJob("save_settings") {
             updateState { it.copy(isSaving = true, saveSuccess = false) }
             updateGroupSettings(groupId, uiState.value.settings).onSuccess {
+                if (uiState.value.group?.id != groupId) return@onSuccess
+                settingsDirty = false
                 updateState { it.copy(isSaving = false, saveSuccess = true) }
                 sendEvent(UIEvent.ShowMessage("Settings saved"))
-                adminContextCacheService.warmUpGroup(groupId)
+                adminContextCacheService.warmUpGroup(groupId, force = true)
             }.onFailure { e ->
                 updateState { it.copy(isSaving = false) }
                 handleError(e)

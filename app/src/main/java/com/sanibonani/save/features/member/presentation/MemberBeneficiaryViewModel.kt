@@ -34,13 +34,16 @@ class MemberBeneficiaryViewModel @Inject constructor(
         updateState { it.copy(member = member, group = group, isImpersonating = member != null) }
     }
 
-    fun addBeneficiary(name: String, idNumber: String, relationship: String, dateOfBirth: String, isOver65: Boolean) {
-        val member = uiState.value.member ?: return
-        val memberId = member.id.serverIdOrReport("member") ?: return
-
-        val groupId = member.groupId.ifBlank { uiState.value.group?.id.orEmpty() }
-        val record = when (val validation = BeneficiaryForm.validate(
-            template = Beneficiary(groupId = groupId, memberId = memberId),
+    private fun validateForSave(
+        template: Beneficiary,
+        name: String,
+        idNumber: String,
+        relationship: String,
+        dateOfBirth: String,
+        isOver65: Boolean
+    ): Beneficiary? =
+        when (val validation = BeneficiaryForm.validate(
+            template = template,
             name = name,
             idNumber = idNumber,
             relationship = relationship,
@@ -49,10 +52,24 @@ class MemberBeneficiaryViewModel @Inject constructor(
         )) {
             is BeneficiaryForm.Validation.Invalid -> {
                 sendEvent(UIEvent.ShowError(validation.message))
-                return
+                null
             }
             is BeneficiaryForm.Validation.Valid -> validation.record
         }
+
+    fun addBeneficiary(name: String, idNumber: String, relationship: String, dateOfBirth: String, isOver65: Boolean) {
+        val member = uiState.value.member ?: return
+        val memberId = member.id.serverIdOrReport("member") ?: return
+
+        val groupId = member.groupId.ifBlank { uiState.value.group?.id.orEmpty() }
+        val record = validateForSave(
+            template = Beneficiary(groupId = groupId, memberId = memberId),
+            name = name,
+            idNumber = idNumber,
+            relationship = relationship,
+            dateOfBirth = dateOfBirth,
+            isOver65 = isOver65
+        ) ?: return
 
         launchJob("add_beneficiary") {
             updateState { it.copy(isLoading = true) }
@@ -74,20 +91,14 @@ class MemberBeneficiaryViewModel @Inject constructor(
         dateOfBirth: String,
         isOver65: Boolean
     ) {
-        val record = when (val validation = BeneficiaryForm.validate(
+        val record = validateForSave(
             template = beneficiary,
             name = name,
             idNumber = idNumber,
             relationship = relationship,
             dateOfBirth = dateOfBirth,
             isOver65 = isOver65
-        )) {
-            is BeneficiaryForm.Validation.Invalid -> {
-                sendEvent(UIEvent.ShowError(validation.message))
-                return
-            }
-            is BeneficiaryForm.Validation.Valid -> validation.record
-        }
+        ) ?: return
 
         launchJob("update_beneficiary") {
             updateState { it.copy(isLoading = true) }

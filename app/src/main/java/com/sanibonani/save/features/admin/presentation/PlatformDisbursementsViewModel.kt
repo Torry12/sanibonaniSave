@@ -112,7 +112,7 @@ class PlatformDisbursementsViewModel @Inject constructor(
     private fun processPayoutInternal(payoutId: String, status: PayoutStatus) {
         val adminId = adminIdOrReport("payout") ?: return
         launchJob("process_payout_$payoutId") {
-            updateState { it.copy(isProcessingPayout = true, processingIds = it.processingIds + payoutId) }
+            updateState { it.copy(processingIds = it.processingIds + payoutId) }
             processDisbursement(
                 payoutId = payoutId,
                 status = status,
@@ -124,7 +124,7 @@ class PlatformDisbursementsViewModel @Inject constructor(
                 showMessage("Payout status updated to ${status.name}")
                 load()
             }.onFailure { handleActionFailure(it) }
-            updateState { it.copy(isProcessingPayout = false, processingIds = it.processingIds - payoutId) }
+            updateState { it.copy(processingIds = it.processingIds - payoutId) }
         }
     }
 
@@ -132,7 +132,7 @@ class PlatformDisbursementsViewModel @Inject constructor(
         val loanId = loan.id ?: return
         val adminId = adminIdOrReport("loan") ?: return
         launchJob("approve_loan_$loanId") {
-            updateState { it.copy(isProcessingLoanRequest = true, processingIds = it.processingIds + loanId) }
+            updateState { it.copy(processingIds = it.processingIds + loanId) }
             processLoanDecision(
                 loanId = loanId,
                 decision = ProcessLoanDecisionUseCase.LoanDecision.Approve,
@@ -146,7 +146,7 @@ class PlatformDisbursementsViewModel @Inject constructor(
                 showMessage("Loan approved")
                 load()
             }.onFailure { handleActionFailure(it) }
-            updateState { it.copy(isProcessingLoanRequest = false, processingIds = it.processingIds - loanId) }
+            updateState { it.copy(processingIds = it.processingIds - loanId) }
         }
     }
 
@@ -154,7 +154,7 @@ class PlatformDisbursementsViewModel @Inject constructor(
         val loanId = loan.id ?: return
         val adminId = adminIdOrReport("loan") ?: return
         launchJob("reject_loan_$loanId") {
-            updateState { it.copy(isProcessingLoanRequest = true, processingIds = it.processingIds + loanId) }
+            updateState { it.copy(processingIds = it.processingIds + loanId) }
             processLoanDecision(
                 loanId = loanId,
                 decision = ProcessLoanDecisionUseCase.LoanDecision.Reject(reason),
@@ -168,7 +168,7 @@ class PlatformDisbursementsViewModel @Inject constructor(
                 showMessage("Loan rejected")
                 load()
             }.onFailure { handleActionFailure(it) }
-            updateState { it.copy(isProcessingLoanRequest = false, processingIds = it.processingIds - loanId) }
+            updateState { it.copy(processingIds = it.processingIds - loanId) }
         }
     }
 
@@ -176,7 +176,7 @@ class PlatformDisbursementsViewModel @Inject constructor(
         val loanId = loan.id ?: return
         val adminId = adminIdOrReport("loan") ?: return
         launchJob("disburse_loan_$loanId") {
-            updateState { it.copy(isProcessingLoanRequest = true, processingIds = it.processingIds + loanId) }
+            updateState { it.copy(processingIds = it.processingIds + loanId) }
             processLoanDisbursement(loanId, adminId, PaymentMethod.BANK).onSuccess { updated ->
                 updateState { s -> s.copy(
                     loanRequestsByGroup = s.loanRequestsByGroup.mapValues { (_, list) ->
@@ -186,7 +186,7 @@ class PlatformDisbursementsViewModel @Inject constructor(
                 showMessage("Loan disbursed")
                 load()
             }.onFailure { handleActionFailure(it) }
-            updateState { it.copy(isProcessingLoanRequest = false, processingIds = it.processingIds - loanId) }
+            updateState { it.copy(processingIds = it.processingIds - loanId) }
         }
     }
 
@@ -205,7 +205,7 @@ class PlatformDisbursementsViewModel @Inject constructor(
     private fun processBurialClaimInternal(claimId: String, status: BeneficiaryClaimStatus, reason: String) {
         val adminId = adminIdOrReport("claim") ?: return
         launchJob("process_claim_$claimId") {
-            updateState { it.copy(isProcessingClaim = true, processingIds = it.processingIds + claimId) }
+            updateState { it.copy(processingIds = it.processingIds + claimId) }
             processBurialClaim(
                 claimId = claimId,
                 status = status,
@@ -219,7 +219,7 @@ class PlatformDisbursementsViewModel @Inject constructor(
                 showMessage("Claim status updated to ${status.name}")
                 load()
             }.onFailure { handleActionFailure(it) }
-            updateState { it.copy(isProcessingClaim = false, processingIds = it.processingIds - claimId) }
+            updateState { it.copy(processingIds = it.processingIds - claimId) }
         }
     }
 

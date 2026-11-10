@@ -2,18 +2,22 @@ package com.sanibonani.save.data.local.room
 
 import com.sanibonani.save.data.datasource.LocalPayoutDataSource
 import com.sanibonani.save.data.local.PayoutDao
+import com.sanibonani.save.data.local.SanibonaniDatabase
 import com.sanibonani.save.data.local.toEntity
 import com.sanibonani.save.data.local.toModel
 import com.sanibonani.save.domain.model.PayoutRequest
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import javax.inject.Inject
+import javax.inject.Provider
 import javax.inject.Singleton
 
 @Singleton
 class RoomPayoutDataSourceImpl @Inject constructor(
-    private val payoutDao: PayoutDao
+    private val dbProvider: Provider<SanibonaniDatabase>
 ) : LocalPayoutDataSource {
+
+    private val payoutDao: PayoutDao get() = dbProvider.get().payoutDao()
 
     override fun observePayouts(groupId: String): Flow<List<PayoutRequest>> =
         payoutDao.observePayouts(groupId).map { list -> list.map { it.toModel() } }

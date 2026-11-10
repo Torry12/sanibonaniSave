@@ -113,7 +113,13 @@ fun AdminDashboardScreen(
         adminTabs.getOrNull(page)?.index?.let(overviewVm::setTab)
     }
 
-    LaunchedEffect(overviewVm.events, memberVm.events, financialVm.events) {
+    LaunchedEffect(
+        overviewVm.events,
+        memberVm.events,
+        financialVm.events,
+        settingsVm.events,
+        providerVm.events
+    ) {
         fun handleEvent(event: UIEvent) {
             when (event) {
                 is UIEvent.ShowMessage -> {
@@ -165,6 +171,8 @@ fun AdminDashboardScreen(
         launch { overviewVm.events.collect { handleEvent(it) } }
         launch { memberVm.events.collect { handleEvent(it) } }
         launch { financialVm.events.collect { handleEvent(it) } }
+        launch { settingsVm.events.collect { handleEvent(it) } }
+        launch { providerVm.events.collect { handleEvent(it) } }
     }
 
     val navItems = remember(overviewVm) { adminDashboardNavigationItems { overviewVm.setTab(it) } }
@@ -279,7 +287,7 @@ fun AdminDashboardScreen(
                                 3 -> MessagingTab(overviewState, overviewVm)
                                 4 -> ViabilityPlanningTab(overviewState, overviewVm)
                                 5 -> AccountTab(overviewState, onLogout, onPayPlatformFees = { overviewVm.payPlatformFees() })
-                                6 -> SettingsTab(settingsState, settingsVm, providerState)
+                                6 -> SettingsTab(settingsState, settingsVm, providerState, onReloadProviders = { providerVm.loadProviders() })
                                 7 -> PayoutTab(financialState, financialVm)
                                 8 -> LoansTab(financialState, financialVm)
                                 9 -> InsightsTab(overviewState) { overviewVm.executeRoscaPayout() }

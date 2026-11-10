@@ -2,7 +2,6 @@ package com.sanibonani.save.data.repository.admin
 
 import com.sanibonani.save.data.local.SanibonaniDatabase
 import com.sanibonani.save.data.local.toEntity
-import com.sanibonani.save.data.local.toModel
 import com.sanibonani.save.data.remote.PostgrestColumns
 import com.sanibonani.save.data.remote.supabase.fetchAllLedgerPages
 import com.sanibonani.save.data.repository.BaseRepository
@@ -35,9 +34,8 @@ import io.github.jan.supabase.postgrest.query.Order
 import io.github.jan.supabase.storage.storage
 import io.ktor.client.statement.bodyAsText
 import java.io.File
-import java.math.BigDecimal
 import javax.inject.Inject
-import kotlinx.coroutines.flow.firstOrNull
+import javax.inject.Provider
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -52,75 +50,54 @@ import com.sanibonani.save.domain.utils.safeRunCatching
 
 class PlatformRepositoryImpl @Inject constructor(
     private val protocol: DataConnectionProtocol,
-    private val db: SanibonaniDatabase,
+    private val dbProvider: Provider<SanibonaniDatabase>,
     private val actuarialRepo: ActuarialRepository,
     private val notifRepo: NotificationRepository,
 ) : BaseRepository("PlatformRepository"), PlatformRepository {
+
+    private val db: SanibonaniDatabase get() = dbProvider.get()
 
     private val supabase: SupabaseClient
         get() = protocol.getRemoteClient(SupabaseClient::class.java)
             ?: error("The app is not connected to the server yet.")
 
     override suspend fun getPlatformAnalytics(): Result<PlatformAnalytics> = retryWithExponentialBackoff {
-        // Fetch high-level summary from performance view (avoids member OOM)
-        val summary: PlatformAnalyticsSummary? = safeRunCatching {
-            supabase.postgrest["platform_summary_stats"].select().decodeList<PlatformAnalyticsSummary>().firstOrNull()
-        }.getOrNull()
+        // Both screens that render these counters hold an AsyncResult.Error leg and neither could ever
+        // be reached: this block swallowed a refused summary view into counters derived from a roster
+        // that swallowed its own refusal into the Room cache and then into an empty list, and priced
+        // platform fees in Kotlin whenever the view reported no revenue. So an outage answered as a
+        // platform with no groups holding R0.00, next to a revenue figure the app had invented.
+        // The view is a SECURITY DEFINER aggregate over groups, members and platform_ledger and counts
+        // what RLS hides from this caller, so it - not a filtered roster - is the source of the
+        // platform-wide numbers, and the revenue it answers, zero included, is the real revenue.
+        val summary = supabase.postgrest["platform_summary_stats"]
+            .select()
+            .decodeList<PlatformAnalyticsSummary>()
+            .firstOrNull()
+            ?: error("The platform summary view answered with no row.")
 
-        val groups: List<Group> = safeRunCatching {
-            supabase.postgrest["groups"].select(columns = Columns.raw(PostgrestColumns.GROUPS_SAFE)).decodeList<Group>()
-        }.recoverCatching {
-            supabase.postgrest["groups"].select(columns = Columns.raw(PostgrestColumns.GROUPS_SAFE)) {
-                filter {
-                    eq("is_public", true)
-                    eq("registration_paid", true)
-                }
-            }.decodeList<Group>()
-        }.recoverCatching {
-            db.groupDao().observeAllGroups().firstOrNull()?.map { it.toModel() } ?: emptyList()
-        }.getOrElse { emptyList() }
-
-        val totalGroups = summary?.totalGroups ?: groups.size
-        val totalMembers = summary?.totalMembers ?: groups.sumOf { it.currentMembers }
-        val totalProvinces = summary?.totalProvinces ?: groups
-            .mapNotNull { it.province?.trim()?.takeIf(String::isNotEmpty) }
-            .distinct()
-            .size
-        val totalBalance = summary?.totalBalance ?: Money(groups.map { it.balance.amount }.fold(
-            BigDecimal.ZERO, BigDecimal::add))
-        val summaryRevenue = summary?.platformRevenue ?: Money.ZERO
-        val totalPlatformFees = if (summaryRevenue.isPositive) {
-            summaryRevenue
-        } else {
-            // Fallback estimate: R10 per member per month for 6 months, plus an R150 group
-            // registration fee at 80% capture.
-            Money("10") * (totalMembers * 6) + Money("150").percent(80.0) * totalGroups
-        }
-        val averageRiskScore = summary?.averageRiskScore ?: 0.0
-
-        PlatformAnalytics(
-            totalGroups = totalGroups,
-            totalMembers = totalMembers,
-            totalProvinces = totalProvinces,
-            totalBalance = totalBalance,
-            totalPlatformFees = totalPlatformFees,
-            averageRiskScore = averageRiskScore,
-            groupTypeDistribution = groups.groupingBy { it.type.name }.eachCount(),
-            provinceDistribution = groups.groupingBy { it.province.orEmpty() }.eachCount()
-        )
+        platformAnalyticsOf(summary, fetchGroupRoster())
     }
 
     override suspend fun getAllGroups(): Result<List<Group>> = retryWithExponentialBackoff {
-        val groups = safeRunCatching {
-            supabase.postgrest["groups"].select(columns = Columns.raw(PostgrestColumns.GROUPS_SAFE)).decodeList<Group>()
-        }.recoverCatching {
-            db.groupDao().observeAllGroups().firstOrNull()?.map { it.toModel() } ?: emptyList()
-        }.getOrElse { emptyList() }
+        fetchGroupRoster()
+    }
+
+    /**
+     * The platform's groups as the server answers them. Every caller reads a success as the complete
+     * platform: three money sweeps `getOrThrow()` this roster and walk it group by group, and the admin
+     * dashboard charts it. The cache is written here, not read - rows the server never confirmed cannot
+     * tell a sweep which groups exist today.
+     */
+    private suspend fun fetchGroupRoster(): List<Group> {
+        val groups = supabase.postgrest["groups"]
+            .select(columns = Columns.raw(PostgrestColumns.GROUPS_SAFE))
+            .decodeList<Group>()
 
         if (groups.isNotEmpty()) {
             safeRunCatching { db.groupDao().upsertGroups(groups.map { it.toEntity() }) }
         }
-        groups
+        return groups
     }
 
     override suspend fun updateGlobalFees(config: PlatformConfig): Result<Unit> = authoritativeCall("updateGlobalFees") {
@@ -356,6 +333,24 @@ class PlatformRepositoryImpl @Inject constructor(
     }
 
     companion object {
+        /**
+         * The counters come from the summary view, which is the only source for platform revenue and
+         * the average risk score; the roster the server answered supplies the two charts it cannot.
+         */
+        internal fun platformAnalyticsOf(
+            summary: PlatformAnalyticsSummary,
+            groups: List<Group>
+        ): PlatformAnalytics = PlatformAnalytics(
+            totalGroups = summary.totalGroups,
+            totalMembers = summary.totalMembers,
+            totalProvinces = summary.totalProvinces,
+            totalBalance = summary.totalBalance,
+            totalPlatformFees = summary.platformRevenue,
+            averageRiskScore = summary.averageRiskScore,
+            groupTypeDistribution = groups.groupingBy { it.type.name }.eachCount(),
+            provinceDistribution = groups.groupingBy { it.province.orEmpty() }.eachCount()
+        )
+
         internal fun buildLiftingFeeTransactionId(groupId: String): String =
             "unsuspend_group_${groupId}_${System.currentTimeMillis()}"
 

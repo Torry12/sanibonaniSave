@@ -2,7 +2,7 @@ package com.sanibonani.save.viewmodel
 
 import android.util.Log
 import androidx.arch.core.executor.testing.InstantTaskExecutorRule
-import androidx.lifecycle.viewModelScope
+import com.sanibonani.save.MainDispatcherRule
 import com.sanibonani.save.domain.model.*
 import com.sanibonani.save.domain.repository.admin.*
 import com.sanibonani.save.domain.repository.auth.*
@@ -11,6 +11,7 @@ import com.sanibonani.save.domain.repository.treasury.LedgerRepository
 import com.sanibonani.save.domain.repository.group.*
 import com.sanibonani.save.domain.repository.member.*
 import com.sanibonani.save.domain.repository.system.*
+import com.sanibonani.save.domain.service.DevSettingsService
 import com.sanibonani.save.domain.service.NetworkConnectivityService
 import com.sanibonani.save.domain.utils.PaymentCalculator
 import com.sanibonani.save.service.MemberGroupContextCacheService
@@ -20,7 +21,10 @@ import com.sanibonani.save.domain.usecase.group.ObserveGroupDetailUseCase
 import com.sanibonani.save.domain.usecase.auth.BuildDocumentAuthHeadersUseCase
 import com.sanibonani.save.domain.usecase.auth.GetAttributableActorIdUseCase
 import com.sanibonani.save.domain.usecase.auth.GetCurrentUserRoleUseCase
+import com.sanibonani.save.domain.repository.disbursement.PayoutRepository
 import com.sanibonani.save.domain.usecase.credit.ObserveMemberLoansUseCase
+import com.sanibonani.save.domain.usecase.disbursement.ObserveMemberPayoutsUseCase
+import com.sanibonani.save.domain.usecase.member.ObserveMemberClaimsUseCase
 import com.sanibonani.save.domain.usecase.equity.ObserveMemberContributionsUseCase
 import com.sanibonani.save.domain.usecase.member.ObserveGroupMembersUseCase
 import com.sanibonani.save.domain.usecase.member.ObserveMemberByIdUseCase
@@ -33,16 +37,19 @@ import com.sanibonani.save.domain.usecase.system.ExportLedgerStatementUseCase
 import com.sanibonani.save.domain.usecase.system.ExportMembershipContractUseCase
 import com.sanibonani.save.domain.usecase.system.SendNotificationUseCase
 import com.sanibonani.save.features.member.presentation.MemberOverviewViewModel
+import com.sanibonani.save.features.common.presentation.UIEvent
 import com.sanibonani.save.features.member.presentation.coordination.MemberDocumentCoordinator
 import com.sanibonani.save.features.member.presentation.coordination.MemberLiveObservationCoordinator
 import com.sanibonani.save.features.member.presentation.coordination.MemberMessagingCoordinator
 import io.mockk.*
-import kotlinx.coroutines.Dispatchers
+import java.io.IOException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.*
+import kotlinx.coroutines.withTimeoutOrNull
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
@@ -62,6 +69,9 @@ import kotlinx.coroutines.flow.flow
 class MemberOverviewViewModelTest {
 
     @get:Rule
+    val mainDispatcherRule = MainDispatcherRule()
+
+    @get:Rule
     val instantExecutorRule = InstantTaskExecutorRule()
 
     private val memberContextCacheService = mockk<MemberGroupContextCacheService>(relaxed = true)
@@ -72,18 +82,23 @@ class MemberOverviewViewModelTest {
     private val exportRepo = mockk<ExportRepository>(relaxed = true)
     private val supabaseRepo = mockk<SupabaseRepository>(relaxed = true)
     private val loanRepo = mockk<LoanRepository>(relaxed = true)
+    private val claimRepo = mockk<BeneficiaryClaimRepository>(relaxed = true)
+    private val payoutRepo = mockk<PayoutRepository>(relaxed = true)
     private val auditRepo = mockk<AuditRepository>(relaxed = true)
     private val notifRepo = mockk<NotificationRepository>(relaxed = true)
     private val getGroupBusinessInsightsUseCase = mockk<GetGroupBusinessInsightsUseCase>(relaxed = true)
     private val paymentCalculator = mockk<PaymentCalculator>(relaxed = true)
     private val networkService = mockk<NetworkConnectivityService>(relaxed = true)
+    private val devSettings = mockk<DevSettingsService>(relaxed = true).apply {
+        every { settingsChanged } returns MutableSharedFlow<Unit>()
+    }
 
     private lateinit var viewModel: MemberOverviewViewModel
     private lateinit var contexts: MutableStateFlow<Map<String, CachedGroupContext>>
-    private val testDispatcher = StandardTestDispatcher()
-    private val createdViewModels = mutableListOf<MemberOverviewViewModel>()
+    private lateinit var staleSections: MutableStateFlow<Map<String, Set<String>>>
+    private val testDispatcher = mainDispatcherRule.dispatcher
 
-    private fun createViewModel(): MemberOverviewViewModel = MemberOverviewViewModel(
+    private fun createViewModel(): MemberOverviewViewModel = mainDispatcherRule.track(MemberOverviewViewModel(
         memberContextCacheService,
         ObserveMembershipsUseCase(memberRepo),
         GetGroupByIdUseCase(groupRepo),
@@ -106,10 +121,13 @@ class MemberOverviewViewModelTest {
             ObserveMemberLedgerUseCase(ledgerRepo),
             ObserveMemberLoansUseCase(loanRepo),
             ObserveMemberByIdUseCase(memberRepo),
+            ObserveMemberClaimsUseCase(claimRepo),
+            ObserveMemberPayoutsUseCase(payoutRepo),
             getGroupBusinessInsightsUseCase
         ),
+        devSettings,
         networkService
-    ).also { createdViewModels += it }
+    ))
 
     @Before
     fun setup() {
@@ -127,11 +145,11 @@ class MemberOverviewViewModelTest {
         mockkStatic(android.os.Looper::class)
         every { android.os.Looper.getMainLooper() } returns mockk(relaxed = true)
 
-        Dispatchers.setMain(testDispatcher)
-
         every { supabaseRepo.currentUserId } returns "user_123"
         contexts = MutableStateFlow(emptyMap())
         every { memberContextCacheService.contexts } returns contexts
+        staleSections = MutableStateFlow(emptyMap())
+        every { memberContextCacheService.unverifiedSections } returns staleSections
         every { networkService.isOnline } returns flowOf(true)
         every { networkService.isAirplaneModeActive } returns flowOf(false)
 
@@ -140,12 +158,35 @@ class MemberOverviewViewModelTest {
 
     @After
     fun tearDown() {
-        // Cancel every ViewModel scope while Main is still set, otherwise a coroutine on
-        // Dispatchers.Default resumes after resetMain() and fails the *next* test.
-        createdViewModels.forEach { it.viewModelScope.cancel() }
         testDispatcher.scheduler.advanceUntilIdle()
-        Dispatchers.resetMain()
         unmockkAll()
+    }
+
+    @Test
+    fun `the portal names the sections the sync could not bring current`() = runTest {
+        // A member's book can be a complete cache read and still be unverified against the server;
+        // the portal has to say which sections the sync never delivered.
+        val groupId = "test_group"
+        viewModel.selectGroup(groupId)
+        advanceUntilIdle()
+
+        staleSections.value = mapOf(groupId to setOf("loans", "the ledger"))
+        advanceUntilIdle()
+
+        assertEquals(setOf("loans", "the ledger"), viewModel.state.value.unverifiedSections)
+
+        viewModel.selectGroup("other_group")
+        advanceUntilIdle()
+
+        assertTrue(
+            "the verdict belongs to the group, not the session",
+            viewModel.state.value.unverifiedSections.isEmpty()
+        )
+
+        staleSections.value = mapOf("other_group" to setOf("the ledger"))
+        advanceUntilIdle()
+
+        assertEquals(setOf("the ledger"), viewModel.state.value.unverifiedSections)
     }
 
     @Test
@@ -276,5 +317,161 @@ class MemberOverviewViewModelTest {
         assertEquals(member.id, viewModel.state.value.member?.id)
         assertEquals(groupId, viewModel.state.value.group?.id)
         assertFalse(viewModel.state.value.isLoading)
+    }
+
+    // The membership flow is what fills the group switcher, and it re-emits on every sync pass. A
+    // pass the server refused leaves the previous list on screen, which is only honest if the
+    // portal says so: a member who was removed from a group reads a list that no longer exists.
+    @Test
+    fun `a refused membership read is reported instead of passing as the old list`() = runTest {
+        every { memberRepo.observeMemberships("user_123") } returns
+            flowOf(Result.failure(IOException("membership read failed")))
+
+        viewModel = createViewModel()
+        advanceUntilIdle()
+
+        val event = withTimeoutOrNull(2_000) { viewModel.events.first() }
+        assertTrue("emitted event: $event", event is UIEvent.ShowError)
+        assertTrue(viewModel.state.value.memberships.isEmpty())
+    }
+
+    @Test
+    fun `a membership read that keeps failing is reported once, not on every sync pass`() = runTest {
+        every { memberRepo.observeMemberships("user_123") } returns flow {
+            repeat(3) { emit(Result.failure<List<Member>>(IOException("membership read failed"))) }
+        }
+
+        viewModel = createViewModel()
+        advanceUntilIdle()
+
+        val first = withTimeoutOrNull(2_000) { viewModel.events.first() }
+        assertTrue("emitted event: $first", first is UIEvent.ShowError)
+        assertNull(
+            "a refusal that repeats on every pass must not toast over the same failure again",
+            withTimeoutOrNull(2_000) { viewModel.events.first() }
+        )
+    }
+
+    // The portal's "Admin Dashboard" link renders only for a GROUP_ADMIN, and the field it reads was
+    // never written - so a group admin standing in the member portal had no way back to their own
+    // dashboard, whatever the session actually said.
+    @Test
+    fun `the portal carries the signed-in account's role`() = runTest {
+        coEvery { supabaseRepo.getUserRole() } returns UserRole.GROUP_ADMIN
+
+        viewModel = createViewModel()
+        advanceUntilIdle()
+
+        assertEquals(UserRole.GROUP_ADMIN, viewModel.state.value.userRole)
+    }
+
+    @Test
+    fun `a role the session cannot name fails closed to member`() = runTest {
+        coEvery { supabaseRepo.getUserRole() } throws IOException("role read failed")
+
+        viewModel = createViewModel()
+        advanceUntilIdle()
+
+        assertEquals(UserRole.MEMBER, viewModel.state.value.userRole)
+    }
+
+    // The claims tab, the burial-society stat card and the "Financial Snapshot" row all read these
+    // two fields, and nothing wrote them - so a member with a claim under review saw "0 Claims".
+    @Test
+    fun `the member's own claims and payout requests reach the portal that lists them`() = runTest {
+        val groupId = "g1"
+        val member = Member(id = "m1", groupId = groupId)
+        val group = Group(id = groupId, name = "Burial group")
+        val claim = BeneficiaryPayoutClaim(
+            id = "claim-1",
+            groupId = groupId,
+            memberId = "m1",
+            status = BeneficiaryClaimStatus.UNDER_REVIEW
+        )
+        val payout = PayoutRequest(
+            id = "payout-1",
+            groupId = groupId,
+            memberId = "m1",
+            bankName = "Capitec",
+            accountNo = "1234567890",
+            branchCode = "147005",
+            status = PayoutStatus.PROCESSING
+        )
+
+        every { groupRepo.observeGroup(groupId) } returns flowOf(Result.success(group))
+        every { memberRepo.observeMemberById("m1") } returns flowOf(Result.success(member))
+        every { contributionRepo.observeMemberContributions("m1", groupId) } returns
+            flowOf(Result.success(emptyList()))
+        every { loanRepo.getMemberLoans("m1") } returns flowOf(Result.success(emptyList()))
+        every { ledgerRepo.observeMemberLedger("m1") } returns flowOf(Result.success(emptyList()))
+        every { memberRepo.getGroupMembers(groupId) } returns flowOf(Result.success(listOf(member)))
+        every { getGroupBusinessInsightsUseCase(any(), any()) } returns
+            Result.success(GroupFinancialInsight(groupId = groupId))
+        every { paymentCalculator.calculateExpectedMemberGroupPart(any(), any()) } returns Money.ZERO
+        every { claimRepo.observeClaimsForMember("m1", groupId) } returns
+            flowOf(Result.success(listOf(claim)))
+        every { payoutRepo.observePayoutsForMember("m1") } returns
+            flowOf(Result.success(listOf(payout)))
+
+        viewModel.selectGroup(groupId)
+        advanceUntilIdle()
+        viewModel.setActive(true)
+        contexts.value = mapOf(
+            groupId to CachedGroupContext(
+                member = member,
+                group = group,
+                calculation = PaymentCalculation.EMPTY,
+                isFullyHydrated = true,
+                lastUpdatedMillis = 123L
+            )
+        )
+        advanceUntilIdle()
+
+        assertEquals(listOf(claim), viewModel.state.value.burialClaims)
+        assertEquals(listOf(payout), viewModel.state.value.payouts)
+    }
+
+    @Test
+    fun `switching group drops the previous group's claims and payouts`() = runTest {
+        val groupId = "g1"
+        val member = Member(id = "m1", groupId = groupId)
+        val group = Group(id = groupId, name = "Burial group")
+        val claim = BeneficiaryPayoutClaim(id = "claim-1", groupId = groupId, memberId = "m1")
+
+        every { groupRepo.observeGroup(groupId) } returns flowOf(Result.success(group))
+        every { memberRepo.observeMemberById("m1") } returns flowOf(Result.success(member))
+        every { contributionRepo.observeMemberContributions("m1", groupId) } returns
+            flowOf(Result.success(emptyList()))
+        every { loanRepo.getMemberLoans("m1") } returns flowOf(Result.success(emptyList()))
+        every { ledgerRepo.observeMemberLedger("m1") } returns flowOf(Result.success(emptyList()))
+        every { memberRepo.getGroupMembers(groupId) } returns flowOf(Result.success(listOf(member)))
+        every { getGroupBusinessInsightsUseCase(any(), any()) } returns
+            Result.success(GroupFinancialInsight(groupId = groupId))
+        every { paymentCalculator.calculateExpectedMemberGroupPart(any(), any()) } returns Money.ZERO
+        every { claimRepo.observeClaimsForMember("m1", groupId) } returns
+            flowOf(Result.success(listOf(claim)))
+        every { payoutRepo.observePayoutsForMember("m1") } returns
+            flowOf(Result.success(emptyList()))
+
+        viewModel.selectGroup(groupId)
+        advanceUntilIdle()
+        viewModel.setActive(true)
+        contexts.value = mapOf(
+            groupId to CachedGroupContext(
+                member = member,
+                group = group,
+                calculation = PaymentCalculation.EMPTY,
+                isFullyHydrated = true,
+                lastUpdatedMillis = 123L
+            )
+        )
+        advanceUntilIdle()
+        assertEquals(listOf(claim), viewModel.state.value.burialClaims)
+
+        viewModel.selectGroup("g2")
+        advanceUntilIdle()
+
+        assertTrue(viewModel.state.value.burialClaims.isEmpty())
+        assertTrue(viewModel.state.value.payouts.isEmpty())
     }
 }

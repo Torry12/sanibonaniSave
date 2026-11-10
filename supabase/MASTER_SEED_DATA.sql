@@ -1,6 +1,7 @@
 -- ─────────────────────────────────────────────────────────────────────────────
 -- SanibonaniSave — MASTER SEED DATA (Consolidated)
--- Version: 3.0 (Money-Precise, Ledger-Safe Demo Environment - October 2026)
+-- Version: 3.1 (Money-Precise, Ledger-Safe Demo Environment - October 2026)
+-- Self-contained except for pg_temp.seed_post_contribution, declared in 10_SEED_HELPERS.sql.
 -- ─────────────────────────────────────────────────────────────────────────────
 
 DO $$
@@ -14,6 +15,8 @@ DECLARE
     v_loan_id UUID;
     v_beneficiary_id UUID;
     v_poll_id UUID;
+    v_repay_id UUID;
+    v_member_name TEXT;
     v_now TIMESTAMPTZ := NOW();
 
     -- Development/demo credentials only
@@ -80,7 +83,26 @@ BEGIN
     ON CONFLICT (id) DO UPDATE SET role = 'platform_admin', full_name = 'Torry Msimango', email = 'torrymsimango@gmail.com';
 
     -- 2. CLEANUP (remove only rows owned by this seed; preserve the shared admin)
-    RAISE NOTICE 'Starting Master Seeding Version 3.0...';
+    RAISE NOTICE 'Starting Master Seeding Version 3.1...';
+    -- platform_ledger.group_id is ON DELETE SET NULL, so the registration receipts these groups
+    -- generated would survive their deletion and every re-run would stack another revenue history
+    -- on the last one. Their transaction_id is the contribution row's id, which cascades away with
+    -- the group, so a receipt with no contribution behind it is one of ours.
+    DELETE FROM public.platform_ledger pl
+    WHERE pl.group_id IN (
+            SELECT id FROM public.groups
+            WHERE name = ANY (ARRAY[
+                'LIGHT-Burial Society', 'LIGHT-Stokvel', 'LIGHT-Rosca', 'LIGHT-Investment Club',
+                'LIGHT-Emergency Fund', 'LIGHT-Community Savings', 'LIGHT-Hybrid Savings Group',
+                'LIGHT-Other'
+            ])
+          )
+       OR (pl.group_id IS NULL
+           AND pl.category = 'registration_contribution'
+           AND NOT EXISTS (
+               SELECT 1 FROM public.contributions c WHERE c.id::text = pl.transaction_id
+           ));
+
     DELETE FROM public.groups
     WHERE name = ANY (ARRAY[
         'LIGHT-Burial Society', 'LIGHT-Stokvel', 'LIGHT-Rosca', 'LIGHT-Investment Club',
@@ -125,16 +147,11 @@ BEGIN
         WHERE id = v_member_id;
         v_admin_member_id := v_member_id;
 
-        -- 🛡️ Admin Financials - use record_contribution_v2 with Money-precise amounts
-        PERFORM public.record_contribution_v2(
-            p_member_id => v_member_id,
-            p_group_id => v_group_id,
-            p_amount => v_monthly_contrib_amount,      -- Money-precise NUMERIC
-            p_due_date => v_now::date,
-            p_paid_at => v_now,
-            p_status => 'paid',
-            p_tx_id => 'REG-ADMIN-' || v_group_id,
-            p_type => 'registration_contribution'
+        -- 🛡️ Admin Financials - registration contribution, posted as a platform receipt
+        SELECT full_name INTO v_member_name FROM public.members WHERE id = v_member_id;
+        PERFORM pg_temp.seed_post_contribution(
+            v_member_id, v_group_id, v_monthly_contrib_amount, v_now::date, v_now,
+            'paid', 'REG-ADMIN-' || v_group_id, 'registration_contribution', v_member_name
         );
 
         -- Add 3 Persona Members
@@ -165,29 +182,20 @@ BEGIN
             VALUES (v_member_id, v_group_id, v_now - interval '12 months', v_now)
             ON CONFLICT (member_id) DO NOTHING;
 
-            -- 🛡️ Record Joining Fee (Principal) - using Money format
-            PERFORM public.record_contribution_v2(
-                p_member_id => v_member_id,
-                p_group_id => v_group_id,
-                p_amount => v_joining_fee_amount,        -- Money-precise NUMERIC
-                p_due_date => (v_now - interval '12 months')::date,
-                p_paid_at => v_now - interval '12 months',
-                p_status => 'paid',
-                p_tx_id => 'JOIN-' || v_member_id,
-                p_type => 'registration_contribution'
+            -- 🛡️ Record Joining Fee (Principal)
+            PERFORM pg_temp.seed_post_contribution(
+                v_member_id, v_group_id, v_joining_fee_amount,
+                (v_now - interval '12 months')::date, v_now - interval '12 months',
+                'paid', 'JOIN-' || v_member_id, 'registration_contribution', v_full_name
             );
 
             -- Record 12 months of paid contributions
             FOR h IN 1..12 LOOP
-                PERFORM public.record_contribution_v2(
-                    p_member_id => v_member_id,
-                    p_group_id => v_group_id,
-                    p_amount => v_monthly_contrib_amount,  -- Money-precise NUMERIC
-                    p_due_date => (v_now - (h * 30 || ' days')::interval)::date,
-                    p_paid_at => v_now - (h * 30 || ' days')::interval,
-                    p_status => 'paid',
-                    p_tx_id => 'HIST-' || v_member_id || '-' || h,
-                    p_type => 'contribution'
+                PERFORM pg_temp.seed_post_contribution(
+                    v_member_id, v_group_id, v_monthly_contrib_amount,
+                    (v_now - (h * 30 || ' days')::interval)::date,
+                    v_now - (h * 30 || ' days')::interval,
+                    'paid', 'HIST-' || v_member_id || '-' || h, 'contribution', v_full_name
                 );
             END LOOP;
 
@@ -293,11 +301,25 @@ BEGIN
             (v_now - interval '1 month')::date, (v_now + interval '3 months')::date, 'active', 'Medical Expense'
         ) RETURNING id INTO v_loan_id;
 
-        PERFORM public.record_loan_repayment_v1(
-            v_loan_id,
-            v_member_id, v_group_id, 500.00, 'bank'
+        SELECT full_name INTO v_member_name FROM public.members WHERE id = v_member_id;
+
+        -- The loan above is money that left the group, so the ledger says so now instead of only
+        -- after a repair. Same row consolidate_group_ledger_v1 block 4 would rebuild.
+        PERFORM pg_temp.seed_post_loan_disbursement(
+            v_loan_id, v_group_id, v_member_id, 2000.00, v_member_name,
+            v_now - interval '1 month'
+        );
+
+        INSERT INTO public.loan_repayments (loan_id, member_id, group_id, amount, payment_method)
+        VALUES (v_loan_id, v_member_id, v_group_id, 500.00, 'bank')
+        RETURNING id INTO v_repay_id;
+
+        PERFORM public.increment_group_balance(
+            v_group_id, 500.00,
+            'Loan repayment from ' || v_member_name,
+            'loan_repayment', v_repay_id::text, v_member_id
         );
     END IF;
 
-    RAISE NOTICE 'Master Seeding 3.0 complete: 8 core groups, 24 persona members, governance, claims, loan, and fraud demo data generated with Money-precise financial operations.';
+    RAISE NOTICE 'Master Seeding 3.1 complete: 8 core groups, 24 persona members, governance, claims, loan, and fraud demo data generated with Money-precise financial operations.';
 END $$;

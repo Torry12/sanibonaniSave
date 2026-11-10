@@ -26,15 +26,14 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.test.UnconfinedTestDispatcher
-import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
-import kotlinx.coroutines.test.setMain
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class RegistrationLifecycleTest {
+
+    @get:Rule
+    val mainDispatcherRule = MainDispatcherRule(MainDispatcherRule.Kind.UNCONFINED)
 
     @get:Rule
     val instantExecutorRule = InstantTaskExecutorRule()
@@ -49,15 +48,12 @@ class RegistrationLifecycleTest {
     private lateinit var viewModel: GroupRegistrationViewModel
     private val viewModelStore = ViewModelStore()
 
-    private val testDispatcher = UnconfinedTestDispatcher()
 
     @Before
     fun setup() {
-        Dispatchers.setMain(testDispatcher)
-
         every { feeService.getRegistrationFee() } returns Money("700.0")
 
-        viewModel = GroupRegistrationViewModel(
+        viewModel = mainDispatcherRule.track(GroupRegistrationViewModel(
             createGroupUseCase,
             activateGroupUseCase,
             feeService,
@@ -65,14 +61,13 @@ class RegistrationLifecycleTest {
             IsLoggedInUseCase(supabaseRepo),
             GetCurrentSessionEmailUseCase(supabaseRepo),
             GetAttributableActorIdUseCase(supabaseRepo)
-        )
+        ))
         viewModelStore.put("registration-test", viewModel)
     }
 
     @After
     fun tearDown() {
         viewModelStore.clear()
-        Dispatchers.resetMain()
         unmockkAll()
     }
 
@@ -204,7 +199,7 @@ class RegistrationLifecycleTest {
         // Tracked so tearDown's viewModelStore.clear() cancels this scope as well; an uncancelled
         // viewModelScope resumes on Dispatchers.Main after the class ends and is reported as
         // UncaughtExceptionsBeforeTest by whichever test class runs next.
-        return GroupRegistrationViewModel(
+        return mainDispatcherRule.track(GroupRegistrationViewModel(
             createGroupUseCase,
             activateGroupUseCase,
             feeService,
@@ -212,7 +207,7 @@ class RegistrationLifecycleTest {
             IsLoggedInUseCase(supabaseRepo),
             GetCurrentSessionEmailUseCase(supabaseRepo),
             GetAttributableActorIdUseCase(supabaseRepo)
-        ).also { viewModelStore.put("zero-fee-${System.identityHashCode(it)}", it) }
+        )).also { viewModelStore.put("zero-fee-${System.identityHashCode(it)}", it) }
     }
 
     private fun fillFreeOnboardingForm(vm: GroupRegistrationViewModel) {

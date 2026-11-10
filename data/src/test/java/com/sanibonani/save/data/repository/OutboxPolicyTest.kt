@@ -50,4 +50,33 @@ class OutboxPolicyTest {
         assertTrue(OutboxPolicy.isParked(OutboxPolicy.MAX_PERMANENT_ATTEMPTS))
         assertTrue(OutboxPolicy.isParked(OutboxPolicy.MAX_PERMANENT_ATTEMPTS + 1))
     }
+
+    @Test
+    fun `a bracketed server refusal is permanent whatever sentence carries it`() {
+        // Every money RPC raises its code before its first write, so the answer proves the server was
+        // reached and refused this payload. Replaying it unchanged can never succeed, and the prose
+        // after the bracket is the human half - too varied for this list to enumerate. The refusal
+        // used to fall through as an unrecognised error, so it blocked its group lane forever.
+        assertTrue(OutboxPolicy.isPermanentFailure(RuntimeException("[FIN_002] This payout is already paid")))
+        assertTrue(OutboxPolicy.isPermanentFailure(RuntimeException("[SEC_002] caller not entitled")))
+        assertTrue(OutboxPolicy.isPermanentFailure(RuntimeException("[SYS_002] transaction_id reused")))
+        // A rule the policy has never seen still arrives bracketed from a refusal.
+        assertTrue(OutboxPolicy.isPermanentFailure(RuntimeException("[FIN_004] a precondition added next month")))
+        assertTrue(
+            "the refusal usually arrives wrapped in the handler's own message",
+            OutboxPolicy.isPermanentFailure(
+                IllegalStateException("handler failed", RuntimeException("[FIN_001] the pot is empty"))
+            )
+        )
+        // The HTTP layer reports a 400 as an IOException, so the transport rule must not get first
+        // say: a device that heard back is not a device that could not reach the server.
+        assertTrue(
+            OutboxPolicy.isPermanentFailure(IOException("[FIN_003] unsupported status literal"))
+        )
+
+        // An outage carries no code, and an unrecognised error stays transient rather than silently
+        // parking a real money movement.
+        assertFalse(OutboxPolicy.isPermanentFailure(IOException("Connection reset")))
+        assertFalse(OutboxPolicy.isPermanentFailure(RuntimeException("HTTP 503 Service Unavailable")))
+    }
 }

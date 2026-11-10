@@ -36,7 +36,10 @@ class ExecuteRoscaPayoutUseCase @Inject constructor(
 
         val members = memberRepository.syncGroupMembers(groupId).getOrNull() ?: throw Exception("No members")
 
-        val allContributions = contributionRepository.observeGroupContributions(groupId).first().getOrElse {
+        // The rotation is read from the server, not the cache: observeGroupContributions answers with
+        // Room first and sends the refusal behind those rows, so a `.first()` here would let a stale
+        // paid row certify a pot the group has never actually funded.
+        val allContributions = contributionRepository.syncGroupContributions(groupId).getOrElse {
             throw IllegalStateException("Contribution history unavailable; payout rotation aborted.")
         }
         // One loan fetch for the whole rotation instead of one per payoutee. Each per-member fetch

@@ -148,7 +148,7 @@ class StandardContributionStrategy(
         val calc = calculation ?: throw Exception("Calculation context required for contribution")
 
         // Fetch active loans to check for potential repayments
-        val activeLoans = loanRepository.getMemberLoans(memberId).first().getOrThrow().filter {
+        val activeLoans = loanRepository.getMemberLoansSync(memberId).getOrThrow().filter {
             it.status == LoanStatus.ACTIVE || it.status == LoanStatus.PARTIALLY_PAID
         }
 

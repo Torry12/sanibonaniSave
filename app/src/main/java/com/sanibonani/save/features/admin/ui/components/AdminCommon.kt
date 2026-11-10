@@ -22,7 +22,7 @@ import com.sanibonani.save.ui.theme.*
 
 
 @Composable
-fun AdminFeeBanner(group: Group, status: AdminFeeState, daysOverdue: Int, onAction: () -> Unit) {
+fun AdminFeeBanner(group: Group, status: AdminFeeState, onAction: () -> Unit) {
     if (status == AdminFeeState.PAID) return
 
     val (bgColor, fgColor) = when (status) {
@@ -36,7 +36,7 @@ fun AdminFeeBanner(group: Group, status: AdminFeeState, daysOverdue: Int, onActi
     val message = when (status) {
         AdminFeeState.DUE -> "Platform fee is due."
         AdminFeeState.WARNING -> "Platform fee is late. Pay soon to avoid suspension."
-        AdminFeeState.OVERDUE -> "Group suspended due to non-payment ($daysOverdue days late)."
+        AdminFeeState.OVERDUE -> "Group suspended due to non-payment."
         AdminFeeState.SUSPENDED -> "Account restricted. Please settle outstanding fees."
         AdminFeeState.PENDING_ACTIVATION -> "Group activation required."
     }

@@ -25,6 +25,10 @@ class DeepSimulationAndroidTest {
     private val adminEmail = "torrymsimango@gmail.com"
     private val adminPass = BuildConfig.PLATFORM_ADMIN_PASSWORD
 
+    // Real server walks on a shared device: alone testDeepSimulation took 35.8s, in a full suite it
+    // overran a 60s latch. The success assertion below, not this budget, decides the result.
+    private val simulationBudgetSeconds = 180L
+
     @Before
     fun init() {
         hiltRule.inject()
@@ -36,7 +40,7 @@ class DeepSimulationAndroidTest {
         var testResult: Result<String>? = null
         val runner = LiveSimulationRunner(url, key)
 
-        CoroutineScope(Dispatchers.IO).launch {
+        val job = CoroutineScope(Dispatchers.IO).launch {
             println("SIM_TRACE: Android Deep Simulation Started")
             try {
                 testResult = runner.runDeepHistoricalActivitySimulation(adminEmail, adminPass)
@@ -47,7 +51,10 @@ class DeepSimulationAndroidTest {
             }
         }
 
-        val completed = latch.await(60, TimeUnit.SECONDS)
+        val completed = latch.await(simulationBudgetSeconds, TimeUnit.SECONDS)
+        // Left running, this coroutine's Hilt EntryPoint access is charged to whichever class is
+        // active next, which read as InternetTest failing without ever making its request.
+        if (!completed) job.cancel()
         assertTrue("Test timed out waiting for simulation completion", completed)
         val result = testResult ?: error("No result returned")
         assertTrue("Deep Simulation should succeed: ${result.exceptionOrNull()?.message}", result.isSuccess)
@@ -59,7 +66,7 @@ class DeepSimulationAndroidTest {
         var testResult: Result<String>? = null
         val runner = LiveSimulationRunner(url, key)
 
-        CoroutineScope(Dispatchers.IO).launch {
+        val job = CoroutineScope(Dispatchers.IO).launch {
             println("SIM_TRACE: Android Live Financial Flow Started")
             try {
                 testResult = runner.runLiveFinancialFlowSimulation(adminEmail, adminPass)
@@ -70,7 +77,8 @@ class DeepSimulationAndroidTest {
             }
         }
 
-        val completed = latch.await(60, TimeUnit.SECONDS)
+        val completed = latch.await(simulationBudgetSeconds, TimeUnit.SECONDS)
+        if (!completed) job.cancel()
         assertTrue("Test timed out waiting for flow simulation completion", completed)
         val result = testResult ?: error("No result returned")
         assertTrue("Flow Simulation should succeed: ${result.exceptionOrNull()?.message}", result.isSuccess)

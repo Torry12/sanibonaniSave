@@ -20,7 +20,11 @@ class ProcessGroupPlatformFeePaymentUseCase @Inject constructor(
         if (fees.isEmpty()) return Result.success(Unit)
 
         // 2. Calculate total
-        val totalDue = fees.fold(Money.ZERO) { acc, fee -> acc + (fee.amountDue - fee.amountPaid) }
+        //
+        // Each fee settles on its own. Summing the signed balances let an overpaid month subtract
+        // from an unpaid one, so the group paid less than it owed and the unpaid row stayed
+        // outstanding forever.
+        val totalDue = fees.fold(Money.ZERO) { acc, fee -> acc + (fee.amountDue - fee.amountPaid).max(Money.ZERO) }
         if (!totalDue.isPositive) return Result.success(Unit)
 
         // 3. Verify group balance

@@ -3,7 +3,7 @@ import com.sanibonani.save.data.datasource.LocalReconciliationDataSource
 import com.sanibonani.save.data.datasource.RemoteReconciliationDataSource
 import com.sanibonani.save.data.local.SanibonaniDatabase
 import com.sanibonani.save.data.repository.BaseRepository
-import com.sanibonani.save.domain.model.Money
+import com.sanibonani.save.domain.model.LedgerDrift
 import com.sanibonani.save.domain.model.ReconciliationRecord
 import com.sanibonani.save.domain.model.ReconciliationStatus
 import com.sanibonani.save.domain.model.SettlementRecord
@@ -54,12 +54,15 @@ class ReconciliationRepositoryImpl @Inject constructor(
     }
 
     private suspend fun performLocalReconciliation(groupId: String): ReconciliationRecord {
-        val ledgerEntities = db.ledgerDao().observeLedger(groupId).firstOrNull() ?: emptyList()
-        val ledgerSum = ledgerEntities.fold(Money.ZERO) { acc, entry -> acc + entry.amount }
         val groupEntity = db.groupDao().getGroupById(groupId)
-        val actualBalance = groupEntity?.balance ?: Money.ZERO
-        val discrepancy = actualBalance - ledgerSum
-        val isBalanced = discrepancy.abs() < Money("0.01")
+            ?: throw IllegalStateException(
+                "Group $groupId is not cached, so the local audit has no recorded balance to read the ledger against."
+            )
+        val ledgerAmounts = db.ledgerDao().observeLedger(groupId).firstOrNull().orEmpty().map { it.amount }
+        val ledgerSum = LedgerDrift.sum(ledgerAmounts)
+        val actualBalance = groupEntity.balance
+        val discrepancy = LedgerDrift.between(actualBalance, ledgerAmounts)
+        val isBalanced = LedgerDrift.isBalanced(discrepancy)
         val status = if (isBalanced) ReconciliationStatus.BALANCED else ReconciliationStatus.DISCREPANCY
 
         return ReconciliationRecord(

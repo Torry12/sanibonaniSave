@@ -23,10 +23,17 @@ object OutboxPolicy {
      */
     fun isPermanentFailure(error: Throwable): Boolean {
         if (error is IllegalArgumentException || error is SerializationException) return true
-        if (error is IOException) return false
         val chain = error.causeChainText()
+        // A money RPC raises its bracketed code before its first write, so hearing one proves the
+        // server was reached and refused this payload: replaying it unchanged can never succeed.
+        // This is checked ahead of the IOException rule because the HTTP layer reports a 400 as an
+        // IOException, and a refusal that fell through as unrecognised retried forever.
+        if (SERVER_REFUSAL.containsMatchIn(chain)) return true
+        if (error is IOException) return false
         return PERMANENT_MARKERS.any { chain.contains(it) }
     }
+
+    private val SERVER_REFUSAL = Regex("""\[(fin|sec|sys)_\d{3}]""")
 
     private fun Throwable.causeChainText(): String = buildString {
         var current: Throwable? = this@causeChainText

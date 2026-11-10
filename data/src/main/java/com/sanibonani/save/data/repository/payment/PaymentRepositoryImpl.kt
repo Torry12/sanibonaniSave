@@ -13,13 +13,16 @@ import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.postgrest.query.Columns
 import kotlinx.coroutines.flow.Flow
 import javax.inject.Inject
+import javax.inject.Provider
 import javax.inject.Singleton
 
 @Singleton
 class PaymentRepositoryImpl @Inject constructor(
     private val supabase: SupabaseClient,
-    private val db: SanibonaniDatabase
+    private val dbProvider: Provider<SanibonaniDatabase>
 ) : BaseRepository("PaymentRepository"), PaymentRepository {
+    private val db: SanibonaniDatabase get() = dbProvider.get()
+
     private val PAYMENT_COLUMNS_SAFE = """
         id, member_id, group_id, amount, payment_type,
         payment_method, transaction_id, status, processed_at, created_at

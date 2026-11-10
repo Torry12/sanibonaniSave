@@ -14,7 +14,6 @@ import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.slot
-import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonArray
 import org.junit.Assert.assertTrue
@@ -85,16 +84,14 @@ class ExecuteRoscaPayoutLoanLedgerTest {
 
         coEvery { groupRepository.getGroupById("g1") } returns Result.success(group)
         coEvery { memberRepository.syncGroupMembers("g1") } returns Result.success(listOf(member))
-        every { contributionRepository.observeGroupContributions("g1") } returns flowOf(
-            Result.success(
-                listOf(
-                    Contribution(
-                        memberId = "m1",
-                        groupId = "g1",
-                        amount = Money("300.0"),
-                        dueDate = "2026-03-15",
-                        status = ContributionStatus.PAID
-                    )
+        coEvery { contributionRepository.syncGroupContributions("g1") } returns Result.success(
+            listOf(
+                Contribution(
+                    memberId = "m1",
+                    groupId = "g1",
+                    amount = Money("300.0"),
+                    dueDate = "2026-03-15",
+                    status = ContributionStatus.PAID
                 )
             )
         )
@@ -123,8 +120,10 @@ class ExecuteRoscaPayoutLoanLedgerTest {
 
     @Test
     fun `unavailable contribution history aborts the payout rotation`() = runBlocking {
-        every { contributionRepository.observeGroupContributions("g1") } returns
-            flowOf(Result.failure(IllegalStateException("offline")))
+        // Stubbed on the one-shot read: the observe flow answers with the Room cache first and sends
+        // the refusal behind it, so a failure on its first emission is a shape production never gives.
+        coEvery { contributionRepository.syncGroupContributions("g1") } returns
+            Result.failure(IllegalStateException("offline"))
         coEvery { loanRepository.getGroupLoansSync("g1") } returns Result.success(emptyList())
 
         val result = useCase("g1")

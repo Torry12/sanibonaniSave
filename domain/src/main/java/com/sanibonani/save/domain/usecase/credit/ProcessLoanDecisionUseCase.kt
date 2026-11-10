@@ -1,4 +1,5 @@
 package com.sanibonani.save.domain.usecase.credit
+import com.sanibonani.save.domain.config.LoanTerms
 import com.sanibonani.save.domain.model.*
 import com.sanibonani.save.domain.repository.admin.AuditLogRepository
 import com.sanibonani.save.domain.repository.admin.BehaviorTrackingRepository
@@ -6,6 +7,7 @@ import com.sanibonani.save.domain.repository.credit.LoanRepository
 import com.sanibonani.save.domain.repository.group.GroupRepository
 import com.sanibonani.save.domain.repository.member.MemberRepository
 import com.sanibonani.save.domain.repository.system.NotificationRepository
+import com.sanibonani.save.domain.utils.DateProvider
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.encodeToJsonElement
 import javax.inject.Inject
@@ -33,6 +35,16 @@ class ProcessLoanDecisionUseCase @Inject constructor(
     ): Result<Loan> = financialResult {
         // 1. Fetch data
         val loan = loanRepo.getLoanById(loanId).getOrThrow()
+
+        // A decision only belongs to a request that is still waiting for one. Without this, an
+        // already disbursed loan could be "approved" again - re-notifying the member, re-writing the
+        // audit trail, and asking the server to move money a second time.
+        if (loan.status != LoanStatus.PENDING) {
+            throw IllegalStateException(
+                "This loan request is ${loan.status.name} and can no longer receive a decision."
+            )
+        }
+
         val member = memberRepo.getMemberById(loan.memberId).getOrThrow()
         val group = groupRepo.getGroupById(loan.groupId).getOrThrow()
 
@@ -47,10 +59,10 @@ class ProcessLoanDecisionUseCase @Inject constructor(
 
             // 3. Re-validate Eligibility
             val termMonths = safeRunCatching {
-                val start = java.time.LocalDate.parse(loan.startDate ?: java.time.LocalDate.now().toString())
-                val end = java.time.LocalDate.parse(loan.endDate ?: start.plusMonths(3).toString())
+                val start = java.time.LocalDate.parse(loan.startDate ?: DateProvider.getCurrentDate().toString())
+                val end = java.time.LocalDate.parse(loan.endDate ?: start.plusMonths(LoanTerms.MAX_TERM_MONTHS.toLong()).toString())
                 java.time.temporal.ChronoUnit.MONTHS.between(start, end).toInt().coerceAtLeast(1)
-            }.getOrDefault(3)
+            }.getOrDefault(LoanTerms.MAX_TERM_MONTHS)
 
             val eligibility = validateEligibility(member, group, loan.amount, termMonths)
             if (eligibility is ValidateLoanEligibilityUseCase.EligibilityResult.Ineligible) {

@@ -57,9 +57,11 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.isGranted
 import com.google.accompanist.permissions.rememberPermissionState
+import com.sanibonani.save.features.common.presentation.UIEvent
 import com.sanibonani.save.features.kyc.presentation.KycStep
 import com.sanibonani.save.features.kyc.presentation.KycViewModel
 import com.sanibonani.save.ui.components.SanibonaniTopBar
+import com.sanibonani.save.ui.utils.ToastUtils
 import com.sanibonani.save.ui.utils.rememberClickDebouncer
 import java.util.concurrent.Executors
 
@@ -78,6 +80,16 @@ fun KycCaptureScreen(
     val imageCapture = remember { ImageCapture.Builder().build() }
 
     val cameraPermissionState = rememberPermissionState(Manifest.permission.CAMERA)
+
+    LaunchedEffect(viewModel) {
+        viewModel.events.collect { event ->
+            when (event) {
+                is UIEvent.ShowMessage -> ToastUtils.showInfo(context, event.message)
+                is UIEvent.ShowError -> ToastUtils.showError(context, event.message)
+                else -> Unit
+            }
+        }
+    }
 
     LaunchedEffect(Unit) {
         if (!cameraPermissionState.status.isGranted) {
@@ -193,7 +205,7 @@ fun KycCaptureScreen(
                                                     viewModel.onSelfieCaptured(uri, memberId)
                                                 }
                                             },
-                                            onError = { /* Capture failures are logged in KycCameraPreview and not yet surfaced. */ }
+                                            onError = { viewModel.onCaptureFailed(it) }
                                         )
                                     }
                                 },

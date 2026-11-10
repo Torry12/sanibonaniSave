@@ -174,6 +174,17 @@ class GroupFinancialPolicyTest {
     }
 
     @Test
+    fun `burial reserve is five months of what the whole group contributes`() {
+        // monthlyContribution is the per-member rate - the stokvel and ROSCA projections both
+        // multiply it by a member count. Fifty members at R150 bring in R7 500 a month, so the
+        // working reserve is five months of that, not five months of one member's rate.
+        val g = group(GroupType.BURIAL_SOCIETY, monthlyContribution = "150.00", balance = "9999.00")
+            .copy(currentMembers = 50)
+
+        assertEquals(Money("37500.00"), policy.requiredReserve(g))
+    }
+
+    @Test
     fun `stokvel reserve is ten percent of the balance`() {
         val g = group(GroupType.STOKVEL, balance = "1000.00")
         assertEquals(Money("100.00"), policy.requiredReserve(g))

@@ -203,7 +203,6 @@ fun PlatformAdminScreen(
                             vm = disbursementsVm,
                             onOpenMemberPortalFromDisbursement = onOpenMemberPortalFromDisbursement,
                             onImpersonateMember = onImpersonateMember,
-                            onNavigateToHealthScore = onNavigateToHealthScore,
                             onNavigateToBehaviorTracking = onNavigateToBehaviorTracking
                         )
                         3 -> PlatformLedgerTab(ledgerState, analyticsState, ledgerVm)
@@ -234,20 +233,6 @@ fun PlatformAdminScreen(
                 }
             }
         }
-    }
-
-    state.error?.let { error ->
-        GlobalErrorBanner(
-            message = error,
-            onDismiss = { vm.clearError() },
-            isCritical = true,
-            actionLabel = "Retry",
-            onAction = {
-                analyticsVm.load()
-                disbursementsVm.load()
-                ledgerVm.load()
-            }
-        )
     }
 
     if (state.showMfaChallenge) {

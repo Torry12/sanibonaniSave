@@ -25,7 +25,8 @@ import com.sanibonani.save.ui.components.InfoType
 fun SettingsTab(
     state: AdminSettingsState,
     vm: AdminSettingsViewModel,
-    providerState: FinancialProviderUiState
+    providerState: FinancialProviderUiState,
+    onReloadProviders: () -> Unit
 ) {
     val scrollState = rememberScrollState()
 
@@ -124,6 +125,18 @@ fun SettingsTab(
         Text("Configure the account where group funds should be deposited by the platform.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 
         Text("Linked Bank Provider", style = MaterialTheme.typography.titleSmall)
+
+        // A refused provider read is its own answer: without this the section looks identical to
+        // a platform that has no bank providers, and the admin has nothing to act on.
+        val providerError = providerState.error
+        if (providerError != null && state.bankConnection == null) {
+            InfoBox(message = providerError, type = InfoType.ERROR)
+            SanibonaniButton(
+                text = "Reload Providers",
+                onClick = onReloadProviders,
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
 
         if (state.bankConnection != null) {
             InfoBox(

@@ -1,6 +1,7 @@
 package com.sanibonani.save.features.admin.presentation
 
 import com.sanibonani.save.domain.model.UserRole
+import com.sanibonani.save.domain.service.RealtimeSyncService
 import com.sanibonani.save.domain.usecase.auth.GetCurrentUserRoleUseCase
 import com.sanibonani.save.domain.usecase.auth.VerifyMfaChallengeUseCase
 import com.sanibonani.save.domain.utils.toUserMessage
@@ -13,7 +14,8 @@ import javax.inject.Inject
 @HiltViewModel
 class PlatformAdminViewModel @Inject constructor(
     getCurrentUserRole: GetCurrentUserRoleUseCase,
-    private val verifyMfa: VerifyMfaChallengeUseCase
+    private val verifyMfa: VerifyMfaChallengeUseCase,
+    syncService: RealtimeSyncService
 ) : BaseViewModel<PlatformAdminUiState>(PlatformAdminUiState()) {
 
     val state: StateFlow<PlatformAdminUiState> = uiState
@@ -26,14 +28,15 @@ class PlatformAdminViewModel @Inject constructor(
             val authorized = getCurrentUserRole() == UserRole.PLATFORM_ADMIN
             updateState { it.copy(isAuthorized = authorized) }
         }
+        launchJob("observe_sync_metrics") {
+            syncService.syncMetrics.collect { metrics ->
+                updateState { it.copy(syncMetrics = metrics) }
+            }
+        }
     }
 
     fun setTab(index: Int) {
         updateState { it.copy(selectedTab = index) }
-    }
-
-    fun clearError() {
-        updateState { it.copy(error = null) }
     }
 
     fun onMfaRequired() {

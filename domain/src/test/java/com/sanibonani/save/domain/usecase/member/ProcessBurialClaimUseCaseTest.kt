@@ -202,6 +202,39 @@ class ProcessBurialClaimUseCaseTest {
         coVerify(exactly = 0) { claimRepository.updateClaimStatus(any(), any(), any(), any(), any()) }
     }
 
+    @Test
+    fun `a refusal from the server outlives a failed confirmation read`() = runBlocking {
+        coEvery { claimRepository.getClaimById("c1") } returnsMany listOf(
+            Result.success(claim(BeneficiaryClaimStatus.APPROVED)),
+            Result.failure(IOException("read failed"))
+        )
+        coEvery { claimRepository.payClaimAtomic(any(), any(), any()) } returns
+            Result.failure(IllegalStateException("[FIN_001] Insufficient liquidity"))
+
+        val result = useCase("c1", BeneficiaryClaimStatus.PAID, "admin1")
+
+        assertTrue(result.isFailure)
+        assertTrue(result.exceptionOrNull()?.message?.contains("FIN_001") == true)
+    }
+
+    @Test
+    fun `a claim the server paid is not reported as failed by an unreadable confirmation`() = runBlocking {
+        coEvery { claimRepository.getClaimById("c1") } returnsMany listOf(
+            Result.success(claim(BeneficiaryClaimStatus.APPROVED)),
+            Result.failure(IOException("read failed"))
+        )
+
+        val result = useCase("c1", BeneficiaryClaimStatus.PAID, "admin1")
+
+        assertTrue("the cover went out; the call may not claim otherwise", result.isSuccess)
+        assertEquals("c1", result.getOrThrow().id)
+        assertEquals(
+            "the last row actually read is all the client can honestly return",
+            BeneficiaryClaimStatus.APPROVED,
+            result.getOrThrow().status
+        )
+    }
+
     private fun claim(status: BeneficiaryClaimStatus) = BeneficiaryPayoutClaim(
         id = "c1",
         groupId = "g1",

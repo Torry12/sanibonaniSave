@@ -13,8 +13,7 @@ import com.sanibonani.save.domain.utils.safeRunCatching
 
 @Singleton
 class SupabaseLedgerDataSourceImpl @Inject constructor(
-    private val client: SupabaseClient,
-    private val payloadFactory: com.sanibonani.save.data.repository.mappers.DataPayloadFactory
+    private val client: SupabaseClient
 ) : RemoteLedgerDataSource {
 
     override suspend fun getGroupLedger(groupId: String): Result<List<LedgerEntry>> = safeRunCatching {
@@ -58,11 +57,6 @@ class SupabaseLedgerDataSourceImpl @Inject constructor(
                 range(from, to)
             }.decodeList<LedgerEntry>()
         }
-    }
-
-    override suspend fun logPlatformEvent(entry: LedgerEntry): Result<Unit> = safeRunCatching {
-        val payload = payloadFactory.createLedgerPayload(entry)
-        client.postgrest.rpc("record_platform_revenue_v2", payload)
     }
 
     override suspend fun consolidateGroupLedger(groupId: String): Result<ConsolidationReport> = safeRunCatching {

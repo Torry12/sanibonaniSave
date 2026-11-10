@@ -10,6 +10,5 @@ data class PlatformLedgerUiState(
     val lastAuditResult: GroupAuditResult? = null,
     val isReconciling: Boolean = false,
     val isRepairing: Boolean = false,
-    val isConsolidating: Boolean = false,
-    val isExporting: Boolean = false
+    val isConsolidating: Boolean = false
 )

@@ -5,16 +5,16 @@ This document outlines the strict financial and operational rules for the Sanibo
 ## 1. Eligibility Requirements
 Enforced in `ValidateLoanEligibilityUseCase`:
 - **Status**: `member.status` must be `ACTIVE` (`ValidateLoanEligibilityUseCase.kt:34`); anything else is rejected with "Member not active."
-- **Term**: a requested `termMonths > 3` is rejected outright (`:35`) — the 3-month cap is validated, not advisory.
-- **Good Standing**: no loan in `PENDING`, `APPROVED`, `ACTIVE` or `PARTIALLY_PAID` (`:50`), and `PaymentCalculator` must report a zero shortfall and no overdue flag (`:75`).
-- **Borrowing power**: 30% of the contributions actually paid in the trailing six months (`:55-63`).
+- **Term**: a requested `termMonths` above `Group.maxLoanTermMonths` is rejected outright (`:38-41`) — the cap is validated, not advisory.
+- **Good Standing**: no loan in `PENDING`, `APPROVED`, `ACTIVE` or `PARTIALLY_PAID` (`:71-75`), and `PaymentCalculator` must report a zero shortfall and no overdue flag (`:98-100`).
+- **Borrowing power**: 30% of the contributions actually paid in the trailing six months (`:79-88`).
 
 ## 2. Loan Constraints
-- **Maximum Amount**: `maxBorrowingPower − currentActiveLoanTotal`, where `maxBorrowingPower` is 30% of the trailing-six-month contributions (`:63-64`). `group.loan_max_amount`, when positive, is a per-loan ceiling checked before any repository read (`:39-44`); zero/null means "not configured". Both `RequestLoanUseCase` (submission) and `ProcessLoanDecisionUseCase` (approval) run the check, so an over-cap request is refused before it is priced or queued.
-- **Maximum Term**: 3 months for an eligibility-checked loan. The column `groups.loan_max_months` (default 12) is a separate group setting and is not what the eligibility check enforces.
+- **Maximum Amount**: `maxBorrowingPower − currentActiveLoanTotal`, where `maxBorrowingPower` is 30% of the trailing-six-month contributions (`:87-88`). `group.loan_max_amount`, when positive, is a per-loan ceiling checked before any repository read (`:45-50`); zero/null means "not configured". Both `RequestLoanUseCase` (submission) and `ProcessLoanDecisionUseCase` (approval) run the check, so an over-cap request is refused before it is priced or queued.
+- **Maximum Term**: `LoanTerms.MAX_TERM_MONTHS` (3 months) is the platform ceiling, and `groups.loan_max_months` now feeds it through `Group.maxLoanTermMonths`: a positive setting below the ceiling tightens what that group's members may request, and a larger setting (the column default is 12) buys nothing, because `settle_expired_loan` force-settles at three months whatever the group configured.
 
 ## 3. Automatic Settlement (Forced Extraction)
-- **3-Month Trigger**: `ProcessLoanForcedSettlementUseCase` selects loans in `ACTIVE` or `PARTIALLY_PAID` whose `startDate` is at least three whole months in the past, and posts each one to `settle_expired_loan_v2(UUID)`.
+- **3-Month Trigger**: `ProcessLoanForcedSettlementUseCase` selects loans in `ACTIVE` or `PARTIALLY_PAID` whose `startDate` is at least `LoanTerms.MAX_TERM_MONTHS` whole months in the past — the platform ceiling, never the group's own shorter setting, because it is the database's `INTERVAL '3 months'` that decides when a loan may be settled — and posts each one to `settle_expired_loan_v2(UUID)`.
 - **One Guarded RPC**: the database re-checks the state and accepts `active`, `partially_paid`, `overdue` or `defaulted`; any other status raises `[FIN_002] INVALID_STATUS`, and a term that has not expired raises `LOAN_TERM_NOT_EXPIRED`. Non-admin, non-group-admin callers raise `[SEC_002] LOAN_SETTLEMENT_ACCESS_DENIED`.
 - **Savings Offset**: the RPC inserts a negative `contributions` row of type `loan_settlement_extraction`, which `tr_sync_member_financials_contrib` feeds into `fn_sync_single_member_financials` — that is what moves `members.total_paid`, and it is why the column is allowed to go negative.
 - **Ledger**: the same transaction posts `increment_group_balance(-remaining, 'loan_settlement_extraction', …)` and then `record_loan_repayment_v1`, whose `tr_sync_loan_repayment_total` runs `fn_sync_single_loan_totals`. That helper sets `loans.status = 'completed'` once `total_repaid >= total_to_repay - 0.01`, else `partially_paid`. No caller writes `loans.status` directly.

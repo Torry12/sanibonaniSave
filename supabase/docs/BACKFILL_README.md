@@ -37,7 +37,7 @@ ORDER BY group_id, created_at, id;
 | `public.audit_and_fix_group_balance_v1(p_group_id, true)` | Recomputes the cached balance from `group_ledger` for one group and repairs it. |
 | `public.recompute_ledger_running_balances_v2(p_group_id)` | Set-based rebuild of `group_ledger.balance_after`; also resets the cached `groups.balance` to the ledger sum. |
 | `public.recalculate_all_group_financials_v3(p_group_id)` | Recomputes derived financial totals for a group. |
-| `public.perform_group_reconciliation_v1(p_group_id)` / `public.consolidate_group_ledger_v1(p_group_id)` | Reconciliation report and ledger consolidation. |
+| `public.perform_group_reconciliation_v1(p_group_id)` / `public.consolidate_group_ledger_v1(p_group_id)` | Reconciliation report and ledger consolidation. The consolidation replays the five source tables — `paid` **and `partial`** contributions — sends the three platform contribution types to `platform_ledger` instead of the group, and finishes by recomputing every `balance_after` and `groups.balance`, so it moves the cached column the way the caveat below describes. |
 | `public.create_ledger_checkpoint_v1(p_group_id)` | Snapshot checkpoint before a repair. |
 
 Recommended order: take a backup → run the read-only audit → checkpoint → repair one group → re-run the audit → repeat.

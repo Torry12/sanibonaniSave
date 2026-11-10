@@ -1,5 +1,7 @@
 package com.sanibonani.save.features.group.presentation
 
+import com.sanibonani.save.domain.config.SaReferenceData
+import com.sanibonani.save.domain.logging.AppLogger
 import com.sanibonani.save.domain.model.*
 import com.sanibonani.save.domain.utils.toUserMessage
 import com.sanibonani.save.domain.usecase.group.FilterGroupsUseCase
@@ -35,23 +37,29 @@ class GroupViewModel @Inject constructor(
 
     private fun currentState(): GroupUiState = uiState.value
 
-    init {
-        loadGroups()
-    }
-
     fun setActive(active: Boolean) {
-        if (active && !currentState().isLoading) {
-            loadGroups()
+        if (active) {
+            if (!currentState().isLoading) loadGroups()
+        } else {
+            // The screen that started these collectors has left; a collector that outlives it keeps
+            // re-filtering the list and re-writing the profile nobody is looking at.
+            cancelJob(LIST_JOB)
+            cancelJob(DETAIL_JOB)
         }
     }
 
     fun loadGroups() {
-        launchSafeJob("load_groups", "Failed to load public groups") {
+        launchSafeJob(LIST_JOB, "Failed to load public groups") {
             updateState { it.copy(isLoading = true, error = null) }
+            // The rows on screen came from the cache and stay there whichever way this goes: the refusal
+            // rides behind them as its own emission, and the log is what still tells "never attempted" apart.
+            AppLogger.i(DISCOVERY_LOG_TAG, "discovery read attempted")
             getPublicGroups().collectLatest { res ->
                 res.onSuccess { list ->
+                    AppLogger.i(DISCOVERY_LOG_TAG, "discovery read answered with ${list.size} groups")
                     updateGroupsState(list)
                 }.onFailure { e ->
+                    AppLogger.w(DISCOVERY_LOG_TAG, "discovery read refused: ${e.toUserMessage()}")
                     updateState { it.copy(isLoading = false, error = e.toUserMessage()) }
                     handleError(e)
                 }
@@ -66,19 +74,58 @@ class GroupViewModel @Inject constructor(
                 rawGroups = rawList,
                 filteredGroups = filtered,
                 groupsByProvince = filterGroups.byProvince(filtered),
-                isLoading = false
+                isLoading = false,
+                // An answered list is a different verdict from a refusal, so it has to retire the
+                // refusal recorded by an earlier emission instead of leaving both on screen.
+                error = null
             )
         }
     }
 
     fun loadGroup(id: String) {
-        launchSafeJob("load_group_detail_$id", "Failed to load group details") {
-            updateState { it.copy(isLoadingDetail = true, detailError = null) }
+        launchSafeJob(DETAIL_JOB, "Failed to load group details") {
+            updateState {
+                val stillThisGroup = it.selectedGroup?.id == id
+                it.copy(
+                    isLoadingDetail = true,
+                    detailError = null,
+                    // The profile on screen belongs to the previous request. Leaving it up while this
+                    // read is out renders that group under the new route, and a failure then has no
+                    // empty slot to show itself in.
+                    selectedGroup = if (stillThisGroup) it.selectedGroup else null
+                )
+            }
+            AppLogger.i(DISCOVERY_LOG_TAG, "group profile read attempted for $id")
             observeGroupDetail(id).collectLatest { res ->
                 res.onSuccess { g ->
-                    updateState { it.copy(selectedGroup = g, isLoadingDetail = false) }
+                    if (g == null || g.id != id) {
+                        // No row is not a loaded profile. Without a verdict here the screen falls
+                        // through state.selectedGroup?.let and renders a page with nothing on it.
+                        AppLogger.w(DISCOVERY_LOG_TAG, "group profile read found no row for $id")
+                        updateState {
+                            it.copy(
+                                isLoadingDetail = false,
+                                selectedGroup = null,
+                                detailError = "This group could not be found. It may have been removed."
+                            )
+                        }
+                    } else {
+                        updateState {
+                            it.copy(selectedGroup = g, isLoadingDetail = false, detailError = null)
+                        }
+                    }
                 }.onFailure { e ->
-                    updateState { it.copy(isLoadingDetail = false, detailError = e.toUserMessage()) }
+                    AppLogger.w(
+                        DISCOVERY_LOG_TAG,
+                        "group profile read refused for $id: ${e.toUserMessage()}"
+                    )
+                    updateState {
+                        it.copy(
+                            isLoadingDetail = false,
+                            detailError = e.toUserMessage(),
+                            selectedGroup = if (it.selectedGroup?.id == id) it.selectedGroup else null
+                        )
+                    }
                     handleError(e)
                 }
             }
@@ -106,4 +153,30 @@ class GroupViewModel @Inject constructor(
             )
         }
     }
+
+    private companion object {
+        const val LIST_JOB = "load_groups"
+        const val DETAIL_JOB = "load_group_detail"
+
+        /**
+         * Its own tag, so one grep of logcat — or of `files/diagnostics.log` on a device whose
+         * firmware drops app-authored log lines — answers the one question the list cannot.
+         */
+        const val DISCOVERY_LOG_TAG = "DiscoveryRead"
+    }
 }
+
+/**
+ * The refusal a discovery screen with rows already on it still has to report. With no rows the
+ * screen renders the refusal as its whole body, so this stays null and the empty state owns it.
+ */
+internal fun browseGroupsNotice(error: String?, hasCachedRows: Boolean): String? =
+    if (hasCachedRows) error else null
+
+/** The rows the map can place: saved coordinates, or a province it knows a centre for. */
+internal fun placeableGroups(groups: List<Group>): List<Group> =
+    groups.filter { it.latitude != null || SaReferenceData.PROVINCE_CENTERS.containsKey(it.province) }
+
+/** A province the user chose explicitly keeps that choice; a search only supplies the default. */
+internal fun provinceRowExpanded(stored: Boolean?, isSearching: Boolean): Boolean =
+    stored ?: isSearching

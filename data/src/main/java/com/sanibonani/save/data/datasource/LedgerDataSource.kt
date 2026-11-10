@@ -9,17 +9,14 @@ interface RemoteLedgerDataSource {
     suspend fun getMemberLedger(memberId: String): Result<List<LedgerEntry>>
     suspend fun getPlatformLedger(): Result<List<LedgerEntry>>
     suspend fun getConsolidatedAuditTrail(groupId: String): Result<List<LedgerEntry>>
-    suspend fun logPlatformEvent(entry: LedgerEntry): Result<Unit>
     suspend fun consolidateGroupLedger(groupId: String): Result<ConsolidationReport>
 }
 
 interface LocalLedgerDataSource {
     fun observeGroupLedger(groupId: String): Flow<List<LedgerEntry>>
     fun observeMemberLedger(memberId: String): Flow<List<LedgerEntry>>
-    fun observePlatformLedger(): Flow<List<LedgerEntry>>
     fun observeConsolidatedLedger(groupId: String): Flow<List<LedgerEntry>>
     suspend fun saveLedgerEntries(entries: List<LedgerEntry>)
     suspend fun syncGroupLedger(groupId: String, entries: List<LedgerEntry>)
     suspend fun saveReconciliation(report: ConsolidationReport)
-    suspend fun clearAll()
 }

@@ -39,12 +39,13 @@ fun MemberTabContent(
                 onPay = onNavigatePayment,
                 onNavigateAdmin = onNavigateAdmin,
                 vm = overviewVm,
-                recentActivity = state.memberLedger,
+                recentActivity = state.memberTransactions,
                 onEntryClick = onEntryClick,
                 windowSizeClass = windowSizeClass
             )
             1 -> MemberTransactionsTab(
-                ledger = state.memberLedger,
+                ledger = state.memberTransactions,
+                ledgerUnconfirmed = state.memberActivityIsUnconfirmed,
                 isExporting = state.isExporting,
                 onExportCsv = { overviewVm.downloadCsvStatement() },
                 onDownloadPdf = { overviewVm.downloadPdfStatement() },

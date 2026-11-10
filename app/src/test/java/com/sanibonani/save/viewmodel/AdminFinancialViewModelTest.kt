@@ -2,6 +2,7 @@ package com.sanibonani.save.viewmodel
 
 import android.util.Log
 import androidx.arch.core.executor.testing.InstantTaskExecutorRule
+import com.sanibonani.save.MainDispatcherRule
 import com.sanibonani.save.domain.model.*
 import com.sanibonani.save.domain.repository.admin.*
 import com.sanibonani.save.domain.repository.auth.*
@@ -39,7 +40,6 @@ import com.sanibonani.save.features.admin.presentation.actions.AdminLedgerAction
 import com.sanibonani.save.features.admin.presentation.actions.AdminLoanActions
 import com.sanibonani.save.features.admin.presentation.actions.AdminPayoutActions
 import io.mockk.*
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
@@ -47,9 +47,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
-import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
-import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -61,6 +59,9 @@ import com.sanibonani.save.domain.repository.credit.LoanRepository
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class AdminFinancialViewModelTest {
+
+    @get:Rule
+    val mainDispatcherRule = MainDispatcherRule()
 
     @get:Rule
     val instantExecutorRule = InstantTaskExecutorRule()
@@ -94,7 +95,6 @@ class AdminFinancialViewModelTest {
     private val adminContextCacheService = mockk<AdminGroupContextCacheService>(relaxed = true)
     private val selectedGroupIdFlow = MutableStateFlow<String?>(null)
     private val contextsFlow = MutableStateFlow<Map<String, CachedAdminGroupContext>>(emptyMap())
-    private val testDispatcher = StandardTestDispatcher()
 
     @Before
     fun setup() {
@@ -111,7 +111,6 @@ class AdminFinancialViewModelTest {
         val mockCrashlytics = mockk<FirebaseCrashlytics>(relaxed = true)
         every { FirebaseCrashlytics.getInstance() } returns mockCrashlytics
 
-        Dispatchers.setMain(testDispatcher)
         every { supabaseRepo.sessionFlow } returns MutableStateFlow(null)
         every { supabaseRepo.currentUserId } returns "admin-1"
 
@@ -129,11 +128,10 @@ class AdminFinancialViewModelTest {
 
     @After
     fun tearDown() {
-        Dispatchers.resetMain()
         unmockkAll()
     }
 
-    private fun createViewModel() = AdminFinancialViewModel(
+    private fun createViewModel() = mainDispatcherRule.track(AdminFinancialViewModel(
         adminContextCacheService,
         observeFinancialSnapshot,
         verifyMfa,
@@ -170,7 +168,7 @@ class AdminFinancialViewModelTest {
             BuildGroupLedgerStatementUseCase(ledgerRepo, exportRepo),
             adminContextCacheService
         )
-    )
+    ))
 
     @Test
     fun `submitPayoutRequest calls use case and updates state`() = runTest {
@@ -187,7 +185,86 @@ class AdminFinancialViewModelTest {
         advanceUntilIdle()
 
         coVerify(exactly = 1) { requestPayoutUseCase(groupId = groupId, memberId = null, requestedAmount = Money("1500.0")) }
-        assertEquals(true, vm.state.value.payoutRequestSuccess)
+        assertEquals("Payout request submitted successfully", vm.state.value.successMessage)
+    }
+
+    @Test
+    fun `an action that needs AAL2 raises the MFA challenge instead of a generic error`() = runTest {
+        val groupId = "group-1"
+        adminContextCacheService.selectGroup(groupId)
+
+        coEvery {
+            requestPayoutUseCase(groupId = groupId, memberId = null, requestedAmount = Money("1500.0"))
+        } returns Result.failure(MfaRequiredException(Money("1500.0")))
+
+        val vm = createViewModel()
+
+        vm.updatePayoutAmount("1500")
+        vm.submitPayoutRequest()
+        advanceUntilIdle()
+
+        // The admin must get a challenge they can answer, not an error they can only read.
+        assertEquals(true, vm.state.value.showMfaChallenge)
+        assertEquals(null, vm.state.value.error)
+    }
+
+    @Test
+    fun `verifyMfaChallenge closes the challenge once the code is accepted`() = runTest {
+        val groupId = "group-1"
+        adminContextCacheService.selectGroup(groupId)
+        coEvery {
+            requestPayoutUseCase(groupId = groupId, memberId = null, requestedAmount = Money("1500.0"))
+        } returnsMany listOf(
+            Result.failure(MfaRequiredException(Money("1500.0"))),
+            Result.success("payout-1")
+        )
+
+        val factor = mockk<MfaFactor>(relaxed = true)
+        coEvery { mfaService.getMfaFactors() } returns Result.success(listOf(factor))
+        coEvery { mfaService.verifyMfa(factor.id, "123456", true) } returns Result.success(Unit)
+
+        val vm = createViewModel()
+
+        vm.updatePayoutAmount("1500")
+        vm.submitPayoutRequest()
+        advanceUntilIdle()
+        assertEquals(true, vm.state.value.showMfaChallenge)
+
+        vm.verifyMfaChallenge("123456")
+        advanceUntilIdle()
+
+        assertEquals(false, vm.state.value.showMfaChallenge)
+        assertEquals(false, vm.state.value.isVerifyingMfa)
+    }
+
+    @Test
+    fun `verifyMfaChallenge keeps the challenge open and reports a rejected code`() = runTest {
+        val groupId = "group-1"
+        adminContextCacheService.selectGroup(groupId)
+        coEvery {
+            requestPayoutUseCase(groupId = groupId, memberId = null, requestedAmount = Money("1500.0"))
+        } returns Result.failure(MfaRequiredException(Money("1500.0")))
+
+        val factor = mockk<MfaFactor>(relaxed = true)
+        coEvery { mfaService.getMfaFactors() } returns Result.success(listOf(factor))
+        coEvery {
+            mfaService.verifyMfa(factor.id, "000000", true)
+        } returns Result.failure(IllegalStateException("Invalid code"))
+
+        val vm = createViewModel()
+
+        // The challenge is raised by the rejected action, so a wrong code is corrected in place
+        // rather than swallowed by a dialog that closed itself.
+        vm.updatePayoutAmount("1500")
+        vm.submitPayoutRequest()
+        advanceUntilIdle()
+        assertEquals(true, vm.state.value.showMfaChallenge)
+
+        vm.verifyMfaChallenge("000000")
+        advanceUntilIdle()
+
+        assertEquals(true, vm.state.value.showMfaChallenge)
+        assertEquals(true, vm.state.value.mfaChallengeError != null)
     }
 
     @Test
@@ -236,7 +313,6 @@ class AdminFinancialViewModelTest {
         advanceUntilIdle()
 
         assertEquals(null, vm.state.value.successMessage)
-        assertEquals(false, vm.state.value.isLoading)
         assertEquals(emptySet<String>(), vm.state.value.processingIds)
     }
 
@@ -281,7 +357,6 @@ class AdminFinancialViewModelTest {
         vm.executeStokvelBatchPayout()
         advanceUntilIdle()
 
-        assertEquals(true, vm.state.value.payoutRequestSuccess)
         assertEquals("Annual Stokvel savings payouts requested for 1 member(s).", vm.state.value.successMessage)
         assertEquals("1 member(s) could not be requested. Please review and retry.", vm.state.value.error)
     }
@@ -306,7 +381,7 @@ class AdminFinancialViewModelTest {
         advanceUntilIdle()
 
         coVerify(exactly = 1) { syncBankTransactionsUseCase(groupId) }
-        assertEquals(true, vm.state.value.bankRefreshSuccess)
+        assertEquals(false, vm.state.value.isRefreshingBank)
     }
 
     @Test

@@ -35,10 +35,12 @@ class MemberRepositoryImpl @Inject constructor(
     private val localMemberSource: LocalMemberDataSource,
     private val fileStorageService: FileStorageService,
     private val json: Json,
-    private val pendingOpDao: com.sanibonani.save.data.local.PendingOperationDao,
     private val dbProvider: Provider<SanibonaniDatabase>,
     private val remoteContributionSource: RemoteContributionDataSource
 ) : BaseRepository("MemberRepository"), MemberRepository {
+
+    private val pendingOpDao: com.sanibonani.save.data.local.PendingOperationDao
+        get() = dbProvider.get().pendingOperationDao()
 
     override fun getGroupMembers(groupId: String): Flow<Result<List<Member>>> = observeAndSync(
         dbFlow = localMemberSource.observeActiveMembers(groupId),

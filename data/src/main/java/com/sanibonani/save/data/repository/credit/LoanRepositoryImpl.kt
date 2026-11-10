@@ -11,6 +11,7 @@ import com.sanibonani.save.domain.repository.credit.LoanRepository
 import com.sanibonani.save.domain.service.FileStorageService
 import java.time.Instant
 import javax.inject.Inject
+import javax.inject.Provider
 import kotlinx.coroutines.flow.Flow
 import kotlinx.serialization.json.Json
 import com.sanibonani.save.domain.utils.safeRunCatching
@@ -20,9 +21,13 @@ class LoanRepositoryImpl @Inject constructor(
     private val localSource: LocalLoanDataSource,
     private val fileStorageService: FileStorageService,
     private val json: Json,
-    private val pendingOpDao: com.sanibonani.save.data.local.PendingOperationDao,
-    private val groupDao: com.sanibonani.save.data.local.GroupDao
+    private val dbProvider: Provider<com.sanibonani.save.data.local.SanibonaniDatabase>
 ) : BaseRepository("LoanRepository"), LoanRepository {
+
+    private val pendingOpDao: com.sanibonani.save.data.local.PendingOperationDao
+        get() = dbProvider.get().pendingOperationDao()
+    private val groupDao: com.sanibonani.save.data.local.GroupDao
+        get() = dbProvider.get().groupDao()
 
     override suspend fun requestLoan(loan: Loan): Result<String> = authoritativeCall("requestLoan") {
         val loanId = remoteSource.requestLoan(loan).getOrThrow()
@@ -58,6 +63,13 @@ class LoanRepositoryImpl @Inject constructor(
         localSource.syncGroupLoans(groupId, remote)
         remote
     }
+
+    override suspend fun getMemberLoansSync(memberId: String): Result<List<Loan>> =
+        authoritativeCall("getMemberLoansSync") {
+            val rows = remoteSource.getMemberLoans(memberId).getOrThrow()
+            localSource.saveLoans(rows)
+            rows
+        }
 
     override suspend fun getAllPendingLoansSync(): Result<List<Loan>> = remoteSource.getAllPendingLoans()
 
@@ -107,12 +119,6 @@ class LoanRepositoryImpl @Inject constructor(
             val publicUrl = fileStorageService.uploadLoanContract(loanId, byteArray, extension).getOrThrow()
             updateLoanContract(loanId, publicUrl).getOrThrow()
             publicUrl
-        }
-
-    override suspend fun acceptLoanAgreement(loanId: String): Result<Unit> =
-        authoritativeCall("acceptLoanAgreement") {
-            remoteSource.updateLoanStatus(loanId, LoanStatus.APPROVED, null, null).getOrThrow()
-            localSource.saveLoan(remoteSource.getLoanById(loanId).getOrThrow())
         }
 
     override suspend fun recordRepayment(

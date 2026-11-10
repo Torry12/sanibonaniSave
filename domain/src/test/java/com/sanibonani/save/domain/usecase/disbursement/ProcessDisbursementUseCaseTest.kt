@@ -7,6 +7,7 @@ import com.sanibonani.save.domain.service.FinancialSecurityService
 import com.sanibonani.save.domain.usecase.disbursement.ProcessDisbursementUseCase
 import io.mockk.*
 import kotlinx.coroutines.runBlocking
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -314,6 +315,43 @@ class ProcessDisbursementUseCaseTest {
         coVerify(exactly = 1) {
             payoutRepository.updatePayoutStatus("p1", PayoutStatus.REJECTED, null, null, "admin1")
         }
+    }
+
+    @Test
+    fun `a refusal from the server is the verdict even when the confirmation read fails`() = runBlocking {
+        coEvery { payoutRepository.getPayoutById("p1") } returnsMany listOf(
+            Result.success(pendingPayout(Money("100.0"), status = PayoutStatus.PROCESSING)),
+            Result.failure(IllegalStateException("read failed"))
+        )
+        coEvery { payoutRepository.completePayoutAtomic(any(), any(), any()) } returns
+            Result.failure(IllegalStateException("[FIN_002] Payout is not in a payable state"))
+
+        val result = useCase("p1", PayoutStatus.COMPLETED, "admin1")
+
+        // The re-read sat between the write and the verdict, so the admin was told the connection
+        // failed rather than that the payout was refused - and the outbox retried a payload the
+        // server had already rejected for good.
+        assertTrue(result.isFailure)
+        assertTrue(result.exceptionOrNull()?.message?.contains("FIN_002") == true)
+    }
+
+    @Test
+    fun `a payout the server accepted is not reported as failed by an unreadable confirmation`() = runBlocking {
+        coEvery { payoutRepository.getPayoutById("p1") } returnsMany listOf(
+            Result.success(pendingPayout(Money("100.0"), status = PayoutStatus.PROCESSING)),
+            Result.failure(IllegalStateException("read failed"))
+        )
+        coEvery { payoutRepository.completePayoutAtomic(any(), any(), any()) } returns Result.success(Unit)
+
+        val result = useCase("p1", PayoutStatus.COMPLETED, "admin1")
+
+        assertTrue("the completion happened; the call may not claim otherwise", result.isSuccess)
+        assertEquals("p1", result.getOrThrow().id)
+        assertEquals(
+            "the last row actually read is all the client can honestly return",
+            PayoutStatus.PROCESSING,
+            result.getOrThrow().status
+        )
     }
 
     private fun pendingPayout(amount: Money, id: String = "p1", status: PayoutStatus = PayoutStatus.PENDING) =

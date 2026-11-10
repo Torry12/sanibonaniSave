@@ -3,6 +3,8 @@ package com.sanibonani.save.viewmodel
 import android.util.Log
 import androidx.arch.core.executor.testing.InstantTaskExecutorRule
 import com.google.firebase.crashlytics.FirebaseCrashlytics
+import com.sanibonani.save.MainDispatcherRule
+import com.sanibonani.save.domain.model.GroupType
 import com.sanibonani.save.domain.model.Money
 import com.sanibonani.save.domain.model.PlatformConfig
 import com.sanibonani.save.domain.repository.admin.PlatformConfigRepository
@@ -21,15 +23,15 @@ import io.mockk.mockkStatic
 import io.mockk.slot
 import io.mockk.unmockkAll
 import io.mockk.verify
-import kotlinx.coroutines.Dispatchers
+import java.io.IOException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.flow.toList
-import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
-import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
-import kotlinx.coroutines.test.setMain
+import kotlinx.coroutines.withTimeoutOrNull
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -46,11 +48,14 @@ import org.junit.Test
 class PlatformFeeConfigSaveTest {
 
     @get:Rule
+    val mainDispatcherRule = MainDispatcherRule()
+
+    @get:Rule
     val instantExecutorRule = InstantTaskExecutorRule()
 
     private val platformRepo = mockk<PlatformRepository>(relaxed = true)
     private val configRepo = mockk<PlatformConfigRepository>(relaxed = true)
-    private val testDispatcher = StandardTestDispatcher()
+    private val testDispatcher = mainDispatcherRule.dispatcher
     private lateinit var viewModel: PlatformFeeConfigViewModel
 
     @Before
@@ -68,13 +73,12 @@ class PlatformFeeConfigSaveTest {
         val mockCrashlytics = mockk<FirebaseCrashlytics>(relaxed = true)
         every { FirebaseCrashlytics.getInstance() } returns mockCrashlytics
 
-        Dispatchers.setMain(testDispatcher)
-        viewModel = PlatformFeeConfigViewModel(
+        viewModel = mainDispatcherRule.track(PlatformFeeConfigViewModel(
             GetPlatformSettingsUseCase(platformRepo),
             GetGranularFeeConfigsUseCase(platformRepo),
             UpdateGlobalFeesUseCase(platformRepo, configRepo),
             UpdateGranularFeeConfigUseCase(platformRepo)
-        )
+        ))
     }
 
     @After
@@ -82,7 +86,6 @@ class PlatformFeeConfigSaveTest {
         // Drain while Main is still installed, otherwise a suspended collector resumes after
         // resetMain() and reports that the platform dispatcher is absent.
         testDispatcher.scheduler.advanceUntilIdle()
-        Dispatchers.resetMain()
         unmockkAll()
     }
 
@@ -156,6 +159,32 @@ class PlatformFeeConfigSaveTest {
         assertEquals(true, viewModel.state.value.saveSuccess)
     }
 
+    // The saved notice is a state flag rather than a toast, so it stays on the screen until something
+    // clears it. A second save that is still in flight must not keep being shown as already done.
+    @Test
+    fun `a second save clears the previous saved notice before the server answers`() = runTest {
+        fillAllFees()
+        val pending = CompletableDeferred<Result<Unit>>()
+        var saves = 0
+        // coAnswers, not returns: the answer has to be produced per call, and awaiting the deferred
+        // while stubbing would block the test body before the first save ever ran.
+        coEvery { platformRepo.updateGlobalFees(any()) } coAnswers {
+            if (saves++ == 0) Result.success(Unit) else pending.await()
+        }
+
+        viewModel.saveGlobalFees()
+        advanceUntilIdle()
+        assertEquals(true, viewModel.state.value.saveSuccess)
+
+        viewModel.saveGlobalFees()
+        advanceUntilIdle()
+        assertEquals(false, viewModel.state.value.saveSuccess)
+
+        pending.complete(Result.success(Unit))
+        advanceUntilIdle()
+        assertEquals(true, viewModel.state.value.saveSuccess)
+    }
+
     @Test
     fun `a published save is the config billing uses next`() = runTest {
         fillAllFees()
@@ -183,5 +212,125 @@ class PlatformFeeConfigSaveTest {
         advanceUntilIdle()
 
         verify(exactly = 0) { configRepo.hydrate(any()) }
+    }
+
+    // The per-tier table is what billing actually reads, so a save that only half-applied must not
+    // announce itself as the whole set landing: the admin would move on believing every tier is
+    // priced as typed.
+    @Test
+    fun `a granular tier the server refuses is not reported as saved`() = runTest {
+        viewModel.updateGranularFeeInput(GroupType.STOKVEL, 0, "monthly", "15.00")
+        coEvery { platformRepo.updateGranularFeeConfig(any()) } returns
+            Result.failure(IllegalStateException("HTTP 500 Internal Server Error"))
+
+        viewModel.saveGranularFees()
+        advanceUntilIdle()
+
+        val events = viewModel.events.take(1).toList()
+        assertTrue("emitted events: $events", events.singleOrNull() is UIEvent.ShowError)
+        assertEquals(false, viewModel.state.value.isSavingGranularFee)
+    }
+
+    @Test
+    fun `a granular save that applies part of the table still says so`() = runTest {
+        viewModel.updateGranularFeeInput(GroupType.STOKVEL, 0, "monthly", "15.00")
+        // One tier is refused and the rest answer: MockK reuses the last answer once the list is
+        // spent, so exactly the first of the seven writes fails.
+        coEvery { platformRepo.updateGranularFeeConfig(any()) } returnsMany listOf(
+            Result.failure(IllegalStateException("HTTP 500 Internal Server Error")),
+            Result.success(Unit)
+        )
+
+        viewModel.saveGranularFees()
+        advanceUntilIdle()
+
+        coVerify(exactly = 7) { platformRepo.updateGranularFeeConfig(any()) }
+        val events = viewModel.events.take(1).toList()
+        val error = events.singleOrNull() as? UIEvent.ShowError
+        assertTrue("emitted events: $events", error != null)
+        assertTrue(
+            "the admin has to be told which tier did not land, got: ${error?.message}",
+            error?.message?.contains("not saved") == true
+        )
+    }
+
+    @Test
+    fun `a granular save that lands is reported as saved`() = runTest {
+        viewModel.updateGranularFeeInput(GroupType.STOKVEL, 0, "monthly", "15.00")
+        coEvery { platformRepo.updateGranularFeeConfig(any()) } returns Result.success(Unit)
+
+        viewModel.saveGranularFees()
+        advanceUntilIdle()
+
+        val events = viewModel.events.take(1).toList()
+        assertTrue("emitted events: $events", events.singleOrNull() is UIEvent.ShowMessage)
+    }
+
+    @Test
+    fun `a settings read that fails is reported before the admin saves over it`() = runTest {
+        // The form starts empty, so a refused read leaves it showing nothing where the live fees are.
+        // The admin then presses save and publishes those blanks over the real table.
+        coEvery { platformRepo.getPlatformSettings() } returns Result.failure(IOException("settings read failed"))
+        coEvery { platformRepo.getGranularFeeConfigs() } returns Result.success(emptyList())
+
+        viewModel.loadSettings()
+        advanceUntilIdle()
+
+        val event = withTimeoutOrNull(2_000) { viewModel.events.first() }
+        assertTrue("emitted event: $event", event is UIEvent.ShowError)
+    }
+
+    @Test
+    fun `a refused tier read leaves the table empty instead of pricing it from code`() = runTest {
+        coEvery { platformRepo.getPlatformSettings() } returns Result.success(PlatformConfig())
+        coEvery { platformRepo.getGranularFeeConfigs() } returns Result.failure(IOException("tiers read failed"))
+
+        viewModel.loadSettings()
+        advanceUntilIdle()
+
+        assertTrue(
+            "tiers shown after a refused read: ${viewModel.state.value.granularFees}",
+            viewModel.state.value.granularFees.isEmpty()
+        )
+        val event = withTimeoutOrNull(2_000) { viewModel.events.first() }
+        assertTrue("emitted event: $event", event is UIEvent.ShowError)
+    }
+
+    @Test
+    fun `a save over a tier table that was never read publishes nothing`() = runTest {
+        coEvery { platformRepo.getPlatformSettings() } returns Result.success(PlatformConfig())
+        coEvery { platformRepo.getGranularFeeConfigs() } returns Result.failure(IOException("tiers read failed"))
+        coEvery { platformRepo.updateGranularFeeConfig(any()) } returns Result.success(Unit)
+
+        viewModel.loadSettings()
+        advanceUntilIdle()
+        // Drain the load refusal so the event asserted below is the save's own verdict.
+        withTimeoutOrNull(2_000) { viewModel.events.first() }
+
+        viewModel.saveGranularFees()
+        advanceUntilIdle()
+
+        coVerify(exactly = 0) { platformRepo.updateGranularFeeConfig(any()) }
+        val event = withTimeoutOrNull(2_000) { viewModel.events.first() }
+        assertTrue("emitted event: $event", event is UIEvent.ShowError)
+        assertEquals(false, viewModel.state.value.isSavingGranularFee)
+    }
+
+    @Test
+    fun `an empty tier table that the server did answer still saves`() = runTest {
+        // A platform with no tiers configured yet is a real answer, and seeding it is the reason
+        // the read installs the default table: that save must keep working.
+        coEvery { platformRepo.getPlatformSettings() } returns Result.success(PlatformConfig())
+        coEvery { platformRepo.getGranularFeeConfigs() } returns Result.success(emptyList())
+        coEvery { platformRepo.updateGranularFeeConfig(any()) } returns Result.success(Unit)
+
+        viewModel.loadSettings()
+        advanceUntilIdle()
+        assertEquals(false, viewModel.state.value.granularFees.isEmpty())
+
+        viewModel.saveGranularFees()
+        advanceUntilIdle()
+
+        coVerify(atLeast = 1) { platformRepo.updateGranularFeeConfig(any()) }
     }
 }

@@ -52,6 +52,11 @@ class SupabasePayoutDataSourceImpl @Inject constructor(
         client.postgrest["payouts"].select { filter { eq("id", id) } }.decodeSingle<PayoutRequest>()
     }
 
+    override suspend fun findPayoutById(id: String): Result<PayoutRequest?> = safeRunCatching {
+        AppLogger.d(tag, "Looking up payout $id")
+        client.postgrest["payouts"].select { filter { eq("id", id) } }.decodeList<PayoutRequest>().firstOrNull()
+    }
+
     override suspend fun updatePayoutStatus(
         payoutId: String,
         status: PayoutStatus,

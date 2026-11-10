@@ -12,6 +12,7 @@ import com.sanibonani.save.domain.repository.auth.SupabaseRepository
 import com.sanibonani.save.domain.usecase.admin.ActivateGroupUseCase
 import com.sanibonani.save.domain.usecase.auth.*
 import com.sanibonani.save.domain.usecase.group.CreateGroupUseCase
+import com.sanibonani.save.domain.utils.LocationUtils
 import com.sanibonani.save.features.group.presentation.GroupFormEvent
 import com.sanibonani.save.features.group.presentation.GroupRegistrationState
 import com.sanibonani.save.features.group.presentation.GroupRegistrationViewModel
@@ -21,12 +22,8 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkStatic
 import io.mockk.unmockkAll
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.test.UnconfinedTestDispatcher
-import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
-import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -47,6 +44,9 @@ import androidx.arch.core.executor.testing.InstantTaskExecutorRule
 class GroupRegistrationEventRegressionTest {
 
     @get:Rule
+    val mainDispatcherRule = MainDispatcherRule(MainDispatcherRule.Kind.UNCONFINED)
+
+    @get:Rule
     val instantExecutorRule = InstantTaskExecutorRule()
 
     private val createGroupUseCase = mockk<CreateGroupUseCase>(relaxed = true)
@@ -57,11 +57,9 @@ class GroupRegistrationEventRegressionTest {
 
     private lateinit var viewModel: GroupRegistrationViewModel
 
-    private val testDispatcher = UnconfinedTestDispatcher()
 
     @Before
     fun setup() {
-        Dispatchers.setMain(testDispatcher)
         mockkStatic(Log::class)
         every { Log.d(any(), any()) } returns 0
         every { Log.i(any(), any()) } returns 0
@@ -77,7 +75,7 @@ class GroupRegistrationEventRegressionTest {
 
         every { feeService.getRegistrationFee() } returns Money("700.0")
 
-        viewModel = GroupRegistrationViewModel(
+        viewModel = mainDispatcherRule.track(GroupRegistrationViewModel(
             createGroupUseCase,
             activateGroupUseCase,
             feeService,
@@ -85,12 +83,11 @@ class GroupRegistrationEventRegressionTest {
             IsLoggedInUseCase(supabaseRepo),
             GetCurrentSessionEmailUseCase(supabaseRepo),
             GetAttributableActorIdUseCase(supabaseRepo)
-        )
+        ))
     }
 
     @After
     fun tearDown() {
-        Dispatchers.resetMain()
         unmockkAll()
     }
 
@@ -214,6 +211,41 @@ class GroupRegistrationEventRegressionTest {
         assertEquals("Soweto, Gauteng", s.addressQuery)
         assertEquals("Soweto, Gauteng", s.street)
         assertEquals(-26.24, s.latitude!!, 0.0001)
+    }
+
+    // ── The location index a group is created with ────────────────────────
+
+    @Test
+    fun `a draft with coordinates carries the geohash those coordinates describe`() {
+        val draft = RegisterGroupValidator.toGroupDraft(
+            baseState.copy(
+                name = "Located group",
+                adminEmail = "a@b.com",
+                adminPhone = "0712345678",
+                latitude = -26.24,
+                longitude = 27.86,
+                termsAccepted = true
+            )
+        ).getOrThrow()
+
+        // `groups.geohash` is a column on both tiers, is read back with every group row, and the
+        // picker already knows the coordinates - so a group created from a pinned map point has to
+        // carry the index its own row declares instead of a permanent null.
+        assertEquals(LocationUtils.encodeGeohash(-26.24, 27.86), draft.geohash)
+    }
+
+    @Test
+    fun `a draft typed without a map point has no geohash`() {
+        val draft = RegisterGroupValidator.toGroupDraft(
+            baseState.copy(
+                name = "Unlocated group",
+                adminEmail = "a@b.com",
+                adminPhone = "0712345678",
+                termsAccepted = true
+            )
+        ).getOrThrow()
+
+        assertNull("no coordinates means no index, not a hash of the zero point", draft.geohash)
     }
 
     // ── Address prefill survives form entry (Fresh-Form reset removed) ────

@@ -11,6 +11,7 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.sanibonani.save.domain.logging.AppLogger
+import com.sanibonani.save.domain.model.Group
 import com.sanibonani.save.domain.model.GroupType
 import com.sanibonani.save.domain.repository.group.GroupRepository
 import com.sanibonani.save.domain.usecase.disbursement.ExecuteRoscaPayoutUseCase
@@ -36,10 +37,13 @@ class AutomatedRoscaWorker @AssistedInject constructor(
         val groupId = inputData.getString(KEY_GROUP_ID) ?: return Result.failure()
 
         return try {
-            val group = groupRepo.getGroupById(groupId).getOrNull() ?: return Result.success()
-
-            if (group.type != GroupType.ROSCA) {
-                return Result.success()
+            when (roscaPayoutCycleVerdict(groupRepo.getGroupById(groupId))) {
+                // getGroupById answers a failure when neither the server nor Room has the row, so
+                // this null is a refused read and not evidence the group was deleted. Answering
+                // success here made the pot wait the next full 24h cycle.
+                RoscaCycleVerdict.ReadRefused -> return retryOrGiveUp(runAttemptCount)
+                RoscaCycleVerdict.NotRosca -> return Result.success()
+                RoscaCycleVerdict.RunPayout -> Unit
             }
 
             AppLogger.i("AutomatedRoscaWorker", "Starting automated payout check for ROSCA group $groupId")
@@ -71,7 +75,7 @@ class AutomatedRoscaWorker @AssistedInject constructor(
             throw e
         } catch (e: Exception) {
             AppLogger.e("AutomatedRoscaWorker", "Worker exception for ROSCA group $groupId", e)
-            if (runAttemptCount < MAX_ATTEMPTS) Result.retry() else Result.failure()
+            retryOrGiveUp(runAttemptCount)
         }
     }
 
@@ -85,7 +89,6 @@ class AutomatedRoscaWorker @AssistedInject constructor(
     companion object {
         const val KEY_GROUP_ID = "group_id"
         const val WORK_NAME = "rosca_payout_automation"
-        private const val MAX_ATTEMPTS = 3
         private val EXPECTED_ROSCA_CONDITIONS = listOf(
             "No members",
             "No current members",
@@ -119,3 +122,18 @@ class AutomatedRoscaWorker @AssistedInject constructor(
         }
     }
 }
+
+internal enum class RoscaCycleVerdict { RunPayout, NotRosca, ReadRefused }
+
+/**
+ * What a periodic payout cycle may conclude from the one read it made about its group.
+ * Kept apart from [AutomatedRoscaWorker.doWork] so the refused-read branch is reachable
+ * from a JVM test: the worker itself cannot be instantiated off-device.
+ */
+internal fun roscaPayoutCycleVerdict(groupResult: Result<Group>): RoscaCycleVerdict =
+    groupResult.fold(
+        onSuccess = { group ->
+            if (group.type == GroupType.ROSCA) RoscaCycleVerdict.RunPayout else RoscaCycleVerdict.NotRosca
+        },
+        onFailure = { RoscaCycleVerdict.ReadRefused }
+    )

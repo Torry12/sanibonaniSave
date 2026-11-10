@@ -29,7 +29,7 @@ This file gives coding agents fast, high-signal project context so edits stay co
 ## SQL Alignment
 - Canonical sources: `supabase/01_DATABASE_SCHEMA.sql` (tables) and `supabase/02_FUNCTIONS_AND_TRIGGERS.sql` (RPCs and triggers); `03_SECURITY_AND_RLS.sql` for policies and grants.
 - Generated copies (never hand-edit): `supabase/migrations/00000000000000_GROUND_ZERO.sql`, `supabase/CONSOLIDATED_SCHEMA_FOR_DASHBOARD.sql`, `supabase/online/000_CONSOLIDATED_ONLINE_SYNC.sql`, `supabase/SEED_ALL_DATA.sql`; regenerate with the four `supabase/scripts/generate_*.ps1` scripts in README order.
-- Existing environments: add a new dated `supabase/online/SYNC_DELTA_<date>.sql` with a read-only pre-flight and expected body fingerprints. `20261014` through `20261028` are applied on Local; **Cloud still owes `20261027` and `20261028`**. `20261029` (money-RPC `[SEC_002]` caller guards plus the anonymous execute revoke) is cut and applied on neither tier. Never rewrite an applied delta.
+- Existing environments: add a new dated `supabase/online/SYNC_DELTA_<date>.sql` with a read-only pre-flight and expected body fingerprints. the series through `20261106` is applied on Local and on Cloud (measured 2026-11-07, digest `82ee267f5fe7a5ad766f1dba2c3de5e7`). Never rewrite an applied delta.
 - Balance invariant: `groups.balance` is `NUMERIC(12,2) NOT NULL DEFAULT 0`, derived from `group_ledger`; spend guards use `COALESCE(v_group.balance, 0)` and raise on insufficiency.
 - RPC raise codes: `[FIN_001]` liquidity, `[FIN_002]` state precondition, `[FIN_003]` input validation, `[SEC_001]` MFA, `[SEC_002]` entitlement, `[SYS_001]` row not found, `[SYS_002]` transaction-id reuse.
 

@@ -6,6 +6,7 @@ import io.ktor.client.plugins.HttpRequestTimeoutException
 import io.ktor.client.plugins.ResponseException
 import java.io.IOException
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
@@ -41,6 +42,14 @@ abstract class BaseRepository(protected val tag: String) {
      * 1. Returns local DB data immediately as a Flow.
      * 2. Simultaneously fetches from network.
      * 3. Syncs network results back to the local DB.
+     *
+     * The first Result describes the cache, not the server: the rows are sent as soon as Room has them,
+     * because an offline device is meant to keep showing what it holds. A refresh that did not land is then
+     * reported as a failure on the same flow, so a screen can name the unread rows over the stale ones
+     * instead of letting an answered cache stand in for a server it never reached. The verdict is only sent
+     * once the cache has been handed over, so a caller that takes a single emission still gets its rows.
+     * Anything that has to certify money reads that verdict from
+     * [com.sanibonani.save.domain.repository.system.SyncRepository], which records its misses.
      */
     protected fun <T, E> observeAndSync(
         dbFlow: Flow<List<E>>,
@@ -50,9 +59,15 @@ abstract class BaseRepository(protected val tag: String) {
         cacheSync: suspend (List<E>) -> Unit
     ): Flow<Result<List<T>>> = channelFlow {
         // Observe local database
+        val cacheDelivered = CompletableDeferred<Unit>()
         val dbJob = launch {
-            dbFlow.collect { entities ->
-                send(Result.success(entities.map(mapper)))
+            try {
+                dbFlow.collect { entities ->
+                    send(Result.success(entities.map(mapper)))
+                    cacheDelivered.complete(Unit)
+                }
+            } finally {
+                cacheDelivered.complete(Unit)
             }
         }
 
@@ -63,6 +78,10 @@ abstract class BaseRepository(protected val tag: String) {
         } catch (e: Exception) {
             if (e is CancellationException) throw e
             AppLogger.e(tag, "Sync failed: ${e.logAndGetMessage(tag)}")
+            // The verdict follows the rows: a caller that takes only the first emission is promised the
+            // cache, so a refusal that lands before the local source has answered waits here.
+            cacheDelivered.await()
+            send(Result.failure(e))
         }
 
         awaitClose { dbJob.cancel() }
@@ -73,6 +92,7 @@ abstract class BaseRepository(protected val tag: String) {
      *
      * toEntity may return null when the remote row does not exist: an absent item is not a
      * failed sync, so nothing is cached and the local copy simply stays as it is.
+     * A refused read is reported after the cached row, for the same reason as above.
      */
     protected fun <T, E> observeAndSyncItem(
         dbFlow: Flow<E?>,
@@ -81,9 +101,15 @@ abstract class BaseRepository(protected val tag: String) {
         networkFetch: suspend () -> T,
         cacheSync: suspend (E) -> Unit
     ): Flow<Result<T?>> = channelFlow {
+        val cacheDelivered = CompletableDeferred<Unit>()
         val dbJob = launch {
-            dbFlow.collect { entity ->
-                send(Result.success(entity?.let(mapper)))
+            try {
+                dbFlow.collect { entity ->
+                    send(Result.success(entity?.let(mapper)))
+                    cacheDelivered.complete(Unit)
+                }
+            } finally {
+                cacheDelivered.complete(Unit)
             }
         }
 
@@ -93,6 +119,8 @@ abstract class BaseRepository(protected val tag: String) {
         } catch (e: Exception) {
             if (e is CancellationException) throw e
             AppLogger.e(tag, "Item sync failed: ${e.logAndGetMessage(tag)}")
+            cacheDelivered.await()
+            send(Result.failure(e))
         }
 
         awaitClose { dbJob.cancel() }

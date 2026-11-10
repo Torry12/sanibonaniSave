@@ -49,10 +49,6 @@ abstract class ServiceModule {
 
     @Binds
     @Singleton
-    abstract fun bindSyncTriggerService(impl: SyncTriggerServiceImpl): SyncTriggerService
-
-    @Binds
-    @Singleton
     abstract fun bindTreasuryService(impl: TreasuryServiceImpl): TreasuryService
 
     @Binds

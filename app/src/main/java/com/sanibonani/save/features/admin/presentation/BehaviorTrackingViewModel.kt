@@ -19,12 +19,8 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.firstOrNull
 
 data class BehaviorTrackingUiState(
-    val member: Member? = null,
     val track: MemberBehaviorTrack? = null,
-    val recentFraudEvents: List<FraudDetectionEvent> = emptyList(),
-    val isLoading: Boolean = false,
-    val isExporting: Boolean = false,
-    val error: String? = null
+    val isLoading: Boolean = false
 )
 
 @HiltViewModel
@@ -43,37 +39,27 @@ class BehaviorTrackingViewModel @Inject constructor(
 
     fun loadMemberData(memberId: String) {
         launchJob("load_member_data") {
-            updateState { it.copy(isLoading = true, error = null) }
-
-            coroutineScope {
-                val trackDeferred = async<MemberBehaviorTrack?> { getMemberBehaviorTrack(memberId).getOrNull() }
-                val memberDeferred = async<Member?> { getMemberById(memberId).getOrNull() }
-                val eventsDeferred = async<List<FraudDetectionEvent>> { observeFraudEventsByMember(memberId).firstOrNull()?.getOrNull() ?: emptyList() }
-
-                val track = trackDeferred.await()
-                val member = memberDeferred.await()
-                val events = eventsDeferred.await()
-
-                updateState { it.copy(
-                    track = track,
-                    member = member,
-                    recentFraudEvents = events,
-                    isLoading = false
-                ) }
-            }
+            updateState { it.copy(isLoading = true) }
+            // A null track is the answer "this member has no history recorded"; a refused read is
+            // not that answer, and blanking the panel would present it as one. Flagging and
+            // suspending both refresh through here straight after writing, so the last proven
+            // track stays and the refusal is reported instead.
+            getMemberBehaviorTrack(memberId)
+                .onSuccess { track -> updateState { it.copy(track = track, isLoading = false) } }
+                .onFailure { e ->
+                    updateState { it.copy(isLoading = false) }
+                    handleError(e, "Unable to refresh this member's behaviour track. The panel still shows the last result.")
+                }
         }
     }
 
     fun exportDataset(groupId: String) {
         launchJob("export_dataset") {
-            updateState { it.copy(isExporting = true) }
             generateBehaviorFinetuningDataset(groupId)
                 .onSuccess { dataset ->
-                    updateState { it.copy(isExporting = false) }
                     showMessage("Dataset generated with ${dataset.size} examples")
                 }
                 .onFailure { e ->
-                    updateState { it.copy(isExporting = false) }
                     handleError(e)
                 }
         }

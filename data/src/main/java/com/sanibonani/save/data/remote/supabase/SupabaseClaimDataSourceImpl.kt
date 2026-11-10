@@ -51,6 +51,12 @@ class SupabaseClaimDataSourceImpl @Inject constructor(
         }.decodeSingle<BeneficiaryPayoutClaim>()
     }
 
+    override suspend fun findClaimById(id: String): Result<BeneficiaryPayoutClaim?> = safeRunCatching {
+        client.postgrest[PRIMARY_TABLE].select(columns = Columns.raw(CLAIM_COLUMNS_PRIMARY)) {
+            filter { eq("id", id) }
+        }.decodeList<BeneficiaryPayoutClaim>().firstOrNull()
+    }
+
     override suspend fun updateClaimStatus(claimId: String, status: BeneficiaryClaimStatus, reviewedBy: String?, adminNotes: String?, rejectionReason: String?): Result<Unit> = safeRunCatching {
         client.postgrest[PRIMARY_TABLE].update(buildJsonObject {
             put("status", status.name.lowercase())

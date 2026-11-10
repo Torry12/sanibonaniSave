@@ -35,9 +35,18 @@
 --   leaked password may already be in someone else's hand. Delete that one DELETE
 --   statement if you would rather keep current sessions alive.
 --
--- OTHER PUBLISHED CREDENTIAL (informational only, Section D)
---   The 38-persona master seed deliberately uses the shared QA password 'Pass123!'.
---   That is by design for seeded test personas and is NOT changed by this script.
+-- OTHER PUBLISHED CREDENTIAL
+--   The 38-persona master seed deliberately uses the shared QA password 'Pass123!'. That is by
+--   design for seeded test personas and is NOT changed by this script. It WAS changed for one of
+--   them: the seed fixture platform.admin@master.example.com carries role='platform_admin', so
+--   is_platform_admin() answered for it on the published password. On 2026-10-31 that row was
+--   rotated on both tiers (sessions revoked) and 11_SEED_TEST_DATA_10_GROUPS_100_MEMBERS.sql now
+--   reads current_setting('sanibonani.seed_platform_admin_password', true) instead of 'Pass123!'.
+--   With that setting unset the fixture is created with a NULL encrypted_password, and an existing
+--   fixture keeps its password - the seed only ever creates that row, it never re-hashes one - so no
+--   re-seed can restore the shared credential either. scripts/run-supabase-local-reset.ps1 and
+--   scripts/seed-supabase-online.ps1 supply the setting from SEED_PLATFORM_ADMIN_PASSWORD in the
+--   untracked local.properties.
 --
 -- SEED MASTERS ARE PARAMETERISED — this run cannot be silently undone
 --   The follow-up that this file used to warn about is DONE: MASTER_SEED_DATA.sql,
@@ -223,10 +232,15 @@ WHERE user_id = (SELECT id FROM auth.users WHERE lower(email) = 'torrymsimango@g
 --             The 38-persona master seed intentionally shares 'Pass123!' so the
 --             Payment Sandbox can log in as any persona. Rotate only if those
 --             personas ever reach a non-sandbox tier.
+--             Read this WITH the role column: any row that is on_shared_qa_password = true and
+--             also a platform_admin is a defect. The seed fixture admin was taken off the shared
+--             password on 2026-10-31 and 11_SEED_TEST_DATA_10_GROUPS_100_MEMBERS.sql no longer
+--             writes it, so both tiers now read 118 shared-QA accounts and none of them is an admin.
 -- ─────────────────────────────────────────────────────────────────────────────
 SELECT
     (extensions.crypt('Pass123!', encrypted_password) = encrypted_password) AS on_shared_qa_password,
-    count(*)                                                               AS accounts
+    coalesce(raw_app_meta_data ->> 'role', 'unset')                          AS meta_role,
+    count(*)                                                                AS accounts
 FROM auth.users
-GROUP BY 1
-ORDER BY 1 DESC;
+GROUP BY 1, 2
+ORDER BY 1 DESC, 2;

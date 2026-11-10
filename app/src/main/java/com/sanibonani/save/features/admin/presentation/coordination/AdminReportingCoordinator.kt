@@ -27,9 +27,11 @@ class AdminReportingCoordinator @Inject constructor(
             host.updateAdminState { it.copy(groupAuditReport = AsyncResult.Loading) }
             generateGroupAuditReport(groupId)
                 .onSuccess { report ->
+                    if (host.adminState.value.group?.id != groupId) return@onSuccess
                     host.updateAdminState { it.copy(groupAuditReport = AsyncResult.Success(report)) }
                 }
                 .onFailure { e ->
+                    if (host.adminState.value.group?.id != groupId) return@onFailure
                     host.updateAdminState {
                         it.copy(groupAuditReport = AsyncResult.Error(e.toUserMessage(), e.javaClass.simpleName))
                     }
@@ -69,6 +71,7 @@ class AdminReportingCoordinator @Inject constructor(
 
     suspend fun verify(host: AdminActionHost, group: Group, members: List<Member>, ledger: List<LedgerEntry>) {
         val verification = verificationService.verifyGroupAdminData(group, members, ledger)
+        if (host.adminState.value.group?.id != group.id) return
         host.updateAdminState { it.copy(verificationResult = verification) }
     }
 }

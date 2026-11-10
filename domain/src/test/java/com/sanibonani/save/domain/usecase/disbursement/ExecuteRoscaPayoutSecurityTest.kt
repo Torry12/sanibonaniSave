@@ -19,7 +19,6 @@ import io.mockk.mockk
 import io.mockk.slot
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertFalse
@@ -111,16 +110,14 @@ class ExecuteRoscaPayoutSecurityTest {
         useCaseWith(member)
 
         coEvery { groupRepository.getGroupById("g1") } returns Result.success(group)
-        every { contributionRepository.observeGroupContributions("g1") } returns flowOf(
-            Result.success(
-                listOf(
-                    Contribution(
-                        memberId = "m1",
-                        groupId = "g1",
-                        amount = Money("300.0"),
-                        dueDate = "2026-03-15",
-                        status = ContributionStatus.PAID
-                    )
+        coEvery { contributionRepository.syncGroupContributions("g1") } returns Result.success(
+            listOf(
+                Contribution(
+                    memberId = "m1",
+                    groupId = "g1",
+                    amount = Money("300.0"),
+                    dueDate = "2026-03-15",
+                    status = ContributionStatus.PAID
                 )
             )
         )

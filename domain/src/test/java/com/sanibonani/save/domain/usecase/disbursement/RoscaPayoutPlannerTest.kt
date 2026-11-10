@@ -243,4 +243,28 @@ class RoscaPayoutPlannerTest {
         assertEquals(Money("150.0"), decision.plan.deductions.single().amount)
         assertEquals(Money("350.0"), decision.plan.netPayout)
     }
+
+    @Test
+    fun `platform-booked rows are not part of the rotation pot`() {
+        // internal_post_contribution sends these three types to record_platform_revenue_v2, so the
+        // group never holds the money and the rotation may not pay it out.
+        val registrationFee = paidContribution.copy(type = "registration_contribution", amount = Money("50.0"))
+        val monthlyMemberFee = paidContribution.copy(memberId = "m2", type = "member_fee", amount = Money("30.0"))
+
+        val decision = plan(
+            contributions = listOf(paidContribution, registrationFee, monthlyMemberFee)
+        ) as RoscaPayoutDecision.Pay
+
+        assertEquals(Money("300.0"), decision.plan.totalPot)
+        assertEquals(Money("300.0"), decision.plan.netPayout)
+    }
+
+    @Test
+    fun `a joining fee is part of the pot because the group books it`() {
+        val joiningFee = paidContribution.copy(memberId = "m2", type = "joining_fee", amount = Money("100.0"))
+
+        val decision = plan(contributions = listOf(paidContribution, joiningFee)) as RoscaPayoutDecision.Pay
+
+        assertEquals(Money("400.0"), decision.plan.totalPot)
+    }
 }

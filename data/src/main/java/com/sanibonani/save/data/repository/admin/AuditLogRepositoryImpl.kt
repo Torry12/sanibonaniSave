@@ -48,12 +48,26 @@ class AuditLogRepositoryImpl @Inject constructor(
     /** Best-effort write: never throw, but never disappear either. */
     private fun Result<Unit>.logFailure(action: String) {
         onFailure { e ->
-            AppLogger.w("AuditLogRepository", "Audit write '$action' failed; the financial mutation it describes already succeeded. ${e.message}")
+            val consequence = if (actionDescribesMoney(action))
+                "the money movement it describes is already booked"
+            else
+                "the action it describes has already run"
+            AppLogger.w("AuditLogRepository", "Audit write '$action' failed; $consequence, only the trail row is missing. ${e.message}")
         }
     }
 
+    /**
+     * Whether a refused trail row hides money or only accountability. A new money-moving action has to
+     * join [MONEY_ACTION_PREFIXES] or its refusal reads as the lesser of the two.
+     */
+    internal fun actionDescribesMoney(action: String): Boolean =
+        MONEY_ACTION_PREFIXES.any { action.startsWith(it) }
+
     private companion object {
         private const val SYSTEM_ACTOR = "SYSTEM"
+        private val MONEY_ACTION_PREFIXES = listOf(
+            "LEDGER", "PAYMENT", "PAYOUT", "ROSCA", "LOAN", "AUTO_REPAIR"
+        )
     }
 }
 

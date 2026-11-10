@@ -12,9 +12,6 @@ import com.sanibonani.save.domain.repository.member.*
 import com.sanibonani.save.domain.repository.system.*
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
-import io.github.jan.supabase.postgrest.postgrest
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.put
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CancellationException
 
@@ -38,8 +35,7 @@ class FeeEnforcementWorker @AssistedInject constructor(
     private val groupRepo        : GroupRepository,
     private val notificationRepo : NotificationRepository,
     private val feeService       : com.sanibonani.save.domain.service.PlatformFeeService,
-    private val refreshPlatformConfig: com.sanibonani.save.domain.usecase.admin.RefreshPlatformConfigUseCase,
-    private val supabase         : io.github.jan.supabase.SupabaseClient
+    private val refreshPlatformConfig: com.sanibonani.save.domain.usecase.admin.RefreshPlatformConfigUseCase
 ) : CoroutineWorker(appContext, workerParams) {
 
     override suspend fun doWork(): Result {
@@ -48,9 +44,22 @@ class FeeEnforcementWorker @AssistedInject constructor(
         return try {
             // The worker can run before any screen has hydrated the fee config, so it must
             // refresh first or it would enforce the in-code defaults.
-            refreshPlatformConfig().getOrNull()
+            val configRefresh = refreshPlatformConfig()
+            val groupResult = groupRepo.getGroupById(groupId)
+            when (feeCycleVerdict(configRefresh, groupResult)) {
+                // Either read missing means the cycle would bill, warn or suspend from the
+                // in-code defaults - or report a clean run over a group it never looked at.
+                FeeCycleVerdict.ReadsRefused -> {
+                    com.sanibonani.save.domain.logging.AppLogger.w(
+                        "FeeEnforcementWorker",
+                        "Deferring fee enforcement for group $groupId; the fee config or group read was refused"
+                    )
+                    return retryOrGiveUp(runAttemptCount)
+                }
+                FeeCycleVerdict.Enforce -> Unit
+            }
 
-            val group = groupRepo.getGroupById(groupId).getOrNull() ?: return Result.success()
+            val group = groupResult.getOrThrow()
 
             // Logic for automatic status transitions based on "days since due"
             // (Simplified simulation for offline worker)
@@ -65,46 +74,72 @@ class FeeEnforcementWorker @AssistedInject constructor(
                 feeService.evaluateGroupStanding(group.feeStatus, daysOverdue)
             } else group.feeStatus
 
-            if (newStatus != group.feeStatus) {
-                groupRepo.updateFeeStatus(groupId, newStatus).onSuccess {
-                    if (newStatus == AdminFeeState.SUSPENDED) {
-                        // Ensure platform suspension flag is also set
-                        supabase.postgrest["groups"].update(buildJsonObject {
-                            put("is_platform_suspended", true)
-                        }) { filter { eq("id", groupId) } }
-                    }
-                }
+            val statusChanged = newStatus != group.feeStatus
+            val write = if (statusChanged) groupRepo.updateFeeStatus(groupId, newStatus) else null
+            val outcome = feeWriteOutcome(statusChanged, write)
+            if (outcome == FeeWriteOutcome.Refused) {
+                // The row still holds the old standing, so the notifications below would announce a
+                // suspension that never happened, and a success verdict would stop the escalation
+                // from ever being retried.
+                com.sanibonani.save.domain.logging.AppLogger.w(
+                    "FeeEnforcementWorker",
+                    "Deferring fee enforcement for group $groupId; the new status was not written"
+                )
+                return retryOrGiveUp(runAttemptCount)
             }
 
-            // Dispatch notifications based on the (possibly updated) status
-            val amountDue = feeService.calculateMonthlyGroupTotal(group)
+            // What actually locks a group is groups.is_platform_suspended - PayoutGuard and the
+            // member dashboard read that column, not fee_status - and updateFeeStatus only ever
+            // writes fee_status. The old code set the flag inside the Committed branch alone,
+            // straight to the table and with no Result check, so a write that threw after
+            // 'suspended' had committed left every later run seeing statusChanged == false and
+            // never setting it again: the cached standing said suspended, the kill switch said no,
+            // permanently. Deciding from the row each cycle makes whichever run next reads it the
+            // one that repairs it.
+            val flagRepaired = if (suspensionFlagWriteNeeded(group.isPlatformSuspended, newStatus)) {
+                val flagWrite = groupRepo.updateGroupSettings(
+                    groupId,
+                    mapOf("is_platform_suspended" to true)
+                )
+                if (flagWrite.isFailure) {
+                    com.sanibonani.save.domain.logging.AppLogger.w(
+                        "FeeEnforcementWorker",
+                        "Deferring fee enforcement for group $groupId; the suspension flag was not written",
+                        flagWrite.exceptionOrNull()
+                    )
+                    return retryOrGiveUp(runAttemptCount)
+                }
+                true
+            } else false
 
-            when (newStatus) {
-                AdminFeeState.DUE -> {
-                    notificationRepo.sendFeeEnforcementNotification(
-                        groupId     = groupId,
-                        event       = NotifEvent.PLATFORM_FEE_DUE,
-                        memberCount = group.currentMembers,
-                        amountDue   = amountDue
+            // Dispatch notifications on the standing this cycle actually put on the row. A group
+            // parked in WARNING or SUSPENDED has nothing new to say until it moves, and the
+            // previous code re-pushed the same escalation to every member on every daily run.
+            if (feeNotificationVerdict(outcome, flagRepaired) == FeeNotificationVerdict.StayQuiet) {
+                return Result.success()
+            }
+            val event = when (newStatus) {
+                AdminFeeState.DUE -> NotifEvent.PLATFORM_FEE_DUE
+                AdminFeeState.WARNING -> NotifEvent.PLATFORM_FEE_WARNING
+                AdminFeeState.SUSPENDED -> NotifEvent.GROUP_SUSPENDED
+                else -> null  /* paid or pending activation — skip */
+            }
+            if (event != null) {
+                val sent = notificationRepo.sendFeeEnforcementNotification(
+                    groupId     = groupId,
+                    event       = event,
+                    memberCount = group.currentMembers,
+                    amountDue   = feeService.calculateMonthlyGroupTotal(group)
+                )
+                if (sent.isFailure) {
+                    // Nothing re-sends this: announcing is now once per transition, so a push the
+                    // device could not make is the message the group never gets. Say so, loudly.
+                    com.sanibonani.save.domain.logging.AppLogger.w(
+                        "FeeEnforcementWorker",
+                        "Fee enforcement notification ($event) was not sent to group $groupId",
+                        sent.exceptionOrNull()
                     )
                 }
-                AdminFeeState.WARNING -> {
-                    notificationRepo.sendFeeEnforcementNotification(
-                        groupId     = groupId,
-                        event       = NotifEvent.PLATFORM_FEE_WARNING,
-                        memberCount = group.currentMembers,
-                        amountDue   = amountDue
-                    )
-                }
-                AdminFeeState.SUSPENDED -> {
-                    notificationRepo.sendFeeEnforcementNotification(
-                        groupId     = groupId,
-                        event       = NotifEvent.GROUP_SUSPENDED,
-                        memberCount = group.currentMembers,
-                        amountDue   = amountDue
-                    )
-                }
-                else -> { /* paid or pending activation — skip */ }
             }
             Result.success()
         } catch (e: CancellationException) {
@@ -115,14 +150,13 @@ class FeeEnforcementWorker @AssistedInject constructor(
                 "Failed to enforce fees for group $groupId",
                 e
             )
-            if (runAttemptCount < MAX_ATTEMPTS) Result.retry() else Result.failure()
+            retryOrGiveUp(runAttemptCount)
         }
     }
 
     companion object {
         const val KEY_GROUP_ID = "group_id"
         const val WORK_NAME    = "fee_enforcement_check"
-        private const val MAX_ATTEMPTS = 3
 
         /**
          * One schedule per group. The name used to be the bare [WORK_NAME] with UPDATE, so an
@@ -147,3 +181,60 @@ class FeeEnforcementWorker @AssistedInject constructor(
         }
     }
 }
+
+internal enum class FeeCycleVerdict { Enforce, ReadsRefused }
+
+/**
+ * Whether this daily cycle has the two reads it acts on: the live fee config and the group
+ * whose standing it is computing. Kept apart from [FeeEnforcementWorker.doWork] so the refused
+ * branch is reachable from a JVM test; the worker itself cannot be instantiated off-device.
+ */
+internal fun feeCycleVerdict(
+    configRefresh: Result<PlatformConfig>,
+    groupResult: Result<Group>
+): FeeCycleVerdict =
+    if (configRefresh.isSuccess && groupResult.isSuccess) {
+        FeeCycleVerdict.Enforce
+    } else {
+        FeeCycleVerdict.ReadsRefused
+    }
+
+internal enum class FeeWriteOutcome { Committed, NoChange, Refused }
+
+/**
+ * Whether the standing the cycle is about to announce is the standing the books now hold.
+ * [writeResult] is null when the standing did not change, so there was nothing to write.
+ */
+internal fun feeWriteOutcome(statusChanged: Boolean, writeResult: Result<Unit>?): FeeWriteOutcome = when {
+    !statusChanged -> FeeWriteOutcome.NoChange
+    writeResult?.isSuccess == true -> FeeWriteOutcome.Committed
+    else -> FeeWriteOutcome.Refused
+}
+
+internal enum class FeeNotificationVerdict { Announce, StayQuiet }
+
+/**
+ * Whether this cycle is allowed to push to the group's members.
+ *
+ * [standingFlagRepaired] covers the one unchanged standing worth announcing: the run that heals a
+ * suspension flag an earlier crashed cycle left clear, which is the moment the lock becomes real.
+ */
+internal fun feeNotificationVerdict(
+    writeOutcome: FeeWriteOutcome,
+    standingFlagRepaired: Boolean
+): FeeNotificationVerdict = when {
+    writeOutcome == FeeWriteOutcome.Refused -> FeeNotificationVerdict.StayQuiet
+    writeOutcome == FeeWriteOutcome.Committed -> FeeNotificationVerdict.Announce
+    standingFlagRepaired -> FeeNotificationVerdict.Announce
+    else -> FeeNotificationVerdict.StayQuiet
+}
+
+/**
+ * Whether the row needs its platform kill switch raised to match the standing the books now hold.
+ *
+ * Only ever sets, never clears: lifting a suspension is the platform admin's
+ * `unsuspendGroup`, which also moves the fee status, and a client-side cycle that auto-cleared the
+ * flag could release a kill switch an admin pulled for a reason the fee books do not know about.
+ */
+internal fun suspensionFlagWriteNeeded(rowSaysSuspended: Boolean, standing: AdminFeeState): Boolean =
+    standing == AdminFeeState.SUSPENDED && !rowSaysSuspended

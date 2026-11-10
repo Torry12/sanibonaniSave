@@ -12,14 +12,17 @@ import io.github.jan.supabase.postgrest.postgrest
 import java.time.LocalDate
 import java.util.UUID
 import javax.inject.Inject
+import javax.inject.Provider
 import javax.inject.Singleton
 import com.sanibonani.save.domain.utils.safeRunCatching
 
 @Singleton
 class BankSimulationGatewayImpl @Inject constructor(
     private val supabase: SupabaseClient,
-    private val db: SanibonaniDatabase
+    private val dbProvider: Provider<SanibonaniDatabase>
 ) : BankSimulationGateway {
+
+    private val db: SanibonaniDatabase get() = dbProvider.get()
 
     override suspend fun simulateIncomingTransfer(
         groupId: String,
